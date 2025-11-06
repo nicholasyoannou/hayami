@@ -1,0 +1,706 @@
+/**
+ * Reddit-style inline discussion panel styles
+ * Organized by component blocks for clarity and maintainability
+ */
+
+/* ==================== Main Container ==================== */
+#reddit-inline-discussion {
+  background: #0f0f0f;
+  color: #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+#reddit-inline-discussion,
+#reddit-inline-discussion * {
+  font-family: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* ==================== Toolbar ==================== */
+#reddit-inline-discussion .ri-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+#reddit-inline-discussion .ri-sort {
+  font-size: 12px;
+  color: #aaa;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#reddit-inline-discussion .ri-sort-select {
+  background: #161616;
+  border: 1px solid #2c2c2c;
+  color: #ddd;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+#reddit-inline-discussion .ri-search-input {
+  background: #161616;
+  border: 1px solid #2c2c2c;
+  color: #ddd;
+  padding: 6px 10px;
+  border-radius: 6px;
+  min-width: 180px;
+}
+
+/* ==================== Header ==================== */
+#reddit-inline-discussion .ri-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+#reddit-inline-discussion .ri-title {
+  margin: 0;
+  font-size: 16px;
+  color: #fff;
+}
+
+#reddit-inline-discussion .ri-link {
+  color: #ff4500;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+#reddit-inline-discussion .ri-link:hover {
+  text-decoration: underline;
+}
+
+#reddit-inline-discussion .ri-meta {
+  font-size: 12px;
+  color: #aaa;
+  margin: 6px 0 12px;
+}
+
+/* ==================== Comment Structure ==================== */
+.ri-comment {
+  display: flex;
+  gap: 0;
+  padding: 8px 0;
+  position: relative;
+  background: transparent;
+  border: none;
+  align-items: flex-start;
+}
+
+/* Awarded comment - golden vertical line on left (no layout shift) */
+.ri-comment.awarded {
+  border-left: 3px solid #ffa500;
+  padding-left: 8px;
+}
+
+/* Left margin collapse line - extends from collapse button down through entire comment thread */
+.ri-comment.depth-0::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  bottom: -8px;
+  left: 12px;
+  width: 2px;
+  background: #343536;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.ri-comment.depth-0.line-hover::before {
+  background: #818384;
+}
+
+.ri-comment.depth-0:last-child::before {
+  bottom: 0;
+}
+
+/* ==================== Gutter & Collapse Button ==================== */
+.ri-gutter {
+  position: relative;
+  width: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  margin-right: 8px;
+}
+
+/* Collapse button positioned over the vertical line */
+.ri-toggle {
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+  border: 1px solid #343536;
+  background: #1a1a1b;
+  color: #818384;
+  font-size: 9px;
+  line-height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  z-index: 2;
+}
+
+.ri-toggle:hover {
+  border-color: #818384;
+  background: #272729;
+}
+
+/* Vertical line - visible from collapse button down through comment, changes color on hover with pointer */
+.ri-threadline {
+  width: 2px;
+  background: #343536;
+  position: absolute;
+  top: 5px;
+  bottom: -8px;
+  left: 11px;
+  cursor: pointer;
+  transition: none;
+}
+
+.ri-threadline:hover {
+  background: #818384;
+}
+
+/* ==================== Avatar ==================== */
+.ri-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #2c2c2c;
+  flex-shrink: 0;
+  object-fit: cover;
+  margin-right: 8px;
+}
+
+/* ==================== Comment Body ==================== */
+.ri-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ri-line1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #818384;
+  margin-bottom: 4px;
+}
+
+.ri-username {
+  color: #d7dadc;
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.ri-badge {
+  background: #343536;
+  color: #818384;
+  border: 1px solid #343536;
+  border-radius: 2px;
+  padding: 0px 4px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.ri-timestamp {
+  color: #818384;
+  font-size: 12px;
+}
+
+/* ==================== Comment Text Content ==================== */
+.ri-text {
+  line-height: 21px;
+  font-size: 14px;
+  color: #d7dadc;
+  margin-top: 2px;
+}
+
+.ri-text h1 {
+  font-size: 20px;
+  margin: 10px 0 8px;
+  color: #d7dadc;
+}
+
+.ri-text h2 {
+  font-size: 18px;
+  margin: 10px 0 8px;
+  color: #d7dadc;
+}
+
+.ri-text h3 {
+  font-size: 16px;
+  margin: 8px 0 6px;
+  color: #d7dadc;
+}
+
+.ri-text h4,
+.ri-text h5,
+.ri-text h6 {
+  font-size: 14px;
+  margin: 6px 0 4px;
+  color: #d7dadc;
+}
+
+.ri-text blockquote {
+  border-left: 3px solid #343536;
+  margin: 6px 0;
+  padding: 4px 8px;
+  color: #818384;
+  background: transparent;
+}
+
+/* ==================== Actions Bar ==================== */
+.ri-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #818384;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.ri-votes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ri-votes button {
+  background: none;
+  border: none;
+  color: #818384;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0;
+  line-height: 1;
+}
+
+.ri-votes button:hover {
+  color: #d7dadc;
+}
+
+.ri-score {
+  color: #d7dadc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ri-action {
+  cursor: pointer;
+  color: #818384;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ri-action:hover {
+  color: #d7dadc;
+}
+
+.ri-action.ri-award-disabled {
+  color: #555;
+  cursor: not-allowed;
+}
+
+/* Share stays default; only copied state is orange */
+.ri-action.ri-share.ri-copied {
+  color: #ff4500;
+}
+
+/* ==================== Awards Badge ==================== */
+.ri-awards {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #ff4500;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ri-awards-icon {
+  display: inline-block;
+  filter: drop-shadow(0 0 2px rgba(255, 69, 0, 0.6));
+}
+
+/* ==================== Nested Children ==================== */
+/* Children container - nested replies indented */
+.ri-children {
+  margin-left: 32px;
+  padding-left: 0;
+  position: relative;
+  margin-top: 8px;
+}
+
+/* Vertical spine - continues parent's threadline down through children, changes color on hover */
+.ri-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -21px;
+  width: 2px;
+  background: #343536;
+  pointer-events: none;
+  transition: none;
+}
+
+.ri-children.spine-hover::before {
+  background: #818384;
+}
+
+/* Curved connector from parent spine to child's gutter/threadline - connects where threadline starts */
+.ri-children > .ri-comment::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: -21px;
+  width: 21px;
+  height: 12px;
+  border-bottom: 2px solid #343536;
+  border-left: 2px solid #343536;
+  border-bottom-left-radius: 6px;
+  pointer-events: none;
+  transition: none;
+}
+
+/* Hover effects on curves when hovering over the spine */
+.ri-children.spine-hover > .ri-comment::after {
+  border-color: #818384;
+}
+
+/* ==================== Collapse States ==================== */
+/* Collapsed state - fade out text/actions/children */
+.ri-comment.collapsed .ri-text,
+.ri-comment.collapsed .ri-actions,
+.ri-comment.collapsed .ri-children {
+  display: none;
+}
+
+.ri-comment.collapsed {
+  opacity: 0.6;
+}
+
+.ri-comment.collapsed:hover {
+  opacity: 0.8;
+}
+
+/* Children collapsed state - hide all child comments but keep the container visible for the spine line */
+.ri-children.children-collapsed > .ri-comment {
+  display: none;
+}
+
+.ri-children.children-collapsed::before {
+  background: #818384;
+}
+
+/* Collapsed indicator - shows fading line when children are collapsed */
+.ri-children.children-collapsed::after {
+  content: "";
+  position: absolute;
+  left: -21px;
+  top: 0;
+  width: 2px;
+  height: 60px;
+  background: linear-gradient(to bottom, #818384, transparent);
+  pointer-events: none;
+}
+
+.ri-children.children-collapsed {
+  min-height: 60px;
+  cursor: pointer;
+}
+
+/* ==================== Spoilers & More Replies ==================== */
+.ri-spoiler {
+  background: #333;
+  color: transparent;
+  border-radius: 3px;
+  padding: 0 4px;
+  cursor: pointer;
+}
+
+.ri-spoiler.revealed {
+  color: #fff;
+}
+
+.ri-more {
+  color: #777;
+  cursor: pointer;
+}
+
+.ri-more:hover {
+  color: #bbb;
+}
+
+.ri-more-replies {
+  color: #aaa;
+  font-size: 12px;
+  margin-top: 6px;
+}
+
+/* ==================== Loading Skeletons ==================== */
+.ri-skel {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.ri-skel .sk-ava {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1c1c1c;
+}
+
+.ri-skel .sk-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ri-skel .sk-line {
+  height: 10px;
+  background: linear-gradient(90deg, #141414, #1f1f1f, #141414);
+  background-size: 200% 100%;
+  animation: sk 1.2s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.ri-skel .sk-line.w80 {
+  width: 80%;
+}
+
+.ri-skel .sk-line.w60 {
+  width: 60%;
+}
+
+.ri-skel .sk-line.w40 {
+  width: 40%;
+}
+
+@keyframes sk {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ==================== Overlay Panel ==================== */
+#reddit-discussion-overlay {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 10000;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.reddit-discussion-panel {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  width: 380px;
+  max-height: 600px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  background: linear-gradient(135deg, #f5793a 0%, #f85032 100%);
+  color: white;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wrong-btn {
+  background: transparent;
+  border: none;
+  color: #fff;
+  opacity: 0.9;
+  text-decoration: underline;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.close-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: white;
+  font-size: 20px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.close-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.panel-content {
+  padding: 20px;
+  overflow-y: auto;
+  max-height: 550px;
+}
+
+.auth-prompt,
+.no-discussion {
+  text-align: center;
+}
+
+.auth-prompt p,
+.no-discussion p {
+  margin: 10px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.anime-title {
+  font-weight: 600;
+  color: #f5793a;
+  font-size: 15px !important;
+  margin: 15px 0 !important;
+}
+
+.hint {
+  font-size: 12px !important;
+  color: #666;
+  margin-top: 15px !important;
+}
+
+.reddit-login-btn,
+.reddit-btn {
+  background: #ff4500;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  margin-top: 15px;
+  transition: background 0.2s;
+}
+
+.reddit-login-btn:hover,
+.reddit-btn:hover {
+  background: #e03d00;
+}
+
+.discussion-info h4 {
+  margin: 0 0 15px 0;
+  font-size: 15px;
+  color: #333;
+  line-height: 1.4;
+}
+
+.discussion-meta {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 15px;
+  font-size: 13px;
+  color: #666;
+  flex-wrap: wrap;
+}
+
+.discussion-actions {
+  text-align: center;
+}
+
+/* ==================== Choice List ==================== */
+.choice-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0 0;
+}
+
+.choice-item {
+  border: 1px solid #eee;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.choice-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.choice-meta {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+/* ==================== Manual Search UI ==================== */
+.manual-search {
+  margin-top: 10px;
+}
+
+.manual-row {
+  display: flex;
+  gap: 8px;
+}
+
+.manual-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.manual-label {
+  display: block;
+  font-size: 12px;
+  color: #fff;
+  opacity: 0.9;
+  margin-bottom: 6px;
+}

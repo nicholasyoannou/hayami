@@ -1,5 +1,6 @@
 import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap } from '@/utils/redditApi';
 import { isAuthenticated } from '@/utils/redditAuth';
+import '@/styles/reddit-inline.css';
 
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
@@ -298,20 +299,7 @@ function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: numb
   };
 
   wireChoiceHandlers(posts);
-
-  // Inject minor styles for the list
-  const styleId = 'reddit-discussion-extra-styles';
-  if (!document.getElementById(styleId)) {
-    const s = document.createElement('style');
-    s.id = styleId;
-    s.textContent = `
-      .choice-list { list-style: none; padding: 0; margin: 10px 0 0 0; }
-      .choice-item { border: 1px solid #eee; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
-      .choice-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; color: #333; }
-      .choice-meta { font-size: 12px; color: #666; margin-bottom: 8px; }
-    `;
-    document.head.appendChild(s);
-  }
+  // Choice list styles now imported from content.css
 
   // No inline manual search here; use Wrong? to open manual prompt
 }
@@ -472,118 +460,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       <div class="ri-comments"></div>
     `;
 
-    // Inject or update styles
-    {
-      const css = `
-        #reddit-inline-discussion { background:#0f0f0f; color:#ddd; border-radius:8px; padding:16px; margin-top:16px; }
-        #reddit-inline-discussion, #reddit-inline-discussion * { font-family: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        #reddit-inline-discussion .ri-toolbar { display:flex; justify-content:space-between; gap:12px; align-items:center; margin-bottom:10px; }
-        #reddit-inline-discussion .ri-sort { font-size:12px; color:#aaa; display:flex; align-items:center; gap:8px; }
-        #reddit-inline-discussion .ri-sort-select { background:#161616; border:1px solid #2c2c2c; color:#ddd; padding:6px 10px; border-radius:6px; }
-        #reddit-inline-discussion .ri-search-input { background:#161616; border:1px solid #2c2c2c; color:#ddd; padding:6px 10px; border-radius:6px; min-width:180px; }
-        #reddit-inline-discussion .ri-header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
-        #reddit-inline-discussion .ri-title { margin:0; font-size:16px; color:#fff; }
-        #reddit-inline-discussion .ri-link { color:#ff4500; text-decoration:none; font-weight:600; }
-        #reddit-inline-discussion .ri-link:hover { text-decoration:underline; }
-        #reddit-inline-discussion .ri-meta { font-size:12px; color:#aaa; margin:6px 0 12px; }
-        /* Minimal line-based comments - Reddit style */
-        .ri-comment { display:flex; gap:0; padding:8px 0; position:relative; background:transparent; border:none; align-items:flex-start; }
-  /* Awarded comment - golden vertical line on left (no layout shift) */
-  .ri-comment.awarded { border-left: 3px solid #ffa500; padding-left: 8px; }
-        /* Left margin collapse line - extends from collapse button down through entire comment thread */
-        .ri-comment.depth-0::before { content:""; position:absolute; top:22px; bottom:-8px; left:12px; width:2px; background:#343536; z-index:1; pointer-events:none; }
-        .ri-comment.depth-0.line-hover::before { background:#818384; }
-        .ri-comment.depth-0:last-child::before { bottom:0; }
-        /* Gutter area - contains the collapse button and line origin point */
-        .ri-gutter { position:relative; width:24px; flex-shrink:0; display:flex; align-items:flex-start; margin-right:8px; }
-        /* Collapse button positioned over the vertical line */
-        .ri-toggle { width:14px; height:14px; border-radius:2px; border:1px solid #343536; background:#1a1a1b; color:#818384; font-size:9px; line-height:12px; display:flex; align-items:center; justify-content:center; cursor:pointer; position:absolute; left:5px; top:5px; z-index:2; }
-        .ri-toggle:hover { border-color:#818384; background:#272729; }
-  /* Vertical line - visible from collapse button down through comment, changes color on hover with pointer */
-  .ri-threadline { width:2px; background:#343536; position:absolute; top:5px; bottom:-8px; left:11px; cursor:pointer; transition:none; }
-  .ri-threadline:hover { background:#818384; }
-        /* Avatar - positioned next to gutter */
-        .ri-avatar { width:24px; height:24px; border-radius:50%; background:#2c2c2c; flex-shrink:0; object-fit:cover; margin-right:8px; }
-        .ri-body { flex:1; min-width:0; }
-        .ri-line1 { display:flex; align-items:center; gap:6px; font-size:12px; color:#818384; margin-bottom:4px; }
-        .ri-username { color:#d7dadc; font-weight:400; font-size:12px; }
-        .ri-badge { background:#343536; color:#818384; border:1px solid #343536; border-radius:2px; padding:0px 4px; font-size:10px; line-height:16px; }
-        .ri-timestamp { color:#818384; font-size:12px; }
-        .ri-text { line-height:21px; font-size:14px; color:#d7dadc; margin-top:2px; }
-        .ri-text h1 { font-size:20px; margin:10px 0 8px; color:#d7dadc; }
-        .ri-text h2 { font-size:18px; margin:10px 0 8px; color:#d7dadc; }
-        .ri-text h3 { font-size:16px; margin:8px 0 6px; color:#d7dadc; }
-        .ri-text h4, .ri-text h5, .ri-text h6 { font-size:14px; margin:6px 0 4px; color:#d7dadc; }
-        .ri-text blockquote { border-left:3px solid #343536; margin:6px 0; padding:4px 8px; color:#818384; background:transparent; }
-        .ri-actions { display:flex; gap:8px; margin-top:6px; font-size:12px; color:#818384; align-items:center; flex-wrap:wrap; }
-        .ri-votes { display:flex; align-items:center; gap:4px; }
-        .ri-votes button { background:none; border:none; color:#818384; cursor:pointer; font-size:14px; padding:0; line-height:1; }
-        .ri-votes button:hover { color:#d7dadc; }
-        .ri-score { color:#d7dadc; font-size:12px; font-weight:700; }
-  .ri-action { cursor:pointer; color:#818384; font-size:12px; font-weight:700; }
-  .ri-action.ri-award-disabled { color:#555; cursor:not-allowed; }
-  /* Share stays default; only copied state is orange */
-  .ri-action.ri-share.ri-copied { color:#ff4500; }
-        .ri-action:hover { color:#d7dadc; }
-  /* Children container - nested replies indented */
-  .ri-children { margin-left:32px; padding-left:0; position:relative; margin-top:8px; }
-  /* Vertical spine - continues parent's threadline down through children, changes color on hover */
-  .ri-children::before { content:""; position:absolute; top:0; bottom:0; left:-21px; width:2px; background:#343536; pointer-events:none; transition:none; }
-  .ri-children.spine-hover::before { background:#818384; }
-  /* Curved connector from parent spine to child's gutter/threadline - connects where threadline starts */
-  .ri-children > .ri-comment::after { content:""; position:absolute; top:5px; left:-21px; width:21px; height:12px; border-bottom:2px solid #343536; border-left:2px solid #343536; border-bottom-left-radius:6px; pointer-events:none; transition:none; }
-  /* Hover effects on curves when hovering over the spine */
-  .ri-children.spine-hover > .ri-comment::after { border-color:#818384; }
-        .ri-spoiler { background:#333; color:transparent; border-radius:3px; padding:0 4px; cursor:pointer; }
-        .ri-spoiler.revealed { color:#fff; }
-        .ri-more { color:#777; cursor:pointer; }
-        .ri-more:hover { color:#bbb; }
-  /* Collapsed state - fade out text/actions/children */
-  .ri-comment.collapsed .ri-text, .ri-comment.collapsed .ri-actions, .ri-comment.collapsed .ri-children { display:none; }
-  .ri-comment.collapsed { opacity:0.6; }
-  .ri-comment.collapsed:hover { opacity:0.8; }
-  /* Children collapsed state - hide all child comments but keep the container visible for the spine line */
-  .ri-children.children-collapsed > .ri-comment { display:none; }
-  .ri-children.children-collapsed::before { background:#818384; }
-  /* Collapsed indicator - shows fading line when children are collapsed */
-  .ri-children.children-collapsed::after { content:""; position:absolute; left:-21px; top:0; width:2px; height:60px; background:linear-gradient(to bottom, #818384, transparent); pointer-events:none; }
-  .ri-children.children-collapsed { min-height:60px; cursor:pointer; }
-  /* Awards badge with glow effect */
-  .ri-awards { display:inline-flex; align-items:center; gap:4px; color:#ff4500; font-size:12px; font-weight:700; }
-  .ri-awards-icon { display:inline-block; filter:drop-shadow(0 0 2px rgba(255,69,0,0.6)); }
-        .ri-more-replies { color:#aaa; font-size:12px; margin-top:6px; }
-      `;
-      const existing = document.getElementById('reddit-inline-styles') as HTMLStyleElement | null;
-      if (existing) {
-        existing.textContent = css;
-      } else {
-        const s = document.createElement('style');
-        s.id = 'reddit-inline-styles';
-        s.textContent = css;
-        document.head.appendChild(s);
-      }
-    }
+    // CSS now imported from content.css
 
     // Insert container immediately so users see skeletons while loading
     wrapper.appendChild(container);
 
     const commentsRoot = container.querySelector('.ri-comments') as HTMLElement;
-    // Skeleton CSS
-    if (!document.getElementById('reddit-inline-skeleton')) {
-      const sk = document.createElement('style');
-      sk.id = 'reddit-inline-skeleton';
-      sk.textContent = `
-  .ri-skel { display:flex; gap:10px; padding:12px 0; }
-        .ri-skel .sk-ava { width:28px; height:28px; border-radius:50%; background:#1c1c1c; }
-        .ri-skel .sk-lines { flex:1; display:flex; flex-direction:column; gap:8px; }
-        .ri-skel .sk-line { height:10px; background: linear-gradient(90deg, #141414, #1f1f1f, #141414); background-size:200% 100%; animation: sk 1.2s ease-in-out infinite; border-radius:6px; }
-        .ri-skel .sk-line.w80 { width:80%; }
-        .ri-skel .sk-line.w60 { width:60%; }
-        .ri-skel .sk-line.w40 { width:40%; }
-        @keyframes sk { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
-      `;
-      document.head.appendChild(sk);
-    }
+    // Skeleton CSS now imported from content.css
 
     // Show initial skeletons
     const showSkeletons = (n = 6) => {
@@ -607,6 +490,86 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
   const subredditName = 'anime';
   const emojiMap = await getSubredditEmojiMap(subredditName);
 
+    // ==================== Rendering Helpers ====================
+    
+    /**
+     * Renders user flair badge with colors and emoji support
+     */
+    function renderFlair(comment: any): string {
+      if (!comment.author_flair_text) return '';
+      
+      const bgColor = comment.author_flair_background_color || '#343536';
+      let textColor = comment.author_flair_text_color === 'light' ? '#d7dadc' 
+                     : comment.author_flair_text_color === 'dark' ? '#1c1c1c' 
+                     : '#818384';
+      // Force white text on default gray background for contrast
+      const effectiveTextColor = (String(bgColor).toLowerCase() === '#343536') ? '#ffffff' : textColor;
+      let flairText = comment.author_flair_text;
+      
+      // Use richtext array if available (contains emoji objects)
+      if (Array.isArray(comment.author_flair_richtext) && comment.author_flair_richtext.length > 0) {
+        flairText = comment.author_flair_richtext.map((part: any) => {
+          if (part.e === 'emoji' && part.u) {
+            return `<img src="${part.u}" alt="${part.a || ''}" style="width:16px;height:16px;vertical-align:middle;display:inline-block;" />`;
+          }
+          if (part.t) {
+            return `<span style="color:${effectiveTextColor};">${escapeHtml(part.t)}</span>`;
+          }
+          return '';
+        }).join('');
+      } else {
+        // Fallback: parse text for :emoji: codes and URLs
+        const parts = String(flairText).split(/(:[A-Za-z0-9_+.-]+:|https?:\/\/\S+)/g);
+        flairText = parts.map(tok => {
+          if (!tok) return '';
+          const emojiMatch = tok.match(/^:([A-Za-z0-9_+.-]+):$/);
+          if (emojiMatch) {
+            const name = emojiMatch[1];
+            const url = emojiMap[name] || '';
+            if (url) {
+              return `<img src="${url}" alt=":${name}:" style="width:16px;height:16px;vertical-align:middle;display:inline-block;" />`;
+            }
+            return `<span style="color:${effectiveTextColor};">${escapeHtml(tok)}</span>`;
+          }
+          if (/^https?:\/\/\S+$/i.test(tok)) {
+            const safe = escapeHtml(tok);
+            return `<a href="${safe}" target="_blank" rel="noopener" style="color:${effectiveTextColor}; text-decoration:underline;">${safe}</a>`;
+          }
+          return `<span style="color:${effectiveTextColor};">${escapeHtml(tok)}</span>`;
+        }).join('');
+      }
+      
+      return `<span class="ri-badge" style="background:${bgColor};border-color:${bgColor};color:${effectiveTextColor};">${flairText}</span>`;
+    }
+
+    /**
+     * Renders comment actions bar with votes, reply, award, share
+     */
+    function renderActions(comment: any, awardsCount: number): string {
+      const awardBadge = awardsCount > 0 
+        ? `<span class="ri-awards" title="${awardsCount} award${awardsCount > 1 ? 's' : ''}"><span class="ri-awards-icon">🏅</span> ${awardsCount}</span>` 
+        : '';
+      
+      const awardAction = awardsCount > 0
+        ? `<span class="ri-action ri-award-disabled" title="Awards already received; awarding disabled">Awarded</span>`
+        : `<span class="ri-action ri-award" title="Give award (not supported here)">Award</span>`;
+      
+      return `
+        <div class="ri-actions">
+          <div class="ri-votes">
+            <button class="ri-up" title="Upvote">▲</button>
+            <span class="ri-score">${Number(comment.score).toLocaleString()}</span>
+            <button class="ri-down" title="Downvote">▼</button>
+          </div>
+          <span class="ri-action">Reply</span>
+          ${awardBadge}
+          ${awardAction}
+          <span class="ri-action ri-share" role="button" title="Copy link to comment">Share</span>
+          <span class="ri-more" title="More">…</span>
+        </div>
+      `;
+    }
+
     function renderComments(list: any[], depth = 0) {
       const frag = document.createDocumentFragment();
       const limited = list.slice(0, depth === 0 ? 20 : 5); // top 20, replies 5
@@ -618,54 +581,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           : (Number(c.total_awards_received) || 0);
         el.className = 'ri-comment depth-' + depth + (awardsCount > 0 ? ' awarded' : '');
         const edited = c.edited ? ' • Edited' : '';
-        
-        // Parse flair with color and emojis
-        let flair = '';
-        if (c.author_flair_text) {
-          const bgColor = c.author_flair_background_color || '#343536';
-          let textColor = c.author_flair_text_color === 'light' ? '#d7dadc' : c.author_flair_text_color === 'dark' ? '#1c1c1c' : '#818384';
-          // If the badge background is the default gray (#343536), force white text for contrast
-          const effectiveTextColor = (String(bgColor).toLowerCase() === '#343536') ? '#ffffff' : textColor;
-          let flairText = c.author_flair_text;
-          
-          // Replace emoji codes like :CQ::CR::P: with actual images
-          if (Array.isArray(c.author_flair_richtext) && c.author_flair_richtext.length > 0) {
-            flairText = c.author_flair_richtext.map((part: any) => {
-              if (part.e === 'emoji' && part.u) {
-                // No margins to avoid gaps between consecutive emojis
-                return `<img src="${part.u}" alt="${part.a || ''}" style="width:16px;height:16px;vertical-align:middle;display:inline-block;" />`;
-              }
-              // Handle text parts - only escape if there's actual text and enforce text color
-              if (part.t) {
-                return `<span style=\"color:${effectiveTextColor};\">${escapeHtml(part.t)}</span>`;
-              }
-              return '';
-            }).join('');
-          } else {
-            // Fallback: parse author_flair_text for :shortcodes: and URLs when richtext is missing
-            const parts = String(flairText).split(/(:[A-Za-z0-9_+.-]+:|https?:\/\/\S+)/g);
-            flairText = parts.map(tok => {
-              if (!tok) return '';
-              const m = tok.match(/^:([A-Za-z0-9_+.-]+):$/);
-              if (m) {
-                const name = m[1];
-                const url = (emojiMap && emojiMap[name]) || '';
-                if (url) {
-                  return `<img src="${url}" alt=":${name}:" style="width:16px;height:16px;vertical-align:middle;display:inline-block;" />`;
-                }
-                // Unknown emoji code: render as plain text
-                return `<span style=\"color:${effectiveTextColor};\">${escapeHtml(tok)}</span>`;
-              }
-              if (/^https?:\/\/\S+$/i.test(tok)) {
-                const safe = escapeHtml(tok);
-                return `<a href="${safe}" target="_blank" rel="noopener" style="color:${effectiveTextColor}; text-decoration:underline;">${safe}</a>`;
-              }
-              return `<span style=\"color:${effectiveTextColor};\">${escapeHtml(tok)}</span>`;
-            }).join('');
-          }
-          
-          flair = `<span class=\"ri-badge\" style=\"background:${bgColor};border-color:${bgColor};color:${effectiveTextColor};\">${flairText}</span>`;
-        }
+        const flair = renderFlair(c);
+        const tsText = formatRedditDate(c.created_utc);
+        const tsTitle = new Date(c.created_utc * 1000).toLocaleString();
         
         el.innerHTML = `
           <div class="ri-gutter">
@@ -677,22 +595,11 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             <div class="ri-line1">
               <span class="ri-username">u/${escapeHtml(c.author)}</span>
               ${flair}
-              ${(() => { const tsText = formatRedditDate(c.created_utc); const tsTitle = new Date(c.created_utc * 1000).toLocaleString(); return `<span class=\"ri-timestamp\" title=\"${escapeHtml(tsTitle)}\">${escapeHtml(tsText)}</span>`; })()}
+              <span class="ri-timestamp" title="${escapeHtml(tsTitle)}">${escapeHtml(tsText)}</span>
               <span>${edited}</span>
             </div>
             <div class="ri-text"></div>
-            <div class="ri-actions">
-              <div class="ri-votes">
-                <button class="ri-up" title="Upvote">▲</button>
-                <span class="ri-score">${Number(c.score).toLocaleString()}</span>
-                <button class="ri-down" title="Downvote">▼</button>
-              </div>
-              <span class="ri-action">Reply</span>
-              ${awardsCount > 0 ? `<span class="ri-awards" title="${awardsCount} award${awardsCount > 1 ? 's' : ''}"><span class="ri-awards-icon">🏅</span> ${awardsCount}</span>` : ''}
-              ${awardsCount > 0 ? `<span class="ri-action ri-award-disabled" title="Awards already received; awarding disabled">Awarded</span>` : `<span class="ri-action ri-award" title="Give award (not supported here)">Award</span>`}
-              <span class="ri-action ri-share" role="button" title="Copy link to comment">Share</span>
-              <span class="ri-more" title="More">…</span>
-            </div>
+            ${renderActions(c, awardsCount)}
             <div class="ri-children"></div>
           </div>
         `;
@@ -1041,164 +948,7 @@ function createOverlay(): HTMLDivElement {
   
   const overlay = document.createElement('div');
   overlay.id = 'reddit-discussion-overlay';
-  
-  // Inject styles
-  if (!document.getElementById('reddit-discussion-styles')) {
-    const style = document.createElement('style');
-    style.id = 'reddit-discussion-styles';
-    style.textContent = `
-      #reddit-discussion-overlay {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 10000;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-        animation: slideIn 0.3s ease-out;
-      }
-      
-      @keyframes slideIn {
-        from {
-          transform: translateX(400px);
-          opacity: 0;
-        }
-        to {
-          transform: translateX(0);
-          opacity: 1;
-        }
-      }
-      
-      .reddit-discussion-panel {
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-        width: 380px;
-        max-height: 600px;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-      }
-      
-      .panel-header {
-        background: linear-gradient(135deg, #f5793a 0%, #f85032 100%);
-        color: white;
-        padding: 15px 20px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-      }
-      
-      .panel-header h3 {
-        margin: 0;
-        font-size: 16px;
-        font-weight: 600;
-      }
-
-      .panel-actions { display: flex; align-items: center; gap: 8px; }
-
-      .wrong-btn {
-        background: transparent;
-        border: none;
-        color: #fff;
-        opacity: 0.9;
-        text-decoration: underline;
-        font-size: 12px;
-        cursor: pointer;
-      }
-      
-      .close-btn {
-        background: rgba(255, 255, 255, 0.2);
-        border: none;
-        color: white;
-        font-size: 20px;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        cursor: pointer;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: background 0.2s;
-      }
-      
-      .close-btn:hover {
-        background: rgba(255, 255, 255, 0.3);
-      }
-      
-      .panel-content {
-        padding: 20px;
-        overflow-y: auto;
-        max-height: 550px;
-      }
-      
-      .auth-prompt, .no-discussion {
-        text-align: center;
-      }
-      
-      .auth-prompt p, .no-discussion p {
-        margin: 10px 0;
-        font-size: 14px;
-        color: #333;
-      }
-      
-      .anime-title {
-        font-weight: 600;
-        color: #f5793a;
-        font-size: 15px !important;
-        margin: 15px 0 !important;
-      }
-      
-      .hint {
-        font-size: 12px !important;
-        color: #666;
-        margin-top: 15px !important;
-      }
-      
-      .reddit-login-btn, .reddit-btn {
-        background: #ff4500;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        border-radius: 6px;
-        font-size: 14px;
-        font-weight: 600;
-        cursor: pointer;
-        text-decoration: none;
-        display: inline-block;
-        margin-top: 15px;
-        transition: background 0.2s;
-      }
-      
-      .reddit-login-btn:hover, .reddit-btn:hover {
-        background: #e03d00;
-      }
-      
-      .discussion-info h4 {
-        margin: 0 0 15px 0;
-        font-size: 15px;
-        color: #333;
-        line-height: 1.4;
-      }
-      
-      .discussion-meta {
-        display: flex;
-        gap: 15px;
-        margin-bottom: 15px;
-        font-size: 13px;
-        color: #666;
-        flex-wrap: wrap;
-      }
-      
-      .discussion-actions {
-        text-align: center;
-      }
-
-      .manual-search { margin-top: 10px; }
-      .manual-row { display:flex; gap:8px; }
-      .manual-input { flex:1; padding:8px 10px; border:1px solid #ddd; border-radius:6px; font-size: 13px; }
-      .manual-label { display:block; font-size:12px; color:#fff; opacity:0.9; margin-bottom:6px; }
-    `;
-    document.head.appendChild(style);
-  }
+  // Overlay styles now imported from content.css
   
   document.body.appendChild(overlay);
   return overlay;
