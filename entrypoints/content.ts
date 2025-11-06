@@ -1,6 +1,10 @@
-import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap } from '@/utils/redditApi';
+import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment } from '@/utils/redditApi';
 import { isAuthenticated } from '@/utils/redditAuth';
 import '@/styles/reddit-inline.css';
+import EasyMDE from 'easymde';
+import 'easymde/dist/easymde.min.css';
+// Import Font Awesome for EasyMDE toolbar icons
+import '@fortawesome/fontawesome-free/css/all.min.css';
 
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
@@ -457,6 +461,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         <a class="ri-link" href="https://www.reddit.com${discussion.permalink}" target="_blank" rel="noopener">Open on Reddit</a>
       </div>
       <div class="ri-meta">u/${discussion.author} • ⬆️ ${discussion.score} • 💬 ${discussion.num_comments}</div>
+      ${discussion.archived || discussion.locked ? `
+        <div class="ri-archived-notice">
+          <strong>⚠️ This post is ${discussion.archived ? 'archived' : 'locked'}</strong>
+          <p>You cannot vote, reply, or interact with this discussion.</p>
+        </div>
+      ` : ''}
       <div class="ri-comments"></div>
     `;
 
@@ -546,22 +556,26 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
      * Renders comment actions bar with votes, reply, award, share
      */
     function renderActions(comment: any, awardsCount: number): string {
+      const isArchived = discussion.archived || discussion.locked;
+      const disabledClass = isArchived ? ' ri-disabled' : '';
+      const disabledTitle = isArchived ? ' (post is archived/locked)' : '';
+      
       const awardBadge = awardsCount > 0 
         ? `<span class="ri-awards" title="${awardsCount} award${awardsCount > 1 ? 's' : ''}"><span class="ri-awards-icon">🏅</span> ${awardsCount}</span>` 
         : '';
       
       const awardAction = awardsCount > 0
         ? `<span class="ri-action ri-award-disabled" title="Awards already received; awarding disabled">Awarded</span>`
-        : `<span class="ri-action ri-award" title="Give award (not supported here)">Award</span>`;
+        : `<span class="ri-action ri-award${disabledClass}" title="Give award (not supported here)${disabledTitle}">Award</span>`;
       
       return `
         <div class="ri-actions">
           <div class="ri-votes">
-            <button class="ri-up" title="Upvote">▲</button>
+            <button class="ri-up${disabledClass}" title="Upvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>▲</button>
             <span class="ri-score">${Number(comment.score).toLocaleString()}</span>
-            <button class="ri-down" title="Downvote">▼</button>
+            <button class="ri-down${disabledClass}" title="Downvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>▼</button>
           </div>
-          <span class="ri-action">Reply</span>
+          <span class="ri-action${disabledClass}">Reply</span>
           ${awardBadge}
           ${awardAction}
           <span class="ri-action ri-share" role="button" title="Copy link to comment">Share</span>
@@ -627,6 +641,90 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         const toggleBtn = el.querySelector('.ri-toggle') as HTMLButtonElement | null;
         const threadLine = el.querySelector('.ri-threadline') as HTMLDivElement | null;
         const shareBtn = el.querySelector('.ri-action.ri-share') as HTMLSpanElement | null;
+        const replyBtn = el.querySelector('.ri-action:not(.ri-share):not(.ri-award):not(.ri-award-disabled)') as HTMLSpanElement | null;
+        
+        // Reply button handler
+        if (replyBtn && !discussion.archived && !discussion.locked) {
+          replyBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            
+            // Check if reply box already exists
+            const existingReplyBox = el.querySelector('.ri-reply-box');
+            if (existingReplyBox) {
+              existingReplyBox.remove();
+              return;
+            }
+            
+            // Create reply box
+            const replyBox = document.createElement('div');
+            replyBox.className = 'ri-reply-box';
+            replyBox.innerHTML = `
+              <textarea class="ri-reply-textarea" placeholder="Write your reply in markdown..."></textarea>
+              <div class="ri-reply-actions">
+                <button class="ri-reply-submit">Submit</button>
+                <button class="ri-reply-cancel">Cancel</button>
+              </div>
+            `;
+            
+            // Insert after actions bar
+            const actionsBar = el.querySelector('.ri-actions');
+            actionsBar?.parentElement?.insertBefore(replyBox, actionsBar.nextSibling);
+            
+            const textarea = replyBox.querySelector('.ri-reply-textarea') as HTMLTextAreaElement;
+            
+            // Initialize EasyMDE
+            const editor = new EasyMDE({
+              element: textarea,
+              autofocus: true,
+              spellChecker: false,
+              status: false,
+              toolbar: ['bold', 'italic', 'strikethrough', '|', 'quote', 'code', 'unordered-list', 'ordered-list', '|', 'link', 'preview'],
+              minHeight: '120px',
+              placeholder: 'Write your reply in markdown...',
+            });
+            
+            const submitBtn = replyBox.querySelector('.ri-reply-submit') as HTMLButtonElement;
+            const cancelBtn = replyBox.querySelector('.ri-reply-cancel') as HTMLButtonElement;
+            
+            submitBtn.addEventListener('click', async () => {
+              const text = editor.value().trim();
+              if (!text) {
+                alert('Reply cannot be empty');
+                return;
+              }
+              
+              submitBtn.disabled = true;
+              submitBtn.textContent = 'Submitting...';
+              
+              // Submit comment to Reddit
+              const parentId = `t1_${c.id}`; // Comment fullname format
+              const result = await submitComment(parentId, text);
+              
+              if (result.success) {
+                replyBox.remove();
+                alert('Reply posted successfully! Refresh to see your comment.');
+              } else {
+                alert(`Failed to post reply: ${result.error || 'Unknown error'}`);
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Submit';
+              }
+            });
+            
+            cancelBtn.addEventListener('click', () => {
+              editor.toTextArea();
+              replyBox.remove();
+            });
+          });
+        } else if (replyBtn && (discussion.archived || discussion.locked)) {
+          // Disable reply button for archived/locked posts
+          replyBtn.style.opacity = '0.5';
+          replyBtn.style.cursor = 'not-allowed';
+          replyBtn.title = 'Cannot reply to archived/locked posts';
+          replyBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+          });
+        }
+        
         if (shareBtn) {
           shareBtn.addEventListener('click', async (ev) => {
             ev.stopPropagation();
@@ -661,12 +759,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         threadLine?.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
         // Make the left margin line (::before) clickable for top-level comments
         if (depth === 0) {
-          // Track hover state for the line specifically
+          // Track hover state for the line specifically - wider area for easier interaction
           el.addEventListener('mousemove', (ev) => {
             const rect = el.getBoundingClientRect();
             const mouseX = ev.clientX - rect.left;
-            // Check if mouse is over the line area (narrow zone around 12px)
-            if (mouseX > 8 && mouseX < 16) {
+            // Check if mouse is over the line area (wider zone: 4px to 20px, centered around 12px)
+            if (mouseX > 4 && mouseX < 20) {
               el.style.cursor = 'pointer';
               el.classList.add('line-hover');
             } else {
@@ -681,8 +779,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           el.addEventListener('click', (ev) => {
             const rect = el.getBoundingClientRect();
             const clickX = ev.clientX - rect.left;
-            // If click is on the line area (around 12px, same column as collapse button)
-            if (clickX > 8 && clickX < 16) {
+            // If click is on the line area (wider zone for easier clicking)
+            if (clickX > 4 && clickX < 20) {
               ev.stopPropagation();
               toggle();
             }

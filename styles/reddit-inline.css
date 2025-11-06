@@ -81,6 +81,28 @@
   margin: 6px 0 12px;
 }
 
+/* ==================== Archived Notice ==================== */
+#reddit-inline-discussion .ri-archived-notice {
+  background: #2a1f1f;
+  border: 1px solid #663333;
+  border-radius: 6px;
+  padding: 12px;
+  margin: 12px 0;
+  color: #ffaa88;
+}
+
+#reddit-inline-discussion .ri-archived-notice strong {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+#reddit-inline-discussion .ri-archived-notice p {
+  margin: 0;
+  font-size: 12px;
+  color: #ccaa99;
+}
+
 /* ==================== Comment Structure ==================== */
 .ri-comment {
   display: flex;
@@ -290,6 +312,13 @@
   color: #d7dadc;
 }
 
+.ri-votes button:disabled,
+.ri-votes button.ri-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .ri-score {
   color: #d7dadc;
   font-size: 12px;
@@ -307,9 +336,15 @@
   color: #d7dadc;
 }
 
+.ri-action.ri-award-disabled,
+.ri-action.ri-disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .ri-action.ri-award-disabled {
   color: #555;
-  cursor: not-allowed;
 }
 
 /* Share stays default; only copied state is orange */
@@ -703,4 +738,106 @@
   color: #fff;
   opacity: 0.9;
   margin-bottom: 6px;
+}
+
+/* ==================== Reply Box ==================== */
+.ri-reply-box {
+  background: #1a1a1a;
+  border: 1px solid #2c2c2c;
+  border-radius: 6px;
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.ri-reply-textarea {
+  width: 100%;
+  min-height: 120px;
+  background: #0f0f0f;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+  color: #ddd;
+  padding: 8px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.ri-reply-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  justify-content: flex-end;
+}
+
+.ri-reply-submit,
+.ri-reply-cancel {
+  padding: 6px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ri-reply-submit {
+  background: #ff4500;
+  color: white;
+}
+
+.ri-reply-submit:hover:not(:disabled) {
+  background: #ff5722;
+}
+
+.ri-reply-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ri-reply-cancel {
+  background: #2c2c2c;
+  color: #ddd;
+}
+
+.ri-reply-cancel:hover {
+  background: #3a3a3a;
+}
+
+/* EasyMDE overrides for dark theme */
+.ri-reply-box .EasyMDEContainer {
+  background: #0f0f0f;
+}
+
+.ri-reply-box .CodeMirror {
+  background: #0f0f0f;
+  color: #ddd;
+  border: 1px solid #2c2c2c;
+  border-radius: 4px;
+}
+
+.ri-reply-box .CodeMirror-cursor {
+  border-left-color: #ddd;
+}
+
+.ri-reply-box .editor-toolbar {
+  background: #161616;
+  border: 1px solid #2c2c2c;
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+}
+
+.ri-reply-box .editor-toolbar button {
+  color: #ddd !important;
+}
+
+.ri-reply-box .editor-toolbar button:hover {
+  background: #2c2c2c;
+  border-color: #3a3a3a;
+}
+
+.ri-reply-box .editor-toolbar.disabled-for-preview button:not(.no-disable) {
+  opacity: 0.3;
+}
+
+.ri-reply-box .editor-preview {
+  background: #0f0f0f;
+  color: #ddd;
 }

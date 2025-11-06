@@ -41,6 +41,8 @@ interface RedditPost {
   num_comments: number;
   created_utc: number;
   link_flair_text: string | null;
+  archived?: boolean;
+  locked?: boolean;
 }
 
 interface RedditComment {
