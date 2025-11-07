@@ -1,16 +1,28 @@
-import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment } from '@/utils/redditApi';
+import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing } from '@/utils/redditApi';
+import { getStoredUsername } from '@/utils/redditAuth';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { isAuthenticated } from '@/utils/redditAuth';
 import '@/styles/reddit-inline.css';
-import { createApp, type App as VueApp } from 'vue';
+import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
 import '@fortawesome/fontawesome-free/css/fontawesome.min.css';
 import '@fortawesome/fontawesome-free/css/solid.min.css';
+import { Toaster, toast } from 'vue-sonner';
+// Correct style import per package exports ("vue-sonner/style.css")
+import 'vue-sonner/style.css';
 
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
   main(ctx) {
     console.log('Crunchyroll Comments Revive extension loaded');
+    // Mount global toaster once per page
+    if (!document.getElementById('cr-comments-toaster')) {
+      const toastHost = document.createElement('div');
+      toastHost.id = 'cr-comments-toaster';
+      document.body.appendChild(toastHost);
+      const toastApp = createApp({ render: () => h(Toaster, { position: 'top-right', theme: 'dark', richColors: true }) });
+      toastApp.mount(toastHost);
+    }
     
     // Helper function to check if URL is a watch page
     const isWatchPage = (url: string) => {
@@ -736,32 +748,33 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       const isArchived = discussion.archived || discussion.locked;
       const disabledClass = isArchived ? ' ri-disabled' : '';
       const disabledTitle = isArchived ? ' (post is archived/locked)' : '';
-      
-      const awardBadge = awardsCount > 0 
-        ? `<span class="ri-awards" title="${awardsCount} award${awardsCount > 1 ? 's' : ''}"><span class="ri-awards-icon">🏅</span> ${awardsCount}</span>` 
-        : '';
-      
-      const awardAction = awardsCount > 0
-        ? `<span class="ri-action ri-award-disabled" title="Awards already received; awarding disabled">Awarded</span>`
-        : `<span class="ri-action ri-award${disabledClass}" title="Give award (not supported here)${disabledTitle}">Award</span>`;
-      
+      // Inline SVG markup (outline versions) for better color control via CSS currentColor
+      // Include both outline and filled groups; CSS toggles which is visible based on vote state
+      const upSvg = `<svg class="ri-icon ri-icon-up" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+        <g class="outline"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10zM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179z"></path></g>
+        <g class="filled"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10z"></path></g>
+      </svg>`;
+      const downSvg = `<svg class="ri-icon ri-icon-down" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+        <g class="outline"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016z"></path></g>
+        <g class="filled"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1z"></path></g>
+      </svg>`;
+      const replySvg = `<svg class="ri-icon ri-icon-reply" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2z"></path></svg>`;
+      const shareSvg = `<svg class="ri-icon ri-icon-share" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M12.8 17.524l6.89-6.887a.9.9 0 000-1.273L12.8 2.477a1.64 1.64 0 00-1.782-.349 1.64 1.64 0 00-1.014 1.518v2.593C4.054 6.728 1.192 12.075 1 17.376a1.353 1.353 0 00.862 1.32 1.35 1.35 0 001.531-.364l.334-.381c1.705-1.944 3.323-3.791 6.277-4.103v2.509c0 .667.398 1.262 1.014 1.518a1.638 1.638 0 001.783-.349v-.002zm-.994-1.548V12h-.9c-3.969 0-6.162 2.1-8.001 4.161.514-4.011 2.823-8.16 8-8.16h.9V4.024L17.784 10l-5.977 5.976z"></path></svg>`;
       return `
         <div class="ri-actions">
           <div class="ri-votes">
-            <button class="ri-up${disabledClass}" title="Upvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>▲</button>
+            <button class="ri-vote-btn ri-upvote${disabledClass}" data-state="idle" title="Upvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>${upSvg}</button>
             <span class="ri-score">${Number(comment.score).toLocaleString()}</span>
-            <button class="ri-down${disabledClass}" title="Downvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>▼</button>
+            <button class="ri-vote-btn ri-downvote${disabledClass}" data-state="idle" title="Downvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>${downSvg}</button>
           </div>
-          <span class="ri-action${disabledClass}">Reply</span>
-          ${awardBadge}
-          ${awardAction}
-          <span class="ri-action ri-share" role="button" title="Copy link to comment">Share</span>
+          <button class="ri-action-btn ri-reply${disabledClass}" title="Reply${disabledTitle}">${replySvg}<span>Reply</span></button>
+          <button class="ri-action-btn ri-share-btn" title="Share">${shareSvg}<span>Share</span></button>
           <span class="ri-more" title="More">…</span>
         </div>
       `;
     }
 
-    function renderComments(list: any[], depth = 0) {
+    function renderComments(list: any[], depth = 0, highlightIds: Set<string> = new Set()) {
       const frag = document.createDocumentFragment();
       const limited = list.slice(0, depth === 0 ? 20 : 5); // top 20, replies 5
       for (const c of limited) {
@@ -771,6 +784,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           ? c.all_awardings.reduce((a: number, aw: any) => a + (Number(aw?.count) || 0), 0)
           : (Number(c.total_awards_received) || 0);
         el.className = 'ri-comment depth-' + depth + (awardsCount > 0 ? ' awarded' : '');
+        if (highlightIds.has(c.id)) {
+          el.classList.add('ri-new-comment');
+        }
         const edited = c.edited ? ' • Edited' : '';
         const flair = renderFlair(c);
         const tsText = formatRedditDate(c.created_utc);
@@ -838,10 +854,113 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         // Collapse/expand
         const toggleBtn = el.querySelector('.ri-toggle') as HTMLButtonElement | null;
         const threadLine = el.querySelector('.ri-threadline') as HTMLDivElement | null;
-        const shareBtn = el.querySelector('.ri-action.ri-share') as HTMLSpanElement | null;
-        const replyBtn = el.querySelector('.ri-action:not(.ri-share):not(.ri-award):not(.ri-award-disabled)') as HTMLSpanElement | null;
+  const shareBtn = el.querySelector('.ri-action-btn.ri-share-btn') as HTMLButtonElement | null;
+  const replyBtn = el.querySelector('.ri-action-btn.ri-reply') as HTMLButtonElement | null;
+  const upvoteBtn = el.querySelector('.ri-vote-btn.ri-upvote') as HTMLButtonElement | null;
+  const downvoteBtn = el.querySelector('.ri-vote-btn.ri-downvote') as HTMLButtonElement | null;
         
         // Reply button handler - Using Vue component
+        if (upvoteBtn && downvoteBtn && !discussion.archived && !discussion.locked) {
+          // Initialize prior vote state from API (likes: true=up, false=down, null=none)
+          if (c.likes === true) {
+            upvoteBtn.setAttribute('data-state','upvoted');
+            downvoteBtn.setAttribute('data-state','idle');
+          } else if (c.likes === false) {
+            downvoteBtn.setAttribute('data-state','downvoted');
+            upvoteBtn.setAttribute('data-state','idle');
+          }
+          const scoreEl = el.querySelector('.ri-score') as HTMLElement | null;
+          let inFlight = false;
+          upvoteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (inFlight) return;
+            const prevUp = upvoteBtn.getAttribute('data-state');
+            const prevDown = downvoteBtn.getAttribute('data-state');
+            const goingIdle = prevUp === 'upvoted';
+            const newDir = goingIdle ? 0 : 1;
+            // Optimistic UI
+            let delta = 0;
+            if (goingIdle) delta = -1;
+            else if (prevDown === 'downvoted') delta = 2; else delta = 1;
+            if (scoreEl && !Number.isNaN(parseInt(scoreEl.textContent || '0').valueOf())) {
+              const cur = Number((scoreEl.textContent || '0').replace(/,/g,''));
+              scoreEl.textContent = (cur + delta).toLocaleString();
+            }
+            upvoteBtn.setAttribute('data-state', goingIdle ? 'idle' : 'upvoted');
+            downvoteBtn.setAttribute('data-state','idle');
+            inFlight = true;
+            const fullname = `t1_${c.id}`;
+            voteThing(fullname, newDir).then(res => {
+              if (!res.success) {
+                // Revert
+                if (scoreEl) {
+                  const cur = Number((scoreEl.textContent || '0').replace(/,/g,''));
+                  scoreEl.textContent = (cur - delta).toLocaleString();
+                }
+                // Restore previous states
+                upvoteBtn.setAttribute('data-state', prevUp || 'idle');
+                downvoteBtn.setAttribute('data-state', prevDown || 'idle');
+                console.warn('Vote failed:', res.error);
+                if (String(res.error || '').includes('403')) {
+                  // Prompt user to re-auth with updated scope
+                  toast.error('Voting requires updated Reddit permissions. Please re-login.');
+                  try { chrome.runtime.sendMessage({ action: 'openPopup' }); } catch {}
+                }
+              } else {
+                // Persist local model state
+                c.likes = newDir === 1 ? true : null;
+                if (newDir === 1) {
+                  toast.success('Upvote applied');
+                } else {
+                  toast.success('Upvote removed');
+                }
+              }
+            }).finally(() => { inFlight = false; });
+          });
+          downvoteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (inFlight) return;
+            const prevUp = upvoteBtn.getAttribute('data-state');
+            const prevDown = downvoteBtn.getAttribute('data-state');
+            const goingIdle = prevDown === 'downvoted';
+            const newDir = goingIdle ? 0 : -1;
+            // Optimistic score
+            let delta = 0;
+            if (goingIdle) delta = +1; // removing a downvote
+            else if (prevUp === 'upvoted') delta = -2; else delta = -1;
+            if (scoreEl && !Number.isNaN(parseInt(scoreEl.textContent || '0').valueOf())) {
+              const cur = Number((scoreEl.textContent || '0').replace(/,/g,''));
+              scoreEl.textContent = (cur + delta).toLocaleString();
+            }
+            downvoteBtn.setAttribute('data-state', goingIdle ? 'idle' : 'downvoted');
+            upvoteBtn.setAttribute('data-state','idle');
+            inFlight = true;
+            const fullname = `t1_${c.id}`;
+            voteThing(fullname, newDir).then(res => {
+              if (!res.success) {
+                if (scoreEl) {
+                  const cur = Number((scoreEl.textContent || '0').replace(/,/g,''));
+                  scoreEl.textContent = (cur - delta).toLocaleString();
+                }
+                downvoteBtn.setAttribute('data-state', prevDown || 'idle');
+                upvoteBtn.setAttribute('data-state', prevUp || 'idle');
+                console.warn('Vote failed:', res.error);
+                if (String(res.error || '').includes('403')) {
+                  toast.error('Voting requires updated Reddit permissions. Please re-login.');
+                  try { chrome.runtime.sendMessage({ action: 'openPopup' }); } catch {}
+                }
+              } else {
+                c.likes = newDir === -1 ? false : null;
+                if (newDir === -1) {
+                  toast.success('Downvote applied');
+                } else {
+                  toast.success('Downvote removed');
+                }
+              }
+            }).finally(() => { inFlight = false; });
+          });
+        }
+
         if (replyBtn && !discussion.archived && !discussion.locked) {
           replyBtn.addEventListener('click', (ev) => {
             ev.stopPropagation();
@@ -879,13 +998,46 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 const result = await submitComment(parentId, finalText);
                 
                 if (result.success) {
-                  // Cleanup Vue app
+                  // Optimistically insert new reply
+                  const newId = result.commentId || 'temp_' + Date.now();
+                  const username = await getStoredUsername() || 'you';
+                  const nowSecs = Math.floor(Date.now()/1000);
+                  const newReply = {
+                    id: newId,
+                    author: username,
+                    body: finalText,
+                    score: 1,
+                    created_utc: nowSecs,
+                    edited: false,
+                    author_flair_text: null,
+                    author_flair_richtext: [],
+                    author_flair_background_color: null,
+                    author_flair_text_color: null,
+                    permalink: '',
+                    link_id: c.link_id,
+                    replies: []
+                  } as any;
+                  c.replies = c.replies ? [newReply, ...c.replies] : [newReply];
+                  // Re-render children host (clear and render with highlight)
+                  const childHost = el.querySelector('.ri-children') as HTMLElement;
+                  if (childHost) {
+                    childHost.innerHTML = '';
+                    childHost.appendChild(renderComments([newReply], (depth+1), new Set([newId])));
+                    // Append rest (without highlight)
+                    if (c.replies.length > 1) {
+                      childHost.appendChild(renderComments(c.replies.slice(1), (depth+1)));
+                    }
+                    // Scroll into view smoothly
+                    const newEl = childHost.querySelector('.ri-comment.ri-new-comment');
+                    newEl?.scrollIntoView({ behavior:'smooth', block:'center' });
+                  }
+                  // Cleanup editor
                   app.unmount();
                   container.remove();
                   mountedVueApps.delete(container);
-                  alert('Reply posted successfully! Refresh to see your comment.');
+                  toast.success('Reply posted');
                 } else {
-                  alert(`Failed to post reply: ${result.error || 'Unknown error'}`);
+                  toast.error(`Failed to post reply: ${result.error || 'Unknown error'}`);
                   // Component will reset its submitting state internally
                 }
               },
@@ -919,7 +1071,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             ev.stopPropagation();
             const base = 'https://www.reddit.com';
             const url = (c.permalink && typeof c.permalink === 'string') ? (base + c.permalink) : base + (discussion.permalink || '');
-            const prev = shareBtn.textContent || 'Share';
+            const labelEl = shareBtn.querySelector('span');
+            const prev = (labelEl?.textContent) || 'Share';
             try {
               if (navigator.clipboard && navigator.clipboard.writeText) {
                 await navigator.clipboard.writeText(url);
@@ -928,12 +1081,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
                 document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
               }
-              shareBtn.textContent = 'Link copied!';
+              if (labelEl) labelEl.textContent = 'Link copied!';
               shareBtn.classList.add('ri-copied');
-              setTimeout(() => { shareBtn.textContent = prev; shareBtn.classList.remove('ri-copied'); }, 1300);
+              setTimeout(() => { if (labelEl) labelEl.textContent = prev; shareBtn.classList.remove('ri-copied'); }, 1300);
             } catch {
-              shareBtn.textContent = 'Copy failed';
-              setTimeout(() => { shareBtn.textContent = prev; }, 1300);
+              if (labelEl) labelEl.textContent = 'Copy failed';
+              setTimeout(() => { if (labelEl) labelEl.textContent = prev; }, 1300);
             }
           });
         }
@@ -1065,7 +1218,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // markdownToHtml now imported from utils/markdown
 
     // Infinite scroll paging for top-level comments
-    let pageIndex = 0;
+  let pageIndex = 0;
     const pageSize = 20;
     let isPaging = false;
     let io: IntersectionObserver | null = null;
@@ -1196,18 +1349,58 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             try {
               const res = await submitComment(linkFullname, text);
               if (res.success) {
-                alert('Comment posted successfully! Refresh (F5) to load your comment.');
+                const newId = res.commentId || 'temp_' + Date.now();
+                const username = await getStoredUsername() || 'you';
+                const nowSecs = Math.floor(Date.now()/1000);
+                const newComment = {
+                  id: newId,
+                  author: username,
+                  body: text,
+                  score: 1,
+                  created_utc: nowSecs,
+                  edited: false,
+                  author_flair_text: null,
+                  author_flair_richtext: [],
+                  author_flair_background_color: null,
+                  author_flair_text_color: null,
+                  permalink: '',
+                  link_id: linkFullname,
+                  replies: []
+                } as any;
+                // Insert at top of master list
+                allComments = [newComment, ...allComments];
+                filteredComments = applyFilter(allComments, (container.querySelector('#ri-search') as HTMLInputElement | null)?.value || '');
+                // Reset paging & rerender first page with highlight
+                pageIndex = 0;
+                commentsRoot.innerHTML = '';
+                const highlightSet = new Set([newId]);
+                commentsRoot.appendChild(renderComments(filteredComments.slice(0, pageSize), 0, highlightSet));
+                // Recreate sentinel
+                if (io) { try { io.disconnect(); } catch {} }
+                const newSentinel2 = document.createElement('div');
+                newSentinel2.id = 'ri-sentinel';
+                commentsRoot.after(newSentinel2);
+                io = new IntersectionObserver((entries) => {
+                  const ent = entries[0];
+                  if (ent.isIntersecting) appendNextPage();
+                }, { root: null, threshold: 0.1 });
+                io.observe(newSentinel2);
+                // Scroll new comment into view
+                const newEl = commentsRoot.querySelector('.ri-comment.ri-new-comment');
+                newEl?.scrollIntoView({ behavior:'smooth', block:'center' });
+                // Cleanup editor
                 if (topApp) {
                   topApp.unmount();
                   topApp = null;
                   mountedVueApps.delete(topReplyHost);
                 }
                 topReplyHost.style.display = 'none';
+                toast.success('Comment posted');
               } else {
-                alert(`Failed to post comment: ${res.error || 'Unknown error'}`);
+                toast.error(`Failed to post comment: ${res.error || 'Unknown error'}`);
               }
             } catch (e: any) {
-              alert(`Unexpected error: ${e?.message || e}`);
+              toast.error(`Unexpected error: ${e?.message || e}`);
             }
           },
           onCancel: () => {

@@ -53,6 +53,8 @@ interface RedditComment {
   score: number;
   created_utc: number;
   edited?: boolean | number;
+  /** User's vote on this comment: true=upvoted, false=downvoted, null=none */
+  likes?: boolean | null;
   author_flair_text?: string | null;
   author_flair_richtext?: Array<{
     e?: string; // 'emoji' or 'text'
@@ -245,6 +247,7 @@ function parseComments(children: any[]): RedditComment[] {
         score: data.score,
         created_utc: data.created_utc,
         edited: data.edited,
+        likes: data.likes,
         author_flair_text: data.author_flair_text || null,
         author_flair_richtext: data.author_flair_richtext,
         author_flair_background_color: data.author_flair_background_color || null,
@@ -316,6 +319,7 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
           score: d.score,
           created_utc: d.created_utc,
           edited: d.edited,
+          likes: d.likes,
           author_flair_text: d.author_flair_text || null,
           author_flair_richtext: d.author_flair_richtext,
           author_flair_background_color: d.author_flair_background_color || null,
@@ -447,6 +451,36 @@ export async function submitComment(
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
     };
+  }
+}
+
+/**
+ * Vote on a thing (post or comment). direction: 1 upvote, -1 downvote, 0 remove vote
+ */
+export async function voteThing(fullname: string, direction: 1 | 0 | -1): Promise<{ success: boolean; error?: string }> {
+  try {
+    const token = await getAccessToken();
+    if (!token) return { success: false, error: 'Not authenticated' };
+    const form = new URLSearchParams();
+    form.set('id', fullname);
+    form.set('dir', String(direction));
+    const resp = await fetch('https://oauth.reddit.com/api/vote', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0'
+      },
+      body: form.toString()
+    });
+    if (!resp.ok) {
+      let msg = `Vote failed: ${resp.status}`;
+      try { msg += ' ' + (await resp.text()); } catch {}
+      return { success: false, error: msg };
+    }
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Vote error' };
   }
 }
 

@@ -17,8 +17,9 @@ export const REDDIT_CLIENT_ID = 'YOUR_REDDIT_CLIENT_ID';
  * - identity: Access to user's identity (username)
  * - read: Read access to posts and comments
  * - submit: Ability to submit comments
+ * - vote: Ability to upvote/downvote
  */
-export const REDDIT_SCOPES = 'identity read submit';
+export const REDDIT_SCOPES = 'identity read submit vote';
 
 /**
  * Token duration

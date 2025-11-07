@@ -347,6 +347,67 @@
   flex-wrap: wrap;
 }
 
+/* New icon-based action buttons */
+.ri-actions .ri-vote-btn,
+.ri-actions .ri-action-btn {
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 20px;
+  cursor: pointer;
+  color: rgb(139,162,173); /* outline/base color */
+  font-size: 12px;
+  font-weight: 700;
+  transition: background 0.15s, color 0.15s;
+}
+
+/* Inline SVG icon styling */
+.ri-actions .ri-vote-btn .ri-icon,
+.ri-actions .ri-action-btn .ri-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+  fill: currentColor;
+}
+
+/* Default show outline, hide filled */
+.ri-vote-btn .ri-icon .filled { display: none; }
+.ri-vote-btn .ri-icon .outline { display: inline; }
+
+/* Active states: swap to filled */
+.ri-vote-btn[data-state="upvoted"] .ri-icon .filled,
+.ri-vote-btn[data-state="downvoted"] .ri-icon .filled { display: inline; }
+.ri-vote-btn[data-state="upvoted"] .ri-icon .outline,
+.ri-vote-btn[data-state="downvoted"] .ri-icon .outline { display: none; }
+
+/* Keep active background persistent even when not hovering */
+.ri-vote-btn[data-state="upvoted"],
+.ri-vote-btn[data-state="downvoted"] { background: #2a2a2c; }
+
+.ri-actions .ri-vote-btn:hover:not(:disabled),
+.ri-actions .ri-action-btn:hover:not(:disabled) {
+  background: #2a2a2c;
+  color: rgb(217,57,0); /* hover color */
+}
+
+.ri-actions .ri-vote-btn[data-state="upvoted"],
+.ri-actions .ri-vote-btn[data-state="downvoted"] {
+  background: #2a2a2c;
+  color: rgb(217,57,0); /* active color */
+}
+
+.ri-actions .ri-vote-btn:disabled,
+.ri-actions .ri-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.ri-actions .ri-action-btn span { line-height: 1; }
+
 .ri-votes {
   display: flex;
   align-items: center;
@@ -356,7 +417,7 @@
 .ri-votes button {
   background: none;
   border: none;
-  color: #818384;
+  color: rgb(139,162,173);
   cursor: pointer;
   font-size: 14px;
   padding: 0;
@@ -364,7 +425,7 @@
 }
 
 .ri-votes button:hover {
-  color: #d7dadc;
+  color: rgb(217,57,0);
 }
 
 .ri-votes button:disabled,
@@ -403,7 +464,7 @@
 }
 
 /* Share stays default; only copied state is orange */
-.ri-action.ri-share.ri-copied {
+.ri-action-btn.ri-share-btn.ri-copied span {
   color: #ff4500;
 }
 
@@ -478,6 +539,18 @@
 
 .ri-comment.collapsed {
   opacity: 0.6;
+}
+
+/* Newly added comment highlight */
+.ri-comment.ri-new-comment {
+  animation: riNewCommentFlash 2.4s ease-out;
+}
+
+@keyframes riNewCommentFlash {
+  0% { background: rgba(255,69,0,0.25); }
+  40% { background: rgba(255,69,0,0.18); }
+  70% { background: rgba(255,69,0,0.08); }
+  100% { background: transparent; }
 }
 
 .ri-comment.collapsed:hover {
