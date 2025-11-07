@@ -545,7 +545,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         <a class="ri-link" href="https://www.reddit.com${discussion.permalink}" target="_blank" rel="noopener">Open on Reddit</a>
       </div>
       <div class="ri-meta">u/${discussion.author} • ⬆️ ${discussion.score} • 💬 ${discussion.num_comments}</div>
-      ${(!discussion.archived && !discussion.locked) ? '<button id="ri-add-comment-btn" class="ri-add-comment-btn" type="button" title="Add a top-level comment">➕ Add Comment</button>' : ''}
+      ${(!discussion.archived && !discussion.locked) ? '<button id="ri-add-comment-btn" class="ri-add-comment-btn" type="button" title="Add a top-level comment">Add Comment</button>' : ''}
       <div id="ri-top-reply-host" class="ri-top-reply-container" style="display:none"></div>
       ${discussion.archived || discussion.locked ? `
         <div class="ri-archived-notice">

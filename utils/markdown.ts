@@ -17,6 +17,9 @@ export function markdownToHtml(text: string): string {
   // Remove Reddit emote syntax (e.g., [](#dekuhype)) - these don't appear in actual comment body
   src = src.replace(/\[\]\(#[a-zA-Z0-9_-]+\)/g, '');
 
+  // Strip any remaining HTML tags (Reddit sometimes leaves <strong>, <em>, etc. in body_html)
+  src = src.replace(/<[^>]+>/g, '');
+
   // Escape raw HTML first so user content cannot break out
   let html = escapeHtml(src);
 
@@ -38,7 +41,7 @@ export function markdownToHtml(text: string): string {
   html = html.replace(/^\s{0,3}(#{1,6})\s*(\S.*)?$/gm, (_m, hashes: string, title: string) => {
     if (!title) return _m; // leave line unchanged if no actual title text
     const level = Math.min(6, Math.max(1, hashes.length));
-    return `<h${level}>${escapeHtml(title.trim())}<\/h${level}>`;
+    return `<h${level}>${title.trim()}<\/h${level}>`;
   });
 
   // Blockquotes (Reddit accepts '>' with optional leading spaces)
