@@ -213,7 +213,18 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
 
     if (!results || results.length === 0) {
-      showNoDiscussionMessage(animeInfo.animeName, extractEpisodeNumber(animeInfo.episodeName) || '?');
+      // No results from primary search - try manual search query automatically
+      await tryAutoSelectFromManualSearch(animeInfo);
+      return;
+    }
+
+    // Check if any result matches the exact release date (same day)
+    const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
+    
+    if (exactDateMatch) {
+      // Auto-select the post that matches the exact release date
+      console.log('Auto-selected post matching exact release date:', exactDateMatch.title);
+      await displayDiscussionDependingOnMode(exactDateMatch);
       return;
     }
 
@@ -232,6 +243,75 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
   } finally {
     searchInProgress = false;
   }
+}
+
+/**
+ * Helper: Find a post that matches the exact release date (same day)
+ */
+function findExactDateMatch(posts: any[], releaseDateText?: string): any | null {
+  if (!releaseDateText) return null;
+  
+  const releaseDate = parseReleaseDateFromCrunchyroll(releaseDateText);
+  if (!releaseDate) return null;
+  
+  for (const post of posts) {
+    const postDate = new Date(post.created_utc * 1000);
+    if (isSameDay(releaseDate, postDate)) {
+      return post;
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Parse Crunchyroll release date text into a Date object
+ */
+function parseReleaseDateFromCrunchyroll(releaseDateText: string): Date | null {
+  if (!releaseDateText) return null;
+  const text = releaseDateText.replace(/\s+/g, ' ').trim();
+  let cleaned = text.replace(/^(released\s+on|aired\s+on|premieres?\s+on|available\s+on|release\s*date:?|air\s*date:?)/i, '').trim();
+  const parsed = Date.parse(cleaned);
+  if (!Number.isNaN(parsed)) return new Date(parsed);
+  return null;
+}
+
+/**
+ * Check if two dates are on the same day (ignoring time)
+ */
+function isSameDay(date1: Date, date2: Date): boolean {
+  return date1.getFullYear() === date2.getFullYear() &&
+         date1.getMonth() === date2.getMonth() &&
+         date1.getDate() === date2.getDate();
+}
+
+/**
+ * Try to auto-select from manual search results if exact date match exists
+ */
+async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo): Promise<void> {
+  const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
+  const query = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
+  
+  console.log('Trying manual search with query:', query);
+  const results = await searchCustomPosts(query);
+  
+  if (!results || results.length === 0) {
+    showNoDiscussionMessage(animeInfo.animeName, ep || '?');
+    return;
+  }
+  
+  // Check if any result matches the exact release date
+  const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
+  
+  if (exactDateMatch) {
+    // Auto-select the post that matches the exact release date
+    console.log('Auto-selected from manual search (exact date match):', exactDateMatch.title);
+    await displayDiscussionDependingOnMode(exactDateMatch);
+    return;
+  }
+  
+  // No exact date match - show "no discussion" message with option to search
+  showNoDiscussionMessage(animeInfo.animeName, ep || '?');
 }
 
 async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: number): Promise<void> {
