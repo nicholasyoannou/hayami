@@ -553,33 +553,94 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     }
 
     /**
-     * If embed_images setting is enabled, convert standalone i.imgur.com lines
-     * into markdown image embeds using DuckDuckGo proxy.
-     * Only replaces lines that are exactly a single i.imgur.com URL (optionally surrounded by whitespace).
+     * If embed_images is enabled, convert standalone i.imgur.com lines to embedded image markdown.
+     * For all other cases (inline links, embeds disabled), we'll handle proxying at the DOM level
+     * to avoid breaking markdown link syntax.
      */
     async function maybeTransformImgurEmbeds(text: string): Promise<string> {
+      let embedImages = false;
       try {
         const data = await chrome.storage.local.get('embed_images');
-        if (!data?.embed_images) return text;
+        embedImages = !!data?.embed_images;
       } catch (e) {
-        // if storage access fails, don't modify text
         return text;
       }
+
+      if (!embedImages) return text; // Only transform if embedding is enabled
 
       const lines = text.split(/\r?\n/);
       const replaced = lines.map(line => {
         const trimmed = line.trim();
-        // match only exact i.imgur.com links
-        const m = trimmed.match(/^(https?:\/\/i\.imgur\.com\/\S+)$/i);
-        if (m) {
-          const original = m[1];
+        // Check if this line is ONLY a single i.imgur.com link (standalone)
+        const standaloneMatch = trimmed.match(/^(https?:\/\/i\.imgur\.com\/\S+)$/i);
+        if (standaloneMatch) {
+          const original = standaloneMatch[1];
           const duck = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
-          // return markdown image syntax
+          // Convert to image markdown
           return `![](${duck})`;
         }
         return line;
       });
       return replaced.join('\n');
+    }
+
+    /**
+     * DOM-level: always proxy ALL i.imgur.com links through DuckDuckGo.
+     * If embed_images is enabled AND the anchor is standalone, replace with embedded <img>.
+     * Otherwise just update the href to the proxied URL.
+     * This runs after markdown is rendered to HTML, so it won't break markdown syntax.
+     */
+    async function maybeApplyDomImgurEmbed(host: HTMLElement): Promise<boolean> {
+      let embedImages = false;
+      try {
+        const data = await chrome.storage.local.get('embed_images');
+        embedImages = !!data?.embed_images;
+      } catch (e) {
+        // embedImages stays false but we still proxy all links
+      }
+
+      let changed = false;
+      // Find ALL anchors linking to i.imgur.com (both standalone and inline)
+      const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+      for (const a of anchors) {
+        const href = a.getAttribute('href') || '';
+        // Only handle i.imgur.com links (allow any path/query params)
+        const m = href.match(/^https?:\/\/i\.imgur\.com\//i);
+        if (!m) continue;
+
+        const parent = a.parentElement;
+        if (!parent) continue;
+
+        // Determine if parent contains only this anchor (ignoring whitespace text nodes)
+        const meaningfulChildren = Array.from(parent.childNodes).filter(n => {
+          if (n === a) return true;
+          if (n.nodeType === Node.TEXT_NODE) {
+            return (n.textContent || '').trim().length > 0;
+          }
+          // any other element node counts as meaningful
+          return true;
+        });
+        const isStandalone = (meaningfulChildren.length === 1 && meaningfulChildren[0] === a);
+
+        // Always proxy the URL (preserve original URL exactly, just wrap it)
+        const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
+
+        if (embedImages && isStandalone) {
+          // Replace anchor with proxied image
+          const img = document.createElement('img');
+          img.src = prox;
+          img.alt = '';
+          img.style.maxWidth = '100%';
+          img.style.display = 'block';
+          parent.replaceChild(img, a);
+          changed = true;
+        } else {
+          // Just update the href to the proxied URL (keep as hyperlink with original link text)
+          a.setAttribute('href', prox);
+          changed = true;
+        }
+      }
+      return changed;
     }
 
     /**
@@ -649,7 +710,23 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         `;
         // Render markdown from API text (no HTML scraping)
         const textHost = el.querySelector('.ri-text') as HTMLElement;
+        // Initial render from API text
         textHost.innerHTML = markdownToHtml(c.body || '');
+        // Always transform i.imgur.com links (proxy them, and embed standalone ones if setting enabled).
+        // First try markdown-based transform, then apply DOM fallback for already-rendered HTML anchors.
+        (async () => {
+          try {
+            const transformed = await maybeTransformImgurEmbeds(c.body || '');
+            if (transformed && transformed !== (c.body || '')) {
+              textHost.innerHTML = markdownToHtml(transformed);
+            }
+            // Always apply DOM fallback to handle anchors (proxy all i.imgur links)
+            try { await maybeApplyDomImgurEmbed(textHost); } catch {}
+          } catch (e) {
+            // ignore errors and keep original render, but still try DOM fallback
+            try { await maybeApplyDomImgurEmbed(textHost); } catch {}
+          }
+        })();
         // Wire spoiler toggles
         textHost.querySelectorAll('.ri-spoiler').forEach(node => {
           node.addEventListener('click', () => node.classList.toggle('revealed'));
@@ -657,14 +734,19 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         // Load avatar lazily with cache
         const ava = el.querySelector('.ri-avatar') as HTMLImageElement | null;
         if (ava && c.author) {
-          const cached = avatarCache.get(c.author);
-          if (cached !== undefined) {
-            if (cached) ava.src = cached;
+          // Use default Reddit avatar for deleted users
+          if (c.author === '[deleted]') {
+            ava.src = 'https://www.redditstatic.com/avatars/defaults/v2/avatar_default_1.png';
           } else {
-            getUserAvatar(c.author).then(url => {
-              avatarCache.set(c.author, url || null);
-              if (url) ava.src = url;
-            }).catch(() => avatarCache.set(c.author, null));
+            const cached = avatarCache.get(c.author);
+            if (cached !== undefined) {
+              if (cached) ava.src = cached;
+            } else {
+              getUserAvatar(c.author).then(url => {
+                avatarCache.set(c.author, url || null);
+                if (url) ava.src = url;
+              }).catch(() => avatarCache.set(c.author, null));
+            }
           }
         }
         // Collapse/expand
@@ -727,7 +809,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               submitBtn.disabled = true;
               submitBtn.textContent = 'Submitting...';
 
-              // Optionally transform standalone i.imgur.com links into embedded images
+              // Always transform i.imgur.com links to proxied versions (standalone ones become embeds if setting enabled)
               let finalText = text;
               try {
                 finalText = await maybeTransformImgurEmbeds(text);
@@ -916,8 +998,22 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       return s.replace(/[&<>\"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch] as string));
     }
   function markdownToHtml(text: string): string {
-      // Escape HTML first to prevent injection
-      let html = escapeHtml(text || '');
+      // First unescape any HTML entities that Reddit might have already escaped
+      // (Reddit API sometimes returns pre-escaped text in the body field)
+      let cleaned = (text || '')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'");
+      
+      // Now escape HTML to prevent injection
+      let html = escapeHtml(cleaned);
+      
+      // Reddit spoiler link format: [text](/s "hover text") or [ ](/s "text")
+      // Match before regular links to avoid conflicts
+      html = html.replace(/\[([^\]]*)\]\(\/s\s+"([^"]+)"\)/g, '<span class="ri-spoiler" title="$2">$1</span>');
+      
       // Spoilers >!text!< (note: '>' becomes &gt; after escaping)
       html = html.replace(/&gt;!([\s\S]*?)!&lt;/g, '<span class="ri-spoiler">$1</span>');
       // Bold **text** (greedy within line)
