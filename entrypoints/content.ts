@@ -545,6 +545,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         <a class="ri-link" href="https://www.reddit.com${discussion.permalink}" target="_blank" rel="noopener">Open on Reddit</a>
       </div>
       <div class="ri-meta">u/${discussion.author} • ⬆️ ${discussion.score} • 💬 ${discussion.num_comments}</div>
+      ${(!discussion.archived && !discussion.locked) ? '<button id="ri-add-comment-btn" class="ri-add-comment-btn" type="button" title="Add a top-level comment">➕ Add Comment</button>' : ''}
+      <div id="ri-top-reply-host" class="ri-top-reply-container" style="display:none"></div>
       ${discussion.archived || discussion.locked ? `
         <div class="ri-archived-notice">
           <strong>⚠️ This post is ${discussion.archived ? 'archived' : 'locked'}</strong>
@@ -1124,6 +1126,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Wire sort and search
     const sortSelect = container.querySelector('#ri-sort-select') as HTMLSelectElement | null;
     const searchInput = container.querySelector('#ri-search') as HTMLInputElement | null;
+  const addCommentBtn = container.querySelector('#ri-add-comment-btn') as HTMLButtonElement | null;
+  const topReplyHost = container.querySelector('#ri-top-reply-host') as HTMLElement | null;
     sortSelect?.addEventListener('change', async () => {
       currentSort = (sortSelect.value as any) || 'best';
       // Reset UI and show skeletons during fetch
@@ -1167,6 +1171,58 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         appendNextPage();
       }, 250);
     });
+
+    // Top-level Add Comment button logic (single mount, toggle display)
+    if (addCommentBtn && topReplyHost && !discussion.archived && !discussion.locked) {
+      let topApp: VueApp | null = null;
+      addCommentBtn.addEventListener('click', async () => {
+        // Toggle existing
+        if (topReplyHost.style.display === 'block') {
+          if (topApp) {
+            topApp.unmount();
+            topApp = null;
+            mountedVueApps.delete(topReplyHost);
+          }
+          topReplyHost.style.display = 'none';
+          return;
+        }
+        // Mount new editor
+        topReplyHost.style.display = 'block';
+        topReplyHost.innerHTML = '';
+        const linkFullname = discussion.id?.startsWith('t3_') ? discussion.id : `t3_${discussion.id}`;
+        topApp = createApp(MarkdownReplyEditor, {
+          placeholder: 'Write a comment in markdown... (Ctrl+Enter to submit)',
+          onSubmit: async (text: string) => {
+            try {
+              const res = await submitComment(linkFullname, text);
+              if (res.success) {
+                alert('Comment posted successfully! Refresh (F5) to load your comment.');
+                if (topApp) {
+                  topApp.unmount();
+                  topApp = null;
+                  mountedVueApps.delete(topReplyHost);
+                }
+                topReplyHost.style.display = 'none';
+              } else {
+                alert(`Failed to post comment: ${res.error || 'Unknown error'}`);
+              }
+            } catch (e: any) {
+              alert(`Unexpected error: ${e?.message || e}`);
+            }
+          },
+          onCancel: () => {
+            if (topApp) {
+              topApp.unmount();
+              topApp = null;
+              mountedVueApps.delete(topReplyHost);
+            }
+            topReplyHost.style.display = 'none';
+          }
+        });
+        topApp.mount(topReplyHost);
+        mountedVueApps.set(topReplyHost, topApp);
+      });
+    }
 
   // container already inserted earlier
   } catch (e) {

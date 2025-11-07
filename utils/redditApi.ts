@@ -390,13 +390,13 @@ function normalizeAvatarCdnUrl(url: string): string | null {
 }
 
 /**
- * Submits a comment to a Reddit post
- * @param postId - The Reddit post ID (in format "t3_xxxxxx")
- * @param text - The comment text
- * @returns Success status and comment data
+ * Submits a comment to Reddit.
+ * Pass the parent fullname exactly as returned by the API, e.g.:
+ *  - Top-level comment on a post: 't3_<postid>'
+ *  - Reply to a comment: 't1_<commentid>'
  */
 export async function submitComment(
-  postId: string,
+  parentFullname: string,
   text: string
 ): Promise<{ success: boolean; commentId?: string; error?: string }> {
   try {
@@ -405,13 +405,13 @@ export async function submitComment(
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Ensure postId has the correct format
-    const fullPostId = postId.startsWith('t3_') ? postId : `t3_${postId}`;
+    // Use the fullname as-is; do NOT alter prefix (t3_ for posts, t1_ for comments)
+    const thingId = parentFullname;
 
     const formData = new URLSearchParams();
     formData.append('api_type', 'json');
     formData.append('text', text);
-    formData.append('thing_id', fullPostId);
+    formData.append('thing_id', thingId);
 
     const response = await fetch('https://oauth.reddit.com/api/comment', {
       method: 'POST',
@@ -424,7 +424,10 @@ export async function submitComment(
     });
 
     if (!response.ok) {
-      return { success: false, error: `Request failed: ${response.status}` };
+      // Try to surface error body if possible for easier debugging
+      let msg = `Request failed: ${response.status}`;
+      try { msg += ` ${await response.text()}`; } catch {}
+      return { success: false, error: msg };
     }
 
     const result = await response.json();
