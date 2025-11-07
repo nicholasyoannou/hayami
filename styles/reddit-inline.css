@@ -247,6 +247,24 @@
   margin-top: 2px;
 }
 
+.ri-text p {
+  margin: 0 0 16px 0;
+}
+
+.ri-text p:last-child {
+  margin-bottom: 0;
+}
+
+.ri-text code {
+  background: #272729;
+  border: 1px solid #343536;
+  border-radius: 2px;
+  padding: 2px 5px;
+  font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
+  font-size: 12px;
+  color: #d7dadc;
+}
+
 .ri-text h1 {
   font-size: 20px;
   margin: 10px 0 8px;
