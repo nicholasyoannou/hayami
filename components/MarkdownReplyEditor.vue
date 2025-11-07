@@ -231,6 +231,8 @@ function handleSpoiler() {
   span.style.color = '#d7dadc';
     span.style.padding = '0 4px';
     span.style.borderRadius = '3px';
+    // create visual breathing room without inserting actual spaces
+    span.style.margin = '0 0.2em';
     
     if (selectedText) {
       span.appendChild(range.extractContents());
@@ -240,16 +242,6 @@ function handleSpoiler() {
       span.appendChild(textNode);
       range.insertNode(span);
 
-      // Insert spaces around spoiler so caret can move out easily
-      const spaceBefore = document.createTextNode(' ');
-      const spaceAfter = document.createTextNode(' ');
-      if (span.previousSibling == null || (span.previousSibling.nodeType === Node.TEXT_NODE && (span.previousSibling as Text).data.endsWith(' ') === false)) {
-        span.before(spaceBefore);
-      }
-      if (span.nextSibling == null || (span.nextSibling.nodeType === Node.TEXT_NODE && (span.nextSibling as Text).data.startsWith(' ') === false)) {
-        span.after(spaceAfter);
-      }
-      
       const newRange = document.createRange();
       newRange.selectNodeContents(span);
       selection.removeAllRanges();
@@ -640,10 +632,9 @@ function handleRichMouseOut(e: MouseEvent) {
 .ri-markdown-toolbar {
   display: flex;
   gap: 4px;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: transparent;
   border: none;
-  border-bottom: 1px solid #343536;
   align-items: center;
 }
 
@@ -687,17 +678,17 @@ function handleRichMouseOut(e: MouseEvent) {
 }
 
 .ri-visual-content {
-  min-height: 200px;
-  max-height: 400px;
-  padding: 16px;
+  min-height: 120px;
+  max-height: 320px;
+  padding: 10px 14px 10px 14px;
   border: none;
-  background: #1a1a1b;
+  background: #111213;
   color: #d7dadc;
   outline: none;
   overflow: auto;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .ri-visual-content:empty:before {
@@ -717,19 +708,21 @@ function handleRichMouseOut(e: MouseEvent) {
 }
 
 .ri-visual-content code {
-  background: #272729;
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-family: "Courier New", monospace;
-  font-size: 0.9em;
+  background: #1f2224;
+  padding: 3px 6px;
+  border-radius: 8px;
+  border: 1px solid #2e3236;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.92em;
+  color: #e7e9ea;
 }
 
 .ri-visual-content blockquote {
-  border-left: 3px solid #818384;
+  border-left: 6px solid #2f3336;
   padding-left: 12px;
-  margin: 8px 0;
-  color: #818384;
-  font-style: italic;
+  margin: 6px 0;
+  color: #d7dadc;
+  font-style: normal;
 }
 
 .ri-visual-content a {
@@ -750,11 +743,12 @@ function handleRichMouseOut(e: MouseEvent) {
 
 /* Spoiler in editor: visible text, allow wrapping and line breaks */
 .ri-visual-content .spoiler-input {
-  background: #333;
+  background: #26282a;
   color: #d7dadc;
-  border-radius: 3px;
-  padding: 0 4px;
+  border-radius: 6px;
+  padding: 0 6px;
   white-space: pre-wrap; /* allow multi-line */
+  border: 1px solid #2e3236;
 }
 
 /* Link tooltip (only for hovered anchor) */
@@ -777,18 +771,19 @@ function handleRichMouseOut(e: MouseEvent) {
 
 .ri-markdown-textarea {
   width: 100%;
-  min-height: 200px;
-  max-height: 400px;
-  padding: 16px;
+  min-height: 120px;
+  max-height: 320px;
+  padding: 10px 14px;
   border: none;
-  background: #1a1a1b;
+  background: #111213;
   color: #d7dadc;
   outline: none;
   resize: vertical;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
   box-sizing: border-box;
+  border-radius: 0;
 }
 
 .ri-markdown-textarea::placeholder {
@@ -807,14 +802,13 @@ function handleRichMouseOut(e: MouseEvent) {
 .ri-reply-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
-  padding: 12px 16px;
-  background: #1a1a1b;
-  border-top: 1px solid #343536;
+  gap: 10px;
+  padding: 8px 10px 12px 10px;
+  background: transparent;
 }
 
 .ri-reply-submit {
-  padding: 8px 24px;
+  padding: 8px 22px;
   background: #ff4500;
   border: none;
   border-radius: 24px;
@@ -835,7 +829,7 @@ function handleRichMouseOut(e: MouseEvent) {
 }
 
 .ri-reply-cancel {
-  padding: 8px 24px;
+  padding: 8px 22px;
   background: transparent;
   border: none;
   border-radius: 24px;
@@ -853,5 +847,13 @@ function handleRichMouseOut(e: MouseEvent) {
 .ri-reply-cancel:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Container look: smaller, rounder, no inner lines */
+.ri-reply-box {
+  border-radius: 18px;
+  border: 1px solid #2f3336;
+  background: #0c0d0e;
+  overflow: hidden;
 }
 </style>
