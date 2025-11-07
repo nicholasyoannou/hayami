@@ -15,6 +15,7 @@ const isLoading = ref(false);
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 const displayMode = ref<'popup' | 'inline'>('popup');
+const embedImages = ref<boolean>(false);
 
 // Check authentication status on mount
 onMounted(async () => {
@@ -44,6 +45,9 @@ async function loadDisplayMode() {
     const data = await chrome.storage.local.get('display_mode');
     const mode = data?.display_mode;
     if (mode === 'popup' || mode === 'inline') displayMode.value = mode;
+    // load embed images setting
+    const emb = await chrome.storage.local.get('embed_images');
+    embedImages.value = Boolean(emb?.embed_images);
   } catch {}
 }
 
@@ -52,6 +56,13 @@ async function updateDisplayMode(mode: 'popup' | 'inline') {
   await chrome.storage.local.set({ display_mode: mode });
   successMessage.value = mode === 'popup' ? 'Display mode set to Popup overlay' : 'Display mode set to Inline comments';
   setTimeout(() => successMessage.value = null, 2000);
+}
+
+async function updateEmbedImages(enabled: boolean) {
+  embedImages.value = enabled;
+  await chrome.storage.local.set({ embed_images: enabled });
+  successMessage.value = enabled ? 'Image embedding enabled' : 'Image embedding disabled';
+  setTimeout(() => successMessage.value = null, 1500);
 }
 
 async function handleLogin() {
@@ -177,6 +188,13 @@ function openSettings() {
             <label><input type="radio" name="displayMode" value="inline" :checked="displayMode==='inline'" @change="updateDisplayMode('inline')"> Comments beneath the video</label>
           </div>
           <p class="small-note">You can change this anytime. Inline mode renders Reddit-style comments under the player.</p>
+          <div style="margin-top:12px;">
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" :checked="embedImages" @change="(e) => updateEmbedImages((e.target as HTMLInputElement).checked)" />
+              <span>Enable image embeds from standalone i.imgur.com links</span>
+            </label>
+            <p class="small-note">When enabled, a single-line image link (e.g. https://i.imgur.com/xyz.jpg) will be embedded via DuckDuckGo's image proxy.</p>
+          </div>
         </div>
 
         <div class="actions">

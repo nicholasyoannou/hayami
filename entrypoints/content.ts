@@ -3,8 +3,8 @@ import { isAuthenticated } from '@/utils/redditAuth';
 import '@/styles/reddit-inline.css';
 import EasyMDE from 'easymde';
 import 'easymde/dist/easymde.min.css';
-// Import Font Awesome for EasyMDE toolbar icons
-import '@fortawesome/fontawesome-free/css/all.min.css';
+import '@fortawesome/fontawesome-free/css/fontawesome.min.css';
+import '@fortawesome/fontawesome-free/css/solid.min.css';
 
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
@@ -553,6 +553,36 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     }
 
     /**
+     * If embed_images setting is enabled, convert standalone i.imgur.com lines
+     * into markdown image embeds using DuckDuckGo proxy.
+     * Only replaces lines that are exactly a single i.imgur.com URL (optionally surrounded by whitespace).
+     */
+    async function maybeTransformImgurEmbeds(text: string): Promise<string> {
+      try {
+        const data = await chrome.storage.local.get('embed_images');
+        if (!data?.embed_images) return text;
+      } catch (e) {
+        // if storage access fails, don't modify text
+        return text;
+      }
+
+      const lines = text.split(/\r?\n/);
+      const replaced = lines.map(line => {
+        const trimmed = line.trim();
+        // match only exact i.imgur.com links
+        const m = trimmed.match(/^(https?:\/\/i\.imgur\.com\/\S+)$/i);
+        if (m) {
+          const original = m[1];
+          const duck = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
+          // return markdown image syntax
+          return `![](${duck})`;
+        }
+        return line;
+      });
+      return replaced.join('\n');
+    }
+
+    /**
      * Renders comment actions bar with votes, reply, award, share
      */
     function renderActions(comment: any, awardsCount: number): string {
@@ -681,6 +711,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               toolbar: ['bold', 'italic', 'strikethrough', '|', 'quote', 'code', 'unordered-list', 'ordered-list', '|', 'link', 'preview'],
               minHeight: '120px',
               placeholder: 'Write your reply in markdown...',
+              autoDownloadFontAwesome: false,
             });
             
             const submitBtn = replyBox.querySelector('.ri-reply-submit') as HTMLButtonElement;
@@ -692,13 +723,21 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 alert('Reply cannot be empty');
                 return;
               }
-              
+
               submitBtn.disabled = true;
               submitBtn.textContent = 'Submitting...';
-              
+
+              // Optionally transform standalone i.imgur.com links into embedded images
+              let finalText = text;
+              try {
+                finalText = await maybeTransformImgurEmbeds(text);
+              } catch (e) {
+                // ignore transform errors and fall back to original text
+              }
+
               // Submit comment to Reddit
               const parentId = `t1_${c.id}`; // Comment fullname format
-              const result = await submitComment(parentId, text);
+              const result = await submitComment(parentId, finalText);
               
               if (result.success) {
                 replyBox.remove();
