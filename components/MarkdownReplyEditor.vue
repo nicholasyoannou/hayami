@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { toast } from 'vue-sonner';
 
 const props = defineProps<{
   placeholder?: string;
@@ -345,7 +346,7 @@ function handleSubmit() {
   const trimmed = content.trim();
   
   if (!trimmed) {
-    alert('Reply cannot be empty');
+    toast.error('Reply cannot be empty');
     return;
   }
   

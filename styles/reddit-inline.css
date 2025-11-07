@@ -383,9 +383,9 @@
 .ri-vote-btn[data-state="upvoted"] .ri-icon .outline,
 .ri-vote-btn[data-state="downvoted"] .ri-icon .outline { display: none; }
 
-/* Keep active background persistent even when not hovering */
+/* Active state: no persistent background */
 .ri-vote-btn[data-state="upvoted"],
-.ri-vote-btn[data-state="downvoted"] { background: #2a2a2c; }
+.ri-vote-btn[data-state="downvoted"] { background: transparent; }
 
 .ri-actions .ri-vote-btn:hover:not(:disabled),
 .ri-actions .ri-action-btn:hover:not(:disabled) {
@@ -395,7 +395,7 @@
 
 .ri-actions .ri-vote-btn[data-state="upvoted"],
 .ri-actions .ri-vote-btn[data-state="downvoted"] {
-  background: #2a2a2c;
+  background: transparent;
   color: rgb(217,57,0); /* active color */
 }
 
@@ -463,9 +463,10 @@
   color: #555;
 }
 
-/* Share stays default; only copied state is orange */
-.ri-action-btn.ri-share-btn.ri-copied span {
+/* Share copied state: icon and text orange; disable click while showing copied */
+.ri-action-btn.ri-share-btn.ri-copied {
   color: #ff4500;
+  pointer-events: none;
 }
 
 /* ==================== Awards Badge ==================== */
