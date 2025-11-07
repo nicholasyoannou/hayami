@@ -1,8 +1,9 @@
 import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment } from '@/utils/redditApi';
+import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { isAuthenticated } from '@/utils/redditAuth';
 import '@/styles/reddit-inline.css';
-import EasyMDE from 'easymde';
-import 'easymde/dist/easymde.min.css';
+import { createApp, type App as VueApp } from 'vue';
+import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
 import '@fortawesome/fontawesome-free/css/fontawesome.min.css';
 import '@fortawesome/fontawesome-free/css/solid.min.css';
 
@@ -40,6 +41,9 @@ let activeObserver: MutationObserver | null = null;
 let lastAnimeInfo: AnimeInfo | null = null;
 type DisplayMode = 'popup' | 'inline';
 let displayMode: DisplayMode = 'popup';
+
+// Track mounted Vue app instances for proper cleanup
+const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
 
 async function loadDisplayMode(): Promise<void> {
   try {
@@ -835,7 +839,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         const shareBtn = el.querySelector('.ri-action.ri-share') as HTMLSpanElement | null;
         const replyBtn = el.querySelector('.ri-action:not(.ri-share):not(.ri-award):not(.ri-award-disabled)') as HTMLSpanElement | null;
         
-        // Reply button handler
+        // Reply button handler - Using Vue component
         if (replyBtn && !discussion.archived && !discussion.locked) {
           replyBtn.addEventListener('click', (ev) => {
             ev.stopPropagation();
@@ -843,78 +847,60 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             // Check if reply box already exists
             const existingReplyBox = el.querySelector('.ri-reply-box');
             if (existingReplyBox) {
+              // Unmount Vue app if it exists
+              const vueApp = mountedVueApps.get(existingReplyBox as HTMLElement);
+              if (vueApp) {
+                vueApp.unmount();
+                mountedVueApps.delete(existingReplyBox as HTMLElement);
+              }
               existingReplyBox.remove();
               return;
             }
             
-            // Create reply box
-            const replyBox = document.createElement('div');
-            replyBox.className = 'ri-reply-box';
-            replyBox.innerHTML = `
-              <textarea class="ri-reply-textarea" placeholder="Write your reply in markdown..."></textarea>
-              <div class="ri-reply-actions">
-                <button class="ri-reply-submit">Submit</button>
-                <button class="ri-reply-cancel">Cancel</button>
-              </div>
-            `;
+            // Create container for Vue component
+            const container = document.createElement('div');
+            
+            // Create and mount Vue app with MarkdownReplyEditor component
+            const app = createApp(MarkdownReplyEditor, {
+              placeholder: 'Write your reply in markdown...',
+              onSubmit: async (text: string) => {
+                // Transform i.imgur.com links to proxied versions (standalone ones become embeds if setting enabled)
+                let finalText = text;
+                try {
+                  finalText = await maybeTransformImgurEmbeds(text);
+                } catch (e) {
+                  // ignore transform errors and fall back to original text
+                }
+
+                // Submit comment to Reddit
+                const parentId = `t1_${c.id}`; // Comment fullname format
+                const result = await submitComment(parentId, finalText);
+                
+                if (result.success) {
+                  // Cleanup Vue app
+                  app.unmount();
+                  container.remove();
+                  mountedVueApps.delete(container);
+                  alert('Reply posted successfully! Refresh to see your comment.');
+                } else {
+                  alert(`Failed to post reply: ${result.error || 'Unknown error'}`);
+                  // Component will reset its submitting state internally
+                }
+              },
+              onCancel: () => {
+                // Cleanup Vue app
+                app.unmount();
+                container.remove();
+                mountedVueApps.delete(container);
+              }
+            });
+            
+            app.mount(container);
+            mountedVueApps.set(container, app);
             
             // Insert after actions bar
             const actionsBar = el.querySelector('.ri-actions');
-            actionsBar?.parentElement?.insertBefore(replyBox, actionsBar.nextSibling);
-            
-            const textarea = replyBox.querySelector('.ri-reply-textarea') as HTMLTextAreaElement;
-            
-            // Initialize EasyMDE
-            const editor = new EasyMDE({
-              element: textarea,
-              autofocus: true,
-              spellChecker: false,
-              status: false,
-              toolbar: ['bold', 'italic', 'strikethrough', '|', 'quote', 'code', 'unordered-list', 'ordered-list', '|', 'link', 'preview'],
-              minHeight: '120px',
-              placeholder: 'Write your reply in markdown...',
-              autoDownloadFontAwesome: false,
-            });
-            
-            const submitBtn = replyBox.querySelector('.ri-reply-submit') as HTMLButtonElement;
-            const cancelBtn = replyBox.querySelector('.ri-reply-cancel') as HTMLButtonElement;
-            
-            submitBtn.addEventListener('click', async () => {
-              const text = editor.value().trim();
-              if (!text) {
-                alert('Reply cannot be empty');
-                return;
-              }
-
-              submitBtn.disabled = true;
-              submitBtn.textContent = 'Submitting...';
-
-              // Always transform i.imgur.com links to proxied versions (standalone ones become embeds if setting enabled)
-              let finalText = text;
-              try {
-                finalText = await maybeTransformImgurEmbeds(text);
-              } catch (e) {
-                // ignore transform errors and fall back to original text
-              }
-
-              // Submit comment to Reddit
-              const parentId = `t1_${c.id}`; // Comment fullname format
-              const result = await submitComment(parentId, finalText);
-              
-              if (result.success) {
-                replyBox.remove();
-                alert('Reply posted successfully! Refresh to see your comment.');
-              } else {
-                alert(`Failed to post reply: ${result.error || 'Unknown error'}`);
-                submitBtn.disabled = false;
-                submitBtn.textContent = 'Submit';
-              }
-            });
-            
-            cancelBtn.addEventListener('click', () => {
-              editor.toTextArea();
-              replyBox.remove();
-            });
+            actionsBar?.parentElement?.insertBefore(container, actionsBar.nextSibling);
           });
         } else if (replyBtn && (discussion.archived || discussion.locked)) {
           // Disable reply button for archived/locked posts
@@ -1074,59 +1060,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       return frag;
     }
 
-    function escapeHtml(s: string) {
-      return s.replace(/[&<>\"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch] as string));
-    }
-  function markdownToHtml(text: string): string {
-      // First unescape any HTML entities that Reddit might have already escaped
-      // (Reddit API sometimes returns pre-escaped text in the body field)
-      let cleaned = (text || '')
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'");
-      
-      // Now escape HTML to prevent injection
-      let html = escapeHtml(cleaned);
-      
-      // Reddit spoiler link format: [text](/s "hover text") or [ ](/s "text")
-      // Match before regular links to avoid conflicts
-      html = html.replace(/\[([^\]]*)\]\(\/s\s+"([^"]+)"\)/g, '<span class="ri-spoiler" title="$2">$1</span>');
-      
-      // Spoilers >!text!< (note: '>' becomes &gt; after escaping)
-      html = html.replace(/&gt;!([\s\S]*?)!&lt;/g, '<span class="ri-spoiler">$1</span>');
-      // Bold **text** (greedy within line)
-      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-      // Italic *text* or _text_ (non-greedy, surrounded by spaces or start/end)
-      html = html.replace(/(^|\s)\*([^*][\s\S]*?)\*(?=\s|$)/g, '$1<em>$2</em>');
-      html = html.replace(/(^|\s)_([^_][\s\S]*?)_(?=\s|$)/g, '$1<em>$2</em>');
-      // Strikethrough ~~text~~
-      html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-      // Inline code `code`
-      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-      // Links [text](url)
-      html = html.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      // Headings: lines starting with 1-6 # (allow up to 3 leading spaces like CommonMark)
-      html = html.replace(/^\s{0,3}(#{1,6})\s+(.+)$/gm, (_m, hashes: string, title: string) => {
-        const level = Math.min(6, Math.max(1, hashes.length));
-        return `<h${level}>${title.trim()}</h${level}>`;
-      });
-      // Blockquotes: lines starting with > (escaped to &gt;)
-      html = html.replace(/^(&gt;|>)\s?(.*)$/gm, (_m, _gt: string, body: string) => `<blockquote>${body}</blockquote>`);
-      // Reddit line breaks: two spaces + newline OR backslash + newline = <br/>
-      // First handle backslash line breaks (\ followed by newline)
-      html = html.replace(/\\n/g, '<br/>');
-      // Then handle double-space line breaks (two spaces + newline)
-      html = html.replace(/  \n/g, '<br/>');
-      // Paragraphs: double newlines = paragraph break
-      html = html.replace(/\n\n+/g, '</p><p>');
-      // Wrap content in paragraph tags
-      html = `<p>${html}</p>`;
-      // Single newlines that aren't line breaks get converted to spaces (Reddit behavior)
-      html = html.replace(/([^>])\n([^<])/g, '$1 $2');
-      return html;
-    }
+    // markdownToHtml now imported from utils/markdown
 
     // Infinite scroll paging for top-level comments
     let pageIndex = 0;
