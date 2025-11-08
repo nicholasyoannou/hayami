@@ -411,8 +411,11 @@
   box-shadow: 0 6px 20px rgba(0,0,0,0.5);
   z-index: 9999;
   display: none;
-  max-width: 420px;
-  max-height: 360px;
+  /* Tighter viewport caps so previews don't overwhelm the page */
+  max-width: 40vw;
+  max-height: 50vh;
+  /* Add a small transition for smoother reveal */
+  transition: opacity 140ms ease, transform 140ms ease;
   overflow: hidden;
 }
 .ri-img-tooltip img {
@@ -421,7 +424,34 @@
   max-height: 100%;
   object-fit: contain;
   border-radius: 4px;
+  /* start slightly faded; JS will animate to full opacity on load */
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 160ms ease, transform 160ms ease;
 }
+.ri-img-tooltip:not(.loading) img {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* Loading state inside tooltip: show spinner while image downloads */
+.ri-img-tooltip.loading {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  /* smaller minimum so tooltip isn't huge while loading */
+  min-width: 140px;
+  min-height: 100px;
+}
+.ri-img-tooltip .ri-img-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.12);
+  border-top-color: rgba(255,255,255,0.95);
+  animation: ri-spin 1s linear infinite;
+}
+@keyframes ri-spin { to { transform: rotate(360deg); } }
 
 .ri-actions .ri-vote-btn:disabled,
 .ri-actions .ri-action-btn:disabled {

@@ -66,6 +66,7 @@ const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
 let imgPreviewEl: HTMLImageElement | null = null;
 let imgPreviewHost: HTMLDivElement | null = null;
 let previewActiveHref: string | null = null;
+let imgPreviewSpinner: HTMLDivElement | null = null;
 
 function isImageLink(href: string): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg)(?:\?|#|$)/i.test(href);
@@ -115,34 +116,90 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
       imgPreviewEl.alt = '';
       imgPreviewHost!.appendChild(imgPreviewEl);
     }
-    imgPreviewEl.src = href;
+    // Show a loading spinner immediately so users get instant feedback
+    imgPreviewHost.classList.add('loading');
+    if (!imgPreviewSpinner) {
+      imgPreviewSpinner = document.createElement('div');
+      imgPreviewSpinner.className = 'ri-img-spinner';
+    }
+    // Hide the image element until it finishes loading
+    if (imgPreviewEl) imgPreviewEl.style.display = 'none';
+    if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner);
+    // Make tooltip visible (CSS .loading will center the spinner)
+    imgPreviewHost.style.display = 'flex';
     imgPreviewHost.style.opacity = '0';
-    imgPreviewHost.style.display = 'block';
+    // When the image loads, remove spinner, reveal image, and resize host
+    imgPreviewEl.onload = () => {
+      try {
+        // Remove spinner
+        try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
+        imgPreviewHost.classList.remove('loading');
+        if (imgPreviewEl) imgPreviewEl.style.display = 'block';
+  const pad = 14;
+  // Enforce stricter visible caps so previews don't dominate the page.
+  // Use viewport-relative caps combined with an absolute pixel limit to avoid huge previews on large screens.
+  const maxW = Math.min(window.innerWidth * 0.4, 800); // at most 40vw or 800px
+  const maxH = Math.min(window.innerHeight * 0.5, 640); // at most 50vh or 640px
+        const natW = imgPreviewEl.naturalWidth || 0;
+        const natH = imgPreviewEl.naturalHeight || 0;
+        let dispW = natW;
+        let dispH = natH;
+        if (natW === 0 || natH === 0) {
+          // fallback to CSS rules
+          imgPreviewHost.style.width = '';
+          imgPreviewHost.style.height = '';
+        } else {
+          // scale to fit within maxW/maxH while preserving aspect
+          const wScale = maxW / natW;
+          const hScale = maxH / natH;
+          const scale = Math.min(1, wScale, hScale);
+          dispW = Math.round(natW * scale);
+          dispH = Math.round(natH * scale);
+          imgPreviewHost.style.width = dispW + 'px';
+          imgPreviewHost.style.height = dispH + 'px';
+        }
+        // positioning handled by mousemove
+      } catch (e) {}
+    };
+    imgPreviewEl.onerror = () => {
+      // Loading failed — remove spinner and hide tooltip
+      try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
+      try { imgPreviewHost.classList.remove('loading'); } catch {}
+      try { imgPreviewHost.style.display = 'none'; } catch {}
+    };
+    imgPreviewEl.src = href;
   });
 
   document.addEventListener('mousemove', (ev) => {
-    if (!imgPreviewHost || !imgPreviewHost.style.display || imgPreviewHost.style.display === 'none') return;
-    const pad = 14;
-    const maxW = Math.min(window.innerWidth * 0.35, 420);
-    const maxH = Math.min(window.innerHeight * 0.35, 360);
-    imgPreviewHost.style.maxWidth = `${maxW}px`;
-    imgPreviewHost.style.maxHeight = `${maxH}px`;
+  if (!imgPreviewHost || !imgPreviewHost.style.display || imgPreviewHost.style.display === 'none') return;
+  const pad = 14;
+  // Keep mousemove sizing consistent with onload: cap to a conservative viewport fraction and an absolute pixel limit
+  const maxW = Math.min(window.innerWidth * 0.4, 800);
+  const maxH = Math.min(window.innerHeight * 0.5, 640);
+  imgPreviewHost.style.maxWidth = `${maxW}px`;
+  imgPreviewHost.style.maxHeight = `${maxH}px`;
+    // If we have a loaded image, size the host to its displayed size so positioning is accurate
+    const rect = imgPreviewHost.getBoundingClientRect();
     let left = ev.clientX + pad;
     let top = ev.clientY + pad;
-    const rect = imgPreviewHost.getBoundingClientRect();
     if (left + rect.width > window.innerWidth - 8) left = ev.clientX - rect.width - pad;
     if (top + rect.height > window.innerHeight - 8) top = ev.clientY - rect.height - pad;
-    imgPreviewHost.style.left = `${left + window.scrollX}px`;
-    imgPreviewHost.style.top = `${top + window.scrollY}px`;
+    imgPreviewHost.style.left = `${Math.max(8, left + window.scrollX)}px`;
+    imgPreviewHost.style.top = `${Math.max(8, top + window.scrollY)}px`;
     imgPreviewHost.style.opacity = '1';
   });
 
   const hidePreview = () => {
     previewActiveHref = null;
     if (imgPreviewHost) {
+      // Remove loading state and any spinner
+      try { imgPreviewHost.classList.remove('loading'); } catch {}
+      try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
       imgPreviewHost.style.display = 'none';
       imgPreviewHost.style.opacity = '0';
     }
+    // Abort in-flight image load
+    try { if (imgPreviewEl) { imgPreviewEl.src = ''; imgPreviewEl.onload = null; imgPreviewEl.onerror = null; } } catch {}
   };
   document.addEventListener('mouseout', (ev) => {
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
@@ -860,6 +917,176 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       return changed;
     }
 
+    // Top-level helper: detect if user is in the UK (cached in chrome.storage.local.geo_country)
+    async function detectUserInUK(): Promise<boolean> {
+      try {
+        const cached = await chrome.storage.local.get('geo_country');
+        if (cached && cached.geo_country) return cached.geo_country === 'GB';
+      } catch {}
+      try {
+        const res = await fetch('https://ipapi.co/json');
+        if (!res.ok) return false;
+        const j = await res.json();
+        const country = (j && (j.country || j.country_code || j.country_code_iso3 || j.country_name)) || '';
+        const isUk = String(country).toUpperCase().startsWith('GB') || String(country).toUpperCase().startsWith('UK') || String(country).toUpperCase() === 'UNITED KINGDOM';
+        try { await chrome.storage.local.set({ geo_country: isUk ? 'GB' : String(country) }); } catch {}
+        return isUk;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    /**
+     * Handle direct Imgur page links like imgur.com/0ckf6Mp
+     * Attempt to resolve the direct image URL via Imgur API (/3/image/:id).
+     * If that fails, fall back to trying common extensions on i.imgur.com (jpg/png/gif).
+     * When resolved, rewrite the anchor href to the DuckDuckGo proxied image URL so
+     * the existing hover-preview logic will display it.
+     */
+    async function maybeHandleImgurDirect(host: HTMLElement): Promise<boolean> {
+      let changed = false;
+      const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+      if (anchors.length === 0) return false;
+
+      const isStandaloneImgurPage = (href: string) => {
+        // Match imgur.com/<id> but exclude /a/album and /gallery/ paths and i.imgur.com
+        const m = href.match(/^https?:\/\/imgur\.com\/(?!a\/)(?!gallery\/)([^\/\?#]+)(?:[\?#].*)?$/i);
+        return m ? m[1] : null;
+      };
+
+      for (const a of anchors) {
+        const href = a.getAttribute('href') || '';
+        if (/images\.duckduckgo\.com\/iu\/?/i.test(href)) continue; // already proxied
+        if (/i\.imgur\.com\//i.test(href)) continue; // already direct image
+        const id = isStandaloneImgurPage(href);
+        if (!id) continue;
+
+        try {
+          // First try to fetch the Imgur page itself with credentials included
+          // (this can leverage browser cookies if the user is logged in to imgur.com)
+          let resolved: string | null = null;
+          try {
+            const pageUrl = `https://imgur.com/${encodeURIComponent(id)}`;
+            const rp = await fetch(pageUrl, { credentials: 'include' });
+            if (rp && rp.ok) {
+              const t = await rp.text();
+              // Look for og:image or link rel=image_src
+              const m1 = t.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
+              const m2 = t.match(/<link\s+rel=["']image_src["']\s+href=["']([^"']+)["']/i);
+              const found = (m1 && m1[1]) || (m2 && m2[1]);
+              if (found) resolved = found;
+            }
+          } catch (e) {
+            // ignore and fall back to API
+          }
+          // If page fetch did not resolve, try Imgur API to resolve exact link
+          if (!resolved) {
+            const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
+            try {
+              const r = await fetch(apiUrl, { headers: { Accept: 'application/json' } });
+              if (r.ok) {
+                const j = await r.json();
+                if (j && j.data && j.data.link) resolved = j.data.link;
+              }
+            } catch (e) {
+              // ignore and fall back
+            }
+          }
+
+          // If API didn't return a link, try common extensions on i.imgur.com
+          if (!resolved) {
+            const exts = ['.jpg', '.png', '.gif', '.webp'];
+            for (const ext of exts) {
+              const tryUrl = `https://i.imgur.com/${id}${ext}`;
+              try {
+                const r2 = await fetch(tryUrl, { method: 'HEAD' });
+                if (r2.ok) {
+                  resolved = tryUrl;
+                  break;
+                }
+              } catch (e) {
+                // HEAD may be blocked; try GET as a last resort
+                try {
+                  const r3 = await fetch(tryUrl);
+                  if (r3.ok) { resolved = tryUrl; break; }
+                } catch {}
+              }
+            }
+          }
+
+          if (resolved) {
+            const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(resolved)}`;
+            a.setAttribute('href', prox);
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noopener noreferrer');
+            changed = true;
+          }
+        } catch (e) {
+          // ignore per-link errors
+          console.warn('Imgur direct resolver failed for', href, e);
+        }
+      }
+
+      return changed;
+    }
+
+    /**
+     * Handle Imgur album links (imgur.com/a/<id>). For UK-based users, fetch a GB proxy service
+     * which returns a simple array of i.imgur.com links. For others, fall back to Imgur API.
+     * If the album resolves to a single image, rewrite the anchor href to the proxied i.imgur URL
+     * so the existing hover-preview logic will show the image.
+     */
+    async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean> {
+      let changed = false;
+      const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+      if (anchors.length === 0) return false;
+
+      const uk = await detectUserInUK();
+
+      for (const a of anchors) {
+        const href = a.getAttribute('href') || '';
+        const m = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
+        if (!m) continue;
+        const albumId = m[1];
+        try {
+          let images: string[] = [];
+          if (uk) {
+            // GB proxy service returns a JSON array of i.imgur.com links
+            const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
+            const r = await fetch(proxyUrl);
+            if (r.ok) {
+              const j = await r.json();
+              if (Array.isArray(j)) images = j.filter(Boolean).map(String);
+            }
+          } else {
+            // Fallback to Imgur API public album endpoint
+            const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
+            const r = await fetch(apiUrl, { headers: { Accept: 'application/json' } });
+            if (r.ok) {
+              const j = await r.json();
+              if (j && j.data && Array.isArray(j.data.images)) {
+                images = j.data.images.map((it: any) => it.link).filter(Boolean);
+              }
+            }
+          }
+
+          if (images.length === 1) {
+            const original = images[0];
+            const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
+            a.setAttribute('href', prox);
+            a.setAttribute('target', '_blank');
+            a.setAttribute('rel', 'noopener noreferrer');
+            changed = true;
+          }
+        } catch (e) {
+          // ignore errors and continue
+          console.warn('Imgur album proxy failed', e);
+        }
+      }
+
+      return changed;
+    }
+
     /**
      * Renders comment actions bar with votes, reply, award, share
      */
@@ -966,9 +1193,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
             // Always apply DOM fallback to handle anchors (proxy all i.imgur links)
             try { await maybeApplyDomImgurEmbed(textHost); } catch {}
+            // Handle Imgur album links (imgur.com/a/ID) to resolve single-image albums
+            try { await maybeHandleImgurAlbums(textHost); } catch {}
+            // Handle direct imgur pages (imgur.com/<id>) and rewrite to proxied i.imgur if possible
+            try { await maybeHandleImgurDirect(textHost); } catch {}
           } catch (e) {
             // ignore errors and keep original render, but still try DOM fallback
             try { await maybeApplyDomImgurEmbed(textHost); } catch {}
+            try { await maybeHandleImgurAlbums(textHost); } catch {}
+            try { await maybeHandleImgurDirect(textHost); } catch {}
           }
         })();
         // Wire spoiler toggles
@@ -1356,13 +1589,26 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             moreEl.remove();
             const childFrag2 = renderComments(added, depth + 1);
             childHost.appendChild(childFrag2);
+            // Ensure newly appended children have imgur links proxied and album links/direct links resolved
+            try { await maybeApplyDomImgurEmbed(childHost); } catch {}
+            try { await maybeHandleImgurAlbums(childHost); } catch {}
+            try { await maybeHandleImgurDirect(childHost); } catch {}
             if (c.moreCount > 0) {
               const again = document.createElement('div');
               const nn = c.moreCount;
               again.className = 'ri-more-replies';
               again.textContent = `${nn} more repl${nn === 1 ? 'y' : 'ies'}`;
               again.style.cursor = 'pointer';
-              again.addEventListener('click', () => moreEl.click());
+              again.addEventListener('click', async () => {
+                // Reuse same load behavior: fetch next chunk when 'again' clicked
+                // Trigger the original moreEl click handler by invoking the same logic
+                try {
+                  // Simulate click on the removed moreEl handler by calling its listener indirectly
+                  moreEl.click();
+                } catch {
+                  // Fallback: do nothing
+                }
+              });
               childHost.appendChild(again);
             }
           });
