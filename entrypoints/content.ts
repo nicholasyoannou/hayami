@@ -11,6 +11,7 @@ import { Toaster, toast } from 'vue-sonner';
 // Correct style import per package exports ("vue-sonner/style.css")
 import 'vue-sonner/style.css';
 import { useMotion } from '@vueuse/motion';
+import YouTubeModal from '@/components/YouTubeModal.vue';
 
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
@@ -43,6 +44,9 @@ export default defineContentScript({
         queueHandleWatchPage(ctx);
       }
     });
+
+    // Wire global delegated handlers once for image hover previews and YouTube modal
+    wireGlobalPreviewAndYouTubeHandlers();
   },
 });
 
@@ -57,6 +61,120 @@ let displayMode: DisplayMode = 'popup';
 
 // Track mounted Vue app instances for proper cleanup
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
+
+// Global state for image hover preview
+let imgPreviewEl: HTMLImageElement | null = null;
+let imgPreviewHost: HTMLDivElement | null = null;
+let previewActiveHref: string | null = null;
+
+function isImageLink(href: string): boolean {
+  return /\.(png|jpe?g|gif|webp|bmp|svg)(?:\?|#|$)/i.test(href);
+}
+
+function isYouTubeLink(href: string): boolean {
+  return /(youtube\.com\/watch\?v=|youtu\.be\/)/i.test(href);
+}
+
+function extractYouTubeId(href: string): string | null {
+  try {
+    const url = new URL(href);
+    if (url.hostname.includes('youtu.be')) {
+      return url.pathname.replace(/^\//, '') || null;
+    }
+    if (url.hostname.includes('youtube.com')) {
+      const v = url.searchParams.get('v');
+      if (v) return v;
+      // Shorts or other formats
+      const m = url.pathname.match(/\/shorts\/([A-Za-z0-9_-]{6,})/);
+      if (m) return m[1];
+    }
+  } catch {}
+  return null;
+}
+
+let globalHandlersWired = false;
+function wireGlobalPreviewAndYouTubeHandlers(): void {
+  if (globalHandlersWired) return;
+  globalHandlersWired = true;
+
+  // Hover preview for image anchors in rendered comments
+  document.addEventListener('mouseover', (ev) => {
+    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    if (!a) return;
+    if (!a.closest('.ri-text')) return; // only inside comment bodies
+    const href = a.getAttribute('href') || '';
+    if (!isImageLink(href)) return;
+    previewActiveHref = href;
+    if (!imgPreviewHost) {
+      imgPreviewHost = document.createElement('div');
+      imgPreviewHost.className = 'ri-img-tooltip';
+      document.body.appendChild(imgPreviewHost);
+    }
+    if (!imgPreviewEl) {
+      imgPreviewEl = document.createElement('img');
+      imgPreviewEl.alt = '';
+      imgPreviewHost!.appendChild(imgPreviewEl);
+    }
+    imgPreviewEl.src = href;
+    imgPreviewHost.style.opacity = '0';
+    imgPreviewHost.style.display = 'block';
+  });
+
+  document.addEventListener('mousemove', (ev) => {
+    if (!imgPreviewHost || !imgPreviewHost.style.display || imgPreviewHost.style.display === 'none') return;
+    const pad = 14;
+    const maxW = Math.min(window.innerWidth * 0.35, 420);
+    const maxH = Math.min(window.innerHeight * 0.35, 360);
+    imgPreviewHost.style.maxWidth = `${maxW}px`;
+    imgPreviewHost.style.maxHeight = `${maxH}px`;
+    let left = ev.clientX + pad;
+    let top = ev.clientY + pad;
+    const rect = imgPreviewHost.getBoundingClientRect();
+    if (left + rect.width > window.innerWidth - 8) left = ev.clientX - rect.width - pad;
+    if (top + rect.height > window.innerHeight - 8) top = ev.clientY - rect.height - pad;
+    imgPreviewHost.style.left = `${left + window.scrollX}px`;
+    imgPreviewHost.style.top = `${top + window.scrollY}px`;
+    imgPreviewHost.style.opacity = '1';
+  });
+
+  const hidePreview = () => {
+    previewActiveHref = null;
+    if (imgPreviewHost) {
+      imgPreviewHost.style.display = 'none';
+      imgPreviewHost.style.opacity = '0';
+    }
+  };
+  document.addEventListener('mouseout', (ev) => {
+    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    if (a && a.closest('.ri-text')) hidePreview();
+  });
+  document.addEventListener('scroll', () => hidePreview(), true);
+
+  // YouTube modal on click, images: open new tab
+  document.addEventListener('click', (ev) => {
+    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    if (!a) return;
+    if (!a.closest('.ri-text')) return;
+    const href = a.getAttribute('href') || '';
+    if (isYouTubeLink(href)) {
+      ev.preventDefault();
+      const vid = extractYouTubeId(href);
+      if (!vid) return;
+      openYouTubeModal(vid);
+    } else if (isImageLink(href)) {
+      // Force open in a new tab
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+}
+
+function openYouTubeModal(videoId: string): void {
+  const host = document.createElement('div');
+  document.body.appendChild(host);
+  const app = createApp(YouTubeModal, { videoId, onClose: () => { app.unmount(); host.remove(); } });
+  app.mount(host);
+}
 
 async function loadDisplayMode(): Promise<void> {
   try {
