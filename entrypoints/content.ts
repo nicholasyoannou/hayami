@@ -10,6 +10,7 @@ import '@fortawesome/fontawesome-free/css/solid.min.css';
 import { Toaster, toast } from 'vue-sonner';
 // Correct style import per package exports ("vue-sonner/style.css")
 import 'vue-sonner/style.css';
+import { useMotion } from '@vueuse/motion';
 
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
@@ -769,9 +770,32 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           </div>
           <button class="ri-action-btn ri-reply${disabledClass}" title="Reply${disabledTitle}">${replySvg}<span>Reply</span></button>
           <button class="ri-action-btn ri-share-btn" title="Share">${shareSvg}<span>Share</span></button>
-          <span class="ri-more" title="More">…</span>
+          <!-- Removed ellipsis menu placeholder per request -->
         </div>
       `;
+    }
+
+    /**
+     * Trigger slide animation for vote buttons
+     * @param voteBtn - The vote button element to animate
+     * @param isUpvote - True for upvote (slide from top), false for downvote (slide from bottom)
+     */
+    function triggerScoreAnimation(voteBtn: HTMLElement, isUpvote: boolean) {
+      // Use @vueuse/motion to animate the button itself
+      useMotion(voteBtn, {
+        initial: {
+          y: 0
+        },
+        enter: {
+          y: isUpvote ? [-10, 0] : [10, 0],
+          transition: {
+            type: 'spring',
+            stiffness: 400,
+            damping: 25,
+            duration: 300
+          }
+        }
+      });
     }
 
     function renderComments(list: any[], depth = 0, highlightIds: Set<string> = new Set()) {
@@ -861,6 +885,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         
         // Reply button handler - Using Vue component
         if (upvoteBtn && downvoteBtn && !discussion.archived && !discussion.locked) {
+          // Disable voting on deleted users/comments
+          if (c.author === '[deleted]') {
+            upvoteBtn.disabled = true;
+            downvoteBtn.disabled = true;
+            upvoteBtn.classList.add('ri-disabled');
+            downvoteBtn.classList.add('ri-disabled');
+          }
           // Initialize prior vote state from API (likes: true=up, false=down, null=none)
           if (c.likes === true) {
             upvoteBtn.setAttribute('data-state','upvoted');
@@ -870,10 +901,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             upvoteBtn.setAttribute('data-state','idle');
           }
           const scoreEl = el.querySelector('.ri-score') as HTMLElement | null;
+          if (scoreEl) {
+            scoreEl.classList.add('ri-score-host');
+            scoreEl.style.position = 'relative';
+            scoreEl.style.display = 'inline-block';
+          }
           let inFlight = false;
           upvoteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (inFlight) return;
+            if (inFlight || upvoteBtn.disabled) return;
             const prevUp = upvoteBtn.getAttribute('data-state');
             const prevDown = downvoteBtn.getAttribute('data-state');
             const goingIdle = prevUp === 'upvoted';
@@ -911,15 +947,17 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 c.likes = newDir === 1 ? true : null;
                 if (newDir === 1) {
                   toast.success('Upvote applied');
+                  triggerScoreAnimation(upvoteBtn, true);
                 } else {
                   toast.success('Upvote removed');
+                  triggerScoreAnimation(upvoteBtn, true);
                 }
               }
             }).finally(() => { inFlight = false; });
           });
           downvoteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (inFlight) return;
+            if (inFlight || downvoteBtn.disabled) return;
             const prevUp = upvoteBtn.getAttribute('data-state');
             const prevDown = downvoteBtn.getAttribute('data-state');
             const goingIdle = prevDown === 'downvoted';
@@ -953,8 +991,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 c.likes = newDir === -1 ? false : null;
                 if (newDir === -1) {
                   toast.success('Downvote applied');
+                  triggerScoreAnimation(downvoteBtn, false);
                 } else {
                   toast.success('Downvote removed');
+                  triggerScoreAnimation(downvoteBtn, false);
                 }
               }
             }).finally(() => { inFlight = false; });
