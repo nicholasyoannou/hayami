@@ -15,7 +15,7 @@ export default defineConfig({
       'https://oauth.reddit.com/*',
       '*://*.crunchyroll.com/*',
     ],
-    version: '0.0.1',
+    version: '0.0.2',
     /**
      * Needed so SVG icon assets can be loaded into the Crunchyroll page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
@@ -24,7 +24,8 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: [
-          'assets/commentAssets/*.svg'
+          'assets/commentAssets/*.svg',
+          'assets/*.svg'
         ],
         matches: ['*://*.crunchyroll.com/*']
       }

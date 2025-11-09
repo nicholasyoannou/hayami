@@ -141,6 +141,7 @@
   display: flex;
   gap: 0;
   padding: 8px 0;
+  margin-bottom: 12px; /* more spacing between comments */
   position: relative;
   background: transparent;
   border: none;
@@ -157,23 +158,118 @@
 .ri-comment.depth-0::before {
   content: "";
   position: absolute;
-  /* Trunk: start just below avatar, centered under 28px avatar (radius 14) */
-  top: 38px; /* 8px top padding + 28px avatar + ~2px gap */
-  bottom: -8px;
-  left: 9px; /* moved slightly more to the right per screenshot */
+  /* Trunk (upper segment): start just below avatar and stop before the icon */
+  top: 38px;
+  height: 12px; /* stop with padding before icon */
+  bottom: auto;
+  left: 9px;
   width: 2px;
   background: #343536;
   z-index: 1;
   pointer-events: none;
 }
 
-.ri-comment.depth-0.line-hover::before {
+.ri-comment.depth-0.line-hover::before,
+.ri-comment.depth-0.line-hover::after {
   background: #818384;
 }
 
-.ri-comment.depth-0:last-child::before {
+.ri-comment.depth-0:last-child::after {
   bottom: 0;
 }
+
+/* When a top-level comment itself is collapsed, show a single gradient line with avatar swap */
+.ri-comment.depth-0.collapsed::before {
+  height: auto;
+  bottom: -12px; /* reduced from -28px for tighter spacing */
+  background: linear-gradient(
+    to bottom,
+    rgba(52,53,54,0) 0%,
+    #343536 30%,
+    #343536 85%,
+    rgba(52,53,54,0) 100%
+  );
+}
+
+/* But if it's the last top-level comment, don't overshoot past the list */
+.ri-comment.depth-0.collapsed:last-child::before {
+  bottom: 0;
+}
+
+/* Add extra gap only when a top-level comment is collapsed so the trunk
+   extension doesn't run into the next avatar */
+.ri-comment.depth-0.collapsed {
+  margin-bottom: 8px; /* reduced from 24px for tighter spacing */
+}
+
+/* Avoid extra tail space at the very end */
+.ri-comment.depth-0.collapsed:last-child {
+  margin-bottom: 0;
+}
+/* Remove extra extension for non-top-level lines to avoid overlap */
+
+/* Vertical trunk: lower segment resumes below icon */
+.ri-comment.depth-0::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 66px; /* icon bottom (48px + 18px) with padding */
+  bottom: -8px;
+  width: 2px;
+  background: #343536;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Small icon placed on the trunk line for top-level comments */
+.ri-comment.depth-0 .ri-trunk-icon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 0.5px; /* center smaller circle over 2px trunk */
+  top: 48px; /* position between upper/lower segments with padding */
+  z-index: 2;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgb(242, 244, 245);
+  border-radius: 50%;
+  background: transparent;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.ri-comment.depth-0 .ri-trunk-icon::after {
+  content: "";
+  width: 8px;
+  height: 2px;
+  background: rgb(242, 244, 245);
+  border-radius: 1px;
+}
+.ri-comment.depth-0 .ri-trunk-icon:hover { 
+  background: #2a2a2c; /* exact match to reply button hover */
+}
+.ri-comment.depth-0 .ri-trunk-icon:active { 
+  background: #3a3a3c;
+}
+
+/* But if it's the last top-level comment, don't overshoot past the list */
+.ri-comment.depth-0.collapsed:last-child::before {
+  bottom: 0;
+}
+
+/* Add extra gap only when a top-level comment is collapsed so the trunk
+   extension doesn't run into the next avatar */
+.ri-comment.depth-0.collapsed {
+  margin-bottom: 8px; /* smaller gap while collapsed */
+}
+
+/* Avoid extra tail space at the very end */
+.ri-comment.depth-0.collapsed:last-child {
+  margin-bottom: 0;
+}
+/* Remove extra extension for non-top-level lines to avoid overlap */
 
 /* Shift only top-level comment content slightly left to align with new trunk position */
 .ri-comment.depth-0 > .ri-body {
@@ -186,6 +282,53 @@
 .ri-comment.depth-0 .ri-threadline {
   display: none;
 }
+
+/* Vertical trunk: lower segment resumes below icon */
+.ri-comment.depth-0::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 74px; /* icon top (52px) + icon size (20px) + gap (2px) */
+  bottom: -8px;
+  width: 2px;
+  background: #343536;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Small icon placed on the trunk line for top-level comments */
+.ri-comment.depth-0 .ri-trunk-icon {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  left: 0px; /* center circle over 2px trunk (line at 9px; circle center at 10px) */
+  top: 52px; /* position between upper/lower segments */
+  z-index: 2;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgb(242, 244, 245);
+  border-radius: 50%;
+  background: rgba(0,0,0,0.3); /* subtle dark backdrop */
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.ri-comment.depth-0 .ri-trunk-icon::after {
+  content: "";
+  width: 10px;
+  height: 2px;
+  background: rgb(242, 244, 245);
+  border-radius: 2px;
+}
+.ri-comment.depth-0 .ri-trunk-icon:hover { background: rgba(68,70,71,0.6); } /* same grey as share button bg */
+.ri-comment.depth-0 .ri-trunk-icon:active { background: rgba(88,90,91,0.8); }
+
+/* Hide icon and the trunk line entirely when collapsed; leave padding gap */
+.ri-comment.depth-0.collapsed::before { display: none; }
+.ri-comment.depth-0.collapsed::after { display: none; }
+.ri-comment.depth-0.collapsed .ri-trunk-icon { display: none; }
 
 /* ==================== Gutter & Collapse Button ==================== */
 .ri-gutter {
@@ -245,6 +388,12 @@
   width: 28px;
   height: 28px;
   margin-left: -11px; /* final left shift; trunk at 3px passes through center */
+}
+
+/* When collapsed, avatar shows expand.svg - style it to match icon color */
+.ri-comment.depth-0.collapsed > .ri-avatar {
+  filter: brightness(0) saturate(100%) invert(96%) sepia(1%) saturate(3179%) hue-rotate(175deg) brightness(99%) contrast(93%);
+  /* This filter converts any color to rgb(242, 244, 245) */
 }
 
 /* ==================== Comment Body ==================== */
@@ -756,14 +905,13 @@
 .ri-children > .ri-comment::after {
   content: "";
   position: absolute;
-  top: 21px; /* align with child avatar center (8px padding + 13px) */
-  left: -7px; /* start at updated parent spine */
-  width: 18px; /* -7 + 18 = 11px (child threadline position) */
-  height: 0; /* pure horizontal line */
-  border-bottom: 2px solid #343536; /* straight connector */
-  border-right: none;
-  border-left: none;
-  border-radius: 0; /* ensure no curve */
+  top: 5px; /* start higher for curve */
+  left: -7px; /* start at parent spine */
+  width: 19px; /* extended width for longer curve */
+  height: 12px; /* height for the curve */
+  border-bottom: 2px solid #343536; /* curved connector */
+  border-left: 2px solid #343536;
+  border-bottom-left-radius: 6px; /* restore curve */
   pointer-events: none;
   transition: none;
 }
@@ -816,14 +964,14 @@
   position: absolute;
   left: -7px; /* align indicator with new spine */
   top: 0;
-  width: 2px;
-  height: 60px;
+  width: 4px; /* thicker line when collapsed */
+  height: 240px; /* much longer collapsed indicator (double previous) */
   background: linear-gradient(to bottom, #818384, transparent);
   pointer-events: none;
 }
 
 .ri-children.children-collapsed {
-  min-height: 60px;
+  min-height: 240px; /* match the new indicator height */
   cursor: pointer;
 }
 

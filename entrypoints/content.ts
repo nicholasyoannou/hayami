@@ -1980,6 +1980,28 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             toggleBtn.textContent = collapsed ? '+' : '–';
             toggleBtn.setAttribute('aria-expanded', (!collapsed).toString());
           }
+          // Ensure avatar/icon swap happens no matter where the toggle came from (line, icon, or button)
+          const avatarEl = el.querySelector('.ri-avatar') as HTMLImageElement | null;
+          const trunkIconEl = el.querySelector('.ri-trunk-icon') as HTMLElement | null;
+          if (collapsed) {
+            if (avatarEl && !avatarEl.dataset._prevSrc) {
+              avatarEl.dataset._prevSrc = avatarEl.src || '';
+            }
+            if (avatarEl) {
+              avatarEl.src = chrome.runtime.getURL('assets/expand.svg');
+              avatarEl.style.objectFit = 'contain';
+              avatarEl.style.background = 'transparent';
+            }
+            if (trunkIconEl) trunkIconEl.style.display = 'none';
+          } else {
+            if (avatarEl && avatarEl.dataset._prevSrc) {
+              avatarEl.src = avatarEl.dataset._prevSrc;
+              delete avatarEl.dataset._prevSrc;
+              avatarEl.style.objectFit = 'cover';
+              avatarEl.style.background = '';
+            }
+            if (trunkIconEl) trunkIconEl.style.display = '';
+          }
         };
         toggleBtn?.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
         threadLine?.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
@@ -1998,6 +2020,16 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               el.classList.remove('line-hover');
             }
           });
+
+          // Inject trunk icon as a styled div over the trunk line
+          const trunkIcon = document.createElement('div');
+          trunkIcon.className = 'ri-trunk-icon';
+          // Click toggles collapse state (toggle function handles avatar swap)
+          trunkIcon.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggle();
+          });
+          el.appendChild(trunkIcon);
           el.addEventListener('mouseleave', () => {
             el.style.cursor = '';
             el.classList.remove('line-hover');
