@@ -2005,7 +2005,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         };
         toggleBtn?.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
         threadLine?.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
-        // Make the left margin line (::before) clickable for top-level comments
+        // Make the left margin line (::before) clickable for top-level comments (also re-expand when collapsed)
         if (depth === 0) {
           // Track hover state for the line specifically - wider area for easier interaction
           el.addEventListener('mousemove', (ev) => {
@@ -2037,10 +2037,40 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           el.addEventListener('click', (ev) => {
             const rect = el.getBoundingClientRect();
             const clickX = ev.clientX - rect.left;
-            // If click is on the line area (wider zone for easier clicking)
+            const isCollapsed = el.classList.contains('collapsed');
+            // 1) Click on the trunk line area (wider zone) -> toggle/expand
             if (clickX > 4 && clickX < 20) {
               ev.stopPropagation();
-              toggle();
+              if (isCollapsed) {
+                // Force expand
+                el.classList.remove('collapsed');
+                const avatarEl = el.querySelector('.ri-avatar') as HTMLImageElement | null;
+                if (avatarEl && avatarEl.dataset._prevSrc) {
+                  avatarEl.src = avatarEl.dataset._prevSrc;
+                  delete avatarEl.dataset._prevSrc;
+                  avatarEl.style.objectFit = 'cover';
+                  avatarEl.style.background = '';
+                }
+                const trunkIconEl = el.querySelector('.ri-trunk-icon') as HTMLElement | null;
+                if (trunkIconEl) trunkIconEl.style.display = '';
+              } else {
+                toggle();
+              }
+              return;
+            }
+            // 2) If collapsed and user clicks anywhere to the right of the line, expand
+            if (isCollapsed && clickX >= 20) {
+              ev.stopPropagation();
+              el.classList.remove('collapsed');
+              const avatarEl = el.querySelector('.ri-avatar') as HTMLImageElement | null;
+              if (avatarEl && avatarEl.dataset._prevSrc) {
+                avatarEl.src = avatarEl.dataset._prevSrc;
+                delete avatarEl.dataset._prevSrc;
+                avatarEl.style.objectFit = 'cover';
+                avatarEl.style.background = '';
+              }
+              const trunkIconEl = el.querySelector('.ri-trunk-icon') as HTMLElement | null;
+              if (trunkIconEl) trunkIconEl.style.display = '';
             }
           });
         }

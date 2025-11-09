@@ -325,10 +325,14 @@
 .ri-comment.depth-0 .ri-trunk-icon:hover { background: rgba(68,70,71,0.6); } /* same grey as share button bg */
 .ri-comment.depth-0 .ri-trunk-icon:active { background: rgba(88,90,91,0.8); }
 
-/* Hide icon and the trunk line entirely when collapsed; leave padding gap */
-.ri-comment.depth-0.collapsed::before { display: none; }
-.ri-comment.depth-0.collapsed::after { display: none; }
+/* Collapsed: hide only the icon; keep a faint trunk hover indicator */
 .ri-comment.depth-0.collapsed .ri-trunk-icon { display: none; }
+/* Use the collapsed ::before gradient defined above; make it subtle by default */
+.ri-comment.depth-0.collapsed::before { opacity: 0.35; }
+/* Do not render the lower segment while collapsed */
+.ri-comment.depth-0.collapsed::after { display: none; }
+/* On hover over the line area, brighten the indicator to guide re-open */
+.ri-comment.depth-0.collapsed.line-hover::before { opacity: 1; background: #818384; }
 
 /* ==================== Gutter & Collapse Button ==================== */
 .ri-gutter {
