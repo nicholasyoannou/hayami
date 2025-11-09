@@ -67,9 +67,46 @@ let imgPreviewEl: HTMLImageElement | null = null;
 let imgPreviewHost: HTMLDivElement | null = null;
 let previewActiveHref: string | null = null;
 let imgPreviewSpinner: HTMLDivElement | null = null;
+// Gallery state for multi-image albums
+let galleryImages: string[] | null = null;
+let galleryIndex = 0;
+let galleryDots: HTMLDivElement | null = null;
+let currentGalleryAnchor: HTMLAnchorElement | null = null;
+
+// Enable markdown debug logs by default (can be disabled via DevTools: window.RI_DEBUG_MARKDOWN=false)
+try {
+  if (!(window as any).RI_DEBUG_MARKDOWN) {
+    (window as any).RI_DEBUG_MARKDOWN = true;
+    console.info('[ri-markdown] Debug logging enabled');
+  }
+} catch {}
 
 function isImageLink(href: string): boolean {
+  try {
+    const u = new URL(href);
+    const host = (u.hostname || '').toLowerCase();
+    // Twitter-hosted media (pbs.twimg.com or twimg) often use /media/ path with query params
+    if (host.includes('pbs.twimg.com') || host.includes('twimg.com')) {
+      if ((u.pathname || '').toLowerCase().includes('/media/')) return true;
+    }
+  } catch (e) {
+    // ignore
+  }
+  // DuckDuckGo image proxy URLs don't end with image extensions but are image resources
+  if (/images\.duckduckgo\.com\/iu\//i.test(href)) return true;
+  // Other common image proxies could be handled here in future (e.g., imgix, cdn proxies)
   return /\.(png|jpe?g|gif|webp|bmp|svg)(?:\?|#|$)/i.test(href);
+}
+
+// Proxy only imgur links
+function proxifyImageUrl(href: string): string {
+  try {
+    // i.imgur.com: proxy to avoid regional/CORS hiccups
+    if (/^https?:\/\/i\.imgur\.com\//i.test(href)) {
+      return `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
+    }
+  } catch {}
+  return href;
 }
 
 function isYouTubeLink(href: string): boolean {
@@ -103,9 +140,13 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
     if (!a.closest('.ri-text')) return; // only inside comment bodies
-    const href = a.getAttribute('href') || '';
-    if (!isImageLink(href)) return;
+  const href = a.getAttribute('href') || '';
+  // Allow anchors carrying a pre-resolved images array (multi-image albums)
+  const ds = a.getAttribute('data-ri-images');
+  const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
+  if (!multi && !isImageLink(href)) return;
     previewActiveHref = href;
+    currentGalleryAnchor = multi ? a : null; // Store anchor for fullscreen modal
     if (!imgPreviewHost) {
       imgPreviewHost = document.createElement('div');
       imgPreviewHost.className = 'ri-img-tooltip';
@@ -116,14 +157,20 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
       imgPreviewEl.alt = '';
       imgPreviewHost!.appendChild(imgPreviewEl);
     }
+      // Create gallery dots lazily
+      if (multi && !galleryDots) {
+      galleryDots = document.createElement('div');
+      galleryDots.className = 'ri-img-dots';
+      imgPreviewHost.appendChild(galleryDots);
+    }
     // Show a loading spinner immediately so users get instant feedback
     imgPreviewHost.classList.add('loading');
     if (!imgPreviewSpinner) {
       imgPreviewSpinner = document.createElement('div');
       imgPreviewSpinner.className = 'ri-img-spinner';
     }
-    // Hide the image element until it finishes loading
-    if (imgPreviewEl) imgPreviewEl.style.display = 'none';
+  // Hide the image element until it finishes loading
+  if (imgPreviewEl) imgPreviewEl.style.display = 'none';
     if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner);
     // Make tooltip visible (CSS .loading will center the spinner)
     imgPreviewHost.style.display = 'flex';
@@ -133,21 +180,21 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
       try {
         // Remove spinner
         try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
-        imgPreviewHost.classList.remove('loading');
+        if (imgPreviewHost) imgPreviewHost.classList.remove('loading');
         if (imgPreviewEl) imgPreviewEl.style.display = 'block';
   const pad = 14;
   // Enforce stricter visible caps so previews don't dominate the page.
   // Use viewport-relative caps combined with an absolute pixel limit to avoid huge previews on large screens.
   const maxW = Math.min(window.innerWidth * 0.4, 800); // at most 40vw or 800px
   const maxH = Math.min(window.innerHeight * 0.5, 640); // at most 50vh or 640px
-        const natW = imgPreviewEl.naturalWidth || 0;
-        const natH = imgPreviewEl.naturalHeight || 0;
+  const natW = imgPreviewEl?.naturalWidth || 0;
+        const natH = imgPreviewEl?.naturalHeight || 0;
         let dispW = natW;
         let dispH = natH;
         if (natW === 0 || natH === 0) {
           // fallback to CSS rules
-          imgPreviewHost.style.width = '';
-          imgPreviewHost.style.height = '';
+          if (imgPreviewHost) imgPreviewHost.style.width = '';
+          if (imgPreviewHost) imgPreviewHost.style.height = '';
         } else {
           // scale to fit within maxW/maxH while preserving aspect
           const wScale = maxW / natW;
@@ -155,19 +202,66 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
           const scale = Math.min(1, wScale, hScale);
           dispW = Math.round(natW * scale);
           dispH = Math.round(natH * scale);
-          imgPreviewHost.style.width = dispW + 'px';
-          imgPreviewHost.style.height = dispH + 'px';
+          if (imgPreviewHost) imgPreviewHost.style.width = dispW + 'px';
+          if (imgPreviewHost) imgPreviewHost.style.height = dispH + 'px';
         }
+        // Update gallery dots active state if present
+        try {
+          if (galleryDots) {
+            Array.from(galleryDots.querySelectorAll('.ri-img-dot')).forEach((dot, i) => {
+              if (i === galleryIndex) {
+                dot.classList.add('active');
+              } else {
+                dot.classList.remove('active');
+              }
+            });
+          }
+        } catch {}
         // positioning handled by mousemove
       } catch (e) {}
     };
     imgPreviewEl.onerror = () => {
       // Loading failed — remove spinner and hide tooltip
       try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
-      try { imgPreviewHost.classList.remove('loading'); } catch {}
-      try { imgPreviewHost.style.display = 'none'; } catch {}
+      try { if (imgPreviewHost) imgPreviewHost.classList.remove('loading'); } catch {}
+      try { if (imgPreviewHost) imgPreviewHost.style.display = 'none'; } catch {}
     };
-    imgPreviewEl.src = href;
+    // If this anchor carries a multi-image array, use it; otherwise load single href
+  if (multi && Array.isArray(multi) && multi.length > 0) {
+      // multi contains raw image links; convert to proxied versions for consistent loading
+      try {
+  galleryImages = multi.map(u => `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
+        galleryIndex = 0;
+        // Populate dots
+        if (galleryDots) {
+          galleryDots.innerHTML = '';
+          galleryImages.forEach((g, idx) => {
+            const dot = document.createElement('div');
+            dot.className = 'ri-img-dot';
+            if (idx === 0) dot.classList.add('active');
+            dot.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              galleryIndex = idx;
+              if (imgPreviewEl) {
+                imgPreviewEl.src = galleryImages![galleryIndex];
+                imgPreviewEl.style.display = 'none';
+                imgPreviewHost!.classList.add('loading');
+                if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
+              }
+            });
+            if (galleryDots) galleryDots.appendChild(dot);
+          });
+        }
+          // Navigation via keyboard only (see keydown handler below)
+        // Start loading first image
+        imgPreviewEl.src = galleryImages[0];
+      } catch (e) {
+        // fallback: try first image raw
+        imgPreviewEl.src = proxifyImageUrl(multi[0]);
+      }
+    } else {
+      imgPreviewEl.src = proxifyImageUrl(href);
+    }
   });
 
   document.addEventListener('mousemove', (ev) => {
@@ -200,6 +294,11 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
     }
     // Abort in-flight image load
     try { if (imgPreviewEl) { imgPreviewEl.src = ''; imgPreviewEl.onload = null; imgPreviewEl.onerror = null; } } catch {}
+    // Clear gallery state
+    try { galleryImages = null; galleryIndex = 0; } catch {}
+    try { if (galleryDots && galleryDots.parentElement) galleryDots.parentElement.removeChild(galleryDots); } catch {}
+    galleryDots = null;
+    currentGalleryAnchor = null;
   };
   document.addEventListener('mouseout', (ev) => {
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
@@ -207,23 +306,170 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
   });
   document.addEventListener('scroll', () => hidePreview(), true);
 
-  // YouTube modal on click, images: open new tab
+  // Keyboard navigation for gallery preview (arrow keys)
+  document.addEventListener('keydown', (ev) => {
+    if (!imgPreviewHost || imgPreviewHost.style.display === 'none') return;
+    if (!galleryImages || galleryImages.length <= 1) return;
+    
+    if (ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+        // Navigate to previous image
+        galleryIndex = (galleryIndex - 1 + galleryImages.length) % galleryImages.length;
+        if (imgPreviewEl) {
+          imgPreviewEl.src = galleryImages[galleryIndex];
+          imgPreviewEl.style.display = 'none';
+          if (imgPreviewHost) imgPreviewHost.classList.add('loading');
+          if (imgPreviewHost && imgPreviewSpinner && !imgPreviewHost.contains(imgPreviewSpinner)) {
+            imgPreviewHost.appendChild(imgPreviewSpinner);
+          }
+        }
+    } else if (ev.key === 'ArrowRight') {
+      ev.preventDefault();
+        // Navigate to next image
+        galleryIndex = (galleryIndex + 1) % galleryImages.length;
+        if (imgPreviewEl) {
+          imgPreviewEl.src = galleryImages[galleryIndex];
+          imgPreviewEl.style.display = 'none';
+          if (imgPreviewHost) imgPreviewHost.classList.add('loading');
+          if (imgPreviewHost && imgPreviewSpinner && !imgPreviewHost.contains(imgPreviewSpinner)) {
+            imgPreviewHost.appendChild(imgPreviewSpinner);
+          }
+        }
+    } else if (ev.key === 'Escape') {
+      hidePreview();
+    }
+  });
+
+  // YouTube modal on click; multi-image albums open fullscreen gallery; single images open new tab
   document.addEventListener('click', (ev) => {
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
     if (!a.closest('.ri-text')) return;
     const href = a.getAttribute('href') || '';
+    const ds = a.getAttribute('data-ri-images');
+    const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
+    // Preserve native behavior for all image/album links so right-click, open-in-new-tab etc. work.
     if (isYouTubeLink(href)) {
       ev.preventDefault();
       const vid = extractYouTubeId(href);
       if (!vid) return;
       openYouTubeModal(vid);
+    } else if (multi && Array.isArray(multi) && multi.length > 0) {
+      // Intercept album clicks to open fullscreen modal
+      ev.preventDefault();
+      openImageGalleryModal(multi);
     } else if (isImageLink(href)) {
-      // Force open in a new tab
+      // Force single image links into new tab for convenience
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     }
   });
+}
+
+function openImageGalleryModal(images: string[]): void {
+  // Hide preview tooltip first
+  if (imgPreviewHost) {
+    imgPreviewHost.style.display = 'none';
+  }
+
+  // Create modal container
+  const modal = document.createElement('div');
+  modal.className = 'ri-fullscreen-modal';
+
+  // Close button
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'ri-fullscreen-close';
+  closeBtn.innerHTML = '×';
+  closeBtn.onclick = () => {
+    modal.remove();
+    document.body.style.overflow = '';
+  };
+
+  // Counter
+  const counter = document.createElement('div');
+  counter.className = 'ri-fullscreen-counter';
+
+  // Content container (scrollable)
+  const content = document.createElement('div');
+  content.className = 'ri-fullscreen-content';
+
+  // Convert to proxied URLs
+  const proxiedImages = images.map(u => `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
+
+  // Add all images
+  proxiedImages.forEach((imgSrc, idx) => {
+    const img = document.createElement('img');
+    img.className = 'ri-fullscreen-image';
+    img.src = imgSrc;
+    img.alt = `Image ${idx + 1}`;
+    img.style.opacity = '0';
+    img.onload = () => {
+      img.style.transition = 'opacity 0.3s';
+      img.style.opacity = '1';
+    };
+    content.appendChild(img);
+  });
+
+  // Utilities for centering and tracking current image
+  const imagesEls = Array.from(content.querySelectorAll('.ri-fullscreen-image')) as HTMLImageElement[];
+
+  const getCenteredIndex = (): number => {
+    if (imagesEls.length === 0) return 0;
+    const mid = content.scrollTop + content.clientHeight / 2;
+    let bestIdx = 0;
+    let bestDist = Number.POSITIVE_INFINITY;
+    imagesEls.forEach((im, i) => {
+      const imgMid = im.offsetTop + im.clientHeight / 2;
+      const d = Math.abs(imgMid - mid);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    });
+    return bestIdx;
+  };
+
+  const centerOnIndex = (idx: number) => {
+    if (imagesEls.length === 0) return;
+    const i = Math.max(0, Math.min(imagesEls.length - 1, idx));
+    const target = imagesEls[i];
+    const y = Math.max(0, target.offsetTop - (content.clientHeight - target.clientHeight) / 2);
+    content.scrollTo({ top: y, behavior: 'smooth' });
+  };
+
+  // Update counter based on centered image
+  const updateCounter = () => {
+    const i = getCenteredIndex();
+    counter.textContent = `${i + 1} / ${imagesEls.length}`;
+  };
+
+  // Keyboard navigation (Up/Down/Left/Right) — center next/previous image
+  const handleKeyDown = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') {
+      modal.remove();
+      document.body.style.overflow = '';
+      document.removeEventListener('keydown', handleKeyDown);
+    } else if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft') {
+      ev.preventDefault();
+      const i = getCenteredIndex();
+      centerOnIndex(i - 1);
+    } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') {
+      ev.preventDefault();
+      const i = getCenteredIndex();
+      centerOnIndex(i + 1);
+    }
+  };
+  document.addEventListener('keydown', handleKeyDown);
+
+  // Update counter on scroll
+  content.addEventListener('scroll', updateCounter);
+
+  // Assemble modal
+  modal.appendChild(closeBtn);
+  modal.appendChild(counter);
+  modal.appendChild(content);
+  document.body.appendChild(modal);
+  document.body.style.overflow = 'hidden';
+
+  // Initial counter update
+  updateCounter();
 }
 
 function openYouTubeModal(videoId: string): void {
@@ -917,6 +1163,36 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       return changed;
     }
 
+    /**
+     * Rewrite twitter-hosted image anchors (pbs.twimg.com/media/...) to proxied URLs so the hover-preview can load them.
+     */
+    async function maybeHandleTwitterImages(host: HTMLElement): Promise<boolean> {
+      let changed = false;
+      const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+      if (anchors.length === 0) return false;
+      for (const a of anchors) {
+        const href = a.getAttribute('href') || '';
+        if (/images\.duckduckgo\.com\/iu\//i.test(href)) continue; // already proxied
+        try {
+          const u = new URL(href);
+          const hostn = (u.hostname || '').toLowerCase();
+          if (hostn.includes('pbs.twimg.com') || hostn.includes('twimg.com')) {
+            // Typically the path contains /media/<id>
+            if ((u.pathname || '').toLowerCase().includes('/media/')) {
+              const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
+              a.setAttribute('href', prox);
+              a.setAttribute('target', '_blank');
+              a.setAttribute('rel', 'noopener noreferrer');
+              changed = true;
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+      return changed;
+    }
+
     // Top-level helper: detect if user is in the UK (cached in chrome.storage.local.geo_country)
     async function detectUserInUK(): Promise<boolean> {
       try {
@@ -1077,6 +1353,17 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             a.setAttribute('target', '_blank');
             a.setAttribute('rel', 'noopener noreferrer');
             changed = true;
+          } else if (images.length > 1) {
+            // For multi-image albums, attach a JSON list of original image URLs (proxied when shown)
+            try {
+              // Store raw image URLs on data attribute; hover logic will proxy when loading
+              a.setAttribute('data-ri-images', JSON.stringify(images));
+              // Preserve original album href so status bar shows the real album link
+              // Click behavior (fullscreen modal) is handled elsewhere and remains unchanged
+              changed = true;
+            } catch (e) {
+              // ignore JSON errors
+            }
           }
         } catch (e) {
           // ignore errors and continue
@@ -1181,22 +1468,215 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         `;
         // Render markdown from API text (no HTML scraping)
         const textHost = el.querySelector('.ri-text') as HTMLElement;
-        // Initial render from API text
-        textHost.innerHTML = markdownToHtml(c.body || '');
+        // Initial render from API text with focused debug only for the Medaka Box comment
+        const rawBody = c.body || '';
+        const medakaMatch = /Some Medaka Box fourth wall shattering moments:/i.test(rawBody);
+        // Fallback: if raw body contains bullet markers but markdown pipeline fails to emit a list, rebuild as list.
+        function applyRawBulletListFallback(original: string, host: HTMLElement) {
+          // Support both '*' and '-' bullets
+          if (!/\n(?:\*|-)\s+/.test(original)) return; // no bullet markers
+          if (/<(?:ul|ol)>/.test(host.innerHTML)) return; // already has a list
+          const lines = original.split(/\r?\n/);
+          const bulletLines: string[] = [];
+          let heading: string | null = null;
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed) continue;
+            const m = trimmed.match(/^(?:\*|-)\s+(.*)$/);
+            if (m) {
+              bulletLines.push(m[1].trim());
+            } else if (!heading) {
+              heading = trimmed; // first non-bullet line becomes heading
+            }
+          }
+          if (bulletLines.length >= 2) {
+            const safe = (s: string) => s.replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[ch] as string));
+            // Build list items preserving leading URL as an anchor so hover previews still work
+            const listItems = bulletLines.map(line => {
+              const mUrl = line.match(/^(https?:\/\/\S+)(\s+.*)?$/);
+              if (mUrl) {
+                const url = mUrl[1];
+                const rest = mUrl[2] || '';
+                // Keep display text identical to URL (avoid shortening so user sees exact link)
+                return '<li><a href="' + safe(url) + '">' + safe(url) + '</a>' + (rest ? safe(rest) : '') + '</li>';
+              }
+              return '<li>' + safe(line) + '</li>';
+            }).join('');
+            const listHtml = '<ul>' + listItems + '</ul>';
+            const headingHtml = heading ? '<p>' + safe(heading) + '</p>' : '';
+            host.innerHTML = headingHtml + listHtml;
+            if (medakaMatch) console.debug('[medaka-debug] applied raw-body bullet fallback');
+          }
+        }
+
+        // DOM-level fallback: convert consecutive anchor-only paragraphs into a <ul> while preserving anchors
+        function applyDomParagraphListFallback(host: HTMLElement) {
+          try {
+            if (host.querySelector('ul, ol')) return; // already has a list somewhere
+            const paras = Array.from(host.querySelectorAll(':scope > p')) as HTMLParagraphElement[];
+            if (paras.length === 0) return;
+            // Find a paragraph ending with ':' which likely introduces the list
+            let leadIdx = -1;
+            for (let i = 0; i < paras.length; i++) {
+              const t = (paras[i].textContent || '').trim();
+              if (t.endsWith(':')) { leadIdx = i; break; }
+            }
+            if (leadIdx < 0 || leadIdx >= paras.length - 1) return;
+            const isAnchorPara = (p: HTMLParagraphElement) => {
+              // Accept <p> that contains an <a> as the main content (optionally wrapped in <em>)
+              if (!p) return false;
+              // If paragraph has a block-level element, skip
+              const a = p.querySelector('a');
+              if (!a) return false;
+              // Treat as list item if not a complex paragraph (no headings, no blockquote, etc.)
+              return true;
+            };
+            const items: HTMLParagraphElement[] = [];
+            for (let j = leadIdx + 1; j < paras.length; j++) {
+              const pj = paras[j];
+              if (isAnchorPara(pj)) items.push(pj); else break;
+            }
+            // Alternate heuristic: paragraphs whose trimmed text starts with 'http' also count.
+            if (items.length < 2) {
+              const altItems: HTMLParagraphElement[] = [];
+              for (let j = leadIdx + 1; j < paras.length; j++) {
+                const txt = (paras[j].textContent || '').trim();
+                if (/^https?:\/\//i.test(txt)) altItems.push(paras[j]); else break;
+              }
+              if (altItems.length >= 2) items.splice(0, items.length, ...altItems);
+            }
+            if (items.length >= 2) {
+              const ul = document.createElement('ul');
+              ul.style.listStyle = 'disc';
+              ul.style.margin = '6px 0 12px 22px';
+              items.forEach(p => {
+                const li = document.createElement('li');
+                // Move the contents (preserve anchors and text)
+                while (p.firstChild) li.appendChild(p.firstChild);
+                ul.appendChild(li);
+                // Remove the now-empty paragraph
+                p.remove();
+              });
+              // Insert ul after the lead paragraph
+              const lead = paras[leadIdx];
+              lead.parentElement?.insertBefore(ul, lead.nextSibling);
+              if (medakaMatch) console.debug('[medaka-debug] applied DOM paragraph->list fallback');
+            }
+          } catch {}
+        }
+        
+        // DOM autolink: convert bare URLs in text nodes into anchors so hover previews work inside lists
+        function autolinkTextNodes(host: HTMLElement) {
+          // More permissive URL regex that allows trailing punctuation commonly found in URLs
+          const urlRe = /(https?:\/\/[^\s<]+)/g;
+          const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, {
+            acceptNode(node: Text) {
+              const txt = node.nodeValue || '';
+              if (!urlRe.test(txt)) return NodeFilter.FILTER_SKIP;
+              // skip if inside an existing anchor
+              const p = (node.parentElement || null);
+              if (p && (p.closest('a'))) return NodeFilter.FILTER_SKIP;
+              return NodeFilter.FILTER_ACCEPT;
+            }
+          } as any);
+          const toReplace: Text[] = [];
+          while (walker.nextNode()) toReplace.push(walker.currentNode as Text);
+          for (const textNode of toReplace) {
+            const txt = textNode.nodeValue || '';
+            // Split but keep URLs
+            const matches: Array<{text: string, isUrl: boolean}> = [];
+            let lastIdx = 0;
+            urlRe.lastIndex = 0;
+            let m: RegExpExecArray | null;
+            while ((m = urlRe.exec(txt))) {
+              if (m.index > lastIdx) {
+                matches.push({text: txt.substring(lastIdx, m.index), isUrl: false});
+              }
+              matches.push({text: m[0], isUrl: true});
+              lastIdx = m.index + m[0].length;
+            }
+            if (lastIdx < txt.length) {
+              matches.push({text: txt.substring(lastIdx), isUrl: false});
+            }
+            if (matches.filter(x => x.isUrl).length === 0) continue;
+            const frag = document.createDocumentFragment();
+            for (const match of matches) {
+              if (match.isUrl) {
+                const a = document.createElement('a');
+                a.href = match.text;
+                a.textContent = match.text;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                frag.appendChild(a);
+              } else {
+                frag.appendChild(document.createTextNode(match.text));
+              }
+            }
+            textNode.parentNode?.replaceChild(frag, textNode);
+          }
+        }
+        if (medakaMatch) {
+          console.group('[medaka-debug] raw comment render');
+          // Ultra-raw visibility logging
+          const toVisible = (s: string) => s
+            .replace(/\r/g, '␍')
+            .replace(/\n/g, '␊\n')
+            .replace(/\t/g, '⟶\t')
+            .replace(/\u00a0/g, '⍽')
+            .replace(/ /g, '·');
+          const bulletRx = /^\s{0,3}(?:([*\-•])|(\d+)[\.)])\s*(.*)$/;
+          console.log('[medaka-debug] RAW TEXT (as-is):', rawBody);
+          console.log('[medaka-debug] RAW JSON.stringify:', JSON.stringify(rawBody));
+          console.log('[medaka-debug] RAW visible-whitespace:\n' + toVisible(rawBody));
+          const lines = rawBody.split(/\r?\n/);
+          console.log('[medaka-debug] line count:', lines.length);
+          lines.forEach((ln: string, i: number) => {
+            const visible = toVisible(ln);
+            const codes = Array.from(ln).map((ch: string) => ch.charCodeAt(0));
+            const m = ln.match(bulletRx);
+            console.log(`[medaka-debug] line ${i+1} (len=${ln.length}) matchBullet=${!!m}`, visible, codes);
+          });
+          const html1 = markdownToHtml(rawBody);
+          console.debug('[medaka-debug] first pass html', html1);
+          textHost.innerHTML = html1;
+          applyRawBulletListFallback(rawBody, textHost);
+          autolinkTextNodes(textHost);
+          applyDomParagraphListFallback(textHost);
+        } else {
+          textHost.innerHTML = markdownToHtml(rawBody);
+          applyRawBulletListFallback(rawBody, textHost);
+          autolinkTextNodes(textHost);
+          applyDomParagraphListFallback(textHost);
+        }
         // Always transform i.imgur.com links (proxy them, and embed standalone ones if setting enabled).
         // First try markdown-based transform, then apply DOM fallback for already-rendered HTML anchors.
         (async () => {
           try {
-            const transformed = await maybeTransformImgurEmbeds(c.body || '');
+            const transformed = await maybeTransformImgurEmbeds(rawBody);
             if (transformed && transformed !== (c.body || '')) {
-              textHost.innerHTML = markdownToHtml(transformed);
+              if (medakaMatch) {
+                console.debug('[medaka-debug] transformed markdown', transformed);
+                const html2 = markdownToHtml(transformed);
+                console.debug('[medaka-debug] second pass html', html2);
+                textHost.innerHTML = html2;
+              } else {
+                textHost.innerHTML = markdownToHtml(transformed);
+              }
             }
             // Always apply DOM fallback to handle anchors (proxy all i.imgur links)
-            try { await maybeApplyDomImgurEmbed(textHost); } catch {}
+            try { await maybeApplyDomImgurEmbed(textHost); if (medakaMatch) console.debug('[medaka-debug] after maybeApplyDomImgurEmbed'); } catch {}
             // Handle Imgur album links (imgur.com/a/ID) to resolve single-image albums
-            try { await maybeHandleImgurAlbums(textHost); } catch {}
+            try { await maybeHandleImgurAlbums(textHost); if (medakaMatch) console.debug('[medaka-debug] after maybeHandleImgurAlbums'); } catch {}
             // Handle direct imgur pages (imgur.com/<id>) and rewrite to proxied i.imgur if possible
-            try { await maybeHandleImgurDirect(textHost); } catch {}
+            try { await maybeHandleImgurDirect(textHost); if (medakaMatch) console.debug('[medaka-debug] after maybeHandleImgurDirect'); } catch {}
+            // Handle Twitter-hosted images (pbs.twimg.com/media/*)
+            try { await maybeHandleTwitterImages(textHost); if (medakaMatch) console.debug('[medaka-debug] after maybeHandleTwitterImages'); } catch {}
+            if (medakaMatch) {
+              // Final chance to convert to list after DOM transforms
+              try { applyDomParagraphListFallback(textHost); } catch {}
+              console.debug('[medaka-debug] final innerHTML', textHost.innerHTML);
+              console.groupEnd();
+            }
           } catch (e) {
             // ignore errors and keep original render, but still try DOM fallback
             try { await maybeApplyDomImgurEmbed(textHost); } catch {}
@@ -1205,8 +1685,21 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           }
         })();
         // Wire spoiler toggles
+        // - For >!spoiler!< spans: clicking toggles .revealed to show text
+        // - For labeled spoilers ([label](/s "text")): structure is
+        //   <span class="ri-spoiler-group"><span class="ri-spoiler-label">label</span><span class="ri-spoiler">text</span></span>
+        //   Clicking either toggles the .ri-spoiler child
         textHost.querySelectorAll('.ri-spoiler').forEach(node => {
-          node.addEventListener('click', () => node.classList.toggle('revealed'));
+          node.addEventListener('click', (ev) => {
+            (ev.currentTarget as HTMLElement).classList.toggle('revealed');
+          });
+        });
+        textHost.querySelectorAll('.ri-spoiler-group').forEach(group => {
+          const label = group.querySelector('.ri-spoiler-label');
+          const body = group.querySelector('.ri-spoiler') as HTMLElement | null;
+          const toggle = () => { if (body) body.classList.toggle('revealed'); };
+          if (label) label.addEventListener('click', toggle);
+          if (body) body.addEventListener('click', toggle);
         });
         // Load avatar lazily with cache
         const ava = el.querySelector('.ri-avatar') as HTMLImageElement | null;

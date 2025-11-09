@@ -336,6 +336,50 @@
   background: transparent;
 }
 
+/* Proper list styling inside comment text
+   Use a pseudo-bullet so we still show markers even if site CSS disables list-style */
+.ri-text ul {
+  list-style: none; /* neutralize site resets */
+  margin: 6px 0 12px 0;
+  padding-left: 22px; /* visual indent */
+}
+.ri-text ul > li {
+  position: relative;
+  margin: 6px 0;
+}
+.ri-text ul > li::before {
+  content: '•';
+  position: absolute;
+  left: -16px;
+  top: 0;
+  line-height: 1.4;
+  color: #d7dadc;
+  font-size: 18px;
+}
+
+/* Ordered list styling (numbers were suppressed by site CSS resets). Use a counter so we don't rely on native list-style. */
+.ri-text ol {
+  list-style: none; /* neutralize potential global resets */
+  counter-reset: ri-ol-counter;
+  margin: 6px 0 12px 0;
+  padding-left: 32px; /* a bit more room for multi-digit numbers */
+}
+.ri-text ol > li {
+  position: relative;
+  margin: 6px 0;
+  counter-increment: ri-ol-counter;
+}
+.ri-text ol > li::before {
+  content: counter(ri-ol-counter) '. ';
+  position: absolute;
+  left: -28px;
+  top: 0;
+  line-height: 1.4;
+  color: #d7dadc;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 /* ==================== Actions Bar ==================== */
 .ri-actions {
   display: flex;
@@ -407,7 +451,10 @@
   background: #111;
   border: 1px solid #2c2c2c;
   border-radius: 8px;
-  padding: 6px;
+  /* reduce horizontal padding so images don't get extra right/left gap */
+  padding: 6px 4px;
+  /* Make width calculations include padding so JS-set width equals visible image width */
+  box-sizing: border-box;
   box-shadow: 0 6px 20px rgba(0,0,0,0.5);
   z-index: 9999;
   display: none;
@@ -434,6 +481,44 @@
   transform: scale(1);
 }
 
+/* When an image has loaded, remove all padding and border so host width equals image width exactly
+   (loading state keeps padding so spinner remains centered) */
+.ri-img-tooltip:not(.loading) {
+  padding: 0;
+  border: none;
+}
+
+/* Ellipsis dots indicator for multi-image galleries */
+.ri-img-dots {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 12px;
+  z-index: 10000;
+}
+.ri-img-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.4);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.ri-img-dot:hover {
+  background: rgba(255,255,255,0.6);
+  transform: scale(1.2);
+}
+.ri-img-dot.active {
+  background: rgba(255,255,255,1);
+  transform: scale(1.3);
+}
+
 /* Loading state inside tooltip: show spinner while image downloads */
 .ri-img-tooltip.loading {
   display: flex !important;
@@ -452,6 +537,98 @@
   animation: ri-spin 1s linear infinite;
 }
 @keyframes ri-spin { to { transform: rotate(360deg); } }
+
+/* ==================== Full-Screen Image Gallery Modal ==================== */
+.ri-fullscreen-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.95);
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: riFadeIn 0.2s ease;
+}
+
+@keyframes riFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.ri-fullscreen-close {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #fff;
+  font-size: 32px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000001;
+  transition: background 0.2s;
+}
+
+.ri-fullscreen-close:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.ri-fullscreen-content {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 60px 20px 20px;
+  scroll-behavior: smooth;
+}
+
+.ri-fullscreen-image {
+  max-width: 90vw;
+  max-height: 90vh;
+  object-fit: contain;
+  margin-bottom: 40px;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+
+.ri-fullscreen-counter {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.7);
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 1000001;
+}
+
+.ri-fullscreen-spinner {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.2);
+  border-top-color: rgba(255,255,255,0.95);
+  animation: ri-spin 1s linear infinite;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
 
 .ri-actions .ri-vote-btn:disabled,
 .ri-actions .ri-action-btn:disabled {
@@ -650,6 +827,18 @@
 .ri-spoiler.revealed {
   color: #fff;
 }
+
+/* Labeled spoiler (old reddit [label](/s "text"))
+   We render as: <span class="ri-spoiler-group"><span class="ri-spoiler-label">label</span><span class="ri-spoiler">text</span></span>
+   Show label normally; hide the actual spoiler until revealed. */
+.ri-spoiler-group { display: inline-flex; gap: 6px; align-items: baseline; }
+.ri-spoiler-group .ri-spoiler-label {
+  background: #333;
+  color: #fff;
+  border-radius: 3px;
+  padding: 0 6px;
+}
+.ri-spoiler-group .ri-spoiler { padding: 0 6px; }
 
 .ri-more {
   color: #777;
