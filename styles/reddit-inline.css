@@ -157,9 +157,10 @@
 .ri-comment.depth-0::before {
   content: "";
   position: absolute;
-  top: 22px;
+  /* Trunk: start just below avatar, centered under 28px avatar (radius 14) */
+  top: 38px; /* 8px top padding + 28px avatar + ~2px gap */
   bottom: -8px;
-  left: 12px;
+  left: 9px; /* moved slightly more to the right per screenshot */
   width: 2px;
   background: #343536;
   z-index: 1;
@@ -174,6 +175,18 @@
   bottom: 0;
 }
 
+/* Shift only top-level comment content slightly left to align with new trunk position */
+.ri-comment.depth-0 > .ri-body {
+  position: relative;
+  left: 0; /* restore to avoid breaking child spine alignment */
+  padding-left: 1px; /* final micro tightening */
+}
+
+/* Hide the old gutter-centered thread line for top-level comments only; use the centered trunk instead */
+.ri-comment.depth-0 .ri-threadline {
+  display: none;
+}
+
 /* ==================== Gutter & Collapse Button ==================== */
 .ri-gutter {
   position: relative;
@@ -184,25 +197,11 @@
   margin-right: 8px;
 }
 
+/* Reduce left gutter for top-level once toggle is hidden */
+.ri-comment.depth-0 > .ri-gutter { width: 0; }
+
 /* Collapse button positioned over the vertical line */
-.ri-toggle {
-  width: 14px;
-  height: 14px;
-  border-radius: 2px;
-  border: 1px solid #343536;
-  background: #1a1a1b;
-  color: #818384;
-  font-size: 9px;
-  line-height: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  position: absolute;
-  left: 5px;
-  top: 5px;
-  z-index: 2;
-}
+.ri-toggle { display: none !important; }
 
 .ri-toggle:hover {
   border-color: #818384;
@@ -227,13 +226,25 @@
 
 /* ==================== Avatar ==================== */
 .ri-avatar {
-  width: 24px;
-  height: 24px;
+  width: 26px; /* enlarge nested layer avatars */
+  height: 26px;
   border-radius: 50%;
   background: #2c2c2c;
   flex-shrink: 0;
   object-fit: cover;
   margin-right: 8px;
+}
+
+/* Slight inward nudge for nested avatars (depth > 0) to sit closer to connector */
+.ri-comment:not(.depth-0) > .ri-avatar {
+  margin-left: -9px; /* final micro left shift */
+}
+
+/* Slightly larger avatar for top-level comments */
+.ri-comment.depth-0 > .ri-avatar {
+  width: 28px;
+  height: 28px;
+  margin-left: -11px; /* final left shift; trunk at 3px passes through center */
 }
 
 /* ==================== Comment Body ==================== */
@@ -718,7 +729,7 @@
 /* ==================== Nested Children ==================== */
 /* Children container - nested replies indented */
 .ri-children {
-  margin-left: 32px;
+  margin-left: 18px; /* final left shift for nested blocks */
   padding-left: 0;
   position: relative;
   margin-top: 8px;
@@ -730,7 +741,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  left: -21px;
+  left: -7px; /* keep sum margin-left + offset = 11 */
   width: 2px;
   background: #343536;
   pointer-events: none;
@@ -745,13 +756,14 @@
 .ri-children > .ri-comment::after {
   content: "";
   position: absolute;
-  top: 5px;
-  left: -21px;
-  width: 21px;
-  height: 12px;
-  border-bottom: 2px solid #343536;
-  border-left: 2px solid #343536;
-  border-bottom-left-radius: 6px;
+  top: 21px; /* align with child avatar center (8px padding + 13px) */
+  left: -7px; /* start at updated parent spine */
+  width: 18px; /* -7 + 18 = 11px (child threadline position) */
+  height: 0; /* pure horizontal line */
+  border-bottom: 2px solid #343536; /* straight connector */
+  border-right: none;
+  border-left: none;
+  border-radius: 0; /* ensure no curve */
   pointer-events: none;
   transition: none;
 }
@@ -802,7 +814,7 @@
 .ri-children.children-collapsed::after {
   content: "";
   position: absolute;
-  left: -21px;
+  left: -7px; /* align indicator with new spine */
   top: 0;
   width: 2px;
   height: 60px;
