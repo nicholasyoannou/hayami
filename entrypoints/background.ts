@@ -43,5 +43,34 @@ export default defineBackground(() => {
       // Forward to content script or handle here
       return { received: true };
     }
+
+    // Proxy fetch requests from content scripts to avoid CORS issues
+    if (message.action === 'proxyFetch') {
+      const { url, init } = message;
+      console.debug('[background] proxyFetch requested:', url, { init });
+      try {
+        const resp = await fetch(url, init as any);
+        const ct = resp.headers.get('content-type') || '';
+        let body: any = null;
+        try {
+          if (ct.includes('application/json')) body = await resp.json(); else body = await resp.text();
+        } catch (parseErr) {
+          body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
+        }
+        const headers = Array.from(resp.headers.entries());
+        console.debug('[background] proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
+        if (!resp.ok) console.warn('[background] proxyFetch non-OK response body snippet:', String(body).slice(0,500));
+        return {
+          ok: resp.ok,
+          status: resp.status,
+          statusText: resp.statusText,
+          headers,
+          body,
+        };
+      } catch (err) {
+        console.error('[background] proxyFetch error:', err);
+        return { ok: false, status: 0, statusText: String(err), headers: [], body: null };
+      }
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing } from '@/utils/redditApi';
+import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing, extensionFetch } from '@/utils/redditApi';
 import { getStoredUsername } from '@/utils/redditAuth';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { isAuthenticated } from '@/utils/redditAuth';
@@ -639,12 +639,14 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       return;
     }
     searchInProgress = true;
-    // Check if user is authenticated
+    // Check if user is authenticated. If not, continue using the public
+    // fallback paths (we added unauthenticated search/comments/morechildren)
+    // so the UI won't force the user to log in just to view threads. Keep
+    // the auth prompt available for actions that require OAuth (posting/voting).
     const authenticated = await isAuthenticated();
     if (!authenticated) {
-      console.log('User not authenticated with Reddit');
-      showAuthPrompt();
-      return;
+      console.log('User not authenticated with Reddit — proceeding with public/browser-session fallback');
+      // do not show auth prompt here; allow unauthenticated browsing
     }
 
     // New primary search: series name filtered by release date
@@ -1200,9 +1202,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         if (cached && cached.geo_country) return cached.geo_country === 'GB';
       } catch {}
       try {
-        const res = await fetch('https://ipapi.co/json');
-        if (!res.ok) return false;
-        const j = await res.json();
+      const res = await extensionFetch('https://ipapi.co/json');
+      if (!res.ok) return false;
+      const j = await res.json();
         const country = (j && (j.country || j.country_code || j.country_code_iso3 || j.country_name)) || '';
         const isUk = String(country).toUpperCase().startsWith('GB') || String(country).toUpperCase().startsWith('UK') || String(country).toUpperCase() === 'UNITED KINGDOM';
         try { await chrome.storage.local.set({ geo_country: isUk ? 'GB' : String(country) }); } catch {}
@@ -1243,7 +1245,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           let resolved: string | null = null;
           try {
             const pageUrl = `https://imgur.com/${encodeURIComponent(id)}`;
-            const rp = await fetch(pageUrl, { credentials: 'include' });
+            const rp = await extensionFetch(pageUrl, { credentials: 'include' } as any);
             if (rp && rp.ok) {
               const t = await rp.text();
               // Look for og:image or link rel=image_src
@@ -1259,9 +1261,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           if (!resolved) {
             const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
             try {
-              const r = await fetch(apiUrl, { headers: { Accept: 'application/json' } });
-              if (r.ok) {
-                const j = await r.json();
+        const r = await extensionFetch(apiUrl, { headers: { Accept: 'application/json' } } as any);
+        if (r.ok) {
+          const j = await r.json();
                 if (j && j.data && j.data.link) resolved = j.data.link;
               }
             } catch (e) {
@@ -1275,17 +1277,17 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             for (const ext of exts) {
               const tryUrl = `https://i.imgur.com/${id}${ext}`;
               try {
-                const r2 = await fetch(tryUrl, { method: 'HEAD' });
+                const r2 = await extensionFetch(tryUrl, { method: 'HEAD' } as any);
                 if (r2.ok) {
                   resolved = tryUrl;
                   break;
                 }
               } catch (e) {
                 // HEAD may be blocked; try GET as a last resort
-                try {
-                  const r3 = await fetch(tryUrl);
-                  if (r3.ok) { resolved = tryUrl; break; }
-                } catch {}
+                  try {
+                    const r3 = await extensionFetch(tryUrl);
+                    if (r3.ok) { resolved = tryUrl; break; }
+                  } catch {}
               }
             }
           }
@@ -1329,7 +1331,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           if (uk) {
             // GB proxy service returns a JSON array of i.imgur.com links
             const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
-            const r = await fetch(proxyUrl);
+            const r = await extensionFetch(proxyUrl as string);
             if (r.ok) {
               const j = await r.json();
               if (Array.isArray(j)) images = j.filter(Boolean).map(String);
@@ -1337,7 +1339,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           } else {
             // Fallback to Imgur API public album endpoint
             const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
-            const r = await fetch(apiUrl, { headers: { Accept: 'application/json' } });
+            const r = await extensionFetch(apiUrl, { headers: { Accept: 'application/json' } } as any);
             if (r.ok) {
               const j = await r.json();
               if (j && j.data && Array.isArray(j.data.images)) {

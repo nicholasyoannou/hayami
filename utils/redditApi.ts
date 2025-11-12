@@ -6,6 +6,79 @@
 import { makeRedditRequest, getAccessToken } from './redditAuth';
 
 /**
+ * Perform fetch via the extension background to avoid CORS from content scripts.
+ * If messaging fails, fall back to window.fetch.
+ */
+export async function extensionFetch(input: string, init?: RequestInit): Promise<{ ok: boolean; status: number; headers: [string,string][]; json: () => Promise<any>; text: () => Promise<string> } > {
+  // Try messaging the background first
+  try {
+    const payload = { action: 'proxyFetch', url: input, init };
+    const res = await new Promise<any>((resolve) => {
+      try {
+        chrome.runtime.sendMessage(payload, (r: any) => {
+          const last = (chrome.runtime as any).lastError;
+          if (last) {
+            console.warn('[extensionFetch] chrome.runtime.lastError while sending proxyFetch:', last?.message || last);
+            resolve({ __messagingError: true, message: last?.message || String(last) });
+            return;
+          }
+          resolve(r);
+        });
+      } catch (e) {
+        console.warn('[extensionFetch] sendMessage threw:', e);
+        resolve({ __messagingError: true, message: String(e) });
+      }
+    });
+
+    // If the background provided a proper proxied response, return it
+    if (res && typeof res.ok !== 'undefined') {
+      return {
+        ok: !!res.ok,
+        status: Number(res.status) || 0,
+        headers: Array.isArray(res.headers) ? res.headers : [],
+        json: async () => res.body,
+        text: async () => (typeof res.body === 'string' ? res.body : JSON.stringify(res.body)),
+      };
+    }
+
+    // If messaging failed (e.g. runtime.lastError) and the caller requested credentials: 'include',
+    // a direct fetch from the page will trigger CORS when the server responds with Access-Control-Allow-Origin: '*'.
+    // To avoid the browser blocking the request with that error, retry a direct fetch WITHOUT credentials
+    // (this won't include cookies but avoids the CORS-with-credentials rejection). Log a warning so it's visible.
+    if (res && res.__messagingError && init && (init as any).credentials === 'include') {
+      console.warn('[extensionFetch] proxy messaging failed; retrying direct fetch without credentials to avoid CORS blocking');
+      const initNoCreds: RequestInit = { ...(init || {}), credentials: 'omit' } as any;
+      const resp2 = await fetch(input, initNoCreds);
+      const ct2 = resp2.headers.get('content-type') || '';
+      let b2: any;
+      if (ct2.includes('application/json')) b2 = await resp2.json(); else b2 = await resp2.text();
+      return {
+        ok: resp2.ok,
+        status: resp2.status,
+        headers: Array.from(resp2.headers.entries()),
+        json: async () => b2,
+        text: async () => (typeof b2 === 'string' ? b2 : JSON.stringify(b2)),
+      };
+    }
+  } catch (e) {
+    // fall through to direct fetch
+  }
+
+  // Fallback to direct fetch (may be blocked by CORS when called from content scripts)
+  const resp = await fetch(input, init);
+  const ct = resp.headers.get('content-type') || '';
+  let b: any;
+  if (ct.includes('application/json')) b = await resp.json(); else b = await resp.text();
+  return {
+    ok: resp.ok,
+    status: resp.status,
+    headers: Array.from(resp.headers.entries()),
+    json: async () => b,
+    text: async () => (typeof b === 'string' ? b : JSON.stringify(b)),
+  };
+}
+
+/**
  * Extracts episode number from various episode name formats
  * @param episodeName - Episode name like "E1", "Episode 1", "S1E1", etc.
  * @returns Episode number as string or null if not found
@@ -78,6 +151,16 @@ interface RedditComment {
   link_id?: string; // fullname of the post (t3_xxx)
 }
 
+// Sort options we accept for comment listing
+export type RedditCommentSort = 'best' | 'top' | 'new' | 'confidence' | 'controversial';
+
+// Result shape returned by getPostComments
+export interface RedditCommentsResult {
+  comments: RedditComment[];
+  rootMoreChildrenIds: string[];
+  linkFullname: string;
+}
+
 interface RedditSearchResult {
   kind: string;
   data: {
@@ -135,11 +218,22 @@ export async function searchAnimeDiscussion(
     } else {
       // Public search: query per-author (to help narrow results) and merge
       const authors = ['autolovepon', 'shadoxfix'];
-      const queries = authors.map(a => `"${animeName} - Episode ${episodeNumber}" discussion author:${a}`);
-      for (const q of queries) {
+      // Build per-author queries but use URLSearchParams so the q value is
+      // encoded as application/x-www-form-urlencoded (spaces => '+'). This
+      // yields queries like: q=My+Anime+Episode+1+discussion+author:USERNAME
+      for (const a of authors) {
         try {
-          const url = `https://www.reddit.com/r/anime/search.json?q=${encodeURIComponent(q)}&restrict_sr=1&sort=relevance&t=all&type=link&limit=100`;
-          const resp = await fetch(url, { credentials: 'omit', headers: { 'User-Agent': 'crunchyroll-comments-extension' } });
+          const q = `${animeName} Episode ${episodeNumber} discussion author:${a}`;
+          const params = new URLSearchParams({
+            q,
+            restrict_sr: '1',
+            sort: 'relevance',
+            t: 'all',
+            type: 'link',
+            limit: '100',
+          });
+          const url = `https://www.reddit.com/r/anime/search.json?${params.toString()}`;
+          const resp = await extensionFetch(url, { credentials: 'include', headers: { 'User-Agent': 'crunchyroll-comments-extension' } } as any);
           if (!resp.ok) continue;
           const j = await resp.json();
           if (j && j.data && Array.isArray(j.data.children)) {
@@ -176,20 +270,6 @@ export async function searchAnimeDiscussion(
   }
 }
 
-/**
- * Fetches comments from a Reddit post
- * @param postId - The Reddit post ID
- * @returns Array of top-level comments
- */
-export type RedditCommentSort = 'best' | 'top' | 'new';
-
-export interface RedditCommentsResult {
-  comments: RedditComment[];
-  rootMoreChildrenIds: string[];
-  linkFullname: string; // e.g., t3_xxxxx
-}
-
-// Cache subreddit emoji maps in-memory for the session
 const subredditEmojiCache = new Map<string, Record<string, string>>();
 
 /**
@@ -204,12 +284,12 @@ export async function getSubredditEmojiMap(subreddit: string): Promise<Record<st
     if (cached) return cached;
 
     const token = await getAccessToken();
-    const resp = await fetch(`https://oauth.reddit.com/r/${encodeURIComponent(key)}/about/emoji.json`, {
+    const resp = await extensionFetch(`https://oauth.reddit.com/r/${encodeURIComponent(key)}/about/emoji.json`, {
       headers: {
         'Authorization': token ? `Bearer ${token}` : '',
         'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
       },
-    });
+    } as any);
     if (!resp.ok) return {};
     const data = await resp.json();
     // Expected structure: { emojis: { custom: [{name, url}, ...] } } or { images: [{name, url}, ...] }
@@ -230,8 +310,25 @@ export async function getSubredditEmojiMap(subreddit: string): Promise<Record<st
 export async function getPostComments(postId: string, sort: RedditCommentSort = 'best'): Promise<RedditCommentsResult> {
   try {
     const sortParam = sort === 'best' ? 'confidence' : sort;
-    const endpoint = `/comments/${postId}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
-    const result = await makeRedditRequest<any[]>(endpoint);
+    const token = await getAccessToken();
+    let result: any[] | null = null;
+
+    if (token) {
+      const endpoint = `/comments/${postId}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
+      result = await makeRedditRequest<any[]>(endpoint);
+    } else {
+      // Public fetch from reddit.com; request more items/depth when possible
+      try {
+        const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&depth=5&limit=500&raw_json=1`;
+  // Include credentials so a logged-in reddit session (cookies) can be used
+        const resp = await extensionFetch(url, { credentials: 'include', headers: { 'User-Agent': 'crunchyroll-comments-extension' } } as any);
+        if (resp.ok) {
+          result = await resp.json();
+        }
+      } catch (e) {
+        // ignore and fall through to error return
+      }
+    }
 
     if (!result || result.length < 2) {
       return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
@@ -319,21 +416,48 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
   try {
     if (!childrenIds || childrenIds.length === 0) return [];
     const token = await getAccessToken();
-    if (!token) return [];
     const form = new URLSearchParams();
     form.set('api_type', 'json');
     form.set('link_id', linkFullname);
     form.set('children', childrenIds.join(','));
-    const resp = await fetch('https://oauth.reddit.com/api/morechildren', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
-      },
-      body: form.toString(),
-    });
-    if (!resp.ok) return [];
+
+    let resp: Response | null = null;
+    if (token) {
+      // Authenticated request via OAuth endpoint
+      resp = await (async () => {
+        const r = await extensionFetch('https://oauth.reddit.com/api/morechildren', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
+          },
+          body: form.toString(),
+        } as any);
+        return { ok: r.ok, status: r.status, json: async () => await r.json() } as any;
+      })();
+    } else {
+      // Unauthenticated fallback: post to public reddit.com endpoint and
+      // include credentials so the browser session (cookies) can be used.
+      try {
+        resp = await (async () => {
+          const r = await extensionFetch('https://www.reddit.com/api/morechildren', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'User-Agent': 'crunchyroll-comments-extension',
+            },
+            credentials: 'include',
+            body: form.toString(),
+          } as any);
+          return { ok: r.ok, status: r.status, json: async () => await r.json() } as any;
+        })();
+      } catch (e) {
+        return [];
+      }
+    }
+
+    if (!resp || !resp.ok) return [];
     const data = await resp.json();
     const things = data?.json?.data?.things || [];
     // Map returned comments to our RedditComment type
@@ -383,11 +507,30 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
 export async function getUserAvatar(username: string): Promise<string | null> {
   try {
     if (!username) return null;
-    const about = await makeRedditRequest<any>(`/user/${encodeURIComponent(username)}/about.json`);
-    const d = about?.data;
-    const url = d?.snoovatar_img || d?.icon_img || null;
-    if (!url) return null;
-    return normalizeAvatarCdnUrl(String(url));
+    // Avoid hitting reddit.com/about for unauthenticated requests (this can spam /about and trigger 429).
+    // Strategy:
+    //  - If we have an OAuth token, use the authenticated API to fetch the user's about info.
+    //  - If we don't have a token, first check stored profile pic (from prior auth). If present, return it.
+    //  - Otherwise, return a randomly chosen Reddit default avatar URL (one of 1..7).
+    const token = await getAccessToken();
+    if (token) {
+      const about = await makeRedditRequest<any>(`/user/${encodeURIComponent(username)}/about.json`);
+      const data = about?.data || null;
+      const url = data?.snoovatar_img || data?.icon_img || null;
+      if (!url) return null;
+      return normalizeAvatarCdnUrl(String(url));
+    }
+
+    // No token: try to return a cached profile pic if present (avoid network calls)
+    try {
+      const stored = await chrome.storage.local.get('reddit_profile_pic');
+      const pic = stored?.reddit_profile_pic;
+      if (pic) return String(pic);
+    } catch {}
+
+    // Fallback: return one of Reddit's default avatars randomly (avoid calling /about)
+    const idx = Math.floor(Math.random() * 7) + 1; // 1..7
+    return `https://www.redditstatic.com/avatars/defaults/v2/avatar_default_${idx}.png`;
   } catch (e) {
     return null;
   }
@@ -402,21 +545,34 @@ function normalizeAvatarCdnUrl(url: string): string | null {
   try {
     if (!url) return null;
     if (url.startsWith('data:')) return url; // leave data URIs as-is
-    const u = new URL(url);
-    // Strip params and hash; keep host + pathname
-    const host = u.host;
-    const pathname = u.pathname || '';
-    if (!host) return null;
-    // Avoid trailing slash-only path resulting in the CDN root
-    const cleanPath = pathname.replace(/\/+$/, '');
-    const hostPath = cleanPath ? `${host}${cleanPath}` : host;
-    return `https://cdn.statically.io/img/${hostPath}`;
+    // Many Reddit avatar URLs include query parameters (size, hashes) which are required.
+    // Previously we rewrote avatars through statically.io which occasionally broke some hosts.
+    // Safer approach: return the original URL when it's likely an image host or contains an extension.
+    try {
+      const u = new URL(url);
+      const host = (u.hostname || '').toLowerCase();
+      const pathname = u.pathname || '';
+      const hasExt = /\.[a-z0-9]{2,6}$/i.test(pathname);
+      const preserveHosts = [
+        'redditstatic.com', 'i.redd.it', 'preview.redd.it',
+        'imgur.com', 'i.imgur.com', 'avatars.githubusercontent.com',
+        'secure.gravatar.com', 'lh3.googleusercontent.com'
+      ];
+      if (hasExt || preserveHosts.some(h => host.endsWith(h))) {
+        return u.toString();
+      }
+      // Fallback: return the original URL (keep query params intact)
+      return u.toString();
+    } catch {
+      // If URL parsing fails, return original string
+      return url;
+    }
   } catch {
     try {
       // Fallback: best-effort strip scheme and params with regex
       const noScheme = url.replace(/^https?:\/\//i, '').split('?')[0].split('#')[0];
       if (!noScheme) return null;
-      return `https://cdn.statically.io/img/${noScheme}`;
+      return `https://${noScheme}`;
     } catch {
       return null;
     }
@@ -447,7 +603,7 @@ export async function submitComment(
     formData.append('text', text);
     formData.append('thing_id', thingId);
 
-    const response = await fetch('https://oauth.reddit.com/api/comment', {
+    const resp = await extensionFetch('https://oauth.reddit.com/api/comment', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -455,16 +611,15 @@ export async function submitComment(
         'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
       },
       body: formData.toString(),
-    });
+    } as any);
 
-    if (!response.ok) {
-      // Try to surface error body if possible for easier debugging
-      let msg = `Request failed: ${response.status}`;
-      try { msg += ` ${await response.text()}`; } catch {}
+    if (!resp.ok) {
+      let msg = `Request failed: ${resp.status}`;
+      try { msg += ` ${await resp.text()}`; } catch {}
       return { success: false, error: msg };
     }
 
-    const result = await response.json();
+    const result = await resp.json();
 
     if (result.json && result.json.errors && result.json.errors.length > 0) {
       return { success: false, error: result.json.errors[0][1] };
@@ -494,7 +649,7 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1): Promis
     const form = new URLSearchParams();
     form.set('id', fullname);
     form.set('dir', String(direction));
-    const resp = await fetch('https://oauth.reddit.com/api/vote', {
+    const resp = await extensionFetch('https://oauth.reddit.com/api/vote', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -502,7 +657,7 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1): Promis
         'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0'
       },
       body: form.toString()
-    });
+    } as any);
     if (!resp.ok) {
       let msg = `Vote failed: ${resp.status}`;
       try { msg += ' ' + (await resp.text()); } catch {}
@@ -565,18 +720,41 @@ export async function searchCustomPosts(query: string): Promise<RedditPost[]> {
   try {
     const q = query.trim();
     if (!q) return [];
-    const params = new URLSearchParams({
-      q,
-      restrict_sr: 'true',
-      sort: 'relevance',
-      t: 'all',
-      type: 'link',
-      limit: '25',
-    });
-    const endpoint = `/r/anime/search.json?${params.toString()}`;
-    const result = await makeRedditRequest<RedditSearchResult>(endpoint);
-    if (!result || !result.data || !result.data.children) return [];
-    return result.data.children.map(c => c.data);
+    const token = await getAccessToken();
+    if (token) {
+      const params = new URLSearchParams({
+        q,
+        restrict_sr: 'true',
+        sort: 'relevance',
+        t: 'all',
+        type: 'link',
+        limit: '25',
+      });
+      const endpoint = `/r/anime/search.json?${params.toString()}`;
+      const result = await makeRedditRequest<RedditSearchResult>(endpoint);
+      if (!result || !result.data || !result.data.children) return [];
+      return result.data.children.map(c => c.data);
+    }
+
+    // Unauthenticated/public fallback — use reddit.com search and include browser cookies
+    try {
+      const params = new URLSearchParams({
+        q,
+        restrict_sr: '1',
+        sort: 'relevance',
+        t: 'all',
+        type: 'link',
+        limit: '25',
+      });
+      const url = `https://www.reddit.com/r/anime/search.json?${params.toString()}`;
+  const resp = await extensionFetch(url, { credentials: 'include', headers: { 'User-Agent': 'crunchyroll-comments-extension' } } as any);
+  if (!resp.ok) return [];
+  const j = await resp.json();
+  if (!j || !j.data || !Array.isArray(j.data.children)) return [];
+  return j.data.children.map((c: any) => c.data as RedditPost);
+    } catch (e) {
+      return [];
+    }
   } catch (e) {
     console.error('Error in custom search:', e);
     return [];
