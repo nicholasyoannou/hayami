@@ -233,7 +233,7 @@ export async function searchAnimeDiscussion(
             limit: '100',
           });
           const url = `https://www.reddit.com/r/anime/search.json?${params.toString()}`;
-          const resp = await extensionFetch(url, { credentials: 'include', headers: { 'User-Agent': 'crunchyroll-comments-extension' } } as any);
+          const resp = await extensionFetch(url, { credentials: 'include' } as any);
           if (!resp.ok) continue;
           const j = await resp.json();
           if (j && j.data && Array.isArray(j.data.children)) {
@@ -321,7 +321,7 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
       try {
         const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&depth=5&limit=500&raw_json=1`;
   // Include credentials so a logged-in reddit session (cookies) can be used
-        const resp = await extensionFetch(url, { credentials: 'include', headers: { 'User-Agent': 'crunchyroll-comments-extension' } } as any);
+  const resp = await extensionFetch(url, { credentials: 'include' } as any);
         if (resp.ok) {
           result = await resp.json();
         }
@@ -425,12 +425,11 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
     if (token) {
       // Authenticated request via OAuth endpoint
       resp = await (async () => {
-        const r = await extensionFetch('https://oauth.reddit.com/api/morechildren', {
+          const r = await extensionFetch('https://oauth.reddit.com/api/morechildren', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
           },
           body: form.toString(),
         } as any);
@@ -445,7 +444,6 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
             method: 'POST',
             headers: {
               'Content-Type': 'application/x-www-form-urlencoded',
-              'User-Agent': 'crunchyroll-comments-extension',
             },
             credentials: 'include',
             body: form.toString(),
@@ -608,7 +606,6 @@ export async function submitComment(
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
       },
       body: formData.toString(),
     } as any);
@@ -654,7 +651,6 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1): Promis
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0'
       },
       body: form.toString()
     } as any);
@@ -747,7 +743,7 @@ export async function searchCustomPosts(query: string): Promise<RedditPost[]> {
         limit: '25',
       });
       const url = `https://www.reddit.com/r/anime/search.json?${params.toString()}`;
-  const resp = await extensionFetch(url, { credentials: 'include', headers: { 'User-Agent': 'crunchyroll-comments-extension' } } as any);
+  const resp = await extensionFetch(url, { credentials: 'include' } as any);
   if (!resp.ok) return [];
   const j = await resp.json();
   if (!j || !j.data || !Array.isArray(j.data.children)) return [];
