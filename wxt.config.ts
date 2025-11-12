@@ -9,6 +9,7 @@ export default defineConfig({
     permissions: [
       'identity',
       'storage',
+      'cookies'
     ],
     host_permissions: [
       'https://www.reddit.com/*',

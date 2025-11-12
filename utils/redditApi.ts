@@ -91,17 +91,22 @@ interface RedditSearchResult {
 }
 
 /**
- * Searches r/anime for episode discussion threads posted by AutoLovepon
- * @param animeName - The name of the anime
- * @param episodeNumber - The episode number (e.g., "1", "2", "12")
- * @returns Array of matching Reddit posts by AutoLovepon
+ * Searches r/anime for episode discussion threads posted by known maintainers.
+ * Historically the discussion poster changed over time:
+ *  - shadoxfix: March 24, 2014 through December 31, 2015
+ *  - autolovepon: April 7, 2018 onwards
+ *
+ * This function filters posts by author + post creation date to match the
+ * appropriate maintainer for the post's timeframe.
  */
-const DISCUSSION_AUTHORS = new Set(['autolovepon', 'shadoxfix']);
-
 export async function searchAnimeDiscussion(
   animeName: string,
   episodeNumber: string
 ): Promise<RedditPost[]> {
+  // time boundaries (in seconds since epoch UTC)
+  const SHADOXFIX_START = Date.parse('2014-03-24T00:00:00Z') / 1000;
+  const SHADOXFIX_END = Date.parse('2015-12-31T23:59:59Z') / 1000;
+  const AUTOLOVEPON_START = Date.parse('2018-04-07T00:00:00Z') / 1000;
   try {
     // Build search query in format: "<AnimeName> - Episode <Number>"
     const query = `"${animeName} - Episode ${episodeNumber}"`;
@@ -117,25 +122,50 @@ export async function searchAnimeDiscussion(
     });
 
     const endpoint = `/r/anime/search.json?${searchParams.toString()}`;
-    const result = await makeRedditRequest<RedditSearchResult>(endpoint);
+    // If we have an OAuth token, use the authenticated helper which may use
+    // the OAuth endpoint and include credentials. Otherwise fall back to the
+    // public reddit.com search and do client-side filtering.
+    const token = await getAccessToken();
+    let allChildren: any[] = [];
 
-    if (!result || !result.data || !result.data.children) {
-      return [];
+    if (token) {
+      const result = await makeRedditRequest<RedditSearchResult>(endpoint);
+      if (!result || !result.data || !result.data.children) return [];
+      allChildren = result.data.children;
+    } else {
+      // Public search: query per-author (to help narrow results) and merge
+      const authors = ['autolovepon', 'shadoxfix'];
+      const queries = authors.map(a => `"${animeName} - Episode ${episodeNumber}" discussion author:${a}`);
+      for (const q of queries) {
+        try {
+          const url = `https://www.reddit.com/r/anime/search.json?q=${encodeURIComponent(q)}&restrict_sr=1&sort=relevance&t=all&type=link&limit=100`;
+          const resp = await fetch(url, { credentials: 'omit', headers: { 'User-Agent': 'crunchyroll-comments-extension' } });
+          if (!resp.ok) continue;
+          const j = await resp.json();
+          if (j && j.data && Array.isArray(j.data.children)) {
+            allChildren.push(...j.data.children);
+          }
+        } catch (e) {
+          // ignore per-author fetch errors
+        }
+      }
+      if (allChildren.length === 0) return [];
     }
 
-    // Filter for posts by known discussion authors and matching title pattern
-    const posts = result.data.children
+    // Filter for posts by the historically correct maintainers and matching title
+    const posts = allChildren
       .map(child => child.data)
       .filter(post => {
-        const isKnownAuthor = DISCUSSION_AUTHORS.has(post.author.toLowerCase());
-        const title = post.title;
-        
-        // Check if title matches pattern "<AnimeName> - Episode <Number>"
-        const matchesPattern = 
-          title.includes(animeName) && 
-          title.includes('Episode') &&
-          title.includes(episodeNumber);
-        
+        const author = (post.author || '').toLowerCase();
+        const created = Number(post.created_utc) || 0;
+
+        const isKnownAuthor = (
+          (author === 'shadoxfix' && created >= SHADOXFIX_START && created <= SHADOXFIX_END) ||
+          (author === 'autolovepon' && created >= AUTOLOVEPON_START)
+        );
+
+        const title = post.title || '';
+        const matchesPattern = title.includes(animeName) && title.includes('Episode') && title.includes(episodeNumber);
         return isKnownAuthor && matchesPattern;
       });
 
