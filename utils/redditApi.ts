@@ -10,9 +10,15 @@ import { makeRedditRequest, getAccessToken } from './redditAuth';
  * If messaging fails, fall back to window.fetch.
  */
 export async function extensionFetch(input: string, init?: RequestInit): Promise<{ ok: boolean; status: number; headers: [string,string][]; json: () => Promise<any>; text: () => Promise<string> } > {
+  // Prepare a safe init object and ensure a realistic User-Agent is present for proxied requests.
+  const defaultChromeUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const detectedUA = (typeof navigator !== 'undefined' && (navigator as any).userAgent) ? (navigator as any).userAgent : defaultChromeUA;
+  const safeHeaders = Object.assign({}, (init && (init as any).headers) || {}, { 'User-Agent': detectedUA });
+  const safeInit: RequestInit = Object.assign({}, init || {}, { headers: safeHeaders });
+
   // Try messaging the background first
   try {
-    const payload = { action: 'proxyFetch', url: input, init };
+    const payload = { action: 'proxyFetch', url: input, init: safeInit };
     const res = await new Promise<any>((resolve) => {
       try {
         chrome.runtime.sendMessage(payload, (r: any) => {
@@ -48,7 +54,9 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
     if (res && res.__messagingError && init && (init as any).credentials === 'include') {
       console.warn('[extensionFetch] proxy messaging failed; retrying direct fetch without credentials to avoid CORS blocking');
       const initNoCreds: RequestInit = { ...(init || {}), credentials: 'omit' } as any;
-      const resp2 = await fetch(input, initNoCreds);
+      // For the direct fetch fallback, avoid attempting to set User-Agent (browsers block it);
+      const { headers: _h, ...initSansHeaders } = initNoCreds as any;
+      const resp2 = await fetch(input, initSansHeaders as any);
       const ct2 = resp2.headers.get('content-type') || '';
       let b2: any;
       if (ct2.includes('application/json')) b2 = await resp2.json(); else b2 = await resp2.text();
