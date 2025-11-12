@@ -556,6 +556,14 @@ function normalizeAvatarCdnUrl(url: string): string | null {
         'imgur.com', 'i.imgur.com', 'avatars.githubusercontent.com',
         'secure.gravatar.com', 'lh3.googleusercontent.com'
       ];
+      // If this is a redditmedia-hosted styles/profile image (often contains many query params),
+      // rewrite it through Statically and strip query params so the image loads cleanly.
+      if (host.endsWith('redditmedia.com') || host.endsWith('styles.redditmedia.com')) {
+        const cleanPath = pathname.replace(/\/+$/, '');
+        const hostPath = cleanPath ? `${host}${cleanPath}` : host;
+        return `https://cdn.statically.io/img/${hostPath}`;
+      }
+
       if (hasExt || preserveHosts.some(h => host.endsWith(h))) {
         return u.toString();
       }
