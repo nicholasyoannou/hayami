@@ -1,0 +1,207 @@
+import { crProxyFetch } from '@/utils/redditApi';
+
+/**
+ * Fetches Disqus public API key by requesting the login page and extracting
+ * the `context.apiPublicKey` value embedded in the page JS.
+ */
+export async function getDisqusPublicApiKey(): Promise<string | null> {
+  try {
+    // Use extension proxy and allow credentials so the background can include
+    // Disqus cookies when available (some Disqus endpoints rely on session cookies).
+    const res = await crProxyFetch('https://disqus.com/profile/login/?next=https://disqus.com/home/notifications/', { credentials: 'include' } as any);
+    if (!res || !res.ok) return null;
+    const text = await res.text();
+    const m = text.match(/context\.apiPublicKey\s*=\s*['"]([^'"]+)['"]/i);
+    if (m && m[1]) return m[1];
+  } catch (e) {
+    console.warn('Failed to fetch Disqus public API key', e);
+  }
+  return null;
+}
+
+/**
+ * Call Disqus categories/listThreads.json endpoint for category 9789384 (anime discussions) with since timestamp.
+ * Returns the `response` array from Disqus API or empty array.
+ */
+export async function listThreadsForForumSince(forum: string, sinceTs: number, apiKey?: string): Promise<any[]> {
+  try {
+    const key = apiKey || await getDisqusPublicApiKey();
+    if (!key) throw new Error('No Disqus public API key available');
+    // Changed to categories/listThreads with category=9789384, order=asc, limit=100
+    const url = `https://disqus.com/api/3.0/categories/listThreads.json?category=9789384&since=${encodeURIComponent(String(sinceTs))}&limit=100&order=asc&api_key=${encodeURIComponent(key)}`;
+    // Use extension proxy and allow credentials so the background can include cookies
+    const r = await crProxyFetch(url, { credentials: 'include' } as any);
+    if (!r) {
+      console.warn('Disqus listThreads request returned no response');
+      return [];
+    }
+    if (!r.ok) {
+      try {
+        const txt = await r.text();
+        console.warn('Disqus listThreads request failed', r.status, String(txt).slice(0,200));
+      } catch (e) {
+        console.warn('Disqus listThreads request failed and body could not be read', r.status);
+      }
+      return [];
+    }
+    const j = await r.json();
+    return Array.isArray(j && j.response) ? j.response : [];
+  } catch (e) {
+    console.warn('Error listing Disqus threads', e);
+    return [];
+  }
+}
+
+/**
+ * Find a Disqus thread for an anime by name. Uses the `channel-discussanime` forum
+ * and the episode's release date if provided to set the `since` timestamp.
+ */
+export async function findThreadForAnime(animeInfo: { animeName: string; episodeName?: string; releaseDate?: string }, forum = 'channel-discussanime'): Promise<any | null> {
+  try {
+    // Compute since timestamp: START OF THE DAY (00:00:00) one day BEFORE the releaseDate
+    let sinceTs = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
+    if (animeInfo.releaseDate) {
+      const parsed = Date.parse(animeInfo.releaseDate);
+      if (!Number.isNaN(parsed)) {
+        // Get the date object for the release date
+        const releaseDate = new Date(parsed);
+        // Set to one day before
+        releaseDate.setDate(releaseDate.getDate() - 1);
+        // Set to start of day (00:00:00.000)
+        releaseDate.setHours(0, 0, 0, 0);
+        sinceTs = Math.floor(releaseDate.getTime() / 1000);
+        console.log('[Disqus] Release date:', animeInfo.releaseDate);
+        console.log('[Disqus] Since timestamp (1 day before at 00:00:00):', sinceTs, new Date(sinceTs * 1000).toISOString());
+      } else {
+        try {
+          const d = new Date(animeInfo.releaseDate);
+          if (!Number.isNaN(d.valueOf())) {
+            // Set to one day before
+            d.setDate(d.getDate() - 1);
+            // Set to start of day (00:00:00.000)
+            d.setHours(0, 0, 0, 0);
+            sinceTs = Math.floor(d.getTime() / 1000);
+            console.log('[Disqus] Release date:', animeInfo.releaseDate);
+            console.log('[Disqus] Since timestamp (1 day before at 00:00:00):', sinceTs, new Date(sinceTs * 1000).toISOString());
+          }
+        } catch {}
+      }
+    }
+
+    const name = (animeInfo.animeName || '').toLowerCase().trim();
+    if (!name) {
+      console.log('[Disqus] No anime name provided');
+      return null;
+    }
+
+    // Try up to 4 times with different timestamps (initial + 3 retries with adjusted times)
+    const hoursToNudge = 4;
+    let matchedThread: any = null;
+    
+    for (let attempt = 0; attempt <= 3 && !matchedThread; attempt++) {
+      const adjustedTs = attempt === 0 ? sinceTs : sinceTs + (hoursToNudge * 3600 * attempt);
+      if (attempt === 0) {
+        console.log('[Disqus] Initial attempt with timestamp:', new Date(adjustedTs * 1000).toISOString());
+      } else {
+        console.log(`[Disqus] Retry ${attempt}: Nudging timestamp forward by ${hoursToNudge * attempt} hours to`, new Date(adjustedTs * 1000).toISOString());
+      }
+      
+      const threads = await listThreadsForForumSince(forum, adjustedTs);
+      console.log(`[Disqus] API returned ${threads ? threads.length : 0} threads`);
+      
+      if (!threads || threads.length === 0) {
+        console.log('[Disqus] No threads returned, trying next timestamp...');
+        continue;
+      }
+
+      console.log('[Disqus] Searching for anime:', JSON.stringify(name));
+      
+      // Try multiple fields (title, clean_title, etc.) and normalize everything to lowercase
+      for (const t of threads) {
+        const title = String(t.title || '').toLowerCase();
+        const cleanTitle = String(t.clean_title || '').toLowerCase();
+        
+        // Check if name appears in either title field
+        if (title.includes(name) || cleanTitle.includes(name)) {
+          console.log('[Disqus] ✓ Found exact match in thread:', cleanTitle || title);
+          matchedThread = t;
+          break;
+        }
+      }
+      
+      if (matchedThread) {
+        console.log('[Disqus] Match found, stopping search');
+        break;
+      } else {
+        console.log(`[Disqus] No match found in attempt ${attempt + 1}, will try next timestamp if available`);
+      }
+    }
+
+    if (matchedThread) {
+      return matchedThread;
+    }
+    
+    // If still no match after all attempts, try with the last set of threads for normalized/word matching
+    console.log('[Disqus] No exact match found after all attempts, trying normalized matching with last result set...');
+    const threads = await listThreadsForForumSince(forum, sinceTs);
+    if (!threads || threads.length === 0) {
+      console.log('[Disqus] No threads available for normalized matching');
+      return null;
+    }
+
+    // Try with normalized text (remove punctuation, parentheses, etc.)
+    const normalizedName = name.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    for (const t of threads) {
+      const title = String(t.title || '').toLowerCase();
+      const cleanTitle = String(t.clean_title || '').toLowerCase();
+      const normalizedTitle = title.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+      const normalizedCleanTitle = cleanTitle.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+      
+      if (normalizedTitle.includes(normalizedName) || normalizedCleanTitle.includes(normalizedName)) {
+        console.log('[Disqus] Found normalized match in thread:', cleanTitle || title);
+        return t;
+      }
+    }
+
+    // Word-by-word matching with scoring (filter words 3+ chars)
+    const words = normalizedName.split(/\s+/).filter(w => w.length >= 3);
+    if (words.length > 0) {
+      let bestMatch: any = null;
+      let bestScore = 0;
+      
+      for (const t of threads) {
+        const title = String(t.title || '').toLowerCase();
+        const cleanTitle = String(t.clean_title || '').toLowerCase();
+        const searchText = `${title} ${cleanTitle}`.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        let matchedWords = 0;
+        for (const w of words) {
+          if (searchText.includes(w)) matchedWords++;
+        }
+        
+        const score = matchedWords / words.length;
+        
+        // Require all words to match for multi-word titles, 100% for single word
+        const threshold = 1.0;
+        if (score >= threshold && score > bestScore) {
+          bestScore = score;
+          bestMatch = t;
+        }
+      }
+      
+      if (bestMatch) {
+        console.log('[Disqus] Found word-match:', String(bestMatch.clean_title || bestMatch.title).toLowerCase());
+        return bestMatch;
+      }
+    }
+
+    console.log('[Disqus] No match found for:', name);
+    return null;
+  } catch (e) {
+    console.warn('Error finding Disqus thread', e);
+    return null;
+  }
+}
+
+export default { getDisqusPublicApiKey, listThreadsForForumSince, findThreadForAnime };

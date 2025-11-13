@@ -44,6 +44,9 @@ export default defineBackground(() => {
       return { received: true };
     }
 
+    // (Reverted) previously there was a startDisqusLoginFlow handler here.
+    // Disqus login should not be initiated automatically from the popup selection.
+
     // Proxy fetch requests from content scripts to avoid CORS issues
     if (message.action === 'proxyFetch') {
       const { url, init } = message;
@@ -72,5 +75,39 @@ export default defineBackground(() => {
         return { ok: false, status: 0, statusText: String(err), headers: [], body: null };
       }
     }
+  });
+
+  // Dedicated, namespaced proxy handler for Crunchyroll extension only.
+  // Uses a unique action name (`cr_proxyFetch`) and keeps the message port
+  // alive via sendResponse. This avoids changing the default messaging
+  // behavior that might affect other extensions.
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.action !== 'cr_proxyFetch') return; // ignore
+    (async () => {
+      const { url } = message as any;
+      let init = (message as any).init || {};
+      console.debug('[background] cr_proxyFetch requested:', url, { init });
+      try {
+        // Fetch WITHOUT credentials (omit cookies) so Disqus returns the public API key
+        init = Object.assign({}, init, { credentials: 'omit' });
+
+        const resp = await fetch(url, init as any);
+        const ct = resp.headers.get('content-type') || '';
+        let body: any = null;
+        try {
+          if (ct.includes('application/json')) body = await resp.json(); else body = await resp.text();
+        } catch (parseErr) {
+          body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
+        }
+        const headers = Array.from(resp.headers.entries());
+        console.debug('[background] cr_proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
+        if (!resp.ok) console.warn('[background] cr_proxyFetch non-OK response body snippet:', String(body).slice(0,500));
+        sendResponse({ ok: resp.ok, status: resp.status, statusText: resp.statusText, headers, body });
+      } catch (err) {
+        console.error('[background] cr_proxyFetch error:', err);
+        sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
+      }
+    })();
+    return true; // keep message channel open for async response
   });
 });

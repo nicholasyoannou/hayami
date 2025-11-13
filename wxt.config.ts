@@ -15,6 +15,8 @@ export default defineConfig({
       'https://www.reddit.com/*',
       'https://oauth.reddit.com/*',
       '*://*.crunchyroll.com/*',
+      'https://disqus.com/*',
+      'https://*.disqus.com/*'
     ],
     version: '0.0.2',
     /**
@@ -26,7 +28,8 @@ export default defineConfig({
       {
         resources: [
           'assets/commentAssets/*.svg',
-          'assets/*.svg'
+          'assets/*.svg',
+          'disqus-loader.js'
         ],
         matches: ['*://*.crunchyroll.com/*']
       }

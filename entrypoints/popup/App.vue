@@ -16,11 +16,13 @@ const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 const displayMode = ref<'popup' | 'inline'>('popup');
 const embedImages = ref<boolean>(false);
+const commentsProvider = ref<'reddit' | 'disqus'>('reddit');
 
 // Check authentication status on mount
 onMounted(async () => {
   await checkAuthStatus();
   await loadDisplayMode();
+  await loadCommentsProvider();
 });
 
 async function checkAuthStatus() {
@@ -49,6 +51,27 @@ async function loadDisplayMode() {
     const emb = await chrome.storage.local.get('embed_images');
     embedImages.value = Boolean(emb?.embed_images);
   } catch {}
+}
+
+async function loadCommentsProvider() {
+  try {
+    const d = await chrome.storage.local.get('comments_provider');
+    const p = d?.comments_provider;
+    if (p === 'disqus' || p === 'reddit') commentsProvider.value = p;
+  } catch {}
+}
+
+async function updateCommentsProvider(p: 'reddit' | 'disqus') {
+  try {
+    commentsProvider.value = p;
+    await chrome.storage.local.set({ comments_provider: p });
+    successMessage.value = p === 'disqus' ? 'Comments provider set to Disqus' : 'Comments provider set to Reddit';
+    setTimeout(() => successMessage.value = null, 1500);
+  } catch (e) {
+    console.error('Failed to update comments provider', e);
+    errorMessage.value = 'Failed to save provider setting';
+    setTimeout(() => errorMessage.value = null, 2000);
+  }
 }
 
 async function updateDisplayMode(mode: 'popup' | 'inline') {
@@ -194,6 +217,15 @@ function openSettings() {
               <span>Enable image embeds from standalone i.imgur.com links</span>
             </label>
             <p class="small-note">When enabled, a single-line image link (e.g. https://i.imgur.com/xyz.jpg) will be embedded via DuckDuckGo's image proxy.</p>
+          </div>
+
+          <div style="margin-top:12px;">
+            <h4>Comments provider</h4>
+            <div class="radio-row">
+              <label><input type="radio" name="commentsProvider" value="reddit" :checked="commentsProvider==='reddit'" @change="() => updateCommentsProvider('reddit')"> Reddit (default)</label>
+              <label><input type="radio" name="commentsProvider" value="disqus" :checked="commentsProvider==='disqus'" @change="() => updateCommentsProvider('disqus')"> Disqus</label>
+            </div>
+            <p class="small-note">Choose which provider to embed for episode discussions.</p>
           </div>
         </div>
 

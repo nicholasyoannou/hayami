@@ -19,9 +19,12 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
   // Try messaging the background first
   try {
     const payload = { action: 'proxyFetch', url: input, init: safeInit };
+    console.debug('[extensionFetch] attempting proxyFetch via runtime message', { url: input });
     const res = await new Promise<any>((resolve) => {
+      let called = false;
       try {
         chrome.runtime.sendMessage(payload, (r: any) => {
+          called = true;
           const last = (chrome.runtime as any).lastError;
           if (last) {
             console.warn('[extensionFetch] chrome.runtime.lastError while sending proxyFetch:', last?.message || last);
@@ -34,6 +37,8 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
         console.warn('[extensionFetch] sendMessage threw:', e);
         resolve({ __messagingError: true, message: String(e) });
       }
+      // Failsafe timeout: if runtime.sendMessage never invokes callback, resolve as error after 1500ms
+      setTimeout(() => { if (!called) { console.warn('[extensionFetch] proxyFetch message callback not called within timeout'); resolve({ __messagingError: true, message: 'timeout' }); } }, 1500);
     });
 
     // If the background provided a proper proxied response, return it
@@ -47,26 +52,37 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
       };
     }
 
-    // If messaging failed (e.g. runtime.lastError) and the caller requested credentials: 'include',
-    // a direct fetch from the page will trigger CORS when the server responds with Access-Control-Allow-Origin: '*'.
-    // To avoid the browser blocking the request with that error, retry a direct fetch WITHOUT credentials
-    // (this won't include cookies but avoids the CORS-with-credentials rejection). Log a warning so it's visible.
-    if (res && res.__messagingError && init && (init as any).credentials === 'include') {
-      console.warn('[extensionFetch] proxy messaging failed; retrying direct fetch without credentials to avoid CORS blocking');
-      const initNoCreds: RequestInit = { ...(init || {}), credentials: 'omit' } as any;
-      // For the direct fetch fallback, avoid attempting to set User-Agent (browsers block it);
-      const { headers: _h, ...initSansHeaders } = initNoCreds as any;
-      const resp2 = await fetch(input, initSansHeaders as any);
-      const ct2 = resp2.headers.get('content-type') || '';
-      let b2: any;
-      if (ct2.includes('application/json')) b2 = await resp2.json(); else b2 = await resp2.text();
-      return {
-        ok: resp2.ok,
-        status: resp2.status,
-        headers: Array.from(resp2.headers.entries()),
-        json: async () => b2,
-        text: async () => (typeof b2 === 'string' ? b2 : JSON.stringify(b2)),
-      };
+    // If messaging failed (res.__messagingError), attempt a single retry of proxy messaging
+    if (res && res.__messagingError) {
+      console.warn('[extensionFetch] proxy messaging failed on first attempt:', res.message || res);
+      // Try one more time synchronously
+      const retry = await new Promise<any>((resolve) => {
+        let called2 = false;
+        try {
+          chrome.runtime.sendMessage(payload, (r2: any) => {
+            called2 = true;
+            const last2 = (chrome.runtime as any).lastError;
+            if (last2) { console.warn('[extensionFetch] retry chrome.runtime.lastError:', last2?.message || last2); resolve({ __messagingError: true, message: last2?.message || String(last2) }); return; }
+            resolve(r2);
+          });
+        } catch (e) {
+          console.warn('[extensionFetch] retry sendMessage threw:', e);
+          resolve({ __messagingError: true, message: String(e) });
+        }
+        setTimeout(() => { if (!called2) { console.warn('[extensionFetch] proxyFetch retry callback not called within timeout'); resolve({ __messagingError: true, message: 'timeout' }); } }, 1500);
+      });
+      if (!(retry && typeof retry.ok !== 'undefined')) {
+        console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)');
+      } else {
+        // Use the successful retry result
+        return {
+          ok: !!retry.ok,
+          status: Number(retry.status) || 0,
+          headers: Array.isArray(retry.headers) ? retry.headers : [],
+          json: async () => retry.body,
+          text: async () => (typeof retry.body === 'string' ? retry.body : JSON.stringify(retry.body)),
+        };
+      }
     }
   } catch (e) {
     // fall through to direct fetch
@@ -84,6 +100,39 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
     json: async () => b,
     text: async () => (typeof b === 'string' ? b : JSON.stringify(b)),
   };
+}
+
+/**
+ * Namespaced proxy fetch for Crunchyroll extension to avoid touching other
+ * extensions' messaging. Uses `cr_proxyFetch` action handled by background.
+ */
+export async function crProxyFetch(input: string, init?: RequestInit): Promise<{ ok: boolean; status: number; headers: [string,string][]; json: () => Promise<any>; text: () => Promise<string> } > {
+  return new Promise<any>((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ action: 'cr_proxyFetch', url: input, init }, (res: any) => {
+        const last = (chrome.runtime as any).lastError;
+        if (last) {
+          console.warn('[crProxyFetch] chrome.runtime.lastError:', last?.message || last);
+          resolve({ ok: false, status: 0, headers: [], json: async () => null, text: async () => '' });
+          return;
+        }
+        if (!res) {
+          resolve({ ok: false, status: 0, headers: [], json: async () => null, text: async () => '' });
+          return;
+        }
+        resolve({
+          ok: !!res.ok,
+          status: Number(res.status) || 0,
+          headers: Array.isArray(res.headers) ? res.headers : [],
+          json: async () => res.body,
+          text: async () => (typeof res.body === 'string' ? res.body : JSON.stringify(res.body)),
+        });
+      });
+    } catch (e) {
+      console.warn('[crProxyFetch] sendMessage threw:', e);
+      resolve({ ok: false, status: 0, headers: [], json: async () => null, text: async () => '' });
+    }
+  });
 }
 
 /**

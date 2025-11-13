@@ -1,4 +1,5 @@
 import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing, extensionFetch } from '@/utils/redditApi';
+import { findThreadForAnime, listThreadsForForumSince } from '@/utils/disqusApi';
 import { getStoredUsername } from '@/utils/redditAuth';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { isAuthenticated } from '@/utils/redditAuth';
@@ -650,6 +651,34 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     }
 
     // New primary search: series name filtered by release date
+    // But first check whether user selected Disqus as comments provider. If so,
+    // attempt to find a Disqus thread for this anime and embed it.
+    try {
+      const d = await chrome.storage.local.get('comments_provider');
+      const provider = d && d.comments_provider ? String(d.comments_provider) : 'reddit';
+      if (provider === 'disqus') {
+        try {
+          const thread = await findThreadForAnime(animeInfo);
+          if (thread) {
+            // Embed Disqus thread instead of Reddit, respecting display mode
+            await embedDisqusThreadDependingOnMode(thread, animeInfo);
+            return;
+          }
+          // No exact match found — offer manual Disqus search UI. If the user
+          // chooses to fallback, continue with Reddit search.
+          const shouldFallback = await showDisqusSearchUI(animeInfo);
+          if (!shouldFallback) {
+            // user either embedded a thread or dismissed search; stop here
+            return;
+          }
+        } catch (e) {
+          console.warn('Disqus lookup failed, falling back to Reddit', e);
+        }
+      }
+    } catch (e) {
+      // ignore storage errors and fall back to reddit
+    }
+
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
 
     if (!results || results.length === 0) {
@@ -934,6 +963,226 @@ function displayDiscussion(discussion: any): void {
     showManualSearchUI(lastAnimeInfo || { animeName: '', episodeName: '' }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
     overlay.remove();
   });
+}
+
+/**
+ * Embed a Disqus thread respecting the display mode (popup or inline)
+ */
+async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
+  if (displayMode === 'inline') {
+    embedDisqusThreadInline(thread, animeInfo);
+  } else {
+    embedDisqusThreadPopup(thread, animeInfo);
+  }
+}
+
+/**
+ * Embed a Disqus thread inline below the video player
+ */
+function embedDisqusThreadInline(thread: any, animeInfo: AnimeInfo): void {
+  try {
+    // Remove existing inline panel if present
+    const existing = document.getElementById('reddit-inline-discussion');
+    if (existing) existing.remove();
+
+    const layout = document.querySelector('.erc-watch-episode-layout');
+    const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+    if (!wrapper) {
+      console.warn('content-wrapper not found; falling back to popup');
+      embedDisqusThreadPopup(thread, animeInfo);
+      return;
+    }
+
+    const title = thread.clean_title || thread.title || `${animeInfo.animeName} discussion`;
+    // Use the 'link' field from the API response (e.g., "https://disqus.com/home/discussion/channel-discussanime/...")
+    const threadUrl = thread.link || '';
+    // Use 'id' field as identifier (e.g., "10641910832")
+    const identifier = String(thread.id || thread.identifier || '');
+    const forumShortname = thread.forum || 'channel-discussanime';
+    // Extract slug from the thread link (last part of URL path without trailing slash)
+    const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
+
+    const container = document.createElement('section');
+    container.id = 'reddit-inline-discussion';
+    container.innerHTML = `
+      <div class="ri-header">
+        <h2 class="ri-title">💬 Discussion: ${escapeHtml(title)}</h2>
+        <div class="ri-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
+      </div>
+      <div id="disqus_thread"></div>
+    `;
+
+    wrapper.appendChild(container);
+
+    // Inject external script from extension (CSP-compliant)
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('disqus-loader.js');
+    script.setAttribute('data-thread-url', threadUrl);
+    script.setAttribute('data-identifier', identifier);
+    script.setAttribute('data-forum', forumShortname);
+    script.setAttribute('data-title', title);
+    script.setAttribute('data-slug', threadSlug);
+    (document.head || document.body).appendChild(script);
+  } catch (e) {
+    console.error('Failed to embed Disqus inline', e);
+    embedDisqusThreadPopup(thread, animeInfo);
+  }
+}
+
+/**
+ * Embed a Disqus thread in a popup overlay
+ */
+function embedDisqusThreadPopup(thread: any, animeInfo: AnimeInfo): void {
+  const overlay = createOverlay();
+  const title = thread.clean_title || thread.title || `${animeInfo.animeName} discussion`;
+  const threadUrl = thread.link || '';
+  const identifier = String(thread.id || thread.identifier || '');
+  const forumShortname = thread.forum || 'channel-discussanime';
+  const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
+  
+  overlay.innerHTML = `
+    <div class="reddit-discussion-panel">
+      <div class="panel-header">
+        <h3>💬 Disqus Discussion</h3>
+        <div class="panel-actions">
+          <button class="wrong-btn" id="disqus-wrong-btn" title="Refine search manually">Wrong?</button>
+          <button class="close-btn" id="disqus-close-btn">✕</button>
+        </div>
+      </div>
+      <div class="panel-content">
+        <div class="discussion-info">
+          <h4 class="discussion-title">${escapeHtml(title)}</h4>
+          <div class="discussion-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
+        </div>
+        <div id="disqus_embed_host">
+          <div id="disqus_thread"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const closeBtn = overlay.querySelector('#disqus-close-btn');
+  closeBtn?.addEventListener('click', () => overlay.remove());
+  const wrongBtn = overlay.querySelector('#disqus-wrong-btn');
+  wrongBtn?.addEventListener('click', () => {
+    const ep = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+    showManualSearchUI(lastAnimeInfo || { animeName: animeInfo.animeName, episodeName: animeInfo.episodeName }, ep ? Number(ep) : undefined);
+    overlay.remove();
+  });
+
+  // Inject external script from extension (CSP-compliant)
+  try {
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('disqus-loader.js');
+    script.setAttribute('data-thread-url', threadUrl);
+    script.setAttribute('data-identifier', identifier);
+    script.setAttribute('data-forum', forumShortname);
+    script.setAttribute('data-title', title);
+    script.setAttribute('data-slug', threadSlug);
+    (document.head || document.body).appendChild(script);
+  } catch (e) {
+    console.warn('Failed to inject Disqus embed', e);
+  }
+}
+
+/**
+ * Show a manual Disqus search UI. Returns `true` if caller should fallback to Reddit,
+ * or `false` if user embedded a Disqus thread or dismissed without falling back.
+ */
+async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<boolean> {
+  const overlay = createOverlay();
+  overlay.innerHTML = `
+    <div class="reddit-discussion-panel">
+      <div class="panel-header">
+        <h3>💬 Search Disqus</h3>
+        <div class="panel-actions">
+          <button class="close-btn" id="disqus-search-close">✕</button>
+        </div>
+      </div>
+      <div class="panel-content">
+        <p>Searching Disqus for threads in <strong>channel-discussanime</strong>...</p>
+        <ul class="choice-list" id="disqus-choice-list"></ul>
+        <div style="margin-top:12px"><button id="use-reddit-btn" class="reddit-btn">Use Reddit instead</button></div>
+      </div>
+    </div>
+  `;
+
+  const closeBtn = overlay.querySelector('#disqus-search-close') as HTMLElement | null;
+  const useRedditBtn = overlay.querySelector('#use-reddit-btn') as HTMLButtonElement | null;
+  const listHost = overlay.querySelector('#disqus-choice-list') as HTMLElement | null;
+
+  let resolved = false;
+
+  closeBtn?.addEventListener('click', () => {
+    overlay.remove();
+  });
+  useRedditBtn?.addEventListener('click', () => {
+    resolved = true; // signal fallback to Reddit
+    overlay.remove();
+  });
+
+  try {
+    // compute since timestamp: START OF THE DAY (00:00:00) one day BEFORE the releaseDate
+    let sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
+    if (animeInfo.releaseDate) {
+      const parsed = Date.parse(animeInfo.releaseDate);
+      if (!Number.isNaN(parsed)) {
+        const releaseDate = new Date(parsed);
+        // Set to one day before
+        releaseDate.setDate(releaseDate.getDate() - 1);
+        // Set to start of day (00:00:00.000)
+        releaseDate.setHours(0, 0, 0, 0);
+        sinceTs = Math.floor(releaseDate.getTime() / 1000);
+      }
+    }
+    let threads = await listThreadsForForumSince('channel-discussanime', sinceTs);
+    if (!threads || threads.length === 0) {
+      // broaden search to 90 days
+      const since2 = Math.floor(Date.now() / 1000) - 90 * 24 * 3600;
+      threads = await listThreadsForForumSince('channel-discussanime', since2);
+    }
+
+    if (!threads || threads.length === 0) {
+      if (listHost) listHost.innerHTML = `<li class="choice-item">No Disqus threads found in channel-discussanime.</li>`;
+      return new Promise<boolean>((res) => {
+        // wait for user to click Use Reddit or close
+        const i = setInterval(() => {
+          if (overlay.parentElement === null) { clearInterval(i); res(resolved); }
+        }, 200);
+      });
+    }
+
+    // Render list
+    if (listHost) {
+      listHost.innerHTML = threads.slice(0, 20).map((t: any, idx: number) => {
+        const url = t.url || t.link || '';
+        const snippet = (t.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `<li class="choice-item"><div class="choice-title">${snippet}</div><div class="choice-meta">${escapeHtml(String(url))}</div><button class="reddit-btn disqus-select" data-index="${idx}">Embed</button></li>`;
+      }).join('');
+
+      // Wire handlers
+      Array.from(listHost.querySelectorAll('.disqus-select')).forEach(btn => {
+        btn.addEventListener('click', async (ev) => {
+          const idx = Number((ev.currentTarget as HTMLElement).getAttribute('data-index'));
+          const t = threads[idx];
+          if (t) {
+            await embedDisqusThreadDependingOnMode(t, animeInfo);
+            overlay.remove();
+            resolved = false;
+          }
+        });
+      });
+    }
+
+    return new Promise<boolean>((res) => {
+      const i = setInterval(() => {
+        if (overlay.parentElement === null) { clearInterval(i); res(resolved); }
+      }, 200);
+    });
+  } catch (e) {
+    console.warn('Disqus manual search failed', e);
+    return true; // fallback to reddit
+  }
 }
 
 async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
