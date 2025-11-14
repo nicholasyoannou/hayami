@@ -633,6 +633,256 @@ function parseEpisodeFromTitle(title: string): number | null {
   return m ? parseInt(m[1], 10) : null;
 }
 
+/**
+ * Fetch anime data from r-anime-wiki-mapper service
+ */
+async function fetchAnimeMapperData(animeName: string): Promise<any | null> {
+  try {
+    const encodedName = encodeURIComponent(animeName);
+    const response = await fetch(`https://r-anime-wiki-mapper-service.nicholas.dev/anime/${encodedName}`);
+    
+    if (!response.ok) {
+      console.log('Mapper service returned non-OK status:', response.status);
+      return null;
+    }
+    
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.log('Error fetching from mapper service:', error);
+    return null;
+  }
+}
+
+/**
+ * Extract Reddit post ID from a Reddit URL and fetch post data
+ */
+async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
+  try {
+    // Extract post ID from URL like: https://www.reddit.com/r/anime/comments/7q5lbx
+    const match = redditUrl.match(/\/comments\/([a-z0-9]+)/i);
+    if (!match || !match[1]) {
+      console.log('Could not extract post ID from URL:', redditUrl);
+      return null;
+    }
+    
+    const postId = match[1];
+    
+    // Fetch post data using Reddit API
+    const { makeRedditRequest } = await import('@/utils/redditAuth');
+    
+    // First, try to get post info from /api/info endpoint
+    try {
+      const infoResponse = await makeRedditRequest<any>(`/api/info.json?id=t3_${postId}`);
+      if (infoResponse && infoResponse.data && infoResponse.data.children && infoResponse.data.children.length > 0) {
+        const postData = infoResponse.data.children[0].data;
+        // Convert to format expected by displayDiscussionDependingOnMode
+        return {
+          id: postData.id,
+          title: postData.title,
+          author: postData.author,
+          score: postData.score,
+          num_comments: postData.num_comments,
+          created_utc: postData.created_utc,
+          permalink: postData.permalink,
+          url: postData.url,
+        };
+      }
+    } catch (e) {
+      console.log('Error fetching post info:', e);
+    }
+    
+    // Fallback: construct post object from URL
+    return {
+      id: postId,
+      title: 'Episode Discussion',
+      author: 'unknown',
+      score: 0,
+      num_comments: 0,
+      created_utc: Math.floor(Date.now() / 1000),
+      permalink: redditUrl.replace('https://www.reddit.com', ''),
+      url: redditUrl,
+    };
+  } catch (error) {
+    console.error('Error fetching Reddit post from URL:', error);
+    return null;
+  }
+}
+
+/**
+ * Show combined selection UI with tabs for Reddit API and Mapper results
+ */
+function showCombinedSelectionUI(animeInfo: AnimeInfo, redditPosts: any[], mapperResult: any | null, crEpisodeNum?: number): void {
+  const overlay = createOverlay();
+  const hasRedditResults = redditPosts && redditPosts.length > 0;
+  const hasMapperResults = mapperResult && mapperResult.count > 0 && mapperResult.results && mapperResult.results.length > 0;
+  
+  // Default to mapper tab if available, otherwise Reddit tab
+  let activeTab: 'reddit' | 'mapper' = hasMapperResults ? 'mapper' : 'reddit';
+  
+  const renderRedditList = (items: any[]) => items.slice(0, 12).map((p, idx) => {
+    const date = new Date(p.created_utc * 1000).toLocaleString();
+    return `
+      <li class="choice-item">
+        <div class="choice-title">${escapeHtml(p.title)}</div>
+        <div class="choice-meta">u/${escapeHtml(p.author)} • ${date} • ${p.num_comments} comments</div>
+        <button class="reddit-btn choice-select" data-source="reddit" data-index="${idx}">Select</button>
+      </li>
+    `;
+  }).join('');
+  
+  const renderMapperList = (mapperData: any) => {
+    if (!mapperData || !mapperData.results || mapperData.results.length === 0) {
+      return '<li class="choice-item"><div class="choice-title">No results found</div></li>';
+    }
+    
+    return mapperData.results.map((anime: any, animeIdx: number) => {
+      const episodes = anime.episodes || {};
+      const episodeNumbers = Object.keys(episodes).sort((a, b) => Number(a) - Number(b));
+      
+      return `
+        <li class="choice-item mapper-item">
+          <div class="choice-title mapper-anime-name">${escapeHtml(anime.anime_name)}</div>
+          ${anime.year ? `<div class="choice-meta">Year: ${escapeHtml(anime.year)}</div>` : ''}
+          <div class="mapper-episodes">
+            ${episodeNumbers.map((epNum: string) => {
+              const url = episodes[epNum];
+              return `
+                <div class="mapper-episode">
+                  <span class="episode-number">Episode ${epNum}</span>
+                  <button class="reddit-btn choice-select" data-source="mapper" data-anime-index="${animeIdx}" data-episode="${epNum}">Select</button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </li>
+      `;
+    }).join('');
+  };
+  
+  overlay.innerHTML = `
+    <div class="reddit-discussion-panel">
+      <div class="panel-header">
+        <h3>🍥 r/anime Discussion</h3>
+        <div class="panel-actions">
+          <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
+          <button class="close-btn" id="reddit-close-btn">✕</button>
+        </div>
+      </div>
+      <div class="panel-content">
+        <p style="margin-top:0">Multiple possible threads found for <strong>${escapeHtml(animeInfo.animeName || 'this series')}</strong>. Pick the one that matches this episode.</p>
+        
+        ${hasRedditResults && hasMapperResults ? `
+          <div class="tab-container">
+            <div class="tab-buttons">
+              <button class="tab-btn ${activeTab === 'mapper' ? 'active' : ''}" data-tab="mapper">Mapper Service (${mapperResult.count})</button>
+              <button class="tab-btn ${activeTab === 'reddit' ? 'active' : ''}" data-tab="reddit">Reddit API (${redditPosts.length})</button>
+            </div>
+          </div>
+        ` : ''}
+        
+        <div class="tab-content">
+          <div class="tab-pane ${activeTab === 'mapper' ? 'active' : ''}" id="mapper-tab">
+            <ul class="choice-list" id="mapper-choice-list">${hasMapperResults ? renderMapperList(mapperResult) : '<li class="choice-item"><div class="choice-title">No mapper results found</div></li>'}</ul>
+          </div>
+          <div class="tab-pane ${activeTab === 'reddit' ? 'active' : ''}" id="reddit-tab">
+            <ul class="choice-list" id="reddit-choice-list">${hasRedditResults ? renderRedditList(redditPosts) : '<li class="choice-item"><div class="choice-title">No Reddit API results found</div></li>'}</ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Add tab switching
+  if (hasRedditResults && hasMapperResults) {
+    overlay.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = (btn as HTMLElement).getAttribute('data-tab');
+        if (!tab) return;
+        
+        activeTab = tab as 'reddit' | 'mapper';
+        
+        // Update tab buttons
+        overlay.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // Update tab panes
+        overlay.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        const pane = overlay.querySelector(`#${tab}-tab`);
+        if (pane) pane.classList.add('active');
+      });
+    });
+  }
+  
+  const closeBtn = overlay.querySelector('#reddit-close-btn');
+  closeBtn?.addEventListener('click', () => overlay.remove());
+  
+  const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
+  wrongBtn?.addEventListener('click', () => showManualSearchUI(animeInfo, crEpisodeNum));
+  
+  // Wire Reddit choice handlers
+  overlay.querySelectorAll('.choice-select[data-source="reddit"]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const index = Number((ev.currentTarget as HTMLElement).getAttribute('data-index'));
+      const chosen = redditPosts[index];
+      if (typeof crEpisodeNum === 'number') {
+        const redditEp = parseEpisodeFromTitle(chosen.title);
+        if (redditEp !== null && animeInfo.animeName) {
+          const offset = redditEp - crEpisodeNum;
+          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
+        }
+      }
+      overlay.remove();
+      await displayDiscussionDependingOnMode(chosen);
+    });
+  });
+  
+  // Wire Mapper choice handlers
+  overlay.querySelectorAll('.choice-select[data-source="mapper"]').forEach(btn => {
+    btn.addEventListener('click', async (ev) => {
+      const animeIdx = Number((ev.currentTarget as HTMLElement).getAttribute('data-anime-index'));
+      const epNum = (ev.currentTarget as HTMLElement).getAttribute('data-episode');
+      
+      if (mapperResult && mapperResult.results && mapperResult.results[animeIdx] && epNum) {
+        const animeData = mapperResult.results[animeIdx];
+        const redditUrl = animeData.episodes[epNum];
+        
+        if (redditUrl) {
+          const postData = await fetchRedditPostFromUrl(redditUrl);
+          if (postData) {
+            overlay.remove();
+            await displayDiscussionDependingOnMode(postData);
+          } else {
+            alert('Failed to load post from mapper service URL');
+          }
+        }
+      }
+    });
+  });
+  
+  // Inject styles for tabs and mapper UI
+  if (!document.getElementById('combined-selection-styles')) {
+    const style = document.createElement('style');
+    style.id = 'combined-selection-styles';
+    style.textContent = `
+      .tab-container { margin: 12px 0; }
+      .tab-buttons { display: flex; gap: 8px; border-bottom: 1px solid #ddd; }
+      .tab-btn { background: transparent; border: none; padding: 8px 16px; cursor: pointer; color: #666; border-bottom: 2px solid transparent; }
+      .tab-btn:hover { color: #333; }
+      .tab-btn.active { color: #ff4500; border-bottom-color: #ff4500; font-weight: 600; }
+      .tab-content { margin-top: 12px; }
+      .tab-pane { display: none; }
+      .tab-pane.active { display: block; }
+      .mapper-item { padding: 12px; }
+      .mapper-anime-name { font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #333; }
+      .mapper-episodes { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+      .mapper-episode { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #f5f5f5; border-radius: 4px; }
+      .episode-number { font-weight: 500; color: #333; }
+    `;
+    document.head.appendChild(style);
+  }
+}
+
 async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
   try {
     if (searchInProgress) {
@@ -679,10 +929,35 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       // ignore storage errors and fall back to reddit
     }
 
+    // Before showing selection/no discussion, check r-anime-wiki-mapper service
+    const mapperResult = await fetchAnimeMapperData(animeInfo.animeName);
+    
+    if (mapperResult && mapperResult.count === 1 && mapperResult.results && mapperResult.results.length > 0) {
+      const animeData = mapperResult.results[0];
+      const epNum = extractEpisodeNumber(animeInfo.episodeName);
+      
+      if (epNum && animeData.episodes && animeData.episodes[epNum]) {
+        const redditUrl = animeData.episodes[epNum];
+        console.log('Found exact match in mapper service:', redditUrl);
+        
+        // Extract post ID from Reddit URL and fetch post data
+        const postData = await fetchRedditPostFromUrl(redditUrl);
+        if (postData) {
+          await displayDiscussionDependingOnMode(postData);
+          return;
+        }
+      }
+    }
+
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
 
     if (!results || results.length === 0) {
-      // No results from primary search - try manual search query automatically
+      // No results from primary search - check if we have mapper results to show
+      if (mapperResult && mapperResult.count > 0) {
+        showCombinedSelectionUI(animeInfo, [], mapperResult, extractEpisodeNumber(animeInfo.episodeName) ? Number(extractEpisodeNumber(animeInfo.episodeName)) : undefined);
+        return;
+      }
+      // No results from either source - try manual search query automatically
       await tryAutoSelectFromManualSearch(animeInfo);
       return;
     }
@@ -705,8 +980,8 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       return;
     }
 
-    // Multiple candidates: show selection UI
-    showSelectionUI(animeInfo, results, extractEpisodeNumber(animeInfo.episodeName) ? Number(extractEpisodeNumber(animeInfo.episodeName)) : undefined);
+    // Multiple candidates: show combined selection UI with Reddit API and Mapper results
+    showCombinedSelectionUI(animeInfo, results, mapperResult, extractEpisodeNumber(animeInfo.episodeName) ? Number(extractEpisodeNumber(animeInfo.episodeName)) : undefined);
   } catch (error) {
     console.error('Error searching for discussion:', error);
   } finally {
