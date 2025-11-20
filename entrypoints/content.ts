@@ -1312,7 +1312,40 @@ async function tryMapperFailover(animeInfo: AnimeInfo): Promise<string | null> {
     }
     console.log('[Mapper Failover] Found matched result:', mapperResult.matched_result);
     
-    const matchedIndex = mapperResult.matched_result.index;
+    let matchedIndex = mapperResult.matched_result.index;
+    const initialMatchedResult = mapperResult.results?.[matchedIndex];
+    
+    // If the matched result is a movie (no episodes or year is "movies"), prefer TV series alternatives
+    if (initialMatchedResult && (initialMatchedResult.year === 'movies' || !initialMatchedResult.episodes || typeof initialMatchedResult.episodes !== 'object' || Object.keys(initialMatchedResult.episodes).length === 0)) {
+      console.log('[Mapper Failover] Matched result is a movie, looking for TV series alternative...');
+      
+      // Check matched_results array for alternatives with episodes
+      if (mapperResult.matched_results && Array.isArray(mapperResult.matched_results)) {
+        for (const altMatch of mapperResult.matched_results) {
+          if (altMatch.index !== matchedIndex && altMatch.has_episodes && altMatch.episode_count > 0) {
+            const altResult = mapperResult.results?.[altMatch.index];
+            if (altResult && altResult.episodes && typeof altResult.episodes === 'object' && Object.keys(altResult.episodes).length > 0 && altResult.year !== 'movies') {
+              console.log('[Mapper Failover] Found TV series alternative:', altMatch.anime_name, altMatch.year);
+              matchedIndex = altMatch.index;
+              break;
+            }
+          }
+        }
+      }
+      
+      // If still no good match, check all results for TV series
+      if (matchedIndex === mapperResult.matched_result.index && mapperResult.results && Array.isArray(mapperResult.results)) {
+        for (let i = 0; i < mapperResult.results.length; i++) {
+          const result = mapperResult.results[i];
+          if (result && result.episodes && typeof result.episodes === 'object' && Object.keys(result.episodes).length > 0 && result.year !== 'movies') {
+            console.log('[Mapper Failover] Found TV series in all results:', result.anime_name, result.year);
+            matchedIndex = i;
+            break;
+          }
+        }
+      }
+    }
+    
     if (matchedIndex === undefined || !mapperResult.results || !mapperResult.results[matchedIndex]) {
       console.log('Invalid matched_result index');
       return null;
@@ -1408,14 +1441,34 @@ async function fetchAnimeMapperData(animeName: string): Promise<any | null> {
  */
 async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
   try {
-    // Extract post ID from URL like: https://www.reddit.com/r/anime/comments/7q5lbx
-    const match = redditUrl.match(/\/comments\/([a-z0-9]+)/i);
-    if (!match || !match[1]) {
+    // Extract post ID from URL
+    // New format: https://www.reddit.com/r/anime/comments/7q5lbx
+    // Old format: https://www.reddit.com/j412g2
+    let postId: string | null = null;
+    
+    // Try new format first: /comments/[postId]
+    const commentsMatch = redditUrl.match(/\/comments\/([a-z0-9]+)/i);
+    if (commentsMatch && commentsMatch[1]) {
+      postId = commentsMatch[1];
+    } else {
+      // Try old format: https://www.reddit.com/[postId]
+      // Extract the path after the domain (e.g., /j412g2)
+      const urlObj = new URL(redditUrl);
+      const pathParts = urlObj.pathname.split('/').filter(p => p.length > 0);
+      if (pathParts.length > 0) {
+        // Take the last non-empty path segment as the post ID
+        const lastPart = pathParts[pathParts.length - 1];
+        // Validate it looks like a Reddit post ID (alphanumeric, typically 5-7 chars)
+        if (/^[a-z0-9]{4,10}$/i.test(lastPart)) {
+          postId = lastPart;
+        }
+      }
+    }
+    
+    if (!postId) {
       console.log('Could not extract post ID from URL:', redditUrl);
       return null;
     }
-    
-    const postId = match[1];
     
     // Check if user is authenticated
     const authenticated = await isAuthenticated();
