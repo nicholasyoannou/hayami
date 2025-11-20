@@ -97,6 +97,30 @@
   gap: 6px;
 }
 
+#reddit-inline-discussion .ri-no-comments-content {
+  padding: 20px 0;
+  text-align: center;
+}
+
+#reddit-inline-discussion .ri-no-comments-content p {
+  margin: 8px 0;
+  color: #aaa;
+  font-size: 14px;
+}
+
+#reddit-inline-discussion .ri-no-comments-content .anime-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  margin: 12px 0;
+}
+
+#reddit-inline-discussion .ri-no-comments-content .hint {
+  font-size: 12px;
+  color: #888;
+  margin-top: 16px;
+}
+
 #reddit-inline-discussion .ri-add-comment-btn:hover:not(:disabled) {
   background: #ff5722;
 }
@@ -1020,6 +1044,19 @@
 }
 
 /* ==================== Loading Skeletons ==================== */
+#ri-loading-skeleton {
+  background: #0f0f0f;
+  color: #ddd;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+#ri-loading-skeleton,
+#ri-loading-skeleton * {
+  font-family: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
 .ri-skel {
   display: flex;
   gap: 10px;
@@ -1061,6 +1098,15 @@
 }
 
 @keyframes sk {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes shimmer {
   0% {
     background-position: 200% 0;
   }

@@ -17,12 +17,14 @@ const successMessage = ref<string | null>(null);
 const displayMode = ref<'popup' | 'inline'>('popup');
 const embedImages = ref<boolean>(false);
 const commentsProvider = ref<'reddit' | 'disqus'>('reddit');
+const noCommentsMode = ref<'popup' | 'inline'>('popup');
 
 // Check authentication status on mount
 onMounted(async () => {
   await checkAuthStatus();
   await loadDisplayMode();
   await loadCommentsProvider();
+  await loadNoCommentsMode();
 });
 
 async function checkAuthStatus() {
@@ -61,6 +63,14 @@ async function loadCommentsProvider() {
   } catch {}
 }
 
+async function loadNoCommentsMode() {
+  try {
+    const data = await chrome.storage.local.get('no_comments_mode');
+    const mode = data?.no_comments_mode;
+    if (mode === 'popup' || mode === 'inline') noCommentsMode.value = mode;
+  } catch {}
+}
+
 async function updateCommentsProvider(p: 'reddit' | 'disqus') {
   try {
     commentsProvider.value = p;
@@ -85,6 +95,13 @@ async function updateEmbedImages(enabled: boolean) {
   embedImages.value = enabled;
   await chrome.storage.local.set({ embed_images: enabled });
   successMessage.value = enabled ? 'Image embedding enabled' : 'Image embedding disabled';
+  setTimeout(() => successMessage.value = null, 1500);
+}
+
+async function updateNoCommentsMode(mode: 'popup' | 'inline') {
+  noCommentsMode.value = mode;
+  await chrome.storage.local.set({ no_comments_mode: mode });
+  successMessage.value = mode === 'popup' ? 'No comments mode set to Popup' : 'No comments mode set to Inline selection';
   setTimeout(() => successMessage.value = null, 1500);
 }
 
@@ -217,6 +234,15 @@ function openSettings() {
               <span>Enable image embeds from standalone i.imgur.com links</span>
             </label>
             <p class="small-note">When enabled, a single-line image link (e.g. https://i.imgur.com/xyz.jpg) will be embedded via DuckDuckGo's image proxy.</p>
+          </div>
+
+          <div style="margin-top:12px;">
+            <h4>When no comments found</h4>
+            <div class="radio-row">
+              <label><input type="radio" name="noCommentsMode" value="popup" :checked="noCommentsMode==='popup'" @change="updateNoCommentsMode('popup')"> Popup overlay</label>
+              <label><input type="radio" name="noCommentsMode" value="inline" :checked="noCommentsMode==='inline'" @change="updateNoCommentsMode('inline')"> Inline selection</label>
+            </div>
+            <p class="small-note">Choose how to handle when no discussion thread is found. Inline mode shows selection UI in the comments section area.</p>
           </div>
 
           <div style="margin-top:12px;">

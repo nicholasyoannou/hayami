@@ -1461,6 +1461,52 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
 /**
  * Searches for r/anime discussion thread and displays it
  */
+/**
+ * Shows skeleton loading in the comments section area
+ */
+function showCommentsSkeletonLoading(): HTMLElement | null {
+  // Remove existing skeleton if present
+  const existing = document.getElementById('ri-loading-skeleton');
+  if (existing) existing.remove();
+
+  const layout = document.querySelector('.erc-watch-episode-layout');
+  const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+  if (!wrapper) {
+    return null; // Can't show inline skeleton if wrapper not found
+  }
+
+  const container = document.createElement('section');
+  container.id = 'ri-loading-skeleton';
+  container.innerHTML = `
+    <div class="ri-toolbar" style="opacity:0.5;">
+      <div class="ri-sort">Sort by: <select class="ri-sort-select" disabled><option>Best</option></select></div>
+      <div class="ri-search"><input type="search" placeholder="Search comments" class="ri-search-input" disabled/></div>
+    </div>
+    <div class="ri-header" style="opacity:0.5;">
+      <h3 class="ri-title" style="background:linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;height:20px;border-radius:4px;"></h3>
+    </div>
+    <div class="ri-meta" style="opacity:0.5;height:16px;background:linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px;margin:6px 0 12px;width:200px;"></div>
+    <div class="ri-comments"></div>
+  `;
+  
+  const commentsRoot = container.querySelector('.ri-comments') as HTMLElement;
+  // Show skeleton comments
+  commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
+    `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
+  )).join('');
+
+  wrapper.appendChild(container);
+  return container;
+}
+
+/**
+ * Removes skeleton loading from comments section
+ */
+function removeCommentsSkeletonLoading(): void {
+  const skeleton = document.getElementById('ri-loading-skeleton');
+  if (skeleton) skeleton.remove();
+}
+
 async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
   try {
     if (searchInProgress) {
@@ -1468,6 +1514,9 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       return;
     }
     searchInProgress = true;
+    
+    // Show skeleton loading in comments section area while searching
+    const skeletonContainer = showCommentsSkeletonLoading();
     // Check if user is authenticated. If not, continue using the public
     // fallback paths (we added unauthenticated search/comments/morechildren)
     // so the UI won't force the user to log in just to view threads. Keep
@@ -1488,17 +1537,20 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
         try {
           const thread = await findThreadForAnime(animeInfo);
           if (thread) {
-            // Embed Disqus thread instead of Reddit, respecting display mode
-            await embedDisqusThreadDependingOnMode(thread, animeInfo);
-            return;
+          // Embed Disqus thread instead of Reddit, respecting display mode
+          removeCommentsSkeletonLoading();
+          await embedDisqusThreadDependingOnMode(thread, animeInfo);
+          return;
           }
           // No exact match found — offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
           const shouldFallback = await showDisqusSearchUI(animeInfo);
           if (!shouldFallback) {
             // user either embedded a thread or dismissed search; stop here
+            removeCommentsSkeletonLoading();
             return;
           }
+          // Continue with Reddit search - skeleton will be removed when Reddit discussion is shown or no discussion found
         } catch (e) {
           console.warn('Disqus lookup failed, falling back to Reddit', e);
         }
@@ -1514,6 +1566,7 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       console.log('[Search] Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
       if (postData) {
+        removeCommentsSkeletonLoading();
         await displayDiscussionDependingOnMode(postData);
         return;
       }
@@ -1535,6 +1588,7 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
         // Extract post ID from Reddit URL and fetch post data
         const postData = await fetchRedditPostFromUrl(redditUrl);
         if (postData) {
+          removeCommentsSkeletonLoading();
           await displayDiscussionDependingOnMode(postData);
           return;
         }
@@ -1545,6 +1599,7 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
 
     if (!results || results.length === 0) {
       // No results from primary search - try manual search query automatically
+      removeCommentsSkeletonLoading();
       await tryAutoSelectFromManualSearch(animeInfo);
       return;
     }
@@ -1555,6 +1610,7 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     if (exactDateMatch) {
       // Auto-select the post that matches the exact release date
       console.log('Auto-selected post matching exact release date:', exactDateMatch.title);
+      removeCommentsSkeletonLoading();
       await displayDiscussionDependingOnMode(exactDateMatch);
       return;
     }
@@ -1563,14 +1619,17 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       // Auto-pick the only candidate
       const discussion = results[0];
       console.log('Auto-selected discussion:', discussion.title);
+      removeCommentsSkeletonLoading();
       await displayDiscussionDependingOnMode(discussion);
       return;
     }
 
     // Multiple candidates: show selection UI
+    removeCommentsSkeletonLoading();
     showSelectionUI(animeInfo, results, extractEpisodeNumber(animeInfo.episodeName) ? Number(extractEpisodeNumber(animeInfo.episodeName)) : undefined);
   } catch (error) {
     console.error('Error searching for discussion:', error);
+    removeCommentsSkeletonLoading();
   } finally {
     searchInProgress = false;
   }
@@ -1627,7 +1686,7 @@ async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo): Promise<void
   const results = await searchCustomPosts(query);
   
   if (!results || results.length === 0) {
-    showNoDiscussionMessage(animeInfo.animeName, ep || '?');
+    await showNoDiscussionMessage(animeInfo.animeName, ep || '?');
     return;
   }
   
@@ -1642,14 +1701,14 @@ async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo): Promise<void
   }
   
   // No exact date match - show "no discussion" message with option to search
-  showNoDiscussionMessage(animeInfo.animeName, ep || '?');
+  await showNoDiscussionMessage(animeInfo.animeName, ep || '?');
 }
 
 async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: number): Promise<void> {
   try {
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
     if (results.length === 0) {
-      showNoDiscussionMessage(animeInfo.animeName, crEpisodeNum ? String(crEpisodeNum) : '?');
+      await showNoDiscussionMessage(animeInfo.animeName, crEpisodeNum ? String(crEpisodeNum) : '?');
       return;
     }
 
@@ -1752,34 +1811,121 @@ function showAuthPrompt(): void {
 /**
  * Shows a message when no discussion is found
  */
-function showNoDiscussionMessage(animeName: string, episodeNumber: string): void {
-  const overlay = createOverlay();
-  overlay.innerHTML = `
-    <div class="reddit-discussion-panel">
-      <div class="panel-header">
-        <h3>🍥 r/anime Discussion</h3>
-        <div class="panel-actions">
-          <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
-          <button class="close-btn" id="reddit-close-btn">✕</button>
+async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
+  // Check user preference for no-comments behavior
+  let noCommentsMode: 'popup' | 'inline' = 'popup';
+  try {
+    const data = await chrome.storage.local.get('no_comments_mode');
+    noCommentsMode = (data?.no_comments_mode === 'inline') ? 'inline' : 'popup';
+  } catch (e) {
+    // Default to popup
+  }
+
+  if (noCommentsMode === 'inline') {
+    // Show inline selection UI in comments section area
+    showInlineNoCommentsUI(animeName, episodeNumber);
+  } else {
+    // Show popup (original behavior)
+    const overlay = createOverlay();
+    overlay.innerHTML = `
+      <div class="reddit-discussion-panel">
+        <div class="panel-header">
+          <h3>🍥 r/anime Discussion</h3>
+          <div class="panel-actions">
+            <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
+            <button class="close-btn" id="reddit-close-btn">✕</button>
+          </div>
+        </div>
+        <div class="panel-content">
+          <div class="no-discussion">
+            <p>📭 No discussion thread found for:</p>
+            <p class="anime-title">${animeName} - Episode ${episodeNumber}</p>
+            <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
+          </div>
         </div>
       </div>
-      <div class="panel-content">
-        <div class="no-discussion">
-          <p>📭 No discussion thread found for:</p>
-          <p class="anime-title">${animeName} - Episode ${episodeNumber}</p>
-          <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
+    `;
+    
+    const closeBtn = overlay.querySelector('#reddit-close-btn');
+    closeBtn?.addEventListener('click', () => overlay.remove());
+    const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
+    wrongBtn?.addEventListener('click', () => {
+      const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+      showManualSearchUI(lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
+      overlay.remove();
+    });
+  }
+}
+
+/**
+ * Shows inline UI for selecting episode when no comments found
+ */
+function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void {
+  // Remove existing inline panel and skeleton if present
+  const existing = document.getElementById('reddit-inline-discussion');
+  if (existing) existing.remove();
+  removeCommentsSkeletonLoading();
+
+  const layout = document.querySelector('.erc-watch-episode-layout');
+  const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+  if (!wrapper) {
+    // Fallback to popup if wrapper not found
+    // Use popup directly since we can't show inline
+    const overlay = createOverlay();
+    overlay.innerHTML = `
+      <div class="reddit-discussion-panel">
+        <div class="panel-header">
+          <h3>🍥 r/anime Discussion</h3>
+          <div class="panel-actions">
+            <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
+            <button class="close-btn" id="reddit-close-btn">✕</button>
+          </div>
         </div>
+        <div class="panel-content">
+          <div class="no-discussion">
+            <p>📭 No discussion thread found for:</p>
+            <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
+            <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    const closeBtn = overlay.querySelector('#reddit-close-btn');
+    closeBtn?.addEventListener('click', () => overlay.remove());
+    const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
+    wrongBtn?.addEventListener('click', () => {
+      const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+      showManualSearchUI(lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
+      overlay.remove();
+    });
+    return;
+  }
+
+  const container = document.createElement('section');
+  container.id = 'reddit-inline-discussion';
+  container.innerHTML = `
+    <div class="ri-header">
+      <h3 class="ri-title">🍥 r/anime Discussion</h3>
+    </div>
+    <div class="ri-meta">No discussion thread found</div>
+    <div class="ri-no-comments-content">
+      <p>📭 No discussion thread found for:</p>
+      <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
+      <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
+      <div style="margin-top:16px;">
+        <button id="ri-wrong-episode-btn" class="ri-add-comment-btn" type="button">Wrong Episode? Search Manually</button>
       </div>
     </div>
   `;
-  
-  const closeBtn = overlay.querySelector('#reddit-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-  const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
+
+  wrapper.appendChild(container);
+
+  const wrongBtn = container.querySelector('#ri-wrong-episode-btn');
   wrongBtn?.addEventListener('click', () => {
     const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
     showManualSearchUI(lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
-    overlay.remove();
+    container.remove();
   });
 }
 
