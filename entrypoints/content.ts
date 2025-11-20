@@ -1552,6 +1552,12 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     }
     searchInProgress = true;
     
+    // Remove old comments section if present (when navigating between episodes)
+    const oldComments = document.getElementById('reddit-inline-discussion');
+    if (oldComments) {
+      oldComments.remove();
+    }
+    
     // Show skeleton loading in comments section area while searching
     const skeletonContainer = showCommentsSkeletonLoading();
     // Check if user is authenticated. If not, continue using the public
@@ -3485,14 +3491,17 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         // If we've exhausted current comments but Reddit signaled more at root, fetch them now
         if (rootMoreIds && rootMoreIds.length > 0) {
           isPaging = true;
+          // Show skeleton loading while fetching more comments
           const sk = document.createElement('div');
-          sk.innerHTML = Array.from({length: 3}).map(() => (
+          sk.className = 'ri-pagination-skeleton';
+          sk.innerHTML = Array.from({length: 6}).map(() => (
             `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
           )).join('');
           commentsRoot.appendChild(sk);
           const chunk = rootMoreIds.slice(0, 20);
           rootMoreIds = rootMoreIds.slice(20);
           getMoreChildren(linkFullname, chunk).then((added) => {
+            // Remove skeleton and add new comments
             sk.remove();
             // Append to master list and re-apply filter
             allComments = allComments.concat(added);
@@ -3500,24 +3509,32 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             isPaging = false;
             // Try again to render the next page
             appendNextPage();
-          }).catch(() => { sk.remove(); isPaging = false; });
+          }).catch((err) => { 
+            console.error('Error loading more children:', err);
+            sk.remove(); 
+            isPaging = false; 
+          });
         }
         return;
       }
       isPaging = true;
-      // Optional skeleton for perceived loading
+      // Show skeleton loading for pagination transition
       const sk = document.createElement('div');
-      sk.innerHTML = Array.from({length: 3}).map(() => (
+      sk.className = 'ri-pagination-skeleton';
+      sk.innerHTML = Array.from({length: 6}).map(() => (
         `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
       )).join('');
       commentsRoot.appendChild(sk);
-      setTimeout(() => {
-        sk.remove();
-        const slice = filteredComments.slice(start, start + pageSize);
-        commentsRoot.appendChild(renderComments(slice, 0));
-        pageIndex += 1;
-        isPaging = false;
-      }, 200);
+      // Use requestAnimationFrame for smoother transition, then render after a brief delay
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          sk.remove();
+          const slice = filteredComments.slice(start, start + pageSize);
+          commentsRoot.appendChild(renderComments(slice, 0));
+          pageIndex += 1;
+          isPaging = false;
+        }, 300); // Slightly longer delay for better UX
+      });
     }
     // Initial page
     commentsRoot.innerHTML = '';
