@@ -37,8 +37,9 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
         console.warn('[extensionFetch] sendMessage threw:', e);
         resolve({ __messagingError: true, message: String(e) });
       }
-      // Failsafe timeout: if runtime.sendMessage never invokes callback, resolve as error after 1500ms
-      setTimeout(() => { if (!called) { console.warn('[extensionFetch] proxyFetch message callback not called within timeout'); resolve({ __messagingError: true, message: 'timeout' }); } }, 1500);
+      // Failsafe timeout: if runtime.sendMessage never invokes callback, resolve as error after 30 seconds
+      // Network requests can take time, especially for large JSON responses
+      setTimeout(() => { if (!called) { console.warn('[extensionFetch] proxyFetch message callback not called within 30s timeout'); resolve({ __messagingError: true, message: 'timeout' }); } }, 30000);
     });
 
     // If the background provided a proper proxied response, return it
@@ -69,7 +70,7 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
           console.warn('[extensionFetch] retry sendMessage threw:', e);
           resolve({ __messagingError: true, message: String(e) });
         }
-        setTimeout(() => { if (!called2) { console.warn('[extensionFetch] proxyFetch retry callback not called within timeout'); resolve({ __messagingError: true, message: 'timeout' }); } }, 1500);
+        setTimeout(() => { if (!called2) { console.warn('[extensionFetch] proxyFetch retry callback not called within 30s timeout'); resolve({ __messagingError: true, message: 'timeout' }); } }, 30000);
       });
       if (!(retry && typeof retry.ok !== 'undefined')) {
         console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)');
@@ -341,9 +342,14 @@ export async function getSubredditEmojiMap(subreddit: string): Promise<Record<st
     if (cached) return cached;
 
     const token = await getAccessToken();
+    // Skip emoji fetch if not authenticated - OAuth endpoint requires auth
+    if (!token) {
+      return {};
+    }
+
     const resp = await extensionFetch(`https://oauth.reddit.com/r/${encodeURIComponent(key)}/about/emoji.json`, {
       headers: {
-        'Authorization': token ? `Bearer ${token}` : '',
+        'Authorization': `Bearer ${token}`,
         'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
       },
     } as any);
@@ -879,8 +885,26 @@ export async function searchSeriesDiscussionsByDate(
       limit: '50',
     });
 
-    const endpoint = `/r/anime/search.json?${searchParams.toString()}`;
-    const result = await makeRedditRequest<RedditSearchResult>(endpoint);
+    const token = await getAccessToken();
+    let result: RedditSearchResult | null = null;
+
+    if (token) {
+      // Use authenticated request
+      const endpoint = `/r/anime/search.json?${searchParams.toString()}`;
+      result = await makeRedditRequest<RedditSearchResult>(endpoint);
+    } else {
+      // Use CORS proxy for unauthenticated requests
+      try {
+        const url = `https://www.reddit.com/r/anime/search.json?${searchParams.toString()}`;
+        const resp = await extensionFetch(url, { credentials: 'include' } as any);
+        if (resp.ok) {
+          result = await resp.json();
+        }
+      } catch (e) {
+        console.warn('Error fetching unauthenticated search:', e);
+      }
+    }
+
     if (!result || !result.data || !result.data.children) return [];
 
     let posts = result.data.children.map(c => c.data);

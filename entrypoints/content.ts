@@ -1417,28 +1417,65 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
     
     const postId = match[1];
     
-    // Fetch post data using Reddit API
-    const { makeRedditRequest } = await import('@/utils/redditAuth');
+    // Check if user is authenticated
+    const authenticated = await isAuthenticated();
     
-    // First, try to get post info from /api/info endpoint
+    // Try to get post info from /api/info endpoint (works when authenticated)
+    if (authenticated) {
+      try {
+        const { makeRedditRequest } = await import('@/utils/redditAuth');
+        const infoResponse = await makeRedditRequest<any>(`/api/info.json?id=t3_${postId}`);
+        if (infoResponse && infoResponse.data && infoResponse.data.children && infoResponse.data.children.length > 0) {
+          const postData = infoResponse.data.children[0].data;
+          // Convert to format expected by displayDiscussionDependingOnMode
+          return {
+            id: postData.id,
+            title: postData.title,
+            author: postData.author,
+            score: postData.score,
+            num_comments: postData.num_comments,
+            created_utc: postData.created_utc,
+            permalink: postData.permalink,
+            url: postData.url,
+            archived: postData.archived,
+            locked: postData.locked,
+          };
+        }
+      } catch (e) {
+        console.log('Error fetching post info via /api/info:', e);
+      }
+    }
+    
+    // For unauthenticated requests, use the comments endpoint which works reliably
+    // The comments endpoint returns [postData, commentsData] where postData contains the post info
     try {
-      const infoResponse = await makeRedditRequest<any>(`/api/info.json?id=t3_${postId}`);
-      if (infoResponse && infoResponse.data && infoResponse.data.children && infoResponse.data.children.length > 0) {
-        const postData = infoResponse.data.children[0].data;
-        // Convert to format expected by displayDiscussionDependingOnMode
-        return {
-          id: postData.id,
-          title: postData.title,
-          author: postData.author,
-          score: postData.score,
-          num_comments: postData.num_comments,
-          created_utc: postData.created_utc,
-          permalink: postData.permalink,
-          url: postData.url,
-        };
+      const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?raw_json=1`;
+      const resp = await extensionFetch(url, { credentials: 'include' } as any);
+      if (resp.ok) {
+        const result = await resp.json();
+        // Reddit returns an array where [0] is the post listing, [1] is comments
+        if (result && Array.isArray(result) && result.length > 0) {
+          const postListing = result[0];
+          if (postListing?.data?.children?.[0]?.data) {
+            const postData = postListing.data.children[0].data;
+            // Convert to format expected by displayDiscussionDependingOnMode
+            return {
+              id: postData.id,
+              title: postData.title,
+              author: postData.author,
+              score: postData.score,
+              num_comments: postData.num_comments,
+              created_utc: postData.created_utc,
+              permalink: postData.permalink,
+              url: postData.url,
+              archived: postData.archived,
+              locked: postData.locked,
+            };
+          }
+        }
       }
     } catch (e) {
-      console.log('Error fetching post info:', e);
+      console.log('Error fetching post info via comments endpoint:', e);
     }
     
     // Fallback: construct post object from URL
