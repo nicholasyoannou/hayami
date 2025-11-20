@@ -104,7 +104,7 @@ function proxifyImageUrl(href: string): string {
   try {
     // i.imgur.com: proxy to avoid regional/CORS hiccups
     if (/^https?:\/\/i\.imgur\.com\//i.test(href)) {
-      return `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
+      return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
     }
   } catch {}
   return href;
@@ -231,7 +231,7 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
   if (multi && Array.isArray(multi) && multi.length > 0) {
       // multi contains raw image links; convert to proxied versions for consistent loading
       try {
-  galleryImages = multi.map(u => `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
+  galleryImages = multi.map(u => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
         galleryIndex = 0;
         // Populate dots
         if (galleryDots) {
@@ -395,7 +395,7 @@ function openImageGalleryModal(images: string[]): void {
   content.className = 'ri-fullscreen-content';
 
   // Convert to proxied URLs
-  const proxiedImages = images.map(u => `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
+  const proxiedImages = images.map(u => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
 
   // Add all images
   proxiedImages.forEach((imgSrc, idx) => {
@@ -2208,7 +2208,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         const standaloneMatch = trimmed.match(/^(https?:\/\/i\.imgur\.com\/\S+)$/i);
         if (standaloneMatch) {
           const original = standaloneMatch[1];
-          const duck = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
+          const duck = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
           // Convert to image markdown
           return `![](${duck})`;
         }
@@ -2256,7 +2256,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         const isStandalone = (meaningfulChildren.length === 1 && meaningfulChildren[0] === a);
 
         // Always proxy the URL (preserve original URL exactly, just wrap it)
-        const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
+        const prox = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
 
         if (embedImages && isStandalone) {
           // Replace anchor with proxied image
@@ -2292,7 +2292,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           if (hostn.includes('pbs.twimg.com') || hostn.includes('twimg.com')) {
             // Typically the path contains /media/<id>
             if ((u.pathname || '').toLowerCase().includes('/media/')) {
-              const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
+              const prox = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
               a.setAttribute('href', prox);
               a.setAttribute('target', '_blank');
               a.setAttribute('rel', 'noopener noreferrer');
@@ -2404,7 +2404,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           }
 
           if (resolved) {
-            const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(resolved)}`;
+            const prox = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(resolved)}`;
             a.setAttribute('href', prox);
             a.setAttribute('target', '_blank');
             a.setAttribute('rel', 'noopener noreferrer');
@@ -2462,7 +2462,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
           if (images.length === 1) {
             const original = images[0];
-            const prox = `https://images.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
+            const prox = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
             a.setAttribute('href', prox);
             a.setAttribute('target', '_blank');
             a.setAttribute('rel', 'noopener noreferrer');
