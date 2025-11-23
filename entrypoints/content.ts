@@ -6,12 +6,9 @@ import { isAuthenticated } from '@/utils/redditAuth';
 import '@/styles/reddit-inline.css';
 import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
-import '@fortawesome/fontawesome-free/css/fontawesome.min.css';
-import '@fortawesome/fontawesome-free/css/solid.min.css';
 import { Toaster, toast } from 'vue-sonner';
 // Correct style import per package exports ("vue-sonner/style.css")
 import 'vue-sonner/style.css';
-import { useMotion } from '@vueuse/motion';
 import YouTubeModal from '@/components/YouTubeModal.vue';
 
 export default defineContentScript({
@@ -2769,21 +2766,34 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
      * @param isUpvote - True for upvote (slide from top), false for downvote (slide from bottom)
      */
     function triggerScoreAnimation(voteBtn: HTMLElement, isUpvote: boolean) {
-      // Use @vueuse/motion to animate the button itself
-      useMotion(voteBtn, {
-        initial: {
-          y: 0
-        },
-        enter: {
-          y: isUpvote ? [-10, 0] : [10, 0],
-          transition: {
-            type: 'spring',
-            stiffness: 400,
-            damping: 25,
-            duration: 300
-          }
+      // Simple spring-like animation for vote button
+      const startY = isUpvote ? -10 : 10;
+      const startTime = performance.now();
+      const duration = 300;
+      
+      // Reset transform
+      voteBtn.style.transform = `translateY(${startY}px)`;
+      voteBtn.style.transition = 'none';
+      
+      const animate = (currentTime: number) => {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        
+        // Spring easing function (approximation)
+        const spring = 1 - Math.pow(1 - progress, 3);
+        const currentY = startY * (1 - spring);
+        
+        voteBtn.style.transform = `translateY(${currentY}px)`;
+        
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          voteBtn.style.transform = '';
+          voteBtn.style.transition = '';
         }
-      });
+      };
+      
+      requestAnimationFrame(animate);
     }
 
     function renderComments(list: any[], depth = 0, highlightIds: Set<string> = new Set()) {
@@ -3124,6 +3134,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
             upvoteBtn.setAttribute('data-state', goingIdle ? 'idle' : 'upvoted');
             downvoteBtn.setAttribute('data-state','idle');
+            // Trigger animation immediately for instant feedback
+            triggerScoreAnimation(upvoteBtn, true);
             inFlight = true;
             const fullname = `t1_${c.id}`;
             voteThing(fullname, newDir).then(res => {
@@ -3147,10 +3159,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 c.likes = newDir === 1 ? true : null;
                 if (newDir === 1) {
                   toast.success('Upvote applied');
-                  triggerScoreAnimation(upvoteBtn, true);
                 } else {
                   toast.success('Upvote removed');
-                  triggerScoreAnimation(upvoteBtn, true);
                 }
               }
             }).finally(() => { inFlight = false; });
@@ -3172,6 +3182,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
             downvoteBtn.setAttribute('data-state', goingIdle ? 'idle' : 'downvoted');
             upvoteBtn.setAttribute('data-state','idle');
+            // Trigger animation immediately for instant feedback
+            triggerScoreAnimation(downvoteBtn, false);
             inFlight = true;
             const fullname = `t1_${c.id}`;
             voteThing(fullname, newDir).then(res => {
@@ -3191,10 +3203,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 c.likes = newDir === -1 ? false : null;
                 if (newDir === -1) {
                   toast.success('Downvote applied');
-                  triggerScoreAnimation(downvoteBtn, false);
                 } else {
                   toast.success('Downvote removed');
-                  triggerScoreAnimation(downvoteBtn, false);
                 }
               }
             }).finally(() => { inFlight = false; });

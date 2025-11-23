@@ -165,7 +165,7 @@
   display: flex;
   gap: 0;
   padding: 8px 0;
-  margin-bottom: 12px; /* more spacing between comments */
+  margin-bottom: 5px; /* more spacing between comments */
   position: relative;
   background: transparent;
   border: none;
@@ -625,10 +625,19 @@
   color: rgb(217,57,0); /* hover color */
 }
 
-.ri-actions .ri-vote-btn[data-state="upvoted"],
+/* Downvote hover state */
+.ri-actions .ri-vote-btn.ri-downvote:hover:not(:disabled) {
+  color: #6A5CFF; /* downvote hover color */
+}
+
+.ri-actions .ri-vote-btn[data-state="upvoted"] {
+  background: transparent;
+  color: rgb(217,57,0); /* upvote active color */
+}
+
 .ri-actions .ri-vote-btn[data-state="downvoted"] {
   background: transparent;
-  color: rgb(217,57,0); /* active color */
+  color: #6A5CFF; /* downvote active color */
 }
 
 /* Image hover preview tooltip */
