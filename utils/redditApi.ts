@@ -720,16 +720,34 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1): Promis
     const resp = await extensionFetch('https://oauth.reddit.com/api/vote', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        'Authorization': `bearer ${token}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: form.toString()
     } as any);
+    
+    // Read response body once
+    const responseText = await resp.text();
+    
     if (!resp.ok) {
-      let msg = `Vote failed: ${resp.status}`;
-      try { msg += ' ' + (await resp.text()); } catch {}
-      return { success: false, error: msg };
+      return { success: false, error: `Vote failed: ${resp.status} ${responseText}` };
     }
+    
+    // Check response body for errors (Reddit API returns JSON even on success)
+    if (responseText) {
+      try {
+        const json = JSON.parse(responseText);
+        if (json.json && json.json.errors && json.json.errors.length > 0) {
+          const errorMsg = Array.isArray(json.json.errors[0]) 
+            ? json.json.errors[0].join(' ') 
+            : String(json.json.errors[0]);
+          return { success: false, error: errorMsg || 'Vote failed' };
+        }
+      } catch {
+        // If response isn't JSON, that's fine - 200 status means success
+      }
+    }
+    
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e?.message || 'Vote error' };

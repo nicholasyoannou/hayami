@@ -1482,6 +1482,8 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
         if (infoResponse && infoResponse.data && infoResponse.data.children && infoResponse.data.children.length > 0) {
           const postData = infoResponse.data.children[0].data;
           // Convert to format expected by displayDiscussionDependingOnMode
+          const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
+          console.log('[fetchRedditPostFromUrl] Post fullname from API:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
           return {
             id: postData.id,
             title: postData.title,
@@ -1496,6 +1498,8 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
             subreddit: postData.subreddit,
             subreddit_icon_url: (postData.community_icon && postData.community_icon.trim()) || (postData.icon_img && postData.icon_img.trim()) || null,
             subreddit_primary_color: (postData.primary_color && postData.primary_color.trim()) || (postData.key_color && postData.key_color.trim()) || null,
+            fullname: fullname, // t3_ prefixed fullname for voting
+            likes: postData.likes, // true=upvoted, false=downvoted, null=none
           };
         }
       } catch (e) {
@@ -1516,6 +1520,8 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
           if (postListing?.data?.children?.[0]?.data) {
             const postData = postListing.data.children[0].data;
             // Convert to format expected by displayDiscussionDependingOnMode
+            const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
+            console.log('[fetchRedditPostFromUrl] Post fullname from comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
             return {
               id: postData.id,
               title: postData.title,
@@ -1529,6 +1535,8 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
               locked: postData.locked,
               subreddit: postData.subreddit,
               subreddit_icon_url: (postData.community_icon && postData.community_icon.trim()) || (postData.icon_img && postData.icon_img.trim()) || null,
+              fullname: fullname, // t3_ prefixed fullname for voting
+              likes: postData.likes, // true=upvoted, false=downvoted, null=none
             };
           }
         }
@@ -2401,6 +2409,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     let allComments = (commentsModel?.comments ?? []) as any[];
     let rootMoreIds: string[] = Array.isArray(commentsModel?.rootMoreChildrenIds) ? [...commentsModel.rootMoreChildrenIds] : [];
     let linkFullname: string = commentsModel?.linkFullname || (discussion.id?.startsWith('t3_') ? discussion.id : `t3_${discussion.id}`);
+    // Add fullname to discussion for voting
+    discussion.fullname = linkFullname;
     let filteredComments = allComments;
 
   // Avatar cache
