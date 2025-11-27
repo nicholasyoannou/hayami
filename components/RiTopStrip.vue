@@ -2,8 +2,8 @@
   <div class="flex w-full items-end gap-3 -mt-4 -mx-4 pl-4 pr-0 pt-4">
     <div class="flex items-center gap-2 shrink-0">
       <div class="flex items-center gap-2 px-4 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none">
-        <img class="w-6 h-[1.4rem]" :src="redditLogoUrl" alt="reddit logo" />
-        <img class="h-5" :src="redditTextUrl" alt="reddit" />
+        <img class="w-6 h-5 opacity-80" :src="redditLogoUrl" alt="reddit logo" />
+        <img class="h-5 opacity-80" :src="redditTextUrl" alt="reddit" />
       </div>
       <div class="flex items-center gap-2 px-4 h-11 border border-[#3a3a3a] bg-[#151515] rounded-full text-sm font-semibold text-[#f0f0f0]">
         <span 

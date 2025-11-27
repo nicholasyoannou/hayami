@@ -27,6 +27,11 @@ const redditUrl = computed(() => {
   if (/^https?:\/\//i.test(permalink)) return permalink;
   return `https://www.reddit.com${permalink}`;
 });
+
+// Resolve asset URLs via the extension runtime so they work from the content script
+const discussionIconUrl =
+  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/discussion.svg') ??
+  'assets/topCommentMenu/discussion.svg';
 </script>
 
 <template>
@@ -40,6 +45,50 @@ const redditUrl = computed(() => {
     />
 
     <section id="reddit-inline-discussion" style="margin-top: 0;">
+      <div class="ri-header">
+        <div class="ri-title-row pt-1">
+          <h3 class="ri-title">
+            {{ discussion.title }}
+          </h3>
+          <a
+            class="ri-link"
+            :href="redditUrl"
+            target="_blank"
+            rel="noopener"
+          >
+            Open on Reddit
+          </a>
+        </div>
+        <div class="ri-meta">
+          <span class="ri-author">u/{{ discussion.author }}</span>
+          <span class="ri-separator">•</span>
+          <span class="ri-score">
+            <svg class="ri-upvote-icon" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+              <path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10z"></path>
+            </svg>
+            {{ (discussion.score ?? 0).toLocaleString() }}
+          </span>
+          <span class="ri-comments-count">
+            <img
+              class="ri-comment-icon"
+              :src="discussionIconUrl"
+              alt="comments"
+            />
+            {{ (discussion.num_comments ?? 0).toLocaleString() }}
+          </span>
+        </div>
+      </div>
+
+      <button
+        v-if="!isArchived"
+        id="ri-add-comment-btn"
+        class="ri-add-comment-btn"
+        type="button"
+        title="Add a top-level comment"
+      >
+        Add Comment
+      </button>
+
       <div class="ri-toolbar">
         <div class="ri-sort">
           Sort by:
@@ -58,36 +107,6 @@ const redditUrl = computed(() => {
           />
         </div>
       </div>
-
-      <div class="ri-header">
-        <h3 class="ri-title">
-          {{ discussion.title }}
-        </h3>
-        <a
-          class="ri-link"
-          :href="redditUrl"
-          target="_blank"
-          rel="noopener"
-        >
-          Open on Reddit
-        </a>
-      </div>
-
-      <div class="ri-meta">
-        u/{{ discussion.author }} • ⬆️
-        {{ (discussion.score ?? 0).toLocaleString() }} • 💬
-        {{ (discussion.num_comments ?? 0).toLocaleString() }}
-      </div>
-
-      <button
-        v-if="!isArchived"
-        id="ri-add-comment-btn"
-        class="ri-add-comment-btn"
-        type="button"
-        title="Add a top-level comment"
-      >
-        Add Comment
-      </button>
 
       <div
         id="ri-top-reply-host"

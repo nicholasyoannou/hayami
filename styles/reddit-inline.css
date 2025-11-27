@@ -23,7 +23,9 @@
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  margin-bottom: 10px;
+  margin: 0 -16px 10px -16px;
+  padding: 10px 16px 0 16px;
+  border-top: 1px solid #2f2f2f;
 }
 
 #reddit-inline-discussion .ri-sort {
@@ -54,21 +56,34 @@
 /* ==================== Header ==================== */
 #reddit-inline-discussion .ri-header {
   display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#reddit-inline-discussion .ri-title-row {
+  display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
 }
 
 #reddit-inline-discussion .ri-title {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
+  font-weight: 600;
   color: #fff;
+  line-height: 1.4;
+  flex: 1;
 }
 
 #reddit-inline-discussion .ri-link {
   color: #ff4500;
   text-decoration: none;
   font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 #reddit-inline-discussion .ri-link:hover {
@@ -76,9 +91,39 @@
 }
 
 #reddit-inline-discussion .ri-meta {
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
   color: #aaa;
-  margin: 6px 0 12px;
+}
+
+#reddit-inline-discussion .ri-author {
+  color: #aaa;
+}
+
+#reddit-inline-discussion .ri-separator {
+  color: #aaa;
+}
+
+#reddit-inline-discussion .ri-score,
+#reddit-inline-discussion .ri-comments-count {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #aaa;
+}
+
+#reddit-inline-discussion .ri-upvote-icon {
+  width: 16px;
+  height: 16px;
+  color: #ff4500;
+}
+
+#reddit-inline-discussion .ri-comment-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 
 /* Top-level Add Comment button */
