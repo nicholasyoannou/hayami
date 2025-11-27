@@ -7,7 +7,7 @@
 #reddit-inline-discussion {
   background: #0f0f0f;
   color: #ddd;
-  border-radius: 8px;
+  border-radius: 0 0 8px 8px;
   padding: 16px;
   margin-top: 16px;
 }

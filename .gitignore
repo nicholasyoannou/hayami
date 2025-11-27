@@ -25,3 +25,5 @@ web-ext.config.ts
 *.sln
 *.sw?
 *.json
+_stashed_content.ts
+_stashed_reddit-inline.css

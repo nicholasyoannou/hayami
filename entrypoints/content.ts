@@ -3,6 +3,7 @@ import { findThreadForAnime, listThreadsForForumSince } from '@/utils/disqusApi'
 import { getStoredUsername } from '@/utils/redditAuth';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { isAuthenticated } from '@/utils/redditAuth';
+import '@/styles/tailwind.css';
 import '@/styles/reddit-inline.css';
 import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
@@ -10,6 +11,9 @@ import { Toaster, toast } from 'vue-sonner';
 // Correct style import per package exports ("vue-sonner/style.css")
 import 'vue-sonner/style.css';
 import YouTubeModal from '@/components/YouTubeModal.vue';
+import InlineDiscussion from '@/components/InlineDiscussion.vue';
+
+let inlineDiscussionApp: VueApp | null = null;
 
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
@@ -1489,6 +1493,9 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
             url: postData.url,
             archived: postData.archived,
             locked: postData.locked,
+            subreddit: postData.subreddit,
+            subreddit_icon_url: (postData.community_icon && postData.community_icon.trim()) || (postData.icon_img && postData.icon_img.trim()) || null,
+            subreddit_primary_color: (postData.primary_color && postData.primary_color.trim()) || (postData.key_color && postData.key_color.trim()) || null,
           };
         }
       } catch (e) {
@@ -1520,6 +1527,8 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
               url: postData.url,
               archived: postData.archived,
               locked: postData.locked,
+              subreddit: postData.subreddit,
+              subreddit_icon_url: (postData.community_icon && postData.community_icon.trim()) || (postData.icon_img && postData.icon_img.trim()) || null,
             };
           }
         }
@@ -1606,6 +1615,16 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     const oldComments = document.getElementById('reddit-inline-discussion');
     if (oldComments) {
       oldComments.remove();
+    }
+    const oldVueHost = document.getElementById('ri-inline-vue-host');
+    if (oldVueHost) {
+      oldVueHost.remove();
+    }
+    if (inlineDiscussionApp) {
+      try {
+        inlineDiscussionApp.unmount();
+      } catch {}
+      inlineDiscussionApp = null;
     }
     
     // Show skeleton loading in comments section area while searching
@@ -2294,11 +2313,53 @@ async function displayDiscussionDependingOnMode(discussion: any): Promise<void> 
   }
 }
 
+/**
+ * Fetch subreddit icon and primary color from subreddit's about endpoint if missing
+ */
+async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string | null; primaryColor: string | null }> {
+  if (!subreddit) return { iconUrl: null, primaryColor: null };
+  try {
+    const url = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/about.json?raw_json=1`;
+    const resp = await extensionFetch(url, { credentials: 'include' } as any);
+    if (resp.ok) {
+      const data = await resp.json();
+      const iconUrl = data?.data?.community_icon || data?.data?.icon_img || null;
+      const primaryColor = data?.data?.primary_color || data?.data?.key_color || null;
+      return {
+        iconUrl: (iconUrl && iconUrl.trim()) || null,
+        primaryColor: (primaryColor && primaryColor.trim()) || null,
+      };
+    }
+  } catch (e) {
+    console.log('Error fetching subreddit info:', e);
+  }
+  return { iconUrl: null, primaryColor: null };
+}
+
 async function displayInlineDiscussion(discussion: any): Promise<void> {
   try {
+    // Fetch subreddit icon and primary color if missing
+    if (discussion.subreddit && (!discussion.subreddit_icon_url || !discussion.subreddit_primary_color)) {
+      const { iconUrl, primaryColor } = await fetchSubredditInfo(discussion.subreddit);
+      if (iconUrl && !discussion.subreddit_icon_url) {
+        discussion.subreddit_icon_url = iconUrl;
+      }
+      if (primaryColor && !discussion.subreddit_primary_color) {
+        discussion.subreddit_primary_color = primaryColor;
+      }
+    }
+    
     // Remove existing inline panel if present
     const existing = document.getElementById('reddit-inline-discussion');
     if (existing) existing.remove();
+    const oldVueHost = document.getElementById('ri-inline-vue-host');
+    if (oldVueHost) oldVueHost.remove();
+    if (inlineDiscussionApp) {
+      try {
+        inlineDiscussionApp.unmount();
+      } catch {}
+      inlineDiscussionApp = null;
+    }
 
     // Insert inside erc-watch-episode-layout under element whose class starts with content-wrapper
   const layout = document.querySelector('.erc-watch-episode-layout');
@@ -2311,43 +2372,20 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       return;
     }
 
-  // Build container first so we can show skeletons while loading
+    // Build container first so we can show skeletons while loading
     let currentSort: 'best' | 'top' | 'new' = 'best';
-    const container = document.createElement('section');
-    container.id = 'reddit-inline-discussion';
-    container.innerHTML = `
-      <div class="ri-toolbar">
-        <div class="ri-sort">Sort by:
-          <select id="ri-sort-select" class="ri-sort-select">
-            <option value="best" selected>Best</option>
-            <option value="top">Top</option>
-            <option value="new">New</option>
-          </select>
-        </div>
-        <div class="ri-search"><input id="ri-search" type="search" placeholder="Search comments" class="ri-search-input"/></div>
-      </div>
-      <div class="ri-header">
-        <h3 class="ri-title">${discussion.title}</h3>
-        <a class="ri-link" href="https://www.reddit.com${discussion.permalink}" target="_blank" rel="noopener">Open on Reddit</a>
-      </div>
-      <div class="ri-meta">u/${discussion.author} • ⬆️ ${discussion.score} • 💬 ${discussion.num_comments}</div>
-      ${(!discussion.archived && !discussion.locked) ? '<button id="ri-add-comment-btn" class="ri-add-comment-btn" type="button" title="Add a top-level comment">Add Comment</button>' : ''}
-      <div id="ri-top-reply-host" class="ri-top-reply-container" style="display:none"></div>
-      ${discussion.archived || discussion.locked ? `
-        <div class="ri-archived-notice">
-          <strong>⚠️ This post is ${discussion.archived ? 'archived' : 'locked'}</strong>
-          <p>You cannot vote, reply, or interact with this discussion.</p>
-        </div>
-      ` : ''}
-      <div class="ri-comments"></div>
-    `;
-
-    // CSS now imported from content.css
+    const host = document.createElement('div');
+    host.id = 'ri-inline-vue-host';
 
     // Insert container immediately so users see skeletons while loading
-    wrapper.appendChild(container);
+    wrapper.appendChild(host);
 
-    const commentsRoot = container.querySelector('.ri-comments') as HTMLElement;
+    // Mount Vue inline discussion shell; comments list will still be rendered
+    // by the existing content script logic into the .ri-comments element.
+    inlineDiscussionApp = createApp(InlineDiscussion, { discussion });
+    inlineDiscussionApp.mount(host);
+
+    const commentsRoot = host.querySelector('.ri-comments') as HTMLElement;
     // Skeleton CSS now imported from content.css
 
     // Show initial skeletons
@@ -2737,11 +2775,11 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       // Inline SVG markup (outline versions) for better color control via CSS currentColor
       // Include both outline and filled groups; CSS toggles which is visible based on vote state
       const upSvg = `<svg class="ri-icon ri-icon-up" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <g class="outline"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10zM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179z"></path></g>
+        <g><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10zM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179z"></path></g>
         <g class="filled"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10z"></path></g>
       </svg>`;
       const downSvg = `<svg class="ri-icon ri-icon-down" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <g class="outline"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016z"></path></g>
+        <g><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016z"></path></g>
         <g class="filled"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1z"></path></g>
       </svg>`;
       const replySvg = `<svg class="ri-icon ri-icon-reply" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2z"></path></svg>`;
@@ -3568,7 +3606,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             sk.remove();
             // Append to master list and re-apply filter
             allComments = allComments.concat(added);
-            filteredComments = applyFilter(allComments, (container.querySelector('#ri-search') as HTMLInputElement | null)?.value || '');
+            filteredComments = applyFilter(allComments, (host.querySelector('#ri-search') as HTMLInputElement | null)?.value || '');
             isPaging = false;
             // Try again to render the next page
             appendNextPage();
@@ -3613,10 +3651,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     io.observe(sentinel);
 
     // Wire sort and search
-    const sortSelect = container.querySelector('#ri-sort-select') as HTMLSelectElement | null;
-    const searchInput = container.querySelector('#ri-search') as HTMLInputElement | null;
-  const addCommentBtn = container.querySelector('#ri-add-comment-btn') as HTMLButtonElement | null;
-  const topReplyHost = container.querySelector('#ri-top-reply-host') as HTMLElement | null;
+    const sortSelect = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
+    const searchInput = host.querySelector('#ri-search') as HTMLInputElement | null;
+    const addCommentBtn = host.querySelector('#ri-add-comment-btn') as HTMLButtonElement | null;
+    const topReplyHost = host.querySelector('#ri-top-reply-host') as HTMLElement | null;
     sortSelect?.addEventListener('change', async () => {
       currentSort = (sortSelect.value as any) || 'best';
       // Reset UI and show skeletons during fetch
@@ -3705,7 +3743,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 } as any;
                 // Insert at top of master list
                 allComments = [newComment, ...allComments];
-                filteredComments = applyFilter(allComments, (container.querySelector('#ri-search') as HTMLInputElement | null)?.value || '');
+                filteredComments = applyFilter(allComments, (host.querySelector('#ri-search') as HTMLInputElement | null)?.value || '');
                 // Reset paging & rerender first page with highlight
                 pageIndex = 0;
                 commentsRoot.innerHTML = '';
