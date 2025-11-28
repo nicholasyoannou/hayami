@@ -12,6 +12,12 @@
   margin-top: 16px;
 }
 
+/* Remove top margin when Disqus is active (no top strip) */
+#reddit-inline-discussion:has(+ #disqus_thread),
+#reddit-inline-discussion:has(#disqus_thread) {
+  margin-top: 0;
+}
+
 #reddit-inline-discussion,
 #reddit-inline-discussion * {
   font-family: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;

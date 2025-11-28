@@ -15,6 +15,16 @@ import InlineDiscussion from '@/components/InlineDiscussion.vue';
 
 let inlineDiscussionApp: VueApp | null = null;
 
+// Cache for discussion content by provider (not comments)
+interface DiscussionCache {
+  reddit?: any; // Reddit discussion data
+  disqus?: { thread: any; container?: HTMLElement }; // Disqus thread data and container
+  youtube?: any;
+  'reddit-youtube'?: any;
+}
+
+const discussionCache: DiscussionCache = {};
+
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
   main(ctx) {
@@ -2132,6 +2142,7 @@ function embedDisqusThreadInline(thread: any, animeInfo: AnimeInfo): void {
 
     const container = document.createElement('section');
     container.id = 'reddit-inline-discussion';
+    container.style.marginTop = '0';
     container.innerHTML = `
       <div class="ri-header">
         <h2 class="ri-title">💬 Discussion: ${escapeHtml(title)}</h2>
@@ -2346,6 +2357,9 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
 
 async function displayInlineDiscussion(discussion: any): Promise<void> {
   try {
+    // Cache the discussion data (not comments)
+    discussionCache.reddit = { ...discussion };
+    
     // Fetch subreddit icon and primary color if missing
     if (discussion.subreddit && (!discussion.subreddit_icon_url || !discussion.subreddit_primary_color)) {
       const { iconUrl, primaryColor } = await fetchSubredditInfo(discussion.subreddit);
@@ -2388,9 +2402,181 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Insert container immediately so users see skeletons while loading
     wrapper.appendChild(host);
 
+    // Cache the discussion data (not comments) for faster switching
+    discussionCache.reddit = { ...discussion };
+    
     // Mount Vue inline discussion shell; comments list will still be rendered
     // by the existing content script logic into the .ri-comments element.
-    inlineDiscussionApp = createApp(InlineDiscussion, { discussion });
+    inlineDiscussionApp = createApp(InlineDiscussion, { 
+      discussion,
+      provider: 'reddit',
+      onProviderChange: async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube') => {
+        console.log('Content script received providerChange:', provider, 'lastAnimeInfo:', lastAnimeInfo);
+        
+        // Cache current Reddit discussion if switching away from Reddit
+        if (provider !== 'reddit' && discussionCache.reddit) {
+          // Already cached above, just ensure it's up to date
+          discussionCache.reddit = { ...discussion };
+          console.log('Updated Reddit discussion cache');
+        }
+        
+        // Show skeleton loading
+        const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
+        if (commentsRoot) {
+          commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
+            `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
+          )).join('');
+        }
+        
+        if (provider === 'disqus' && lastAnimeInfo) {
+          console.log('Switching to Disqus, finding thread for:', lastAnimeInfo);
+          
+          // Check cache first
+          if (discussionCache.disqus && discussionCache.disqus.thread) {
+            console.log('Restoring Disqus from cache');
+            const thread = discussionCache.disqus.thread;
+            const existingDiscussion = document.getElementById('reddit-inline-discussion');
+            if (existingDiscussion) {
+              existingDiscussion.remove();
+            }
+            const commentsSection = document.querySelector('#ri-inline-vue-host .ri-comments');
+            if (commentsSection) {
+              commentsSection.innerHTML = '';
+            }
+            const layout = document.querySelector('.erc-watch-episode-layout');
+            const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+            if (wrapper) {
+              const title = thread.clean_title || thread.title || `${lastAnimeInfo.animeName} discussion`;
+              const threadUrl = thread.link || '';
+              const identifier = String(thread.id || thread.identifier || '');
+              const forumShortname = thread.forum || 'channel-discussanime';
+              const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
+
+              const container = document.createElement('section');
+              container.id = 'reddit-inline-discussion';
+              container.style.marginTop = '0';
+              container.innerHTML = `
+                <div class="ri-header">
+                  <h2 class="ri-title">💬 Discussion: ${escapeHtml(title)}</h2>
+                  <div class="ri-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
+                </div>
+                <div id="disqus_thread"></div>
+              `;
+              wrapper.appendChild(container);
+              
+              // Re-inject Disqus script
+              const script = document.createElement('script');
+              script.src = chrome.runtime.getURL('disqus-loader.js');
+              script.setAttribute('data-thread-url', threadUrl);
+              script.setAttribute('data-identifier', identifier);
+              script.setAttribute('data-forum', forumShortname);
+              script.setAttribute('data-title', title);
+              script.setAttribute('data-slug', threadSlug);
+              (document.head || document.body).appendChild(script);
+            }
+            return;
+          }
+          
+          // Switch to Disqus - fetch if not cached
+          try {
+            const thread = await findThreadForAnime(lastAnimeInfo);
+            if (thread) {
+              // Cache the Disqus thread
+              discussionCache.disqus = { thread };
+              // Update Vue app provider state first
+              if (inlineDiscussionApp && inlineDiscussionApp._instance) {
+                try {
+                  const instance = inlineDiscussionApp._instance;
+                  if (instance && instance.exposed) {
+                    // Try to update via exposed method if available
+                    if (typeof instance.exposed.handleProviderChange === 'function') {
+                      instance.exposed.handleProviderChange('disqus');
+                    }
+                  }
+                } catch (e) {
+                  console.warn('Could not update Vue app provider state:', e);
+                }
+              }
+              
+              // Remove only the discussion content, keep the top strip
+              const existingDiscussion = document.getElementById('reddit-inline-discussion');
+              if (existingDiscussion) {
+                existingDiscussion.remove();
+              }
+              
+              // Remove comments section if it exists
+              const commentsSection = document.querySelector('#ri-inline-vue-host .ri-comments');
+              if (commentsSection) {
+                commentsSection.innerHTML = '';
+              }
+              
+              // Embed Disqus in the same wrapper
+              const layout = document.querySelector('.erc-watch-episode-layout');
+              const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+              if (wrapper) {
+                const title = thread.clean_title || thread.title || `${lastAnimeInfo.animeName} discussion`;
+                const threadUrl = thread.link || '';
+                const identifier = String(thread.id || thread.identifier || '');
+                const forumShortname = thread.forum || 'channel-discussanime';
+                const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
+
+                const container = document.createElement('section');
+                container.id = 'reddit-inline-discussion';
+                container.style.marginTop = '0';
+                container.innerHTML = `
+                  <div class="ri-header">
+                    <h2 class="ri-title">💬 Discussion: ${escapeHtml(title)}</h2>
+                    <div class="ri-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
+                  </div>
+                  <div id="disqus_thread"></div>
+                `;
+
+                wrapper.appendChild(container);
+                
+                // Cache the Disqus thread (already cached above, but ensure it's set)
+                if (!discussionCache.disqus) {
+                  discussionCache.disqus = { thread };
+                }
+
+                // Inject external script from extension (CSP-compliant)
+                const script = document.createElement('script');
+                script.src = chrome.runtime.getURL('disqus-loader.js');
+                script.setAttribute('data-thread-url', threadUrl);
+                script.setAttribute('data-identifier', identifier);
+                script.setAttribute('data-forum', forumShortname);
+                script.setAttribute('data-title', title);
+                script.setAttribute('data-slug', threadSlug);
+                (document.head || document.body).appendChild(script);
+              } else {
+                // Fallback to popup if wrapper not found
+                embedDisqusThreadPopup(thread, lastAnimeInfo);
+              }
+            } else {
+              // No Disqus thread found, show search UI
+              const shouldFallback = await showDisqusSearchUI(lastAnimeInfo);
+              if (shouldFallback) {
+                // User wants to fallback to Reddit, reload Reddit discussion
+                if (lastAnimeInfo) {
+                  await searchAndDisplayDiscussion(lastAnimeInfo);
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Failed to switch to Disqus:', e);
+          }
+        } else if (provider === 'reddit' && lastAnimeInfo) {
+          // Switch back to Reddit - check cache first
+          if (discussionCache.reddit) {
+            console.log('Restoring Reddit discussion from cache');
+            await displayInlineDiscussion(discussionCache.reddit);
+          } else {
+            // No cache, fetch fresh
+            await searchAndDisplayDiscussion(lastAnimeInfo);
+          }
+        }
+        // TODO: Handle youtube and reddit-youtube providers
+      }
+    });
     inlineDiscussionApp.mount(host);
 
     const commentsRoot = host.querySelector('.ri-comments') as HTMLElement;

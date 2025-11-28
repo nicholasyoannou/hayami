@@ -3,6 +3,8 @@ import { computed, ref } from 'vue';
 import RiTopStrip from './RiTopStrip.vue';
 import { voteThing } from '../utils/redditApi';
 
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube';
+
 interface Discussion {
   id: string;
   title: string;
@@ -21,7 +23,12 @@ interface Discussion {
 
 const props = defineProps<{
   discussion: Discussion;
+  provider?: Provider;
+  onProviderChange?: (provider: Provider) => void;
 }>();
+
+const currentProvider = ref<Provider>(props.provider || 'reddit');
+const isLoading = ref(false);
 
 const isArchived = computed(() => !!(props.discussion.archived || props.discussion.locked));
 const currentScore = ref(props.discussion.score);
@@ -191,6 +198,23 @@ function handleShare() {
     });
   }
 }
+
+function handleProviderChange(provider: Provider) {
+  console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
+  if (currentProvider.value === provider) return;
+  
+  isLoading.value = true;
+  currentProvider.value = provider;
+  
+  if (props.onProviderChange) {
+    console.log('Calling onProviderChange callback with:', provider);
+    props.onProviderChange(provider);
+  } else {
+    console.warn('onProviderChange callback not provided');
+  }
+  
+  // Loading state will be cleared when new content loads
+}
 </script>
 
 <template>
@@ -201,6 +225,9 @@ function handleShare() {
       :subreddit-primary-color="discussion.subreddit_primary_color"
       :score="discussion.score"
       :num-comments="discussion.num_comments"
+      :provider="currentProvider"
+      :show-tabs="true"
+      @provider-change="(p: Provider) => handleProviderChange(p)"
     />
 
     <section id="reddit-inline-discussion" style="margin-top: 0;">
@@ -330,7 +357,17 @@ function handleShare() {
         </p>
       </div>
 
-      <div class="ri-comments" />
+      <div v-if="isLoading" class="ri-comments">
+        <div v-for="i in 6" :key="i" class="ri-skel">
+          <div class="sk-ava"></div>
+          <div class="sk-lines">
+            <div class="sk-line w60"></div>
+            <div class="sk-line w80"></div>
+            <div class="sk-line w40"></div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="ri-comments" />
     </section>
   </div>
 </template>

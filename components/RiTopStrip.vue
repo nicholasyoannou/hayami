@@ -1,11 +1,49 @@
 <template>
-  <div class="flex w-full items-end gap-3 -mt-4 -mx-4 pl-4 pr-0 pt-4">
-    <div class="flex items-center gap-2 shrink-0">
-      <div class="flex items-center gap-2 px-4 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none">
-        <img class="w-6 h-5 opacity-80" :src="redditLogoUrl" alt="reddit logo" />
-        <img class="h-5 opacity-80" :src="redditTextUrl" alt="reddit" />
+  <div class="flex w-full items-end gap-3 -mt-4 -mx-4 pl-4 pr-0 pt-4 relative">
+    <div class="flex items-center gap-2 shrink-0 relative z-30" ref="logoContainer">
+      <!-- Provider Logo Button -->
+      <div 
+        class="ripple flex items-center gap-2 px-4 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none cursor-pointer relative z-10 overflow-hidden"
+        @click.stop="toggleMenu"
+      >
+        <img 
+          v-if="currentProvider === 'reddit'"
+          class="w-6 h-5 opacity-80" 
+          :src="redditLogoUrl" 
+          alt="reddit logo" 
+        />
+        <img 
+          v-else-if="currentProvider === 'disqus'"
+          class="h-4 opacity-80" 
+          :src="disqusLogoUrl" 
+          alt="disqus logo" 
+        />
+        <img 
+          v-else-if="currentProvider === 'youtube'"
+          class="h-5 opacity-80" 
+          :src="youtubeLogoUrl" 
+          alt="youtube logo" 
+        />
+        <img 
+          v-else-if="currentProvider === 'reddit-youtube'"
+          class="h-5 opacity-80" 
+          :src="redditYoutubeCombUrl" 
+          alt="reddit youtube logo" 
+        />
+        <img 
+          v-if="currentProvider === 'reddit'"
+          class="h-5 opacity-80" 
+          :src="redditTextUrl" 
+          alt="reddit" 
+        />
       </div>
-      <div class="flex items-center gap-2 px-4 h-11 border border-[#3a3a3a] bg-[#151515] rounded-full text-sm font-semibold text-[#f0f0f0]">
+      
+      <div 
+        v-if="currentProvider === 'reddit'"
+        class="flex items-center gap-2 px-4 h-11 border border-[#3a3a3a] bg-[#151515] rounded-full text-sm font-semibold text-[#f0f0f0] transition-opacity duration-300 relative"
+        :class="{ 'opacity-0 pointer-events-none z-0': menuOpen }"
+        :style="{ zIndex: menuOpen ? 0 : 'auto' }"
+      >
         <span 
           class="flex items-center justify-center w-8 h-8 rounded-full border border-[#2f2f2f] overflow-hidden"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
@@ -20,7 +58,46 @@
       </div>
     </div>
 
-    <div class="flex flex-1 min-w-0 overflow-visible bg-[#191919] border-b border-[#2f2f2f] mr-[-1rem]">
+    <!-- Expandable Menu - expands from right of Reddit logo to end of tabs -->
+    <div
+      class="absolute flex items-center pb-1.5 gap-2 overflow-hidden transition-all duration-300 h-11"
+      :class="menuOpen ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'"
+      :style="menuOpen ? { left: 170 + 'px', width: (menuWidth - logoWidth) + 'px' } : { left: logoWidth + 'px', width: '0px' }"
+    >
+      <button
+        v-for="item in menuItems"
+        :key="item.id"
+        class="ripple flex items-center gap-3 px-4 py-3 h-9 bg-[#151515] border border-[#3a3a3a] rounded-full text-sm font-semibold text-[#f0f0f0] hover:bg-[#1a1a1a] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
+        :class="{ 'bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] transform -translate-y-1 z-10': currentProvider === item.id }"
+        @click.stop="handleMenuClick(item.id)"
+      >
+        <img 
+          v-if="item.id === 'reddit'"
+          class="w-6 h-5 opacity-80" 
+          :src="redditLogoUrl" 
+          alt="reddit logo" 
+        />
+        <img 
+          v-else
+          class="h-4 w-auto opacity-80" 
+          :src="item.iconUrl" 
+          :alt="item.label" 
+        />
+        <img 
+          v-if="item.id === 'reddit'"
+          class="h-5 opacity-80" 
+          :src="redditTextUrl" 
+          alt="reddit" 
+        />
+      </button>
+    </div>
+
+    <div 
+      v-if="showTabs"
+      class="flex flex-1 min-w-0 overflow-visible bg-[#191919] border-b border-[#2f2f2f] mr-[-1rem] transition-opacity duration-300 relative"
+      :class="{ 'opacity-0 pointer-events-none': menuOpen }"
+      ref="tabsContainer"
+    >
       <div
         v-for="tab in tabItems"
         :key="tab.id"
@@ -102,7 +179,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import 'css-ripple-effect';
 
 interface DiscussionTab {
   id: string;
@@ -113,12 +191,22 @@ interface DiscussionTab {
   active?: boolean;
 }
 
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube';
+
+interface MenuItem {
+  id: Provider;
+  label: string;
+  iconUrl: string;
+}
+
 interface Props {
   subredditName?: string;
   subredditIconUrl?: string | null;
   subredditPrimaryColor?: string | null;
   score?: number | null;
   numComments?: number | null;
+  provider?: Provider;
+  showTabs?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -126,7 +214,20 @@ const props = withDefaults(defineProps<Props>(), {
   subredditIconUrl: 'https://styles.redditmedia.com/t5_2qh6z/styles/communityIcon_opm326b239fa1.png',
   score: 0,
   numComments: 0,
+  provider: 'reddit',
+  showTabs: true,
 });
+
+const emit = defineEmits<{
+  providerChange: [provider: Provider];
+}>();
+
+const menuOpen = ref(false);
+const currentProvider = ref<Provider>(props.provider);
+const tabsContainer = ref<HTMLElement | null>(null);
+const logoContainer = ref<HTMLElement | null>(null);
+const menuWidth = ref(800);
+const logoWidth = ref(200);
 
 // Resolve asset URLs via the extension runtime so they work from the content script
 const redditLogoUrl =
@@ -135,6 +236,15 @@ const redditLogoUrl =
 const redditTextUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/redditText.svg') ??
   'assets/topCommentMenu/redditText.svg';
+const disqusLogoUrl =
+  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/disqusLogo.svg') ??
+  'assets/topCommentMenu/disqusLogo.svg';
+const youtubeLogoUrl =
+  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/youtubeLogo.svg') ??
+  'assets/topCommentMenu/youtubeLogo.svg';
+const redditYoutubeCombUrl =
+  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/redditYoutubeComb.svg') ??
+  'assets/topCommentMenu/redditYoutubeComb.svg';
 const discussionIconUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/discussion.svg') ??
   'assets/topCommentMenu/discussion.svg';
@@ -144,6 +254,59 @@ const popoutDiscussionIconUrl =
 const upvoteFilledIconUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/upvoteFilled.svg') ??
   'assets/commentAssets/upvoteFilled.svg';
+
+const menuItems = computed<MenuItem[]>(() => {
+  const items: MenuItem[] = [
+    { id: 'reddit', label: 'Reddit', iconUrl: redditLogoUrl },
+    { id: 'disqus', label: 'DISQUS', iconUrl: disqusLogoUrl },
+    { id: 'reddit-youtube', label: 'Reddit YouTube', iconUrl: redditYoutubeCombUrl },
+    { id: 'youtube', label: 'YouTube', iconUrl: youtubeLogoUrl },
+  ];
+  // Filter out the current provider from menu items (it's shown in the main logo position)
+  return items.filter(item => item.id !== currentProvider.value);
+});
+
+function calculateMenuWidth() {
+  if (logoContainer.value && tabsContainer.value) {
+    const logoRect = logoContainer.value.getBoundingClientRect();
+    const tabsRect = tabsContainer.value.getBoundingClientRect();
+    // Get the Reddit logo button width specifically (not the whole container with r/anime pill)
+    const redditLogoBtn = logoContainer.value.querySelector('.flex.items-center.gap-2.px-4.h-11.bg-\\[\\#0f0f0f\\]') as HTMLElement;
+    if (redditLogoBtn) {
+      const redditLogoRect = redditLogoBtn.getBoundingClientRect();
+      // Add small offset to move menu items slightly to the right
+      logoWidth.value = redditLogoRect.width + 20;
+      menuWidth.value = redditLogoRect.width + 20 + tabsRect.width;
+    } else {
+      logoWidth.value = logoRect.width + 4;
+      menuWidth.value = logoRect.width + 4 + tabsRect.width;
+    }
+    return;
+  }
+  // Fallback
+  logoWidth.value = 200;
+  menuWidth.value = typeof window !== 'undefined' ? window.innerWidth - 64 : 800;
+}
+
+function toggleMenu() {
+  if (!menuOpen.value) {
+    // Calculate width before opening
+    setTimeout(() => {
+      calculateMenuWidth();
+      menuOpen.value = true;
+    }, 0);
+  } else {
+    menuOpen.value = false;
+  }
+}
+
+function handleMenuClick(provider: Provider) {
+  console.log('Menu item clicked:', provider);
+  currentProvider.value = provider;
+  menuOpen.value = false;
+  emit('providerChange', provider);
+  console.log('Emitted providerChange event:', provider);
+}
 
 const fallbackTabs: DiscussionTab[] = [
   {
@@ -174,10 +337,59 @@ const tabItems = computed<DiscussionTab[]>(() => {
     comments: Number(props.numComments ?? 0),
     active: true,
   };
+  // When not Reddit, only show the active tab
+  if (showOnlyActiveTab.value) {
+    return [main];
+  }
   return [main, ...fallbackTabs];
 });
 
 const subredditAvatar = computed(() => props.subredditIconUrl || 'https://styles.redditmedia.com/t5_2qh6z/styles/communityIcon_opm326b239fa1.png');
 const subredditPrimaryColor = computed(() => props.subredditPrimaryColor);
+const showTabs = computed(() => props.showTabs);
+const showOnlyActiveTab = computed(() => currentProvider.value !== 'reddit');
+
+// Watch for prop changes
+watch(() => props.provider, (newProvider) => {
+  currentProvider.value = newProvider;
+});
+
+// Close menu when clicking outside
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement;
+  const menuContainer = document.querySelector('.flex.items-center.gap-2.shrink-0.relative');
+  if (menuContainer && !menuContainer.contains(target) && menuOpen.value) {
+    menuOpen.value = false;
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('click', handleClickOutside);
+  // Calculate initial menu width
+  nextTick(() => {
+    calculateMenuWidth();
+  });
+});
+
+// Recalculate menu width when tabs container becomes available or window resizes
+watch(() => tabsContainer.value, () => {
+  if (tabsContainer.value) {
+    nextTick(() => {
+      calculateMenuWidth();
+    });
+  }
+});
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => {
+    if (menuOpen.value) {
+      calculateMenuWidth();
+    }
+  });
+}
+
+onUnmounted(() => {
+  document.removeEventListener('click', handleClickOutside);
+});
 </script>
 
