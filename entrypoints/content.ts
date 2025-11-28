@@ -3602,24 +3602,55 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
             if (trunkIconEl) trunkIconEl.style.display = '';
           }
+          
+          // Recheck hover state after toggle to update line highlight immediately
+          // The checkHoverState function is stored on the element and will use stored mouse position
+          if (depth === 0) {
+            requestAnimationFrame(() => {
+              // Trigger hover check using stored mouse position
+              const checkHover = (el as any)._checkHoverState;
+              if (checkHover) {
+                checkHover();
+              }
+            });
+          }
         };
         toggleBtn?.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
         threadLine?.addEventListener('click', (ev) => { ev.stopPropagation(); toggle(); });
         // Make the left margin line (::before) clickable for top-level comments (also re-expand when collapsed)
         if (depth === 0) {
-          // Track hover state for the line specifically - wider area for easier interaction
-          el.addEventListener('mousemove', (ev) => {
+          // Function to check and update hover state based on current mouse position
+          const checkHoverState = (ev?: MouseEvent) => {
+            // Get current mouse position from event or from last known position
+            let clientX: number, clientY: number;
+            if (ev) {
+              clientX = ev.clientX;
+              clientY = ev.clientY;
+              // Store for later use
+              (el as any)._lastMouseX = clientX;
+              (el as any)._lastMouseY = clientY;
+            } else {
+              // Use stored position or skip if not available
+              clientX = (el as any)._lastMouseX;
+              clientY = (el as any)._lastMouseY;
+              if (clientX === undefined || clientY === undefined) return;
+            }
+            
             const rect = el.getBoundingClientRect();
-            const mouseX = ev.clientX - rect.left;
+            const mouseX = clientX - rect.left;
             // Check if mouse is over the line area (wider zone: 4px to 20px, centered around 12px)
-            if (mouseX > 4 && mouseX < 20) {
+            if (mouseX > 4 && mouseX < 20 && clientY >= rect.top && clientY <= rect.bottom) {
               el.style.cursor = 'pointer';
               el.classList.add('line-hover');
             } else {
               el.style.cursor = '';
               el.classList.remove('line-hover');
             }
-          });
+          };
+
+          // Track hover state for the line specifically - wider area for easier interaction
+          el.addEventListener('mousemove', checkHoverState);
+          el.addEventListener('mouseenter', checkHoverState);
 
           // Inject trunk icon as a styled div over the trunk line
           const trunkIcon = document.createElement('div');
@@ -3628,12 +3659,20 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           trunkIcon.addEventListener('click', (e) => {
             e.stopPropagation();
             toggle();
+            // Recheck hover state after toggle using stored mouse position
+            requestAnimationFrame(() => checkHoverState());
           });
           el.appendChild(trunkIcon);
           el.addEventListener('mouseleave', () => {
             el.style.cursor = '';
             el.classList.remove('line-hover');
+            // Clear stored position
+            delete (el as any)._lastMouseX;
+            delete (el as any)._lastMouseY;
           });
+          
+          // Store checkHoverState on the element so toggle can use it
+          (el as any)._checkHoverState = checkHoverState;
           el.addEventListener('click', (ev) => {
             const rect = el.getBoundingClientRect();
             const clickX = ev.clientX - rect.left;
