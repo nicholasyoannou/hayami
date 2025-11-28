@@ -544,6 +544,8 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
           all_awardings: d.all_awardings,
           link_id: d.link_id,
         };
+        // Store parent_id for hierarchy reconstruction
+        (c as any).parent_id = d.parent_id;
         // Nested replies may still be represented as more nodes; keep minimal recursion
         if (d.replies && typeof d.replies === 'object' && d.replies.data?.children) {
           const moreNode = d.replies.data.children.find((n: any) => n && n.kind === 'more');
@@ -555,7 +557,37 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
         }
         return c;
       });
-    return mapped;
+    
+    // Reconstruct hierarchy based on parent_id
+    // Comments that are replies to other comments in this batch should be nested under their parent
+    const commentMap = new Map<string, RedditComment>();
+    const rootComments: RedditComment[] = [];
+    
+    // First pass: create a map of all comments by their fullname (t1_xxx)
+    for (const comment of mapped) {
+      const fullname = `t1_${comment.id}`;
+      commentMap.set(fullname, comment);
+    }
+    
+    // Second pass: nest comments under their parents
+    for (const comment of mapped) {
+      const parentId = (comment as any).parent_id;
+      if (parentId && commentMap.has(parentId)) {
+        // This comment is a reply to another comment in this batch
+        const parent = commentMap.get(parentId)!;
+        if (!parent.replies) {
+          parent.replies = [];
+        }
+        parent.replies.push(comment);
+      } else {
+        // This is a root-level comment (reply to the parent comment that triggered morechildren)
+        rootComments.push(comment);
+      }
+      // Remove parent_id from the comment object as it's no longer needed
+      delete (comment as any).parent_id;
+    }
+    
+    return rootComments;
   } catch (e) {
     console.error('Error loading more children:', e);
     return [];

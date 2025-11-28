@@ -45,6 +45,11 @@ export function markdownToHtml(text: string): string {
   // New reddit syntax: >!spoiler!< — clickable to reveal
   html = html.replace(/&gt;!([\s\S]*?)!&lt;/g, '<span class="ri-spoiler">$1<\/span>');
 
+  // Horizontal rules: ---, --, or *** on a line by itself (with optional leading spaces)
+  // Process BEFORE list parsing to avoid treating -- as a list item
+  // Mark them with a special placeholder that we'll process after paragraph splitting
+  html = html.replace(/^\s{0,3}(?:---|--|\*\*\*)\s*$/gm, '\n\n<HR_PLACEHOLDER>\n\n');
+
   // Inline formatting (moved below list parsing to avoid treating list markers '*' as italics)
   // We'll run these after building lists so bullets aren't consumed by the italic regex.
 
@@ -112,7 +117,14 @@ export function markdownToHtml(text: string): string {
   html = html.replace(/(^|[^\S\r\n>])\*([^*\n][^*\n]*?)\*(?=\s|$)/g, '$1<em>$2<\/em>');
   html = html.replace(/(^|[^\S\r\n>])_([^_\n][^_\n]*?)_(?=\s|$)/g, '$1<em>$2<\/em>');
   html = html.replace(/~~([^~]+)~~/g, '<del>$1<\/del>');
-  html = html.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1<\/a>');
+  // Markdown links: [text](url) - supports both absolute (http/https) and relative URLs
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, text, url) => {
+    // If it's a relative URL, make it absolute by prepending reddit.com
+    const href = url.startsWith('http://') || url.startsWith('https://') 
+      ? url 
+      : `https://www.reddit.com${url.startsWith('/') ? url : '/' + url}`;
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}<\/a>`;
+  });
 
   // Optional debug: log when input appears to have bullets but no <ul> got produced
   try {
@@ -141,17 +153,56 @@ export function markdownToHtml(text: string): string {
   // Blockquotes (Reddit accepts '>' with optional leading spaces)
   html = html.replace(/^\s{0,3}(?:&gt;|>)\s?(.*)$/gm, (_m, body: string) => `<blockquote>${body}<\/blockquote>`);
 
+  // Small text / Superscript: Reddit uses ^text for superscript/small text
+  // Handle ^(text with spaces) for multi-word superscript first (more specific)
+  html = html.replace(/\^\(([^)]+)\)/g, '<small>$1<\/small>');
+  // Then handle ^text at word boundaries (single word or no spaces)
+  html = html.replace(/\^([^\s^<>\n\)]+)/g, '<small>$1<\/small>');
+  
   // Paragraph + line-break handling:
-  // 1. Split into paragraphs on 2+ consecutive newlines.
-  // 2. Inside a paragraph: a line ending with two spaces => hard break (<br/>); single newline collapses to a space.
-  const paragraphs = html.split(/\n{2,}/g).map(p => {
-    // Hard breaks (two trailing spaces before newline) -> convert first so we don't lose markers
-    let part = p.replace(/ {2}\n/g, '<br\/>');
-    // Any remaining single newlines become spaces (avoid merging inside HTML tags)
-    part = part.replace(/([^>])\n([^<])/g, '$1 $2');
-    const trimmed = part.trim();
-    // Avoid wrapping block-level list markup in <p>
-    if (/^(<ul>|<ol>)/.test(trimmed)) return trimmed;
+  // Reddit splits on single newlines to create separate paragraphs.
+  // A line ending with two spaces => hard break (<br/>) within the same paragraph.
+  // Process line by line, handling hard breaks (two trailing spaces) specially
+  const lines = html.split(/\n/g);
+  const paragraphs: string[] = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    
+    // Skip empty lines (they create paragraph breaks)
+    if (!trimmed) {
+      continue;
+    }
+    
+    // Check if previous non-empty line ended with two spaces (hard break indicator)
+    // If so, merge with previous paragraph using <br/>
+    if (i > 0) {
+      let prevIdx = i - 1;
+      while (prevIdx >= 0 && !lines[prevIdx].trim()) prevIdx--;
+      if (prevIdx >= 0 && lines[prevIdx].endsWith('  ')) {
+        // Previous line had hard break - merge with previous paragraph
+        const lastPara = paragraphs[paragraphs.length - 1];
+        if (lastPara && lastPara.startsWith('<p>') && lastPara.endsWith('</p>')) {
+          // Remove </p> from end, add <br/> and current line, then add </p> back
+          paragraphs[paragraphs.length - 1] = lastPara.slice(0, -4) + '<br/>' + trimmed + '</p>';
+          continue;
+        }
+      }
+    }
+    
+    // Handle horizontal rule placeholders
+    if (trimmed === '<HR_PLACEHOLDER>') {
+      paragraphs.push('<hr\/>');
+      continue;
+    }
+    
+    // Avoid wrapping block-level elements in <p>
+    if (/^(<ul>|<ol>|<hr\/>)/.test(trimmed)) {
+      paragraphs.push(trimmed);
+      continue;
+    }
+    
     // If this paragraph contains a list block not at the start, split it so <ul>/<ol> stand alone
     if (/(<ul>|<ol>)/.test(trimmed) && !/^(<ul>|<ol>)/.test(trimmed)) {
       // Split on the first list block and wrap the non-list part only
@@ -160,11 +211,15 @@ export function markdownToHtml(text: string): string {
         const before = match[1].trim();
         const listAndAfter = match[2];
         const beforeWrapped = before ? `<p>${before}<\/p>` : '';
-        return beforeWrapped + listAndAfter;
+        paragraphs.push(beforeWrapped + listAndAfter);
+        continue;
       }
     }
-    return `<p>${trimmed}<\/p>`;
-  });
+    
+    // Regular line becomes a paragraph
+    paragraphs.push(`<p>${trimmed}<\/p>`);
+  }
+  
   html = paragraphs.join('');
 
   // Fallback list conversion: If we never emitted a <ul>/<ol> but we have multiple paragraphs
@@ -241,3 +296,4 @@ export function markdownToHtml(text: string): string {
 
   return html;
 }
+

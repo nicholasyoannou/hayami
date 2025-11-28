@@ -3759,9 +3759,31 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           const moreEl = document.createElement('div');
           const n = c.moreCount;
           moreEl.className = 'ri-more-replies';
-          moreEl.textContent = `${n} more repl${n === 1 ? 'y' : 'ies'}`;
-          moreEl.style.cursor = 'pointer';
-          moreEl.addEventListener('click', async () => {
+          
+          // If depth is 5 or more, show link to Reddit instead of loading more comments
+          if (depth >= 5) {
+            const link = document.createElement('a');
+            link.href = `https://www.reddit.com${c.permalink || discussion.permalink || ''}`;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = `See ${n} more repl${n === 1 ? 'y' : 'ies'} on Reddit`;
+            link.style.color = '#aaa';
+            link.style.textDecoration = 'none';
+            link.style.cursor = 'pointer';
+            link.addEventListener('mouseenter', () => {
+              link.style.color = '#bbb';
+              link.style.textDecoration = 'underline';
+            });
+            link.addEventListener('mouseleave', () => {
+              link.style.color = '#aaa';
+              link.style.textDecoration = 'none';
+            });
+            moreEl.appendChild(link);
+            childHost.appendChild(moreEl);
+          } else {
+            moreEl.textContent = `${n} more repl${n === 1 ? 'y' : 'ies'}`;
+            moreEl.style.cursor = 'pointer';
+            moreEl.addEventListener('click', async () => {
             // Show skeletons
             const sk = document.createElement('div');
             sk.innerHTML = Array.from({length: Math.min(3, n)}).map(() => (
@@ -3791,22 +3813,48 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               const again = document.createElement('div');
               const nn = c.moreCount;
               again.className = 'ri-more-replies';
-              again.textContent = `${nn} more repl${nn === 1 ? 'y' : 'ies'}`;
-              again.style.cursor = 'pointer';
-              again.addEventListener('click', async () => {
-                // Reuse same load behavior: fetch next chunk when 'again' clicked
-                // Trigger the original moreEl click handler by invoking the same logic
-                try {
-                  // Simulate click on the removed moreEl handler by calling its listener indirectly
-                  moreEl.click();
-                } catch {
-                  // Fallback: do nothing
-                }
-              });
+              
+              // If depth is 5 or more, show link to Reddit instead
+              if (depth >= 5) {
+                const link = document.createElement('a');
+                link.href = `https://www.reddit.com${c.permalink || discussion.permalink || ''}`;
+                link.target = '_blank';
+                link.rel = 'noopener';
+                link.textContent = `See ${nn} more repl${nn === 1 ? 'y' : 'ies'} on Reddit`;
+                link.style.color = '#aaa';
+                link.style.textDecoration = 'none';
+                link.style.cursor = 'pointer';
+                link.addEventListener('mouseenter', () => {
+                  link.style.color = '#bbb';
+                  link.style.textDecoration = 'underline';
+                });
+                link.addEventListener('mouseleave', () => {
+                  link.style.color = '#aaa';
+                  link.style.textDecoration = 'none';
+                });
+                again.appendChild(link);
+              } else {
+                again.textContent = `${nn} more repl${nn === 1 ? 'y' : 'ies'}`;
+                again.style.cursor = 'pointer';
+                again.addEventListener('click', async () => {
+                  // Reuse same load behavior: fetch next chunk when 'again' clicked
+                  // Trigger the original moreEl click handler by invoking the same logic
+                  try {
+                    // Simulate click on the removed moreEl handler by calling its listener indirectly
+                    moreEl.click();
+                  } catch {
+                    // Fallback: do nothing
+                  }
+                });
+              }
               childHost.appendChild(again);
             }
           });
-          childHost.appendChild(moreEl);
+          // Only append moreEl if depth < 5 (if depth >= 5, it was already appended above)
+          if (depth < 5) {
+            childHost.appendChild(moreEl);
+          }
+          }
         }
         frag.appendChild(el);
       }

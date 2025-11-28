@@ -659,6 +659,30 @@
   background: transparent;
 }
 
+.ri-text hr {
+  border: none;
+  border-top: 1px solid #343536;
+  margin: 12px 0;
+  background: transparent;
+}
+
+.ri-text small {
+  font-size: 0.85em;
+  color: #818384;
+  line-height: 1.4;
+}
+
+.ri-text small a {
+  color: #5ba8ff;
+  text-decoration: underline;
+  transition: color 0.15s ease;
+}
+
+.ri-text small a:hover {
+  color: #7bb9ff;
+  text-decoration: underline;
+}
+
 /* Proper list styling inside comment text
    Use a pseudo-bullet so we still show markers even if site CSS disables list-style */
 .ri-text ul {
