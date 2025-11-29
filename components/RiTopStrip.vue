@@ -267,9 +267,17 @@ const menuItems = computed<MenuItem[]>(() => {
 });
 
 function calculateMenuWidth() {
-  if (logoContainer.value && tabsContainer.value) {
+  if (!logoContainer.value || !tabsContainer.value) {
+    // Fallback if elements not ready
+    logoWidth.value = 200;
+    menuWidth.value = typeof window !== 'undefined' ? window.innerWidth - 64 : 800;
+    return;
+  }
+
+  try {
     const logoRect = logoContainer.value.getBoundingClientRect();
     const tabsRect = tabsContainer.value.getBoundingClientRect();
+    
     // Get the Reddit logo button width specifically (not the whole container with r/anime pill)
     const redditLogoBtn = logoContainer.value.querySelector('.flex.items-center.gap-2.px-4.h-11.bg-\\[\\#0f0f0f\\]') as HTMLElement;
     if (redditLogoBtn) {
@@ -281,20 +289,21 @@ function calculateMenuWidth() {
       logoWidth.value = logoRect.width + 4;
       menuWidth.value = logoRect.width + 4 + tabsRect.width;
     }
-    return;
+  } catch (error) {
+    console.warn('Error calculating menu width:', error);
+    // Fallback on error
+    logoWidth.value = 200;
+    menuWidth.value = typeof window !== 'undefined' ? window.innerWidth - 64 : 800;
   }
-  // Fallback
-  logoWidth.value = 200;
-  menuWidth.value = typeof window !== 'undefined' ? window.innerWidth - 64 : 800;
 }
 
 function toggleMenu() {
   if (!menuOpen.value) {
-    // Calculate width before opening
-    setTimeout(() => {
+    // Calculate width before opening - use nextTick to ensure DOM is ready
+    nextTick(() => {
       calculateMenuWidth();
       menuOpen.value = true;
-    }, 0);
+    });
   } else {
     menuOpen.value = false;
   }

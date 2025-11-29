@@ -1,4 +1,5 @@
 import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
+import { getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 
 export default defineBackground(() => {
   console.log('Crunchyroll Comments Revive - Background service started', { 
@@ -78,6 +79,32 @@ export default defineBackground(() => {
       (async () => {
         const authenticated = await isAuthenticated();
         sendResponse({ authenticated });
+      })();
+      return true; // keep channel open for async
+    }
+
+    if (message.action === 'getYouTubeToken') {
+      (async () => {
+        try {
+          const token = await getYouTubeAccessToken(false);
+          sendResponse({ token });
+        } catch (error) {
+          console.error('Error getting YouTube token:', error);
+          sendResponse({ token: null, error: error instanceof Error ? error.message : 'Unknown error' });
+        }
+      })();
+      return true; // keep channel open for async
+    }
+
+    if (message.action === 'checkYouTubeAuth') {
+      (async () => {
+        try {
+          const authenticated = await checkYouTubeAuth();
+          sendResponse({ authenticated });
+        } catch (error) {
+          console.error('Error checking YouTube auth:', error);
+          sendResponse({ authenticated: false });
+        }
       })();
       return true; // keep channel open for async
     }

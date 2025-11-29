@@ -27,3 +27,29 @@ export const REDDIT_SCOPES = 'identity read submit vote';
  * - permanent: Provides refresh token for long-term access
  */
 export const REDDIT_DURATION = 'permanent';
+
+/**
+ * Google OAuth Configuration for YouTube Data API v3
+ * 
+ * SETUP INSTRUCTIONS:
+ * 1. Go to https://console.cloud.google.com/
+ * 2. Create a new project or select an existing one
+ * 3. Enable "YouTube Data API v3" in the API Library
+ * 4. Go to "Credentials" > "Create Credentials" > "OAuth client ID"
+ * 5. IMPORTANT: Choose "Chrome Extension" as the application type
+ * 6. No redirect URI configuration needed - Chrome handles this automatically
+ * 7. Click "CREATE"
+ * 8. Copy the client ID and replace the value below
+ * 
+ * NOTE: We're using chrome.identity.getAuthToken which is the recommended
+ * approach for Chrome Extensions using Google services. This requires
+ * "Chrome Extension" type OAuth client and no redirect URI configuration.
+ */
+export const GOOGLE_CLIENT_ID = '74928001886-t3tbc872m0mkflh0rr175s5ag1nn5t70.apps.googleusercontent.com';
+
+/**
+ * Google OAuth scopes for YouTube
+ * - https://www.googleapis.com/auth/youtube.force-ssl: Full access to YouTube account (required for reading comments)
+ * Note: youtube.readonly is not sufficient for commentThreads.list API
+ */
+export const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/youtube.force-ssl';

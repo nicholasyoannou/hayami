@@ -7,10 +7,20 @@ import {
   getStoredProfilePic, 
   logout 
 } from '@/utils/redditAuth';
+import {
+  authenticateWithYouTube,
+  isYouTubeAuthenticated,
+  getStoredYouTubeUsername,
+  getStoredYouTubeProfilePic,
+  logoutYouTube
+} from '@/utils/youtubeAuth';
 
 const isLoggedIn = ref(false);
 const username = ref<string | null>(null);
 const profilePic = ref<string | null>(null);
+const isYouTubeLoggedIn = ref(false);
+const youtubeUsername = ref<string | null>(null);
+const youtubeProfilePic = ref<string | null>(null);
 const isLoading = ref(false);
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
@@ -22,6 +32,7 @@ const noCommentsMode = ref<'popup' | 'inline'>('popup');
 // Check authentication status on mount
 onMounted(async () => {
   await checkAuthStatus();
+  await checkYouTubeAuthStatus();
   await loadDisplayMode();
   await loadCommentsProvider();
   await loadNoCommentsMode();
@@ -41,6 +52,20 @@ async function checkAuthStatus() {
     console.error('Error checking auth status:', error);
   } finally {
     isLoading.value = false;
+  }
+}
+
+async function checkYouTubeAuthStatus() {
+  try {
+    const authenticated = await isYouTubeAuthenticated();
+    isYouTubeLoggedIn.value = authenticated;
+    
+    if (authenticated) {
+      youtubeUsername.value = await getStoredYouTubeUsername();
+      youtubeProfilePic.value = await getStoredYouTubeProfilePic();
+    }
+  } catch (error) {
+    console.error('Error checking YouTube auth status:', error);
   }
 }
 
@@ -152,6 +177,61 @@ function openSettings() {
   // Open Reddit app preferences
   window.open('https://www.reddit.com/prefs/apps', '_blank');
 }
+
+async function handleYouTubeLogin() {
+  isLoading.value = true;
+  errorMessage.value = null;
+  successMessage.value = null;
+  
+  try {
+    const result = await authenticateWithYouTube();
+    
+    if (result.success) {
+      isYouTubeLoggedIn.value = true;
+      youtubeUsername.value = result.username || null;
+      youtubeProfilePic.value = await getStoredYouTubeProfilePic();
+      successMessage.value = `Successfully logged in to YouTube as ${result.username}!`;
+    } else {
+      errorMessage.value = result.error || 'Authentication failed';
+    }
+  } catch (error) {
+    console.error('YouTube login error:', error);
+    errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred';
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function handleYouTubeLogout() {
+  isLoading.value = true;
+  errorMessage.value = null;
+  successMessage.value = null;
+  
+  try {
+    await logoutYouTube();
+    // Clear local state
+    isYouTubeLoggedIn.value = false;
+    youtubeUsername.value = null;
+    youtubeProfilePic.value = null;
+    // Refresh auth status to ensure it's cleared
+    await checkYouTubeAuthStatus();
+    successMessage.value = 'Successfully logged out from YouTube';
+  } catch (error) {
+    console.error('YouTube logout error:', error);
+    errorMessage.value = 'Failed to logout from YouTube';
+    // Still clear local state even if logout fails
+    isYouTubeLoggedIn.value = false;
+    youtubeUsername.value = null;
+    youtubeProfilePic.value = null;
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+function openGoogleSettings() {
+  // Open Google Cloud Console
+  window.open('https://console.cloud.google.com/apis/credentials', '_blank');
+}
 </script>
 
 <template>
@@ -255,9 +335,45 @@ function openSettings() {
           </div>
         </div>
 
+        <div class="settings-box" style="margin-top: 12px;">
+          <h4>YouTube Authentication</h4>
+          <div v-if="!isYouTubeLoggedIn" style="margin-bottom: 12px;">
+            <p style="font-size: 13px; color: #666; margin-bottom: 10px;">
+              Connect your Google account to view YouTube comments from anime channels.
+            </p>
+            <button @click="handleYouTubeLogin" class="btn btn-primary" :disabled="isLoading" style="width: 100%;">
+              Login with Google
+            </button>
+            <details style="margin-top: 10px;">
+              <summary style="cursor: pointer; font-size: 12px; color: #666;">🛠️ Setup Instructions</summary>
+              <ol style="font-size: 12px; margin: 10px 0; padding-left: 20px; color: #666;">
+                <li>Go to <a href="#" @click.prevent="openGoogleSettings">Google Cloud Console</a></li>
+                <li>Create a new project or select an existing one</li>
+                <li>Enable "YouTube Data API v3"</li>
+                <li>Create OAuth 2.0 credentials - choose <strong>"Chrome Extension"</strong> type</li>
+                <li>No redirect URI configuration needed - Chrome handles this automatically</li>
+                <li>Copy the client ID and add it to config.ts</li>
+              </ol>
+            </details>
+          </div>
+          <div v-else class="user-info" style="padding: 10px; margin-bottom: 10px;">
+            <div class="avatar" style="width: 40px; height: 40px; min-width: 40px;">
+              <img v-if="youtubeProfilePic" :src="youtubeProfilePic" alt="Profile" class="avatar-img" />
+              <span v-else>👤</span>
+            </div>
+            <div class="user-details">
+              <h3 style="font-size: 11px; margin: 0;">YouTube</h3>
+              <p class="username" style="font-size: 14px; margin: 0;">{{ youtubeUsername || 'Unknown' }}</p>
+            </div>
+            <button @click="handleYouTubeLogout" class="btn btn-secondary" :disabled="isLoading" style="padding: 6px 12px; font-size: 12px;">
+              Logout
+            </button>
+          </div>
+        </div>
+
         <div class="actions">
           <button @click="handleLogout" class="btn btn-secondary">
-            Logout
+            Logout from Reddit
           </button>
         </div>
 

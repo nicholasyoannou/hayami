@@ -1091,6 +1091,10 @@
   background: #343536;
   pointer-events: none;
   transition: none;
+  /* Ensure solid line - no dashes */
+  border: none !important;
+  border-image: none !important;
+  background-image: none !important;
 }
 
 .ri-children.spine-hover::before {

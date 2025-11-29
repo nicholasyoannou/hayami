@@ -1,10 +1,13 @@
 import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing, extensionFetch } from '@/utils/redditApi';
 import { findThreadForAnime, listThreadsForForumSince } from '@/utils/disqusApi';
+import { getVideoComments, getCommentReplies, searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
 import { getStoredUsername } from '@/utils/redditAuth';
+import { isYouTubeAuthenticated } from '@/utils/youtubeAuth';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { isAuthenticated } from '@/utils/redditAuth';
 import '@/styles/tailwind.css';
 import '@/styles/reddit-inline.css';
+import '@/styles/youtube-inline.css';
 import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
 import { Toaster, toast } from 'vue-sonner';
@@ -2355,6 +2358,252 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
   return { iconUrl: null, primaryColor: null };
 }
 
+/**
+ * Renders YouTube comments for a video
+ */
+async function renderYouTubeComments(videoId: string, videoTitle: string, commentsRoot: HTMLElement | null, videoIdForUrl?: string): Promise<void> {
+  if (!commentsRoot) {
+    console.error('Comments root element is null');
+    throw new Error('Comments container not found');
+  }
+
+  try {
+    // Show skeleton loading
+    commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
+      `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
+    )).join('');
+
+    // Fetch YouTube comments
+    console.log('Fetching YouTube comments for video ID:', videoId);
+    const commentsResult = await getVideoComments(videoId, 50, 'relevance');
+    console.log('YouTube API response:', commentsResult);
+    const comments = commentsResult.comments || [];
+    const totalComments = commentsResult.pageInfo?.totalResults || comments.length;
+    console.log('Parsed comments count:', comments.length);
+    console.log('Total comments:', totalComments);
+
+    // Update header for YouTube - replace Reddit header with YouTube header
+    const existingDiscussion = document.getElementById('reddit-inline-discussion');
+    if (existingDiscussion) {
+      const header = existingDiscussion.querySelector('.ri-header');
+      if (header) {
+        const youtubeUrl = `https://www.youtube.com/watch?v=${videoIdForUrl || videoId}`;
+        const replyIconUrl = chrome.runtime.getURL('assets/commentAssets/reply.svg');
+        
+        header.innerHTML = `
+          <div class="ri-title-row pt-1">
+            <h3 class="ri-title">${escapeHtml(videoTitle)}</h3>
+            <a class="ri-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener">
+              Open on YouTube
+            </a>
+          </div>
+          <div class="ri-meta">
+            <div class="ri-post-actions">
+              <button class="ri-action-bubble" disabled style="cursor: default;">
+                <img class="ri-action-icon" src="${replyIconUrl}" alt="comments" />
+                ${totalComments.toLocaleString()}
+              </button>
+            </div>
+          </div>
+        `;
+      }
+    }
+
+    if (comments.length === 0) {
+      commentsRoot.innerHTML = `
+        <div style="padding: 2rem; text-align: center; color: #888;">
+          <p>No comments found for this video.</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Get YouTube icon URLs
+    const thumbIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/thumb.svg');
+    const thumbUFIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/thumbUF.svg');
+    const dislikeIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/dislike.svg');
+    const dislikeUFIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/dislikeUnfilled.svg');
+    const expandIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/expand.svg');
+
+    // Format date helper
+    function formatYouTubeDate(dateString: string): string {
+      try {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+        const diffWeeks = Math.floor(diffDays / 7);
+        const diffMonths = Math.floor(diffDays / 30);
+        const diffYears = Math.floor(diffDays / 365);
+
+        if (diffMins < 1) return 'just now';
+        if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
+        if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+        if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
+        if (diffWeeks < 4) return `${diffWeeks} week${diffWeeks !== 1 ? 's' : ''} ago`;
+        if (diffMonths < 12) return `${diffMonths} month${diffMonths !== 1 ? 's' : ''} ago`;
+        return `${diffYears} year${diffYears !== 1 ? 's' : ''} ago`;
+      } catch {
+        return dateString;
+      }
+    }
+
+    // Convert YouTube comment text to HTML (preserve line breaks and make URLs clickable)
+    function formatYouTubeCommentText(text: string): string {
+      // Escape HTML first
+      let html = escapeHtml(text);
+      // Convert URLs to links
+      const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
+      html = html.replace(urlRegex, (url) => {
+        return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color: #5ba8ff; text-decoration: underline;">${escapeHtml(url)}</a>`;
+      });
+      // Convert line breaks to <br/>
+      html = html.replace(/\n/g, '<br/>');
+      return html;
+    }
+
+    // Render a single comment
+    function renderYouTubeComment(comment: any, depth: number = 0): string {
+      const tsText = formatYouTubeDate(comment.publishedAt);
+      const tsTitle = new Date(comment.publishedAt).toLocaleString();
+      const hasReplies = comment.replies && comment.replies.length > 0;
+      const replyCount = comment.replyCount || (hasReplies ? comment.replies.length : 0);
+      const avatarUrl = comment.authorProfileImageUrl || '';
+      const commentText = formatYouTubeCommentText(comment.textDisplay || comment.text || '');
+
+      let html = `
+        <div class="ri-comment ri-youtube-comment depth-${depth}">
+          <div class="ri-gutter">
+            <button class="ri-toggle" aria-label="Collapse" aria-expanded="true">–</button>
+            <div class="ri-threadline"></div>
+          </div>
+          <img class="ri-avatar ri-youtube-avatar self-start" src="${escapeHtml(avatarUrl)}" alt="" onerror="this.style.display='none'" />
+          <div class="ri-body">
+            <div class="ri-line1">
+              <span class="ri-username">${escapeHtml(comment.author)}</span>
+              <span class="ri-timestamp" title="${escapeHtml(tsTitle)}">${tsText}</span>
+            </div>
+            <div class="ri-text">${commentText}</div>
+            <div class="ri-actions">
+              <button class="ri-action-btn ri-upvote" data-comment-id="${escapeHtml(comment.id)}" title="Like">
+                <img src="${thumbUFIconUrl}" alt="Like" class="ri-icon" />
+                <span class="ri-score">${comment.likeCount || 0}</span>
+              </button>
+              <button class="ri-action-btn ri-downvote" data-comment-id="${escapeHtml(comment.id)}" title="Dislike">
+                <img src="${dislikeUFIconUrl}" alt="Dislike" class="ri-icon" />
+              </button>
+              ${replyCount > 0 ? `
+                <button class="ri-action-btn ri-reply-toggle" data-comment-id="${escapeHtml(comment.id)}" data-reply-count="${replyCount}" data-expanded="false">
+                  <img src="${expandIconUrl}" alt="Expand" class="ri-reply-icon" />
+                  <span>${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}</span>
+                </button>
+              ` : ''}
+            </div>
+            <div class="ri-children ri-children-collapsed"></div>
+          </div>
+        </div>
+      `;
+
+      return html;
+    }
+
+    // Render all comments
+    const frag = document.createDocumentFragment();
+    const container = document.createElement('div');
+    container.className = 'ri-comments';
+
+    for (const comment of comments.slice(0, 20)) {
+      const commentEl = document.createElement('div');
+      commentEl.innerHTML = renderYouTubeComment(comment, 0);
+      const commentDiv = commentEl.firstElementChild as HTMLElement;
+      
+      // Handle replies - initially collapsed
+      const childrenDiv = commentDiv.querySelector('.ri-children') as HTMLElement;
+      if (comment.replies && comment.replies.length > 0) {
+        for (const reply of comment.replies.slice(0, 5)) {
+          const replyEl = document.createElement('div');
+          replyEl.innerHTML = renderYouTubeComment(reply, 1);
+          const replyDiv = replyEl.firstElementChild as HTMLElement;
+          childrenDiv.appendChild(replyDiv);
+        }
+      }
+
+      // Handle reply toggle - expand/collapse functionality
+      const replyToggle = commentDiv.querySelector('.ri-reply-toggle') as HTMLElement;
+      if (replyToggle) {
+        replyToggle.addEventListener('click', async () => {
+          const isExpanded = replyToggle.dataset.expanded === 'true';
+          const icon = replyToggle.querySelector('.ri-reply-icon') as HTMLElement;
+          
+          if (isExpanded) {
+            // Collapse
+            childrenDiv.classList.add('ri-children-collapsed');
+            replyToggle.dataset.expanded = 'false';
+            if (icon) {
+              icon.style.transform = 'rotate(0deg)';
+            }
+          } else {
+            // Expand
+            childrenDiv.classList.remove('ri-children-collapsed');
+            replyToggle.dataset.expanded = 'true';
+            if (icon) {
+              icon.style.transform = 'rotate(180deg)';
+            }
+            
+            // Load more replies if needed
+            if (childrenDiv.dataset.loaded !== 'true' && comment.replyCount && comment.replyCount > (comment.replies?.length || 0)) {
+              childrenDiv.dataset.loaded = 'true';
+              try {
+                const moreReplies = await getCommentReplies(comment.id, 20);
+                for (const reply of moreReplies) {
+                  const replyEl = document.createElement('div');
+                  replyEl.innerHTML = renderYouTubeComment(reply, 1);
+                  const replyDiv = replyEl.firstElementChild as HTMLElement;
+                  childrenDiv.appendChild(replyDiv);
+                }
+              } catch (error) {
+                console.error('Error loading more replies:', error);
+              }
+            }
+          }
+        });
+      }
+
+      container.appendChild(commentDiv);
+    }
+
+    frag.appendChild(container);
+    commentsRoot.innerHTML = '';
+    commentsRoot.appendChild(frag);
+
+    // Wire up collapse/expand functionality (similar to Reddit comments)
+    commentsRoot.querySelectorAll('.ri-toggle').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const comment = (this as HTMLElement).closest('.ri-comment') as HTMLElement;
+        const isExpanded = comment.classList.contains('ri-collapsed');
+        if (isExpanded) {
+          comment.classList.remove('ri-collapsed');
+          (this as HTMLElement).textContent = '–';
+          (this as HTMLElement).setAttribute('aria-expanded', 'true');
+        } else {
+          comment.classList.add('ri-collapsed');
+          (this as HTMLElement).textContent = '+';
+          (this as HTMLElement).setAttribute('aria-expanded', 'false');
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error rendering YouTube comments:', error);
+    commentsRoot.innerHTML = `
+      <div style="padding: 2rem; text-align: center; color: #f44;">
+        <p>Error loading YouTube comments: ${escapeHtml(error instanceof Error ? error.message : 'Unknown error')}</p>
+      </div>
+    `;
+  }
+}
+
 async function displayInlineDiscussion(discussion: any): Promise<void> {
   try {
     // Cache the discussion data (not comments)
@@ -2404,7 +2653,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // Cache the discussion data (not comments) for faster switching
     discussionCache.reddit = { ...discussion };
-    
+
     // Mount Vue inline discussion shell; comments list will still be rendered
     // by the existing content script logic into the .ri-comments element.
     inlineDiscussionApp = createApp(InlineDiscussion, { 
@@ -2573,8 +2822,141 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             // No cache, fetch fresh
             await searchAndDisplayDiscussion(lastAnimeInfo);
           }
+        } else if ((provider === 'youtube' || provider === 'reddit-youtube') && lastAnimeInfo) {
+          // Switch to YouTube - check authentication first
+          const isAuth = await isYouTubeAuthenticated();
+          if (!isAuth) {
+            toast.error('YouTube authentication required', {
+              description: 'Please authenticate with Google in the extension settings to view YouTube comments.',
+            });
+            // Fallback to Reddit if available
+            if (discussionCache.reddit) {
+              await displayInlineDiscussion(discussionCache.reddit);
+            }
+            return;
+          }
+
+          try {
+            // Extract episode number
+            const episodeNumStr = extractEpisodeNumber(lastAnimeInfo.episodeName);
+            const episodeNum = episodeNumStr ? parseInt(episodeNumStr, 10) : null;
+            
+            if (!episodeNum) {
+              toast.error('Could not extract episode number', {
+                description: 'Unable to determine episode number from episode name.',
+              });
+              return;
+            }
+
+            // Determine platform from provider
+            // For now, default to youtube-muse-asia, but this could be configurable
+            const platform = provider === 'reddit-youtube' 
+              ? 'youtube-muse-asia' // Could be configurable
+              : 'youtube-muse-asia'; // Default platform
+
+            // Try to get season title from Crunchyroll metadata (similar to Reddit mapper)
+            let seasonTitle = 'Season 1'; // Default fallback
+            try {
+              const episodeId = extractEpisodeIdFromUrl();
+              if (episodeId) {
+                const crMetadata = await fetchCrunchyrollEpisodeMetadata(episodeId);
+                if (crMetadata?.data?.[0]?.episode_metadata?.season_title) {
+                  seasonTitle = crMetadata.data[0].episode_metadata.season_title;
+                }
+              }
+            } catch (e) {
+              console.log('Could not fetch season title from Crunchyroll metadata, using fallback:', e);
+              // Fallback: try to extract from episode name
+              if (lastAnimeInfo.episodeName.includes('Season')) {
+                const seasonMatch = lastAnimeInfo.episodeName.match(/Season\s*(\d+)/i);
+                if (seasonMatch) {
+                  seasonTitle = `${lastAnimeInfo.animeName} Season ${seasonMatch[1]}`;
+                } else {
+                  seasonTitle = lastAnimeInfo.animeName + ' ' + lastAnimeInfo.episodeName.split('Season')[0].trim() + ' Season 1';
+                }
+              } else {
+                seasonTitle = `${lastAnimeInfo.animeName} Season 1`;
+              }
+            }
+
+            // Search for YouTube playlist
+            const playlist = await searchYouTubePlaylist(
+              lastAnimeInfo.animeName,
+              seasonTitle,
+              platform
+            );
+
+            if (!playlist) {
+              toast.error('YouTube playlist not found', {
+                description: `Could not find a YouTube playlist for ${lastAnimeInfo.animeName}`,
+              });
+              return;
+            }
+
+            // Find the video matching the current episode
+            const video = findVideoInPlaylist(playlist, episodeNum);
+            
+            if (!video) {
+              toast.error('Episode video not found', {
+                description: `Could not find video for episode ${episodeNum} in the playlist.`,
+              });
+              return;
+            }
+
+            console.log('Found YouTube video:', video);
+            console.log('Video ID:', video.video_id);
+            console.log('Video Title:', video.title);
+
+            // Cache the YouTube data
+            discussionCache.youtube = {
+              playlist,
+              video,
+              platform,
+            };
+
+            // Update Vue app provider state
+            if (inlineDiscussionApp && inlineDiscussionApp._instance) {
+              try {
+                const instance = inlineDiscussionApp._instance;
+                if (instance && instance.exposed) {
+                  if (typeof instance.exposed.handleProviderChange === 'function') {
+                    instance.exposed.handleProviderChange(provider);
+                  }
+                }
+              } catch (e) {
+                console.warn('Could not update Vue app provider state:', e);
+              }
+            }
+
+            // Wait for comments section to be available (Vue might still be rendering)
+            let commentsSection: HTMLElement | null = null;
+            for (let i = 0; i < 20; i++) {
+              commentsSection = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
+              if (commentsSection) break;
+              await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            if (!commentsSection) {
+              console.error('Comments section not found after waiting');
+              console.error('Vue host element:', document.getElementById('ri-inline-vue-host'));
+              console.error('All .ri-comments elements:', document.querySelectorAll('.ri-comments'));
+              toast.error('Failed to load YouTube comments', {
+                description: 'Comments container not found',
+              });
+              return;
+            }
+            
+            commentsSection.innerHTML = '';
+
+            // Render YouTube comments
+            await renderYouTubeComments(video.video_id, video.title, commentsSection, video.video_id);
+          } catch (e) {
+            console.error('Failed to switch to YouTube:', e);
+            toast.error('Failed to load YouTube comments', {
+              description: e instanceof Error ? e.message : 'Unknown error occurred',
+            });
+          }
         }
-        // TODO: Handle youtube and reddit-youtube providers
       }
     });
     inlineDiscussionApp.mount(host);
@@ -3781,9 +4163,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             moreEl.appendChild(link);
             childHost.appendChild(moreEl);
           } else {
-            moreEl.textContent = `${n} more repl${n === 1 ? 'y' : 'ies'}`;
-            moreEl.style.cursor = 'pointer';
-            moreEl.addEventListener('click', async () => {
+          moreEl.textContent = `${n} more repl${n === 1 ? 'y' : 'ies'}`;
+          moreEl.style.cursor = 'pointer';
+          moreEl.addEventListener('click', async () => {
             // Show skeletons
             const sk = document.createElement('div');
             sk.innerHTML = Array.from({length: Math.min(3, n)}).map(() => (
@@ -3834,25 +4216,25 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 });
                 again.appendChild(link);
               } else {
-                again.textContent = `${nn} more repl${nn === 1 ? 'y' : 'ies'}`;
-                again.style.cursor = 'pointer';
-                again.addEventListener('click', async () => {
-                  // Reuse same load behavior: fetch next chunk when 'again' clicked
-                  // Trigger the original moreEl click handler by invoking the same logic
-                  try {
-                    // Simulate click on the removed moreEl handler by calling its listener indirectly
-                    moreEl.click();
-                  } catch {
-                    // Fallback: do nothing
-                  }
-                });
+              again.textContent = `${nn} more repl${nn === 1 ? 'y' : 'ies'}`;
+              again.style.cursor = 'pointer';
+              again.addEventListener('click', async () => {
+                // Reuse same load behavior: fetch next chunk when 'again' clicked
+                // Trigger the original moreEl click handler by invoking the same logic
+                try {
+                  // Simulate click on the removed moreEl handler by calling its listener indirectly
+                  moreEl.click();
+                } catch {
+                  // Fallback: do nothing
+                }
+              });
               }
               childHost.appendChild(again);
             }
           });
           // Only append moreEl if depth < 5 (if depth >= 5, it was already appended above)
           if (depth < 5) {
-            childHost.appendChild(moreEl);
+          childHost.appendChild(moreEl);
           }
           }
         }

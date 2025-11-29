@@ -1,4 +1,5 @@
 import { defineConfig } from 'wxt';
+import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './config';
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
@@ -11,6 +12,10 @@ export default defineConfig({
       'storage',
       'cookies'
     ],
+    oauth2: {
+      client_id: GOOGLE_CLIENT_ID,
+      scopes: [GOOGLE_SCOPES],
+    },
     host_permissions: [
       'https://www.reddit.com/*',
       'https://oauth.reddit.com/*',

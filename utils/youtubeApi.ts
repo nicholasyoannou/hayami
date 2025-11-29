@@ -1,0 +1,322 @@
+/**
+ * YouTube Data API v3 Utility
+ * 
+ * Handles fetching YouTube comments and video data
+ */
+
+import { getYouTubeAccessToken } from './youtubeAuth';
+
+export interface YouTubeComment {
+  id: string;
+  author: string;
+  authorChannelId?: string;
+  authorProfileImageUrl?: string;
+  text: string;
+  textDisplay: string;
+  likeCount: number;
+  publishedAt: string;
+  updatedAt?: string;
+  parentId?: string;
+  replies?: YouTubeComment[];
+  replyCount?: number;
+}
+
+export interface YouTubeCommentThread {
+  id: string;
+  snippet: {
+    topLevelComment: {
+      snippet: {
+        authorDisplayName: string;
+        authorProfileImageUrl: string;
+        authorChannelId?: {
+          value: string;
+        };
+        textDisplay: string;
+        likeCount: number;
+        publishedAt: string;
+        updatedAt?: string;
+      };
+    };
+    totalReplyCount: number;
+    canReply: boolean;
+    isPublic: boolean;
+  };
+  replies?: {
+    comments: Array<{
+      id: string;
+      snippet: {
+        authorDisplayName: string;
+        authorProfileImageUrl: string;
+        authorChannelId?: {
+          value: string;
+        };
+        textDisplay: string;
+        likeCount: number;
+        publishedAt: string;
+        updatedAt?: string;
+        parentId: string;
+      };
+    }>;
+  };
+}
+
+export interface YouTubeCommentsResult {
+  comments: YouTubeComment[];
+  nextPageToken?: string;
+  pageInfo?: {
+    totalResults: number;
+    resultsPerPage: number;
+  };
+}
+
+/**
+ * Fetches comment threads for a YouTube video
+ */
+export async function getVideoComments(
+  videoId: string,
+  maxResults: number = 50,
+  order: 'relevance' | 'time' = 'relevance',
+  pageToken?: string
+): Promise<YouTubeCommentsResult> {
+  try {
+    const token = await getYouTubeAccessToken();
+    if (!token) {
+      throw new Error('YouTube authentication required');
+    }
+
+    const params = new URLSearchParams({
+      part: 'snippet,replies',
+      videoId,
+      maxResults: String(maxResults),
+      order,
+      textFormat: 'plainText',
+    });
+
+    if (pageToken) {
+      params.set('pageToken', pageToken);
+    }
+
+    const apiUrl = `https://www.googleapis.com/youtube/v3/commentThreads?${params.toString()}`;
+    console.log('YouTube API request URL:', apiUrl);
+    console.log('Requesting comments for videoId:', videoId);
+    
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json',
+      },
+      credentials: 'omit',
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('YouTube API error:', response.status, errorText);
+      throw new Error(`YouTube API request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    console.log('YouTube API response data:', data);
+    console.log('Number of comment threads:', data.items?.length || 0);
+    const threads: YouTubeCommentThread[] = data.items || [];
+
+    // Parse comments from threads
+    const comments: YouTubeComment[] = threads.map(thread => {
+      const topLevel = thread.snippet.topLevelComment.snippet;
+      const comment: YouTubeComment = {
+        id: thread.id,
+        author: topLevel.authorDisplayName,
+        authorChannelId: topLevel.authorChannelId?.value,
+        authorProfileImageUrl: topLevel.authorProfileImageUrl,
+        text: topLevel.textDisplay,
+        textDisplay: topLevel.textDisplay,
+        likeCount: topLevel.likeCount,
+        publishedAt: topLevel.publishedAt,
+        updatedAt: topLevel.updatedAt,
+        replyCount: thread.snippet.totalReplyCount,
+      };
+
+      // Parse replies if present
+      if (thread.replies && thread.replies.comments) {
+        comment.replies = thread.replies.comments.map(reply => ({
+          id: reply.id,
+          author: reply.snippet.authorDisplayName,
+          authorChannelId: reply.snippet.authorChannelId?.value,
+          authorProfileImageUrl: reply.snippet.authorProfileImageUrl,
+          text: reply.snippet.textDisplay,
+          textDisplay: reply.snippet.textDisplay,
+          likeCount: reply.snippet.likeCount,
+          publishedAt: reply.snippet.publishedAt,
+          updatedAt: reply.snippet.updatedAt,
+          parentId: reply.snippet.parentId,
+        }));
+      }
+
+      return comment;
+    });
+
+    return {
+      comments,
+      nextPageToken: data.nextPageToken,
+      pageInfo: data.pageInfo,
+    };
+  } catch (error) {
+    console.error('Error fetching YouTube comments:', error);
+    return { comments: [] };
+  }
+}
+
+/**
+ * Fetches more replies for a comment thread
+ */
+export async function getCommentReplies(
+  parentId: string,
+  maxResults: number = 20
+): Promise<YouTubeComment[]> {
+  try {
+    const token = await getYouTubeAccessToken();
+    if (!token) {
+      throw new Error('YouTube authentication required');
+    }
+
+    const params = new URLSearchParams({
+      part: 'snippet',
+      parentId,
+      maxResults: String(maxResults),
+      textFormat: 'plainText',
+    });
+
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/comments?${params.toString()}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        },
+        credentials: 'omit',
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('YouTube API error:', response.status, errorText);
+      return [];
+    }
+
+    const data = await response.json();
+    const items = data.items || [];
+
+    return items.map((item: any) => ({
+      id: item.id,
+      author: item.snippet.authorDisplayName,
+      authorChannelId: item.snippet.authorChannelId?.value,
+      authorProfileImageUrl: item.snippet.authorProfileImageUrl,
+      text: item.snippet.textDisplay,
+      textDisplay: item.snippet.textDisplay,
+      likeCount: item.snippet.likeCount,
+      publishedAt: item.snippet.publishedAt,
+      updatedAt: item.snippet.updatedAt,
+      parentId: item.snippet.parentId,
+    }));
+  } catch (error) {
+    console.error('Error fetching YouTube comment replies:', error);
+    return [];
+  }
+}
+
+/**
+ * Searches for YouTube videos/playlists using the r-anime-wiki-mapper service
+ */
+export async function searchYouTubePlaylist(
+  seriesName: string,
+  seasonTitle: string,
+  platform: 'youtube-muse-asia' | 'youtube-muse-indonesia' | 'youtube-tropics-anime-asia' | 'youtube-ani-one-asia'
+): Promise<any | null> {
+  try {
+    const params = new URLSearchParams({
+      series_name: seriesName,
+      season_title: seasonTitle,
+      platform,
+    });
+
+    const response = await fetch(
+      `https://r-anime-wiki-mapper-service.nicholas.dev/anime/search?${params.toString()}`,
+      {
+        credentials: 'omit',
+      }
+    );
+
+    if (!response.ok) {
+      console.error('YouTube playlist search failed:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    
+    // Return the matched_result if available
+    if (data.matched_result && data.matched_result.is_exact_match) {
+      return data.matched_result;
+    }
+    
+    // Otherwise return the first result if available
+    if (data.results && data.results.length > 0) {
+      return data.results[0];
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error searching YouTube playlist:', error);
+    return null;
+  }
+}
+
+/**
+ * Finds a video in a playlist that matches the current episode
+ */
+export function findVideoInPlaylist(
+  playlist: any,
+  episodeNumber: number
+): { video_id: string; title: string } | null {
+  if (!playlist || !playlist.videos || !Array.isArray(playlist.videos)) {
+    return null;
+  }
+
+  // Try to find video by episode number in title
+  // Look for patterns like "Episode 19", "EP19", "E19", "S2E07", etc.
+  const episodePatterns = [
+    new RegExp(`[Ee]pisode\\s+${episodeNumber}\\b`, 'i'),
+    new RegExp(`EP${episodeNumber}\\b`, 'i'),
+    new RegExp(`E${episodeNumber}\\b`, 'i'),
+    new RegExp(`S\\d+E${String(episodeNumber).padStart(2, '0')}`, 'i'),
+    new RegExp(`S\\d+E${episodeNumber}\\b`, 'i'),
+  ];
+
+  for (const video of playlist.videos) {
+    if (!video.title || !video.video_id) continue;
+
+    for (const pattern of episodePatterns) {
+      if (pattern.test(video.title)) {
+        return {
+          video_id: video.video_id,
+          title: video.title,
+        };
+      }
+    }
+  }
+
+  // Fallback: try to match by position (if videos are in order)
+  // Videos are typically sorted by position, with position 0 being the latest
+  // We want to find the video that corresponds to the episode number
+  const sortedVideos = [...playlist.videos].sort((a, b) => (b.position || 0) - (a.position || 0));
+  if (episodeNumber > 0 && episodeNumber <= sortedVideos.length) {
+    const video = sortedVideos[episodeNumber - 1];
+    if (video && video.video_id) {
+      return {
+        video_id: video.video_id,
+        title: video.title || `Episode ${episodeNumber}`,
+      };
+    }
+  }
+
+  return null;
+}
+

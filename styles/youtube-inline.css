@@ -1,0 +1,134 @@
+/**
+ * YouTube-specific inline discussion panel styles
+ */
+
+/* ==================== YouTube Comments Specific Styles ==================== */
+/* YouTube comments - move top-level comments to the right */
+.ri-youtube-comment.depth-0 {
+  position: relative;
+  margin-left: 16px; /* Move top-level YouTube comments to the right */
+}
+
+/* YouTube replies should not have extra margin (they're already indented by .ri-children) */
+.ri-youtube-comment:not(.depth-0) {
+  position: relative;
+  margin-left: 0;
+}
+
+/* YouTube avatar - larger size and alignment */
+.ri-youtube-avatar {
+  width: 40px !important;
+  height: 40px !important;
+  align-self: flex-start !important; /* Align to top of comment */
+  margin-top: 0 !important;
+}
+
+/* YouTube comment structure - ensure avatar aligns to top */
+.ri-youtube-comment {
+  display: flex !important;
+  align-items: flex-start !important;
+}
+
+/* YouTube reply toggle button - blue color matching YouTube design */
+.ri-reply-toggle {
+  color: #42a5f5 !important; /* YouTube blue color */
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+}
+
+.ri-reply-toggle:hover {
+  color: #64b5f6 !important; /* Lighter blue on hover */
+  background: rgba(66, 165, 245, 0.1) !important;
+}
+
+/* YouTube reply icon - make it blue */
+.ri-reply-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  transition: transform 0.2s ease;
+  vertical-align: middle;
+  flex-shrink: 0;
+  /* Make the arrow blue */
+  filter: brightness(0) saturate(100%) invert(65%) sepia(95%) saturate(2000%) hue-rotate(180deg) brightness(1) contrast(1) !important;
+}
+
+/* YouTube action icons - use SVG colors directly, no filter */
+.ri-youtube-comment .ri-icon {
+  /* Remove any color filters - use SVG's original colors */
+  filter: none !important;
+}
+
+/* YouTube upvote/downvote icons - set color to rgb(241, 241, 241) using filter */
+.ri-youtube-comment .ri-upvote .ri-icon,
+.ri-youtube-comment .ri-downvote .ri-icon {
+  /* Convert to rgb(241, 241, 241) - light gray */
+  filter: brightness(0) saturate(100%) invert(95%) !important;
+}
+
+/* YouTube children collapsed by default */
+.ri-children.ri-children-collapsed {
+  display: none;
+}
+
+/* Hide threadlines for top-level YouTube comments only */
+.ri-youtube-comment.depth-0 .ri-gutter {
+  display: none !important;
+}
+
+.ri-youtube-comment.depth-0 .ri-threadline {
+  display: none !important;
+}
+
+/* Hide ::before and ::after lines for top-level YouTube comments */
+.ri-youtube-comment.depth-0::before {
+  display: none !important;
+}
+
+.ri-youtube-comment.depth-0::after {
+  display: none !important;
+}
+
+/* Show ::before line in children container for top-level YouTube comments when they have replies */
+.ri-youtube-comment.depth-0 .ri-children:has(.ri-youtube-comment:not(.depth-0))::before {
+  display: block !important;
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -7px;
+  width: 2px;
+  background: #343536;
+  pointer-events: none;
+  transition: none;
+  border: none !important;
+  border-image: none !important;
+  background-image: none !important;
+}
+
+/* Show ::after connector for replies of top-level YouTube comments */
+.ri-youtube-comment.depth-0 .ri-children > .ri-youtube-comment:not(.depth-0)::after {
+  display: block !important;
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: -7px;
+  width: 19px;
+  height: 12px;
+  border-bottom: 2px solid #343536;
+  border-left: 2px solid #343536;
+  border-bottom-left-radius: 6px;
+  pointer-events: none;
+  transition: none;
+}
+
+/* Keep threadlines for YouTube replies (depth > 0) - they should still show */
+.ri-youtube-comment:not(.depth-0) .ri-gutter {
+  display: flex !important;
+}
+
+.ri-youtube-comment:not(.depth-0) .ri-threadline {
+  display: block !important;
+}
+

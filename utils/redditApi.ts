@@ -774,7 +774,7 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1): Promis
             ? json.json.errors[0].join(' ') 
             : String(json.json.errors[0]);
           return { success: false, error: errorMsg || 'Vote failed' };
-        }
+    }
       } catch {
         // If response isn't JSON, that's fine - 200 status means success
       }
