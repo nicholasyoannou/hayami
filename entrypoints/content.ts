@@ -74,6 +74,11 @@ let lastAnimeInfo: AnimeInfo | null = null;
 type DisplayMode = 'popup' | 'inline';
 let displayMode: DisplayMode = 'popup';
 
+// Store Reddit comments IntersectionObserver and cleanup function for provider switching
+let redditCommentsObserver: IntersectionObserver | null = null;
+let redditCommentsSentinel: HTMLElement | null = null;
+let redditCommentsCleanup: (() => void) | null = null;
+
 // Track mounted Vue app instances for proper cleanup
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
 
@@ -2836,22 +2841,51 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           console.log('Updated Reddit discussion cache');
         }
         
-        // Show skeleton loading
-        console.log(`[LoadingState] Provider change started: ${provider}`);
-        const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
-        if (commentsRoot) {
-          commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
-            `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
-          )).join('');
-          console.log(`[LoadingState] Skeleton loading shown`);
-        } else {
-          console.warn(`[LoadingState] Comments root not found for skeleton`);
-        }
-        
         // Use try-finally to ensure loading state is always cleared
         try {
         
         if (provider === 'disqus' && lastAnimeInfo) {
+          // Clean up Reddit infinite scroll observer FIRST
+          if (redditCommentsCleanup) {
+            redditCommentsCleanup();
+            redditCommentsCleanup = null;
+            redditCommentsObserver = null;
+            redditCommentsSentinel = null;
+          }
+          
+          // Clear Reddit comments FIRST before showing skeleton
+          console.log(`[LoadingState] Clearing Reddit comments before switching to Disqus...`);
+          const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
+          if (commentsRoot) {
+            commentsRoot.innerHTML = '';
+            console.log(`[LoadingState] Reddit comments cleared`);
+          }
+          
+          // Also clear any Reddit-specific content in #reddit-inline-discussion
+          const existingDiscussion = document.getElementById('reddit-inline-discussion');
+          if (existingDiscussion) {
+            // Clear the comments content but keep the structure
+            const redditComments = existingDiscussion.querySelector('.ri-comments');
+            if (redditComments) {
+              redditComments.innerHTML = '';
+            }
+            // Clear any other Reddit-specific content
+            const redditToolbar = existingDiscussion.querySelector('.ri-toolbar');
+            if (redditToolbar) {
+              redditToolbar.remove();
+            }
+          }
+          
+          // NOW show skeleton loading after clearing Reddit comments
+          console.log(`[LoadingState] Provider change started: ${provider}`);
+          if (commentsRoot) {
+            commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
+              `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
+            )).join('');
+            console.log(`[LoadingState] Skeleton loading shown`);
+          } else {
+            console.warn(`[LoadingState] Comments root not found for skeleton`);
+          }
           console.log('Switching to Disqus, finding thread for:', lastAnimeInfo);
           
           // Check cache first
@@ -3021,6 +3055,32 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             clearLoadingState('Disqus error');
           }
         } else if (provider === 'reddit' && lastAnimeInfo) {
+          // Clean up any existing observers (shouldn't be Reddit, but just in case)
+          if (redditCommentsCleanup) {
+            redditCommentsCleanup();
+            redditCommentsCleanup = null;
+            redditCommentsObserver = null;
+            redditCommentsSentinel = null;
+          }
+          
+          // Clear any existing content (Disqus/YouTube) before showing skeleton
+          console.log(`[LoadingState] Clearing existing content before switching to Reddit...`);
+          const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
+          if (commentsRoot) {
+            commentsRoot.innerHTML = '';
+            console.log(`[LoadingState] Existing comments cleared`);
+          }
+          
+          // Show skeleton loading
+          console.log(`[LoadingState] Provider change started: ${provider}`);
+          if (commentsRoot) {
+            commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
+              `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
+            )).join('');
+            console.log(`[LoadingState] Skeleton loading shown`);
+          } else {
+            console.warn(`[LoadingState] Comments root not found for skeleton`);
+          }
           // Switch back to Reddit - check cache first
           try {
             if (discussionCache.reddit) {
@@ -3036,6 +3096,33 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             clearLoadingState();
           }
         } else if ((provider === 'youtube' || provider === 'reddit-youtube') && lastAnimeInfo) {
+          // Clean up Reddit infinite scroll observer if switching from Reddit
+          if (redditCommentsCleanup) {
+            redditCommentsCleanup();
+            redditCommentsCleanup = null;
+            redditCommentsObserver = null;
+            redditCommentsSentinel = null;
+          }
+          
+          // Clear any existing content (Reddit/Disqus) before showing skeleton
+          console.log(`[LoadingState] Clearing existing content before switching to YouTube...`);
+          const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
+          if (commentsRoot) {
+            commentsRoot.innerHTML = '';
+            console.log(`[LoadingState] Existing comments cleared`);
+          }
+          
+          // Show skeleton loading
+          console.log(`[LoadingState] Provider change started: ${provider}`);
+          if (commentsRoot) {
+            commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
+              `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
+            )).join('');
+            console.log(`[LoadingState] Skeleton loading shown`);
+          } else {
+            console.warn(`[LoadingState] Comments root not found for skeleton`);
+          }
+          
           // Switch to YouTube - check authentication first
           console.log(`[LoadingState] Checking YouTube authentication...`);
           const isAuth = await isYouTubeAuthenticated();
@@ -4689,6 +4776,31 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const pageSize = 20;
     let isPaging = false;
     let io: IntersectionObserver | null = null;
+    
+    // Store observer and sentinel globally for cleanup when switching providers
+    redditCommentsObserver = null;
+    redditCommentsSentinel = null;
+    redditCommentsCleanup = () => {
+      console.log('[LoadingState] Cleaning up Reddit comments infinite scroll...');
+      if (io) {
+        try {
+          io.disconnect();
+          console.log('[LoadingState] Disconnected Reddit IntersectionObserver');
+        } catch (e) {
+          console.warn('[LoadingState] Error disconnecting observer:', e);
+        }
+        io = null;
+      }
+      const sentinel = document.getElementById('ri-sentinel');
+      if (sentinel) {
+        sentinel.remove();
+        console.log('[LoadingState] Removed Reddit sentinel element');
+      }
+      isPaging = false; // Stop any ongoing pagination
+      // Remove any pagination skeletons
+      const paginationSkeletons = commentsRoot.querySelectorAll('.ri-pagination-skeleton');
+      paginationSkeletons.forEach(sk => sk.remove());
+    };
     function appendNextPage() {
       if (isPaging) return;
       const start = pageIndex * pageSize;
@@ -4753,6 +4865,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     sentinel.id = 'ri-sentinel';
     commentsRoot.after(sentinel);
     io.observe(sentinel);
+    
+    // Store globally for cleanup
+    redditCommentsObserver = io;
+    redditCommentsSentinel = sentinel;
 
     // Wire sort and search
     const sortSelect = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
