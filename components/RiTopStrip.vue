@@ -3,8 +3,9 @@
     <div class="flex items-center gap-2 shrink-0 relative z-30" ref="logoContainer">
       <!-- Provider Logo Button -->
       <div 
-        class="ripple flex items-center gap-2 px-4 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none cursor-pointer relative z-10 overflow-hidden"
-        @click.stop="toggleMenu"
+        class="ripple flex items-center gap-2 px-4 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
+        :class="{ 'cursor-pointer': !isLoading, 'cursor-not-allowed opacity-60': isLoading }"
+        @click.stop="!isLoading && toggleMenu()"
       >
         <img 
           v-if="currentProvider === 'reddit'"
@@ -61,15 +62,20 @@
     <!-- Expandable Menu - expands from right of Reddit logo to end of tabs -->
     <div
       class="absolute flex items-center pb-1.5 gap-2 overflow-hidden transition-all duration-300 h-11"
-      :class="menuOpen ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'"
-      :style="menuOpen ? { left: 170 + 'px', width: (menuWidth - logoWidth) + 'px' } : { left: logoWidth + 'px', width: '0px' }"
+      :class="menuOpen && !isLoading ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'"
+      :style="menuOpen && !isLoading ? { left: 170 + 'px', width: (menuWidth - logoWidth) + 'px' } : { left: logoWidth + 'px', width: '0px' }"
     >
       <button
         v-for="item in menuItems"
         :key="item.id"
-        class="ripple flex items-center gap-3 px-4 py-3 h-9 bg-[#151515] border border-[#3a3a3a] rounded-full text-sm font-semibold text-[#f0f0f0] hover:bg-[#1a1a1a] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
-        :class="{ 'bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] transform -translate-y-1 z-10': currentProvider === item.id }"
-        @click.stop="handleMenuClick(item.id)"
+        class="ripple flex items-center gap-3 px-4 py-3 h-9 bg-[#151515] border border-[#3a3a3a] rounded-full text-sm font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
+        :class="{ 
+          'bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] transform -translate-y-1 z-10': currentProvider === item.id,
+          'opacity-50 cursor-not-allowed': isLoading,
+          'hover:bg-[#1a1a1a]': !isLoading
+        }"
+        :disabled="isLoading"
+        @click.stop="!isLoading && handleMenuClick(item.id)"
       >
         <img 
           v-if="item.id === 'reddit'"
@@ -207,6 +213,7 @@ interface Props {
   numComments?: number | null;
   provider?: Provider;
   showTabs?: boolean;
+  isLoading?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -216,6 +223,7 @@ const props = withDefaults(defineProps<Props>(), {
   numComments: 0,
   provider: 'reddit',
   showTabs: true,
+  isLoading: false,
 });
 
 const emit = defineEmits<{
@@ -298,6 +306,7 @@ function calculateMenuWidth() {
 }
 
 function toggleMenu() {
+  if (props.isLoading) return; // Don't allow toggling while loading
   if (!menuOpen.value) {
     // Calculate width before opening - use nextTick to ensure DOM is ready
     nextTick(() => {
@@ -310,6 +319,7 @@ function toggleMenu() {
 }
 
 function handleMenuClick(provider: Provider) {
+  if (props.isLoading) return; // Don't allow clicking while loading
   console.log('Menu item clicked:', provider);
   currentProvider.value = provider;
   menuOpen.value = false;
@@ -361,6 +371,13 @@ const showOnlyActiveTab = computed(() => currentProvider.value !== 'reddit');
 // Watch for prop changes
 watch(() => props.provider, (newProvider) => {
   currentProvider.value = newProvider;
+});
+
+// Close menu when loading starts
+watch(() => props.isLoading, (loading) => {
+  if (loading) {
+    menuOpen.value = false;
+  }
 });
 
 // Close menu when clicking outside

@@ -203,6 +203,7 @@ function handleProviderChange(provider: Provider) {
   console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
   if (currentProvider.value === provider) return;
   
+  console.log(`[LoadingState] Setting isLoading to true for provider: ${provider}`);
   isLoading.value = true;
   currentProvider.value = provider;
   
@@ -215,6 +216,20 @@ function handleProviderChange(provider: Provider) {
   
   // Loading state will be cleared when new content loads
 }
+
+// Expose clearLoading method with logging
+const clearLoading = () => {
+  console.log(`[LoadingState] clearLoading() called in InlineDiscussion component`);
+  console.log(`[LoadingState] Current isLoading value:`, isLoading.value);
+  isLoading.value = false;
+  console.log(`[LoadingState] isLoading set to false`);
+};
+
+// Expose methods for content script to call - must be after function definitions
+defineExpose({
+  handleProviderChange,
+  clearLoading,
+});
 </script>
 
 <template>
@@ -227,6 +242,7 @@ function handleProviderChange(provider: Provider) {
       :num-comments="discussion.num_comments"
       :provider="currentProvider"
       :show-tabs="true"
+      :is-loading="isLoading"
       @provider-change="(p: Provider) => handleProviderChange(p)"
     />
 
@@ -357,17 +373,18 @@ function handleProviderChange(provider: Provider) {
         </p>
       </div>
 
-      <div v-if="isLoading" class="ri-comments">
-        <div v-for="i in 6" :key="i" class="ri-skel">
-          <div class="sk-ava"></div>
-          <div class="sk-lines">
-            <div class="sk-line w60"></div>
-            <div class="sk-line w80"></div>
-            <div class="sk-line w40"></div>
+      <div class="ri-comments">
+        <template v-if="isLoading">
+          <div v-for="i in 6" :key="i" class="ri-skel">
+            <div class="sk-ava"></div>
+            <div class="sk-lines">
+              <div class="sk-line w60"></div>
+              <div class="sk-line w80"></div>
+              <div class="sk-line w40"></div>
+            </div>
           </div>
-        </div>
+        </template>
       </div>
-      <div v-else class="ri-comments" />
     </section>
   </div>
 </template>
