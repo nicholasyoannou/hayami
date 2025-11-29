@@ -2654,12 +2654,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Cache the discussion data (not comments) for faster switching
     discussionCache.reddit = { ...discussion };
 
-    // Mount Vue inline discussion shell; comments list will still be rendered
-    // by the existing content script logic into the .ri-comments element.
-    inlineDiscussionApp = createApp(InlineDiscussion, { 
-      discussion,
-      provider: 'reddit',
-      onProviderChange: async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube') => {
+    // Store the provider change callback so it can be reused when recreating the Vue app
+    const providerChangeCallback = async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube') => {
         console.log('Content script received providerChange:', provider, 'lastAnimeInfo:', lastAnimeInfo);
         
         // Cache current Reddit discussion if switching away from Reddit
@@ -2837,6 +2833,72 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           }
 
           try {
+            // Check if we're coming from Disqus (Disqus creates #reddit-inline-discussion with #disqus_thread)
+            const existingDiscussion = document.getElementById('reddit-inline-discussion');
+            const isFromDisqus = existingDiscussion && existingDiscussion.querySelector('#disqus_thread');
+            
+            if (isFromDisqus) {
+              // Only remove Disqus-specific elements if we're switching from Disqus
+              existingDiscussion.remove();
+              
+              // Remove Disqus scripts
+              document.querySelectorAll('script[src*="disqus-loader.js"]').forEach(script => script.remove());
+              // Also remove any Disqus iframes/widgets that might have been injected
+              document.querySelectorAll('iframe[src*="disqus"], div[id*="disqus"]').forEach(el => {
+                if (el.id !== 'disqus_thread' || !el.closest('#reddit-inline-discussion')) {
+                  // Only remove if not part of our structure
+                  const parent = el.parentElement;
+                  if (parent && parent.id === 'disqus_embed_host') {
+                    parent.remove();
+                  }
+                }
+              });
+            }
+
+            // Ensure Vue component structure exists (it might have been removed by Disqus)
+            let vueHost = document.getElementById('ri-inline-vue-host');
+            if (!vueHost) {
+              // Only recreate if it doesn't exist (which would only happen coming from Disqus)
+              console.log('Vue host not found, recreating structure...');
+              const layout = document.querySelector('.erc-watch-episode-layout');
+              const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+              if (!wrapper) {
+                toast.error('Failed to load YouTube comments', {
+                  description: 'Content wrapper not found',
+                });
+                return;
+              }
+
+              // Create Vue host if it doesn't exist
+              vueHost = document.createElement('div');
+              vueHost.id = 'ri-inline-vue-host';
+              wrapper.appendChild(vueHost);
+
+              // If we have a cached Reddit discussion, use it to create the Vue app
+              // Otherwise create a minimal discussion object
+              const discussionForVue = discussionCache.reddit || {
+                id: 'youtube-placeholder',
+                title: lastAnimeInfo.animeName,
+                author: '',
+                permalink: '',
+                score: 0,
+                num_comments: 0,
+              };
+
+              // Create or recreate Vue app
+              if (inlineDiscussionApp) {
+                try {
+                  inlineDiscussionApp.unmount();
+                } catch {}
+              }
+              inlineDiscussionApp = createApp(InlineDiscussion, {
+                discussion: discussionForVue,
+                provider: provider,
+                onProviderChange: providerChangeCallback,
+              });
+              inlineDiscussionApp.mount(vueHost);
+            }
+
             // Extract episode number
             const episodeNumStr = extractEpisodeNumber(lastAnimeInfo.episodeName);
             const episodeNum = episodeNumStr ? parseInt(episodeNumStr, 10) : null;
@@ -2930,7 +2992,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
             // Wait for comments section to be available (Vue might still be rendering)
             let commentsSection: HTMLElement | null = null;
-            for (let i = 0; i < 20; i++) {
+            for (let i = 0; i < 30; i++) {
               commentsSection = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
               if (commentsSection) break;
               await new Promise(resolve => setTimeout(resolve, 100));
@@ -2957,7 +3019,14 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             });
           }
         }
-      }
+      };
+    
+    // Mount Vue inline discussion shell; comments list will still be rendered
+    // by the existing content script logic into the .ri-comments element.
+    inlineDiscussionApp = createApp(InlineDiscussion, { 
+      discussion,
+      provider: 'reddit',
+      onProviderChange: providerChangeCallback,
     });
     inlineDiscussionApp.mount(host);
 

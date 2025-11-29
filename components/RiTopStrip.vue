@@ -52,7 +52,7 @@
             class="w-full h-full object-cover"
             :src="subredditAvatar"
             :alt="`${subredditName} logo`"
-          />
+        />
         </span>
         <span class="truncate max-w-[8rem]">{{ subredditName }}</span>
       </div>
@@ -113,17 +113,17 @@
           class="flex items-center gap-2.5 px-3 py-2 min-h-[44px] relative"
         >
           <div class="w-7 h-7 rounded-xl bg-[#353535] p-1.5 flex items-center justify-center flex-shrink-0">
-            <img
+          <img
               class="w-full h-full object-contain"
-              :src="discussionIconUrl"
-              alt=""
-            />
+            :src="discussionIconUrl"
+            alt=""
+          />
           </div>
           <div class="flex flex-col gap-0.5 min-w-0">
             <span class="text-sm font-semibold text-[#f5f5f5] truncate leading-tight">{{ tab.title }}</span>
             <span v-if="tab.subtitle" class="text-[0.65rem] uppercase tracking-wide text-[#adadad] truncate">
               {{ tab.subtitle }}
-            </span>
+              </span>
           </div>
           <div
             class="pointer-events-none absolute bottom-[-1px] left-1/2 h-[3px] -translate-x-1/2 rounded-full bg-[#f5f5f5]"
@@ -148,23 +148,23 @@
                 <span class="text-sm font-semibold text-[#f5f5f5]">{{ tab.title }}</span>
               </div>
               <div class="flex items-center gap-4 text-xs text-[#cfcfcf]">
-                <span class="flex items-center gap-1">
+          <span class="flex items-center gap-1">
                   <img
                     class="w-3 h-3"
                     :src="upvoteFilledIconUrl"
                     alt="upvote"
                     style="filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%) hue-rotate(359deg) brightness(102%) contrast(101%);"
                   />
-                  {{ tab.score.toLocaleString() }}
-                </span>
-                <span class="flex items-center gap-1">
+            {{ tab.score.toLocaleString() }}
+          </span>
+          <span class="flex items-center gap-1">
                   <img
                     class="w-4 h-3"
                     :src="popoutDiscussionIconUrl"
                     alt="comments"
                   />
-                  {{ tab.comments.toLocaleString() }}
-                </span>
+            {{ tab.comments.toLocaleString() }}
+          </span>
               </div>
               <!-- Arrow pointing down -->
               <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-px">

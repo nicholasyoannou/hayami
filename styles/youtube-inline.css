@@ -21,6 +21,7 @@
   height: 40px !important;
   align-self: flex-start !important; /* Align to top of comment */
   margin-top: 0 !important;
+  margin-right: 12px !important; /* Add padding between profile pic and comment */
 }
 
 /* YouTube comment structure - ensure avatar aligns to top */
@@ -127,8 +128,3 @@
 .ri-youtube-comment:not(.depth-0) .ri-gutter {
   display: flex !important;
 }
-
-.ri-youtube-comment:not(.depth-0) .ri-threadline {
-  display: block !important;
-}
-
