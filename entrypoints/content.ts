@@ -110,6 +110,8 @@ let galleryImages: string[] | null = null;
 let galleryIndex = 0;
 let galleryDots: HTMLDivElement | null = null;
 let currentGalleryAnchor: HTMLAnchorElement | null = null;
+let galleryPreloadTriggered = false;
+let galleryPreloadedImages: HTMLImageElement[] = [];
 
 // Enable markdown debug logs by default (can be disabled via DevTools: window.RI_DEBUG_MARKDOWN=false)
 try {
@@ -169,6 +171,24 @@ function extractYouTubeId(href: string): string | null {
 }
 
 let globalHandlersWired = false;
+
+function triggerGalleryPrefetch(reason: string = 'unknown'): void {
+  if (!galleryImages || galleryImages.length <= 1 || galleryPreloadTriggered) return;
+  galleryPreloadTriggered = true;
+  galleryPreloadedImages = [];
+  galleryImages.forEach((src, idx) => {
+    if (!src) return;
+    if (idx === galleryIndex && imgPreviewEl && imgPreviewEl.src === src) return;
+    const pre = new Image();
+    pre.decoding = 'async';
+    try {
+      pre.referrerPolicy = 'no-referrer';
+    } catch {}
+    pre.src = src;
+    galleryPreloadedImages.push(pre);
+  });
+  console.debug(`[ri-img] Prefetched ${galleryPreloadedImages.length} album images via ${reason}`);
+}
 function wireGlobalPreviewAndYouTubeHandlers(): void {
   if (globalHandlersWired) return;
   globalHandlersWired = true;
@@ -268,8 +288,10 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
   if (multi && Array.isArray(multi) && multi.length > 0) {
       // multi contains raw image links; convert to proxied versions for consistent loading
       try {
-  galleryImages = multi.map(u => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
+        galleryImages = multi.map(u => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
         galleryIndex = 0;
+        galleryPreloadTriggered = false;
+        galleryPreloadedImages = [];
         // Populate dots
         if (galleryDots) {
           galleryDots.innerHTML = '';
@@ -286,6 +308,7 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
                 imgPreviewHost!.classList.add('loading');
                 if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
               }
+              triggerGalleryPrefetch('dot-click');
             });
             if (galleryDots) galleryDots.appendChild(dot);
           });
@@ -334,6 +357,8 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
     try { if (imgPreviewEl) { imgPreviewEl.src = ''; imgPreviewEl.onload = null; imgPreviewEl.onerror = null; } } catch {}
     // Clear gallery state
     try { galleryImages = null; galleryIndex = 0; } catch {}
+    galleryPreloadedImages = [];
+    galleryPreloadTriggered = false;
     try { if (galleryDots && galleryDots.parentElement) galleryDots.parentElement.removeChild(galleryDots); } catch {}
     galleryDots = null;
     currentGalleryAnchor = null;
@@ -344,6 +369,24 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
   });
   document.addEventListener('scroll', () => hidePreview(), true);
 
+  const maybePrefetchOnAlbumScroll = (ev: Event, reason: string) => {
+    if (!galleryImages || galleryImages.length <= 1 || !currentGalleryAnchor) return;
+    const targetEl = ev.target as HTMLElement | null;
+    const anchor = targetEl?.closest('a[href]');
+    const interactingWithAlbumAnchor = anchor === currentGalleryAnchor;
+    const interactingWithPreview = !!(imgPreviewHost && targetEl && imgPreviewHost.contains(targetEl));
+    if (!interactingWithAlbumAnchor && !interactingWithPreview) return;
+    triggerGalleryPrefetch(reason);
+  };
+
+  document.addEventListener('wheel', (ev) => {
+    maybePrefetchOnAlbumScroll(ev, 'wheel');
+  }, { passive: true });
+
+  document.addEventListener('touchmove', (ev) => {
+    maybePrefetchOnAlbumScroll(ev, 'touchmove');
+  }, { passive: true });
+
   // Keyboard navigation for gallery preview (arrow keys)
   document.addEventListener('keydown', (ev) => {
     if (!imgPreviewHost || imgPreviewHost.style.display === 'none') return;
@@ -353,6 +396,7 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
       ev.preventDefault();
         // Navigate to previous image
         galleryIndex = (galleryIndex - 1 + galleryImages.length) % galleryImages.length;
+        triggerGalleryPrefetch('keyboard');
         if (imgPreviewEl) {
           imgPreviewEl.src = galleryImages[galleryIndex];
           imgPreviewEl.style.display = 'none';
@@ -365,6 +409,7 @@ function wireGlobalPreviewAndYouTubeHandlers(): void {
       ev.preventDefault();
         // Navigate to next image
         galleryIndex = (galleryIndex + 1) % galleryImages.length;
+        triggerGalleryPrefetch('keyboard');
         if (imgPreviewEl) {
           imgPreviewEl.src = galleryImages[galleryIndex];
           imgPreviewEl.style.display = 'none';
