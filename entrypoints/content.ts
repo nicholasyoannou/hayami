@@ -79,6 +79,24 @@ let redditCommentsObserver: IntersectionObserver | null = null;
 let redditCommentsSentinel: HTMLElement | null = null;
 let redditCommentsCleanup: (() => void) | null = null;
 
+// Track YouTube infinite scroll artifacts so we can clean them up when switching providers
+let youtubeCommentsObserver: IntersectionObserver | null = null;
+let youtubeCommentsSentinel: HTMLElement | null = null;
+let youtubeCommentsCleanup: (() => void) | null = null;
+
+function teardownYouTubeInfiniteScroll(): void {
+  if (youtubeCommentsCleanup) {
+    try {
+      youtubeCommentsCleanup();
+    } catch (err) {
+      console.warn('[LoadingState] Error cleaning up YouTube infinite scroll:', err);
+    }
+  }
+  youtubeCommentsCleanup = null;
+  youtubeCommentsObserver = null;
+  youtubeCommentsSentinel = null;
+}
+
 // Track mounted Vue app instances for proper cleanup
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
 
@@ -2465,24 +2483,20 @@ async function renderYouTubeComments(videoId: string, videoTitle: string, commen
     throw new Error('Comments container not found');
   }
 
+  // Tear down any existing YouTube infinite scroll artifacts before rendering anew
+  teardownYouTubeInfiniteScroll();
+
   try {
-    // Show skeleton loading
-    commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
+    const skeletonHtml = Array.from({ length: 6 }).map(() => (
       `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
     )).join('');
+    commentsRoot.innerHTML = skeletonHtml;
 
-    // Fetch YouTube comments
     console.log('Fetching YouTube comments for video ID:', videoId);
     const commentsResult = await getVideoComments(videoId, 50, 'relevance');
-    console.log('YouTube API response:', commentsResult);
     const comments = commentsResult.comments || [];
     const totalComments = commentsResult.pageInfo?.totalResults || comments.length;
-    console.log('Parsed comments count:', comments.length);
-    console.log('Total comments:', totalComments);
-    console.log('CommentsRoot element:', commentsRoot);
-    console.log('CommentsRoot exists:', !!commentsRoot);
-    console.log('CommentsRoot tagName:', commentsRoot?.tagName);
-    console.log('CommentsRoot className:', commentsRoot?.className);
+    let nextPageToken = commentsResult.nextPageToken;
 
     // Update header for YouTube - replace Reddit header with YouTube header
     const existingDiscussion = document.getElementById('reddit-inline-discussion');
@@ -2552,21 +2566,16 @@ async function renderYouTubeComments(videoId: string, videoTitle: string, commen
       }
     }
 
-    // Convert YouTube comment text to HTML (preserve line breaks and make URLs clickable)
     function formatYouTubeCommentText(text: string): string {
-      // Escape HTML first
       let html = escapeHtml(text);
-      // Convert URLs to links
       const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
       html = html.replace(urlRegex, (url) => {
         return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color: #5ba8ff; text-decoration: underline;">${escapeHtml(url)}</a>`;
       });
-      // Convert line breaks to <br/>
       html = html.replace(/\n/g, '<br/>');
       return html;
     }
 
-    // Render a single comment
     function renderYouTubeComment(comment: any, depth: number = 0): string {
       const tsText = formatYouTubeDate(comment.publishedAt);
       const tsTitle = new Date(comment.publishedAt).toLocaleString();
@@ -2575,8 +2584,8 @@ async function renderYouTubeComments(videoId: string, videoTitle: string, commen
       const avatarUrl = comment.authorProfileImageUrl || '';
       const commentText = formatYouTubeCommentText(comment.textDisplay || comment.text || '');
 
-      let html = `
-        <div class="ri-comment ri-youtube-comment depth-${depth}">
+      return `
+        <div class="ri-comment ri-youtube-comment depth-${depth}" data-comment-id="${escapeHtml(comment.id)}">
           <div class="ri-gutter">
             <button class="ri-toggle" aria-label="Collapse" aria-expanded="true">–</button>
             <div class="ri-threadline"></div>
@@ -2607,106 +2616,229 @@ async function renderYouTubeComments(videoId: string, videoTitle: string, commen
           </div>
         </div>
       `;
-
-      return html;
     }
 
-    // Render all comments directly into commentsRoot (no nested container)
-    console.log('About to render comments, commentsRoot:', commentsRoot);
-    console.log('Comments to render:', comments.slice(0, 20).length);
-    
-    if (comments.length === 0) {
-      console.warn('No comments to render!');
-      commentsRoot.innerHTML = `
-        <div style="padding: 2rem; text-align: center; color: #888;">
-          <p>No comments found for this video.</p>
-        </div>
-      `;
-      return;
-    }
-    
-    commentsRoot.innerHTML = '';
+    const PAGE_SIZE = 10;
+    const INITIAL_REPLY_BATCH = 5;
+    const loadedComments = [...comments];
+    let renderedCount = 0;
+    let isFetching = false;
+    let paginationSkeleton: HTMLElement | null = null;
 
-    for (const comment of comments.slice(0, 20)) {
-      console.log('Rendering comment:', comment.id, comment.text?.substring(0, 50));
-      const commentEl = document.createElement('div');
-      commentEl.innerHTML = renderYouTubeComment(comment, 0);
-      const commentDiv = commentEl.firstElementChild as HTMLElement;
-      
-      // Handle replies - initially collapsed
-      const childrenDiv = commentDiv.querySelector('.ri-children') as HTMLElement;
-      if (comment.replies && comment.replies.length > 0) {
-        for (const reply of comment.replies.slice(0, 5)) {
-          const replyEl = document.createElement('div');
-          replyEl.innerHTML = renderYouTubeComment(reply, 1);
-          const replyDiv = replyEl.firstElementChild as HTMLElement;
-          childrenDiv.appendChild(replyDiv);
-        }
+    const showPaginationSkeleton = () => {
+      if (paginationSkeleton) return;
+      paginationSkeleton = document.createElement('div');
+      paginationSkeleton.className = 'ri-pagination-skeleton';
+      paginationSkeleton.innerHTML = skeletonHtml;
+      commentsRoot.appendChild(paginationSkeleton);
+    };
+
+    const hidePaginationSkeleton = () => {
+      if (paginationSkeleton) {
+        paginationSkeleton.remove();
+        paginationSkeleton = null;
       }
+    };
 
-      // Handle reply toggle - expand/collapse functionality
-      const replyToggle = commentDiv.querySelector('.ri-reply-toggle') as HTMLElement;
-      if (replyToggle) {
-        replyToggle.addEventListener('click', async () => {
-          const isExpanded = replyToggle.dataset.expanded === 'true';
-          const icon = replyToggle.querySelector('.ri-reply-icon') as HTMLElement;
-          
-          if (isExpanded) {
-            // Collapse
-            childrenDiv.classList.add('ri-children-collapsed');
-            replyToggle.dataset.expanded = 'false';
-            if (icon) {
-              icon.style.transform = 'rotate(0deg)';
-            }
+    const buildCommentElement = (comment: any, depth: number = 0): HTMLElement => {
+      const container = document.createElement('div');
+      container.innerHTML = renderYouTubeComment(comment, depth);
+      const commentDiv = container.firstElementChild as HTMLElement | null;
+      if (!commentDiv) return document.createElement('div');
+
+      const toggleBtn = commentDiv.querySelector('.ri-toggle') as HTMLButtonElement | null;
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', function() {
+          const commentEl = (this as HTMLElement).closest('.ri-comment') as HTMLElement | null;
+          if (!commentEl) return;
+          const isCollapsed = commentEl.classList.contains('ri-collapsed');
+          if (isCollapsed) {
+            commentEl.classList.remove('ri-collapsed');
+            (this as HTMLElement).textContent = '–';
+            (this as HTMLElement).setAttribute('aria-expanded', 'true');
           } else {
-            // Expand
-            childrenDiv.classList.remove('ri-children-collapsed');
-            replyToggle.dataset.expanded = 'true';
-            if (icon) {
-              icon.style.transform = 'rotate(180deg)';
-            }
-            
-            // Load more replies if needed
-            if (childrenDiv.dataset.loaded !== 'true' && comment.replyCount && comment.replyCount > (comment.replies?.length || 0)) {
-              childrenDiv.dataset.loaded = 'true';
-              try {
-                const moreReplies = await getCommentReplies(comment.id, 20);
-                for (const reply of moreReplies) {
-                  const replyEl = document.createElement('div');
-                  replyEl.innerHTML = renderYouTubeComment(reply, 1);
-                  const replyDiv = replyEl.firstElementChild as HTMLElement;
-                  childrenDiv.appendChild(replyDiv);
-                }
-              } catch (error) {
-                console.error('Error loading more replies:', error);
-              }
-            }
+            commentEl.classList.add('ri-collapsed');
+            (this as HTMLElement).textContent = '+';
+            (this as HTMLElement).setAttribute('aria-expanded', 'false');
           }
         });
       }
 
-      commentsRoot.appendChild(commentDiv);
-      console.log('Appended comment div, commentsRoot children count:', commentsRoot.children.length);
-    }
-    
-    console.log('Finished rendering comments. Total children in commentsRoot:', commentsRoot.children.length);
+      if (depth === 0) {
+        const childrenDiv = commentDiv.querySelector('.ri-children') as HTMLElement | null;
+        const replyToggle = commentDiv.querySelector('.ri-reply-toggle') as HTMLButtonElement | null;
+        const icon = replyToggle?.querySelector('.ri-reply-icon') as HTMLElement | null;
+        if (childrenDiv && replyToggle) {
+          const renderedReplyIds = new Set<string>();
+          const initialReplies = (comment.replies || []).slice(0, INITIAL_REPLY_BATCH);
+          for (const reply of initialReplies) {
+            renderedReplyIds.add(reply.id);
+            childrenDiv.appendChild(buildCommentElement(reply, depth + 1));
+          }
 
-    // Wire up collapse/expand functionality (similar to Reddit comments)
-    commentsRoot.querySelectorAll('.ri-toggle').forEach(btn => {
-      btn.addEventListener('click', function() {
-        const comment = (this as HTMLElement).closest('.ri-comment') as HTMLElement;
-        const isExpanded = comment.classList.contains('ri-collapsed');
-        if (isExpanded) {
-          comment.classList.remove('ri-collapsed');
-          (this as HTMLElement).textContent = '–';
-          (this as HTMLElement).setAttribute('aria-expanded', 'true');
-        } else {
-          comment.classList.add('ri-collapsed');
-          (this as HTMLElement).textContent = '+';
-          (this as HTMLElement).setAttribute('aria-expanded', 'false');
+          let expectedReplyCount = comment.replyCount ?? (comment.replies?.length ?? renderedReplyIds.size);
+          let loadMoreBtn: HTMLButtonElement | null = null;
+
+          const ensureLoadMoreButton = () => {
+            const targetCount = comment.replyCount ?? expectedReplyCount;
+            if (targetCount > renderedReplyIds.size) {
+              if (!loadMoreBtn) {
+                loadMoreBtn = document.createElement('button');
+                loadMoreBtn.type = 'button';
+                loadMoreBtn.className = 'ri-load-more-replies';
+                loadMoreBtn.textContent = 'Load more replies';
+                loadMoreBtn.addEventListener('click', async () => {
+                  if (loadMoreBtn?.disabled) return;
+                  loadMoreBtn.disabled = true;
+                  loadMoreBtn.textContent = 'Loading...';
+                  try {
+                    const moreReplies = await getCommentReplies(comment.id, 50);
+                    const newReplies = moreReplies.filter((reply: any) => !renderedReplyIds.has(reply.id));
+                    if (newReplies.length) {
+                      comment.replies = [...(comment.replies || []), ...newReplies];
+                      for (const reply of newReplies) {
+                        renderedReplyIds.add(reply.id);
+                        const replyEl = buildCommentElement(reply, depth + 1);
+                        if (loadMoreBtn && loadMoreBtn.parentElement === childrenDiv) {
+                          childrenDiv.insertBefore(replyEl, loadMoreBtn);
+                        } else {
+                          childrenDiv.appendChild(replyEl);
+                        }
+                      }
+                    }
+                    expectedReplyCount = comment.replyCount ?? Math.max(expectedReplyCount, comment.replies?.length ?? renderedReplyIds.size);
+                  } catch (err) {
+                    console.error('Error loading more YouTube replies:', err);
+                    toast.error('Failed to load more replies');
+                  } finally {
+                    const updatedTarget = comment.replyCount ?? expectedReplyCount;
+                    if (updatedTarget <= renderedReplyIds.size || !loadMoreBtn?.parentElement) {
+                      loadMoreBtn?.remove();
+                      loadMoreBtn = null;
+                    } else if (loadMoreBtn) {
+                      loadMoreBtn.disabled = false;
+                      loadMoreBtn.textContent = 'Load more replies';
+                    }
+                  }
+                });
+                childrenDiv.appendChild(loadMoreBtn);
+              } else {
+                loadMoreBtn.disabled = false;
+                loadMoreBtn.textContent = 'Load more replies';
+              }
+            } else if (loadMoreBtn) {
+              loadMoreBtn.remove();
+              loadMoreBtn = null;
+            }
+          };
+
+          ensureLoadMoreButton();
+
+          replyToggle.addEventListener('click', () => {
+            const expanded = replyToggle.dataset.expanded === 'true';
+            if (expanded) {
+              childrenDiv.classList.add('ri-children-collapsed');
+              replyToggle.dataset.expanded = 'false';
+              if (icon) icon.style.transform = 'rotate(0deg)';
+            } else {
+              childrenDiv.classList.remove('ri-children-collapsed');
+              replyToggle.dataset.expanded = 'true';
+              if (icon) icon.style.transform = 'rotate(180deg)';
+              ensureLoadMoreButton();
+            }
+          });
         }
-      });
-    });
+      }
+
+      return commentDiv;
+    };
+
+    const renderFromLoaded = (): boolean => {
+      if (renderedCount >= loadedComments.length) return false;
+      const slice = loadedComments.slice(renderedCount, renderedCount + PAGE_SIZE);
+      for (const comment of slice) {
+        const commentEl = buildCommentElement(comment, 0);
+        commentsRoot.appendChild(commentEl);
+      }
+      renderedCount += slice.length;
+      return slice.length > 0;
+    };
+
+    commentsRoot.innerHTML = '';
+    renderFromLoaded();
+
+    const hasMorePotential = renderedCount < loadedComments.length || !!nextPageToken;
+    if (!hasMorePotential) {
+      return;
+    }
+
+    const sentinel = document.createElement('div');
+    sentinel.id = 'ri-youtube-sentinel';
+    commentsRoot.after(sentinel);
+
+    let observer: IntersectionObserver | null = null;
+
+    const cleanupInfiniteScroll = () => {
+      try {
+        observer?.disconnect();
+      } catch {}
+      if (sentinel.isConnected) {
+        sentinel.remove();
+      }
+      hidePaginationSkeleton();
+      if (youtubeCommentsObserver === observer) {
+        youtubeCommentsObserver = null;
+      }
+      if (youtubeCommentsSentinel === sentinel) {
+        youtubeCommentsSentinel = null;
+      }
+      youtubeCommentsCleanup = null;
+    };
+
+    const appendNextPage = async () => {
+      if (isFetching) return;
+      const rendered = renderFromLoaded();
+      if (rendered && (!nextPageToken && renderedCount >= loadedComments.length)) {
+        cleanupInfiniteScroll();
+        return;
+      }
+      if (rendered) return;
+      if (!nextPageToken) {
+        cleanupInfiniteScroll();
+        return;
+      }
+      isFetching = true;
+      showPaginationSkeleton();
+      try {
+        const nextResult = await getVideoComments(videoId, 50, 'relevance', nextPageToken);
+        nextPageToken = nextResult.nextPageToken;
+        if (nextResult.comments?.length) {
+          loadedComments.push(...nextResult.comments);
+        }
+      } catch (err) {
+        console.error('Error fetching additional YouTube comments:', err);
+        nextPageToken = undefined;
+      } finally {
+        hidePaginationSkeleton();
+        isFetching = false;
+      }
+      const appended = renderFromLoaded();
+      if ((!nextPageToken && renderedCount >= loadedComments.length) || !appended) {
+        cleanupInfiniteScroll();
+      }
+    };
+
+    observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (entry?.isIntersecting) {
+        appendNextPage();
+      }
+    }, { root: null, threshold: 0.1 });
+
+    observer.observe(sentinel);
+    youtubeCommentsObserver = observer;
+    youtubeCommentsSentinel = sentinel;
+    youtubeCommentsCleanup = cleanupInfiniteScroll;
   } catch (error) {
     console.error('Error rendering YouTube comments:', error);
     commentsRoot.innerHTML = `
@@ -2833,6 +2965,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const providerChangeCallback = async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube') => {
         console.log('Content script received providerChange:', provider, 'lastAnimeInfo:', lastAnimeInfo);
         console.log(`[LoadingState] Provider change started: ${provider}`);
+        
+        // Always clear any existing YouTube observers/sentinels before switching providers
+        teardownYouTubeInfiniteScroll();
         
         // Cache current Reddit discussion if switching away from Reddit
         if (provider !== 'reddit' && discussionCache.reddit) {
