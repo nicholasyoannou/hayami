@@ -2522,7 +2522,13 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
 /**
  * Renders YouTube comments for a video
  */
-async function renderYouTubeComments(videoId: string, videoTitle: string, commentsRoot: HTMLElement | null, videoIdForUrl?: string): Promise<void> {
+async function renderYouTubeComments(
+  videoId: string,
+  videoTitle: string,
+  commentsRoot: HTMLElement | null,
+  videoIdForUrl?: string,
+  order: 'relevance' | 'time' = 'relevance'
+): Promise<void> {
   if (!commentsRoot) {
     console.error('Comments root element is null');
     throw new Error('Comments container not found');
@@ -2538,7 +2544,7 @@ async function renderYouTubeComments(videoId: string, videoTitle: string, commen
     commentsRoot.innerHTML = skeletonHtml;
 
     console.log('Fetching YouTube comments for video ID:', videoId);
-    const commentsResult = await getVideoComments(videoId, 50, 'relevance');
+    const commentsResult = await getVideoComments(videoId, 50, order);
     const comments = commentsResult.comments || [];
     const totalComments = commentsResult.pageInfo?.totalResults || comments.length;
     let nextPageToken = commentsResult.nextPageToken;
@@ -2855,7 +2861,7 @@ async function renderYouTubeComments(videoId: string, videoTitle: string, commen
       isFetching = true;
       showPaginationSkeleton();
       try {
-        const nextResult = await getVideoComments(videoId, 50, 'relevance', nextPageToken);
+        const nextResult = await getVideoComments(videoId, 50, order, nextPageToken);
         nextPageToken = nextResult.nextPageToken;
         if (nextResult.comments?.length) {
           loadedComments.push(...nextResult.comments);
@@ -2935,6 +2941,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // Build container first so we can show skeletons while loading
     let currentSort: 'best' | 'top' | 'new' = 'best';
+    let currentYouTubeOrder: 'relevance' | 'time' = 'relevance';
+    let currentYouTubeVideo: { video_id: string; title: string } | null = null;
+    let activeProvider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' = 'reddit';
     const host = document.createElement('div');
     host.id = 'ri-inline-vue-host';
 
@@ -3007,7 +3016,31 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       }
     };
 
+    const applyRedditSortOptions = () => {
+      const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
+      if (!select) return;
+      select.innerHTML = `
+        <option value="best">Best</option>
+        <option value="top">Top</option>
+        <option value="new">New</option>
+      `;
+      select.value = currentSort;
+      select.disabled = false;
+    };
+
+    const applyYouTubeSortOptions = () => {
+      const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
+      if (!select) return;
+      select.innerHTML = `
+        <option value="relevance">Top</option>
+        <option value="time">Newest</option>
+      `;
+      select.value = currentYouTubeOrder;
+      select.disabled = false;
+    };
+
     const providerChangeCallback = async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube') => {
+        activeProvider = provider;
         console.log('Content script received providerChange:', provider, 'lastAnimeInfo:', lastAnimeInfo);
         console.log(`[LoadingState] Provider change started: ${provider}`);
         
@@ -3025,6 +3058,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         try {
         
         if (provider === 'disqus' && lastAnimeInfo) {
+          currentYouTubeVideo = null;
+          currentYouTubeOrder = 'relevance';
+          applyRedditSortOptions();
           // Clean up Reddit infinite scroll observer FIRST
           if (redditCommentsCleanup) {
             redditCommentsCleanup();
@@ -3235,6 +3271,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             clearLoadingState('Disqus error');
           }
         } else if (provider === 'reddit' && lastAnimeInfo) {
+          currentYouTubeVideo = null;
+          currentYouTubeOrder = 'relevance';
+          applyRedditSortOptions();
           // Clean up any existing observers (shouldn't be Reddit, but just in case)
           if (redditCommentsCleanup) {
             redditCommentsCleanup();
@@ -3299,6 +3338,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
             )).join('');
             console.log(`[LoadingState] Skeleton loading shown`);
+            applyYouTubeSortOptions();
           } else {
             console.warn(`[LoadingState] Comments root not found for skeleton`);
           }
@@ -3530,6 +3570,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             console.log('Found YouTube video:', video);
             console.log('Video ID:', video.video_id);
             console.log('Video Title:', video.title);
+            currentYouTubeVideo = video;
 
             // Cache the YouTube data
             discussionCache.youtube = {
@@ -3632,7 +3673,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
             // Render YouTube comments - this is async and completes when done
             console.log(`[LoadingState] Starting YouTube comments render...`);
-            await renderYouTubeComments(video.video_id, video.title, commentsSection, video.video_id);
+            await renderYouTubeComments(
+              video.video_id,
+              video.title,
+              commentsSection,
+              video.video_id,
+              currentYouTubeOrder
+            );
             console.log(`[LoadingState] YouTube comments render completed`);
             
             // Clear loading state immediately after rendering completes
@@ -5055,7 +5102,30 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const searchInput = host.querySelector('#ri-search') as HTMLInputElement | null;
     const addCommentBtn = host.querySelector('#ri-add-comment-btn') as HTMLButtonElement | null;
     const topReplyHost = host.querySelector('#ri-top-reply-host') as HTMLElement | null;
+    applyRedditSortOptions();
     sortSelect?.addEventListener('change', async () => {
+      if (activeProvider === 'youtube' || activeProvider === 'reddit-youtube') {
+        const selectedOrder = sortSelect.value === 'time' ? 'time' : 'relevance';
+        currentYouTubeOrder = selectedOrder;
+        if (!currentYouTubeVideo) {
+          console.warn('YouTube video info missing for sort change');
+          return;
+        }
+        teardownYouTubeInfiniteScroll();
+        commentsRoot.innerHTML = '';
+        showSkeletons(6);
+        await renderYouTubeComments(
+          currentYouTubeVideo.video_id,
+          currentYouTubeVideo.title,
+          commentsRoot,
+          currentYouTubeVideo.video_id,
+          currentYouTubeOrder
+        );
+        return;
+      }
+      if (activeProvider === 'disqus') {
+        return;
+      }
       currentSort = (sortSelect.value as any) || 'best';
       // Reset UI and show skeletons during fetch
       if (io) { try { io.disconnect(); } catch {}
