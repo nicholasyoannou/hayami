@@ -5,8 +5,8 @@ import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './config';
 export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   manifest: {
-    name: 'Crunchyroll Comments Revive',
-    description: 'Bring back episode discussions from r/anime to Crunchyroll',
+    name: 'Hayami',
+    description: 'Bring communities to you through comments straight underneath anime episodes.',
     permissions: [
       'identity',
       'storage',
@@ -23,7 +23,7 @@ export default defineConfig({
       'https://disqus.com/*',
       'https://*.disqus.com/*'
     ],
-    version: '0.0.2',
+    version: '0.0.3',
     /**
      * Needed so SVG icon assets can be loaded into the Crunchyroll page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
