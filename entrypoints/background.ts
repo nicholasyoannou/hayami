@@ -1,5 +1,5 @@
 import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
-import { getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
+import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 
 export default defineBackground(() => {
   console.log('Crunchyroll Comments Revive - Background service started', { 
@@ -9,11 +9,9 @@ export default defineBackground(() => {
   // Listen for extension installation
   browser.runtime.onInstalled.addListener(async (details) => {
     if (details.reason === 'install') {
-      console.log('Extension installed - prompting for Reddit authentication');
-      
-      // Open popup or create tab to prompt authentication
+      console.log('Extension installed - opening onboarding');
       await browser.tabs.create({
-        url: browser.runtime.getURL('/popup.html'),
+        url: browser.runtime.getURL('/onboarding.html'),
       });
     }
   });
@@ -91,6 +89,22 @@ export default defineBackground(() => {
         } catch (error) {
           console.error('Error getting YouTube token:', error);
           sendResponse({ token: null, error: error instanceof Error ? error.message : 'Unknown error' });
+        }
+      })();
+      return true; // keep channel open for async
+    }
+
+    if (message.action === 'authenticateYouTube') {
+      (async () => {
+        try {
+          const result = await authenticateWithYouTube();
+          sendResponse(result);
+        } catch (error) {
+          console.error('YouTube authentication error:', error);
+          sendResponse({ 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Unknown error' 
+          });
         }
       })();
       return true; // keep channel open for async
