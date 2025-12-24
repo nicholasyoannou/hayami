@@ -2187,14 +2187,10 @@ function waitForDisqusLoad(callback: () => void): void {
     // Check for iframe (most reliable indicator)
     const iframe = disqusThread.querySelector('iframe') as HTMLIFrameElement;
     if (iframe) {
-      // Iframe exists - check if it has dimensions or if src contains disqus
-      if (iframe.offsetWidth > 0 && iframe.offsetHeight > 0) {
+      // If iframe exists and has a disqus.com src, consider it loaded
+      // Don't wait for dimensions - Disqus will render asynchronously
+      if (iframe.src && iframe.src.includes('disqus.com')) {
         return true;
-      }
-      // Even if no dimensions yet, if src contains disqus.com/embed, it's loading
-      if (iframe.src && iframe.src.includes('disqus.com/embed')) {
-        // Wait a bit for dimensions
-        return false;
       }
     }
 
@@ -2210,29 +2206,23 @@ function waitForDisqusLoad(callback: () => void): void {
 
   // First check - maybe it's already loaded
   if (checkDisqusLoaded()) {
-    setTimeout(callback, 300);
+    callback();
     return;
   }
 
   const disqusThread = document.getElementById('disqus_thread');
   if (!disqusThread) {
     // If disqus_thread doesn't exist yet, wait a bit and try again
-    setTimeout(() => waitForDisqusLoad(callback), 200);
+    setTimeout(() => waitForDisqusLoad(callback), 100);
     return;
   }
 
   let checkCount = 0;
-  const maxChecks = 50; // 50 * 200ms = 10 seconds max
+  const maxChecks = 20; // 20 * 100ms = 2 seconds max
 
   // Use MutationObserver to detect when Disqus content appears
   const observer = new MutationObserver(() => {
-    checkCount++;
     if (checkDisqusLoaded()) {
-      observer.disconnect();
-      // Wait a bit more to ensure Disqus content is fully rendered
-      setTimeout(callback, 300);
-    } else if (checkCount >= maxChecks) {
-      // Fallback: clear after max checks
       observer.disconnect();
       callback();
     }
@@ -2251,20 +2241,20 @@ function waitForDisqusLoad(callback: () => void): void {
     if (checkDisqusLoaded()) {
       clearInterval(intervalId);
       observer.disconnect();
-      setTimeout(callback, 300);
+      callback();
     } else if (checkCount >= maxChecks) {
       clearInterval(intervalId);
       observer.disconnect();
-      callback();
+      callback(); // Call anyway to clear loading state
     }
-  }, 200);
+  }, 100);
 
-  // Fallback: clear after reasonable timeout (3 seconds)
+  // Fallback: clear after reasonable timeout (1.5 seconds)
   setTimeout(() => {
     clearInterval(intervalId);
     observer.disconnect();
     callback();
-  }, 3000);
+  }, 1500);
 }
 
 /**
@@ -2320,6 +2310,7 @@ function embedDisqusThreadInline(thread: any, animeInfo: AnimeInfo): void {
     // Inject external script from extension (CSP-compliant)
     const script = document.createElement('script');
     script.src = chrome.runtime.getURL('disqus-loader.js');
+    script.async = true;
     script.setAttribute('data-thread-url', threadUrl);
     script.setAttribute('data-identifier', identifier);
     script.setAttribute('data-forum', forumShortname);
@@ -2377,6 +2368,7 @@ function embedDisqusThreadPopup(thread: any, animeInfo: AnimeInfo): void {
   try {
     const script = document.createElement('script');
     script.src = chrome.runtime.getURL('disqus-loader.js');
+    script.async = true;
     script.setAttribute('data-thread-url', threadUrl);
     script.setAttribute('data-identifier', identifier);
     script.setAttribute('data-forum', forumShortname);
@@ -3140,6 +3132,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               // Re-inject Disqus script
               const script = document.createElement('script');
               script.src = chrome.runtime.getURL('disqus-loader.js');
+              script.async = true;
               script.setAttribute('data-thread-url', threadUrl);
               script.setAttribute('data-identifier', identifier);
               script.setAttribute('data-forum', forumShortname);
@@ -3237,6 +3230,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 // Inject external script from extension (CSP-compliant)
                 const script = document.createElement('script');
                 script.src = chrome.runtime.getURL('disqus-loader.js');
+                script.async = true;
                 script.setAttribute('data-thread-url', threadUrl);
                 script.setAttribute('data-identifier', identifier);
                 script.setAttribute('data-forum', forumShortname);

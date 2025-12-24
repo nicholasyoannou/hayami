@@ -656,7 +656,7 @@ function normalizeAvatarCdnUrl(url: string): string | null {
       if (host.endsWith('redditmedia.com') || host.endsWith('styles.redditmedia.com')) {
         const cleanPath = pathname.replace(/\/+$/, '');
         const hostPath = cleanPath ? `${host}${cleanPath}` : host;
-        return `https://cdn.statically.io/img/${hostPath}`;
+        return `https://external-content.duckduckgo.com/iu/?u=https://${hostPath}`;
       }
 
       if (hasExt || preserveHosts.some(h => host.endsWith(h))) {
