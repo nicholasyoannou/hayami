@@ -53,10 +53,22 @@
 #reddit-inline-discussion .ri-search-input {
   background: #161616;
   border: 1px solid #2c2c2c;
-  color: #ddd;
+  color: #fff;
   padding: 6px 10px;
   border-radius: 6px;
   min-width: 180px;
+  caret-color: #ff4500;
+  font-size: 14px;
+}
+
+#reddit-inline-discussion .ri-search-input::placeholder {
+  color: #888;
+}
+
+#reddit-inline-discussion .ri-search-input:focus {
+  outline: none;
+  border-color: #ff4500;
+  background: #1a1a1a;
 }
 
 /* ==================== Header ==================== */
@@ -1484,6 +1496,19 @@
   border: 1px solid #ddd;
   border-radius: 6px;
   font-size: 13px;
+  background: #ffffff;
+  color: #000000;
+  caret-color: #000000;
+}
+
+.manual-input::placeholder {
+  color: #666666;
+  opacity: 1;
+}
+
+.manual-input:focus {
+  outline: 2px solid #ff6600;
+  outline-offset: 0px;
 }
 
 .manual-label {

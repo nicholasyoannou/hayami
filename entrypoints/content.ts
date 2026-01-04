@@ -3408,7 +3408,16 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                   <div class="ri-header">
                     <div class="ri-title-row pt-1">
                       <h3 class="ri-title"></h3>
-                      <a class="ri-link" href="#" target="_blank" rel="noopener">Open on Reddit</a>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <button
+                          class="ri-manual-search-btn"
+                          title="Search manually"
+                          style="background: none; border: none; color: #FF6740; cursor: pointer; font-size: 18px; padding: 0 4px; display: flex; align-items: center; opacity: 0.8; transition: opacity 0.2s;"
+                        >
+                          ?
+                        </button>
+                        <a class="ri-link" href="#" target="_blank" rel="noopener">Open on Reddit</a>
+                      </div>
                     </div>
                     <div class="ri-meta">
                       <span class="ri-author"></span>
@@ -3430,6 +3439,25 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                   <div id="ri-top-reply-host" class="ri-top-reply-container" style="display: none"></div>
                   <div class="ri-comments"></div>
                 `;
+                
+                // Wire up manual search button
+                const manualSearchBtn = existingDiscussion.querySelector('.ri-manual-search-btn');
+                if (manualSearchBtn) {
+                  manualSearchBtn.addEventListener('click', () => {
+                    const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+                    showManualSearchUI(
+                      lastAnimeInfo || { animeName: '', episodeName: '' }, 
+                      crEpisodeNum ? Number(crEpisodeNum) : undefined
+                    );
+                  });
+                  // Add hover effect handlers
+                  manualSearchBtn.addEventListener('mouseenter', (e) => {
+                    (e.currentTarget as HTMLElement).style.opacity = '1';
+                  });
+                  manualSearchBtn.addEventListener('mouseleave', (e) => {
+                    (e.currentTarget as HTMLElement).style.opacity = '0.8';
+                  });
+                }
                 
                 console.log('[LoadingState] Vue component structure restored, .ri-comments should now exist');
               }
@@ -3700,6 +3728,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       onProviderChange: providerChangeCallback,
     });
     inlineDiscussionApp.mount(host);
+    
+    // Add event listener for manual search button
+    window.addEventListener('ri-manual-search-requested', () => {
+      const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+      showManualSearchUI(
+        lastAnimeInfo || { animeName: '', episodeName: '' }, 
+        crEpisodeNum ? Number(crEpisodeNum) : undefined
+      );
+    });
     
     // Store component instance reference after mounting
     const vueApp = inlineDiscussionApp as any;

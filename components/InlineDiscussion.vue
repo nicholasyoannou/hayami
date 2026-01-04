@@ -76,6 +76,14 @@ const shareIconUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/share.svg') ??
   'assets/commentAssets/share.svg';
 
+function handleManualSearch() {
+  // Dispatch custom event to trigger manual search in content script
+  const event = new CustomEvent('ri-manual-search-requested', {
+    detail: { discussion: props.discussion }
+  });
+  window.dispatchEvent(event);
+}
+
 async function handleUpvote(e?: Event) {
   if (e) {
     e.preventDefault();
@@ -252,14 +260,26 @@ defineExpose({
           <h3 class="ri-title">
             {{ discussion.title }}
           </h3>
-          <a
-            class="ri-link"
-            :href="redditUrl"
-            target="_blank"
-            rel="noopener"
-          >
-            Open on Reddit
-          </a>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button
+              class="ri-manual-search-btn"
+              title="Search manually"
+              @click="handleManualSearch"
+              style="background: none; border: none; color: #FF6740; cursor: pointer; font-size: 18px; padding: 0 4px; display: flex; align-items: center; opacity: 0.8; transition: opacity 0.2s;"
+              @mouseover="(e) => (e.currentTarget as HTMLElement).style.opacity = '1'"
+              @mouseout="(e) => (e.currentTarget as HTMLElement).style.opacity = '0.8'"
+            >
+              ?
+            </button>
+            <a
+              class="ri-link"
+              :href="redditUrl"
+              target="_blank"
+              rel="noopener"
+            >
+              Open on Reddit
+            </a>
+          </div>
         </div>
         <div class="ri-meta">
           <span class="ri-author">u/{{ discussion.author }}</span>
