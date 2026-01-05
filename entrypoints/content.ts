@@ -991,9 +991,9 @@ function displayDiscussion(discussion: any): void {
         <div class="discussion-info">
           <h4 class="discussion-title">${discussion.title}</h4>
           <div class="discussion-meta">
-            <span>≡ƒæñ u/${discussion.author}</span>
-            <span>Γ¼å∩╕Å ${discussion.score} points</span>
-            <span>≡ƒÆ¼ ${discussion.num_comments} comments</span>
+            <span>👤 u/${discussion.author}</span>
+            <span>⭐ ${discussion.score} points</span>
+            <span>💬 ${discussion.num_comments} comments</span>
           </div>
           <div class="discussion-actions">
             <a href="${redditUrl}" target="_blank" class="reddit-btn">
@@ -1179,10 +1179,10 @@ function embedDisqusThreadPopup(thread: any, animeInfo: AnimeInfo): void {
   overlay.innerHTML = `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>≡ƒÆ¼ Disqus Discussion</h3>
+        <h3>💬 Disqus Discussion</h3>
         <div class="panel-actions">
           <button class="wrong-btn" id="disqus-wrong-btn" title="Refine search manually">Wrong?</button>
-          <button class="close-btn" id="disqus-close-btn">Γ£ò</button>
+          <button class="close-btn" id="disqus-close-btn">✕</button>
         </div>
       </div>
       <div class="panel-content">
@@ -1231,9 +1231,9 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<boolean> {
   overlay.innerHTML = `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>≡ƒÆ¼ Search Disqus</h3>
+        <h3>💬 Search Disqus</h3>
         <div class="panel-actions">
-          <button class="close-btn" id="disqus-search-close">Γ£ò</button>
+          <button class="close-btn" id="disqus-search-close">✕</button>
         </div>
       </div>
       <div class="panel-content">
