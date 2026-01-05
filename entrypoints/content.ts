@@ -1,3 +1,4 @@
+import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing, extensionFetch } from '@/utils/redditApi';
 import { findThreadForAnime, listThreadsForForumSince } from '@/utils/disqusApi';
 import { getVideoComments, getCommentReplies, searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
@@ -11,10 +12,13 @@ import '@/styles/youtube-inline.css';
 import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
 import { Toaster, toast } from 'vue-sonner';
-// Correct style import per package exports ("vue-sonner/style.css")
 import 'vue-sonner/style.css';
 import YouTubeModal from '@/components/YouTubeModal.vue';
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
+import { wirePreviewHandlers } from '@/utils/previewHandlers';
+import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo';
+import { displayModeStorage, useDisplayMode } from '@/composables/useDisplayMode';
+import { isImageLink, isYouTubeLink, extractYouTubeId, proxifyImageUrl } from '@/composables/useImagePreview';
 
 let inlineDiscussionApp: VueApp | null = null;
 
@@ -31,430 +35,11 @@ const discussionCache: DiscussionCache = {};
 export default defineContentScript({
   matches: ['*://*.crunchyroll.com/*'],
   main(ctx) {
-    console.log('Crunchyroll Comments Revive extension loaded');
-    // Mount global toaster once per page
-    if (!document.getElementById('cr-comments-toaster')) {
-      const toastHost = document.createElement('div');
-      toastHost.id = 'cr-comments-toaster';
-      document.body.appendChild(toastHost);
-      const toastApp = createApp({ render: () => h(Toaster, { position: 'top-right', theme: 'dark', richColors: true }) });
-      toastApp.mount(toastHost);
-    }
-    
-    // Helper function to check if URL is a watch page
-    const isWatchPage = (url: string) => {
-      return url.includes('/watch/');
-    };
-    
-    // Check if we're already on a watch page (debounced)
-    if (isWatchPage(window.location.href)) {
-      queueHandleWatchPage(ctx);
-    }
-    
-    // Listen for URL changes (for SPA navigation)
-    ctx.addEventListener(window, 'wxt:locationchange', (event) => {
-      const newUrl = event.newUrl.href;
-      console.log('URL changed to:', newUrl);
-      if (isWatchPage(newUrl)) {
-        queueHandleWatchPage(ctx);
-      }
-    });
-
-    // Wire global delegated handlers once for image hover previews and YouTube modal
-    wireGlobalPreviewAndYouTubeHandlers();
+    bootstrapContent(ctx);
   },
 });
 
-// State to prevent duplicate searches/popups
-let lastProcessedKey: string | null = null;
-let searchInProgress = false;
-let debounceTimer: number | undefined;
-let activeObserver: MutationObserver | null = null;
-let lastAnimeInfo: AnimeInfo | null = null;
-type DisplayMode = 'popup' | 'inline';
-let displayMode: DisplayMode = 'popup';
-
-// Store Reddit comments IntersectionObserver and cleanup function for provider switching
-let redditCommentsObserver: IntersectionObserver | null = null;
-let redditCommentsSentinel: HTMLElement | null = null;
-let redditCommentsCleanup: (() => void) | null = null;
-
-// Track YouTube infinite scroll artifacts so we can clean them up when switching providers
-let youtubeCommentsObserver: IntersectionObserver | null = null;
-let youtubeCommentsSentinel: HTMLElement | null = null;
-let youtubeCommentsCleanup: (() => void) | null = null;
-
-function teardownYouTubeInfiniteScroll(): void {
-  if (youtubeCommentsCleanup) {
-    try {
-      youtubeCommentsCleanup();
-    } catch (err) {
-      console.warn('[LoadingState] Error cleaning up YouTube infinite scroll:', err);
-    }
-  }
-  youtubeCommentsCleanup = null;
-  youtubeCommentsObserver = null;
-  youtubeCommentsSentinel = null;
-}
-
-// Track mounted Vue app instances for proper cleanup
-const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
-
-// Global state for image hover preview
-let imgPreviewEl: HTMLImageElement | null = null;
-let imgPreviewHost: HTMLDivElement | null = null;
-let previewActiveHref: string | null = null;
-let imgPreviewSpinner: HTMLDivElement | null = null;
-// Gallery state for multi-image albums
-let galleryImages: string[] | null = null;
-let galleryIndex = 0;
-let galleryDots: HTMLDivElement | null = null;
-let currentGalleryAnchor: HTMLAnchorElement | null = null;
-let galleryPreloadTriggered = false;
-let galleryPreloadedImages: HTMLImageElement[] = [];
-
-// Enable markdown debug logs by default (can be disabled via DevTools: window.RI_DEBUG_MARKDOWN=false)
-try {
-  if (!(window as any).RI_DEBUG_MARKDOWN) {
-    (window as any).RI_DEBUG_MARKDOWN = true;
-    console.info('[ri-markdown] Debug logging enabled');
-  }
-} catch {}
-
-function isImageLink(href: string): boolean {
-  try {
-    const u = new URL(href);
-    const host = (u.hostname || '').toLowerCase();
-    // Twitter-hosted media (pbs.twimg.com or twimg) often use /media/ path with query params
-    if (host.includes('pbs.twimg.com') || host.includes('twimg.com')) {
-      if ((u.pathname || '').toLowerCase().includes('/media/')) return true;
-    }
-  } catch (e) {
-    // ignore
-  }
-  // DuckDuckGo image proxy URLs don't end with image extensions but are image resources
-  if (/images\.duckduckgo\.com\/iu\//i.test(href)) return true;
-  // Other common image proxies could be handled here in future (e.g., imgix, cdn proxies)
-  return /\.(png|jpe?g|gif|webp|bmp|svg)(?:\?|#|$)/i.test(href);
-}
-
-// Proxy only imgur links
-function proxifyImageUrl(href: string): string {
-  try {
-    // i.imgur.com: proxy to avoid regional/CORS hiccups
-    if (/^https?:\/\/i\.imgur\.com\//i.test(href)) {
-      return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
-    }
-  } catch {}
-  return href;
-}
-
-function isYouTubeLink(href: string): boolean {
-  return /(youtube\.com\/watch\?v=|youtu\.be\/)/i.test(href);
-}
-
-function extractYouTubeId(href: string): string | null {
-  try {
-    const url = new URL(href);
-    if (url.hostname.includes('youtu.be')) {
-      return url.pathname.replace(/^\//, '') || null;
-    }
-    if (url.hostname.includes('youtube.com')) {
-      const v = url.searchParams.get('v');
-      if (v) return v;
-      // Shorts or other formats
-      const m = url.pathname.match(/\/shorts\/([A-Za-z0-9_-]{6,})/);
-      if (m) return m[1];
-    }
-  } catch {}
-  return null;
-}
-
-let globalHandlersWired = false;
-
-function triggerGalleryPrefetch(reason: string = 'unknown'): void {
-  if (!galleryImages || galleryImages.length <= 1 || galleryPreloadTriggered) return;
-  galleryPreloadTriggered = true;
-  galleryPreloadedImages = [];
-  galleryImages.forEach((src, idx) => {
-    if (!src) return;
-    if (idx === galleryIndex && imgPreviewEl && imgPreviewEl.src === src) return;
-    const pre = new Image();
-    pre.decoding = 'async';
-    try {
-      pre.referrerPolicy = 'no-referrer';
-    } catch {}
-    pre.src = src;
-    galleryPreloadedImages.push(pre);
-  });
-  console.debug(`[ri-img] Prefetched ${galleryPreloadedImages.length} album images via ${reason}`);
-}
-function wireGlobalPreviewAndYouTubeHandlers(): void {
-  if (globalHandlersWired) return;
-  globalHandlersWired = true;
-
-  // Hover preview for image anchors in rendered comments
-  document.addEventListener('mouseover', (ev) => {
-    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
-    if (!a) return;
-    if (!a.closest('.ri-text')) return; // only inside comment bodies
-  const href = a.getAttribute('href') || '';
-  // Allow anchors carrying a pre-resolved images array (multi-image albums)
-  const ds = a.getAttribute('data-ri-images');
-  const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
-  if (!multi && !isImageLink(href)) return;
-    previewActiveHref = href;
-    currentGalleryAnchor = multi ? a : null; // Store anchor for fullscreen modal
-    if (!imgPreviewHost) {
-      imgPreviewHost = document.createElement('div');
-      imgPreviewHost.className = 'ri-img-tooltip';
-      document.body.appendChild(imgPreviewHost);
-    }
-    if (!imgPreviewEl) {
-      imgPreviewEl = document.createElement('img');
-      imgPreviewEl.alt = '';
-      imgPreviewHost!.appendChild(imgPreviewEl);
-    }
-      // Create gallery dots lazily
-      if (multi && !galleryDots) {
-      galleryDots = document.createElement('div');
-      galleryDots.className = 'ri-img-dots';
-      imgPreviewHost.appendChild(galleryDots);
-    }
-    // Show a loading spinner immediately so users get instant feedback
-    imgPreviewHost.classList.add('loading');
-    if (!imgPreviewSpinner) {
-      imgPreviewSpinner = document.createElement('div');
-      imgPreviewSpinner.className = 'ri-img-spinner';
-    }
-  // Hide the image element until it finishes loading
-  if (imgPreviewEl) imgPreviewEl.style.display = 'none';
-    if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner);
-    // Make tooltip visible (CSS .loading will center the spinner)
-    imgPreviewHost.style.display = 'flex';
-    imgPreviewHost.style.opacity = '0';
-    // When the image loads, remove spinner, reveal image, and resize host
-    imgPreviewEl.onload = () => {
-      try {
-        // Remove spinner
-        try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
-        if (imgPreviewHost) imgPreviewHost.classList.remove('loading');
-        if (imgPreviewEl) imgPreviewEl.style.display = 'block';
-  const pad = 14;
-  // Enforce stricter visible caps so previews don't dominate the page.
-  // Use viewport-relative caps combined with an absolute pixel limit to avoid huge previews on large screens.
-  const maxW = Math.min(window.innerWidth * 0.4, 800); // at most 40vw or 800px
-  const maxH = Math.min(window.innerHeight * 0.5, 640); // at most 50vh or 640px
-  const natW = imgPreviewEl?.naturalWidth || 0;
-        const natH = imgPreviewEl?.naturalHeight || 0;
-        let dispW = natW;
-        let dispH = natH;
-        if (natW === 0 || natH === 0) {
-          // fallback to CSS rules
-          if (imgPreviewHost) imgPreviewHost.style.width = '';
-          if (imgPreviewHost) imgPreviewHost.style.height = '';
-        } else {
-          // scale to fit within maxW/maxH while preserving aspect
-          const wScale = maxW / natW;
-          const hScale = maxH / natH;
-          const scale = Math.min(1, wScale, hScale);
-          dispW = Math.round(natW * scale);
-          dispH = Math.round(natH * scale);
-          if (imgPreviewHost) imgPreviewHost.style.width = dispW + 'px';
-          if (imgPreviewHost) imgPreviewHost.style.height = dispH + 'px';
-        }
-        // Update gallery dots active state if present
-        try {
-          if (galleryDots) {
-            Array.from(galleryDots.querySelectorAll('.ri-img-dot')).forEach((dot, i) => {
-              if (i === galleryIndex) {
-                dot.classList.add('active');
-              } else {
-                dot.classList.remove('active');
-              }
-            });
-          }
-        } catch {}
-        // positioning handled by mousemove
-      } catch (e) {}
-    };
-    imgPreviewEl.onerror = () => {
-      // Loading failed — remove spinner and hide tooltip
-      try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
-      try { if (imgPreviewHost) imgPreviewHost.classList.remove('loading'); } catch {}
-      try { if (imgPreviewHost) imgPreviewHost.style.display = 'none'; } catch {}
-    };
-    // If this anchor carries a multi-image array, use it; otherwise load single href
-  if (multi && Array.isArray(multi) && multi.length > 0) {
-      // multi contains raw image links; convert to proxied versions for consistent loading
-      try {
-        galleryImages = multi.map(u => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
-        galleryIndex = 0;
-        galleryPreloadTriggered = false;
-        galleryPreloadedImages = [];
-        // Populate dots
-        if (galleryDots) {
-          galleryDots.innerHTML = '';
-          galleryImages.forEach((g, idx) => {
-            const dot = document.createElement('div');
-            dot.className = 'ri-img-dot';
-            if (idx === 0) dot.classList.add('active');
-            dot.addEventListener('click', (ev) => {
-              ev.stopPropagation();
-              galleryIndex = idx;
-              if (imgPreviewEl) {
-                imgPreviewEl.src = galleryImages![galleryIndex];
-                imgPreviewEl.style.display = 'none';
-                imgPreviewHost!.classList.add('loading');
-                if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
-              }
-              triggerGalleryPrefetch('dot-click');
-            });
-            if (galleryDots) galleryDots.appendChild(dot);
-          });
-        }
-          // Navigation via keyboard only (see keydown handler below)
-        // Start loading first image
-        imgPreviewEl.src = galleryImages[0];
-      } catch (e) {
-        // fallback: try first image raw
-        imgPreviewEl.src = proxifyImageUrl(multi[0]);
-      }
-    } else {
-      imgPreviewEl.src = proxifyImageUrl(href);
-    }
-  });
-
-  document.addEventListener('mousemove', (ev) => {
-  if (!imgPreviewHost || !imgPreviewHost.style.display || imgPreviewHost.style.display === 'none') return;
-  const pad = 14;
-  // Keep mousemove sizing consistent with onload: cap to a conservative viewport fraction and an absolute pixel limit
-  const maxW = Math.min(window.innerWidth * 0.4, 800);
-  const maxH = Math.min(window.innerHeight * 0.5, 640);
-  imgPreviewHost.style.maxWidth = `${maxW}px`;
-  imgPreviewHost.style.maxHeight = `${maxH}px`;
-    // If we have a loaded image, size the host to its displayed size so positioning is accurate
-    const rect = imgPreviewHost.getBoundingClientRect();
-    let left = ev.clientX + pad;
-    let top = ev.clientY + pad;
-    if (left + rect.width > window.innerWidth - 8) left = ev.clientX - rect.width - pad;
-    if (top + rect.height > window.innerHeight - 8) top = ev.clientY - rect.height - pad;
-    imgPreviewHost.style.left = `${Math.max(8, left + window.scrollX)}px`;
-    imgPreviewHost.style.top = `${Math.max(8, top + window.scrollY)}px`;
-    imgPreviewHost.style.opacity = '1';
-  });
-
-  const hidePreview = () => {
-    previewActiveHref = null;
-    if (imgPreviewHost) {
-      // Remove loading state and any spinner
-      try { imgPreviewHost.classList.remove('loading'); } catch {}
-      try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
-      imgPreviewHost.style.display = 'none';
-      imgPreviewHost.style.opacity = '0';
-    }
-    // Abort in-flight image load
-    try { if (imgPreviewEl) { imgPreviewEl.src = ''; imgPreviewEl.onload = null; imgPreviewEl.onerror = null; } } catch {}
-    // Clear gallery state
-    try { galleryImages = null; galleryIndex = 0; } catch {}
-    galleryPreloadedImages = [];
-    galleryPreloadTriggered = false;
-    try { if (galleryDots && galleryDots.parentElement) galleryDots.parentElement.removeChild(galleryDots); } catch {}
-    galleryDots = null;
-    currentGalleryAnchor = null;
-  };
-  document.addEventListener('mouseout', (ev) => {
-    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
-    if (a && a.closest('.ri-text')) hidePreview();
-  });
-  document.addEventListener('scroll', () => hidePreview(), true);
-
-  const maybePrefetchOnAlbumScroll = (ev: Event, reason: string) => {
-    if (!galleryImages || galleryImages.length <= 1 || !currentGalleryAnchor) return;
-    const targetEl = ev.target as HTMLElement | null;
-    const anchor = targetEl?.closest('a[href]');
-    const interactingWithAlbumAnchor = anchor === currentGalleryAnchor;
-    const interactingWithPreview = !!(imgPreviewHost && targetEl && imgPreviewHost.contains(targetEl));
-    if (!interactingWithAlbumAnchor && !interactingWithPreview) return;
-    triggerGalleryPrefetch(reason);
-  };
-
-  document.addEventListener('wheel', (ev) => {
-    maybePrefetchOnAlbumScroll(ev, 'wheel');
-  }, { passive: true });
-
-  document.addEventListener('touchmove', (ev) => {
-    maybePrefetchOnAlbumScroll(ev, 'touchmove');
-  }, { passive: true });
-
-  // Keyboard navigation for gallery preview (arrow keys)
-  document.addEventListener('keydown', (ev) => {
-    if (!imgPreviewHost || imgPreviewHost.style.display === 'none') return;
-    if (!galleryImages || galleryImages.length <= 1) return;
-    
-    if (ev.key === 'ArrowLeft') {
-      ev.preventDefault();
-        // Navigate to previous image
-        galleryIndex = (galleryIndex - 1 + galleryImages.length) % galleryImages.length;
-        triggerGalleryPrefetch('keyboard');
-        if (imgPreviewEl) {
-          imgPreviewEl.src = galleryImages[galleryIndex];
-          imgPreviewEl.style.display = 'none';
-          if (imgPreviewHost) imgPreviewHost.classList.add('loading');
-          if (imgPreviewHost && imgPreviewSpinner && !imgPreviewHost.contains(imgPreviewSpinner)) {
-            imgPreviewHost.appendChild(imgPreviewSpinner);
-          }
-        }
-    } else if (ev.key === 'ArrowRight') {
-      ev.preventDefault();
-        // Navigate to next image
-        galleryIndex = (galleryIndex + 1) % galleryImages.length;
-        triggerGalleryPrefetch('keyboard');
-        if (imgPreviewEl) {
-          imgPreviewEl.src = galleryImages[galleryIndex];
-          imgPreviewEl.style.display = 'none';
-          if (imgPreviewHost) imgPreviewHost.classList.add('loading');
-          if (imgPreviewHost && imgPreviewSpinner && !imgPreviewHost.contains(imgPreviewSpinner)) {
-            imgPreviewHost.appendChild(imgPreviewSpinner);
-          }
-        }
-    } else if (ev.key === 'Escape') {
-      hidePreview();
-    }
-  });
-
-  // YouTube modal on click; multi-image albums open fullscreen gallery; single images open new tab
-  document.addEventListener('click', (ev) => {
-    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
-    if (!a) return;
-    if (!a.closest('.ri-text')) return;
-    const href = a.getAttribute('href') || '';
-    const ds = a.getAttribute('data-ri-images');
-    const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
-    // Preserve native behavior for all image/album links so right-click, open-in-new-tab etc. work.
-    if (isYouTubeLink(href)) {
-      ev.preventDefault();
-      const vid = extractYouTubeId(href);
-      if (!vid) return;
-      openYouTubeModal(vid);
-    } else if (multi && Array.isArray(multi) && multi.length > 0) {
-      // Intercept album clicks to open fullscreen modal
-      ev.preventDefault();
-      openImageGalleryModal(multi);
-    } else if (isImageLink(href)) {
-      // Force single image links into new tab for convenience
-      a.setAttribute('target', '_blank');
-      a.setAttribute('rel', 'noopener noreferrer');
-    }
-  });
-}
-
 function openImageGalleryModal(images: string[]): void {
-  // Hide preview tooltip first
-  if (imgPreviewHost) {
-    imgPreviewHost.style.display = 'none';
-  }
-
   // Create modal container
   const modal = document.createElement('div');
   modal.className = 'ri-fullscreen-modal';
@@ -562,13 +147,132 @@ function openYouTubeModal(videoId: string): void {
   app.mount(host);
 }
 
-async function loadDisplayMode(): Promise<void> {
-  try {
-    const data = await chrome.storage.local.get('display_mode');
-    const mode = (data && data['display_mode']) as DisplayMode | undefined;
-    if (mode === 'inline' || mode === 'popup') displayMode = mode;
-  } catch {}
+/**
+ * Set up listener for YouTube modal custom events from previewHandlers
+ */
+function setupYouTubeModalListener(): void {
+  window.addEventListener('crunchyroll-comments:youtube-modal', ((ev: CustomEvent) => {
+    const videoId = ev.detail?.videoId;
+    if (videoId) {
+      openYouTubeModal(videoId);
+    }
+  }) as EventListener);
 }
+
+/**
+ * Set up listener for gallery modal custom events from previewHandlers
+ */
+function setupGalleryModalListener(): void {
+  window.addEventListener('crunchyroll-comments:gallery-modal', ((ev: CustomEvent) => {
+    const images = ev.detail?.images;
+    if (images && Array.isArray(images)) {
+      openImageGalleryModal(images);
+    }
+  }) as EventListener);
+}
+
+function bootstrapContent(ctx: ContentScriptContext): void {
+  console.log('Crunchyroll Comments Revive extension loaded');
+  ensureToaster(ctx);
+
+  const { isWatchPage } = useWatchPageDetection();
+
+  if (isWatchPage(window.location.href)) {
+    queueHandleWatchPage(ctx);
+  }
+
+  ctx.addEventListener(window, 'wxt:locationchange', (event) => {
+    const newUrl = event.newUrl.href;
+    console.log('URL changed to:', newUrl);
+    if (isWatchPage(newUrl)) {
+      queueHandleWatchPage(ctx);
+    }
+  });
+
+  wirePreviewHandlers(ctx);
+  setupYouTubeModalListener();
+  setupGalleryModalListener();
+
+  ctx.onInvalidated(() => {
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+      debounceTimer = undefined;
+    }
+    if (activeObserver) {
+      try { activeObserver.disconnect(); } catch {}
+      activeObserver = null;
+    }
+    if (redditCommentsCleanup) {
+      try { redditCommentsCleanup(); } catch {}
+      redditCommentsCleanup = null;
+    }
+    teardownYouTubeInfiniteScroll();
+    animeInfo.clearCache();
+  });
+}
+
+function ensureToaster(ctx: ContentScriptContext): void {
+  const existing = document.getElementById('cr-comments-toaster');
+  if (existing) return;
+
+  const toastHost = document.createElement('div');
+  toastHost.id = 'cr-comments-toaster';
+  document.body.appendChild(toastHost);
+  const toastApp = createApp({ render: () => h(Toaster, { position: 'top-right', theme: 'dark', richColors: true }) });
+  toastApp.mount(toastHost);
+
+  ctx.onInvalidated(() => {
+    try { toastApp.unmount(); } catch {}
+    try { toastHost.remove(); } catch {}
+  });
+}
+
+// State to prevent duplicate searches/popups
+let searchInProgress = false;
+let debounceTimer: number | undefined;
+let lastAnimeInfo: { animeName: string; episodeName: string; releaseDate?: string } | null = null;
+let lastProcessedKey: string | null = null;
+let activeObserver: MutationObserver | null = null;
+
+// Composables
+const animeInfo = useAnimeInfo();
+const displayModeManager = useDisplayMode();
+
+// Store Reddit comments IntersectionObserver and cleanup function for provider switching
+let redditCommentsObserver: IntersectionObserver | null = null;
+let redditCommentsSentinel: HTMLElement | null = null;
+let redditCommentsCleanup: (() => void) | null = null;
+
+// Track YouTube infinite scroll artifacts so we can clean them up when switching providers
+let youtubeCommentsObserver: IntersectionObserver | null = null;
+let youtubeCommentsSentinel: HTMLElement | null = null;
+let youtubeCommentsCleanup: (() => void) | null = null;
+
+function teardownYouTubeInfiniteScroll(): void {
+  if (youtubeCommentsCleanup) {
+    try {
+      youtubeCommentsCleanup();
+    } catch (err) {
+      console.warn('[LoadingState] Error cleaning up YouTube infinite scroll:', err);
+    }
+  }
+  youtubeCommentsCleanup = null;
+  youtubeCommentsObserver = null;
+  youtubeCommentsSentinel = null;
+}
+
+// Track mounted Vue app instances for proper cleanup
+const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
+
+// Enable markdown debug logs by default (can be disabled via DevTools: window.RI_DEBUG_MARKDOWN=false)
+try {
+  if (!(window as any).RI_DEBUG_MARKDOWN) {
+    (window as any).RI_DEBUG_MARKDOWN = true;
+    console.info('[ri-markdown] Debug logging enabled');
+  }
+} catch {}
+
+// Display mode is now managed via WXT storage - use displayModeStorage.getValue()
 
 function queueHandleWatchPage(ctx: any) {
   if (debounceTimer) {
@@ -582,7 +286,6 @@ function queueHandleWatchPage(ctx: any) {
  */
 async function handleWatchPage(ctx: any): Promise<void> {
   console.log('On watch page, extracting anime info...');
-  await loadDisplayMode();
   
   // Try to get anime info immediately
   let animeInfo = getAnimeInfo();
@@ -2261,6 +1964,7 @@ function waitForDisqusLoad(callback: () => void): void {
  * Embed a Disqus thread respecting the display mode (popup or inline)
  */
 async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
+  const displayMode = await displayModeStorage.getValue();
   if (displayMode === 'inline') {
     embedDisqusThreadInline(thread, animeInfo);
   } else {
@@ -2481,6 +2185,7 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<boolean> {
 }
 
 async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
+  const displayMode = await displayModeStorage.getValue();
   if (displayMode === 'inline') {
     await displayInlineDiscussion(discussion);
   } else {
