@@ -535,6 +535,12 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     }
     searchInProgress = true;
     
+    // Clear discussion cache for new episode search
+    discussionCache.reddit = undefined;
+    discussionCache.disqus = undefined;
+    discussionCache.youtube = undefined;
+    discussionCache['reddit-youtube'] = undefined;
+    
     // Remove old comments section if present (when navigating between episodes)
     const oldComments = document.getElementById('reddit-inline-discussion');
     if (oldComments) {
