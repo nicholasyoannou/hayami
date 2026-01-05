@@ -27,3 +27,4 @@ web-ext.config.ts
 *.json
 _stashed_content.ts
 _stashed_reddit-inline.css
+/wxt-main
