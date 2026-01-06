@@ -22,6 +22,10 @@ import { isImageLink, isYouTubeLink, extractYouTubeId, proxifyImageUrl } from '@
 import { AnimeInfo } from './types';
 import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from './mapping';
 
+// New modular imports
+import { renderFlair as renderFlairBase, renderActions as renderActionsBase, triggerScoreAnimation } from './comments';
+import { formatYouTubeDate, formatYouTubeCommentText, getYouTubeAssetUrls } from './providers';
+
 let inlineDiscussionApp: VueApp | null = null;
 
 // Cache for discussion content by provider (not comments)
@@ -2617,55 +2621,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // ==================== Rendering Helpers ====================
     
-    /**
-     * Renders user flair badge with colors and emoji support
-     */
-    function renderFlair(comment: any): string {
-      if (!comment.author_flair_text) return '';
-      
-      const bgColor = comment.author_flair_background_color || '#343536';
-      let textColor = comment.author_flair_text_color === 'light' ? '#d7dadc' 
-                     : comment.author_flair_text_color === 'dark' ? '#1c1c1c' 
-                     : '#818384';
-      // Force white text on default gray background for contrast
-      const effectiveTextColor = (String(bgColor).toLowerCase() === '#343536') ? '#ffffff' : textColor;
-      let flairText = comment.author_flair_text;
-      
-      // Use richtext array if available (contains emoji objects)
-      if (Array.isArray(comment.author_flair_richtext) && comment.author_flair_richtext.length > 0) {
-        flairText = comment.author_flair_richtext.map((part: any) => {
-          if (part.e === 'emoji' && part.u) {
-            return `<img src="${part.u}" alt="${part.a || ''}" style="width:16px;height:16px;vertical-align:middle;display:inline-block;" />`;
-          }
-          if (part.t) {
-            return `<span style="color:${effectiveTextColor};">${escapeHtml(part.t)}</span>`;
-          }
-          return '';
-        }).join('');
-      } else {
-        // Fallback: parse text for :emoji: codes and URLs
-        const parts = String(flairText).split(/(:[A-Za-z0-9_+.-]+:|https?:\/\/\S+)/g);
-        flairText = parts.map(tok => {
-          if (!tok) return '';
-          const emojiMatch = tok.match(/^:([A-Za-z0-9_+.-]+):$/);
-          if (emojiMatch) {
-            const name = emojiMatch[1];
-            const url = emojiMap[name] || '';
-            if (url) {
-              return `<img src="${url}" alt=":${name}:" style="width:16px;height:16px;vertical-align:middle;display:inline-block;" />`;
-            }
-            return `<span style="color:${effectiveTextColor};">${escapeHtml(tok)}</span>`;
-          }
-          if (/^https?:\/\/\S+$/i.test(tok)) {
-            const safe = escapeHtml(tok);
-            return `<a href="${safe}" target="_blank" rel="noopener" style="color:${effectiveTextColor}; text-decoration:underline;">${safe}</a>`;
-          }
-          return `<span style="color:${effectiveTextColor};">${escapeHtml(tok)}</span>`;
-        }).join('');
-      }
-      
-      return `<span class="ri-badge" style="background:${bgColor};border-color:${bgColor};color:${effectiveTextColor};">${flairText}</span>`;
-    }
+    // Wrapper for imported renderFlair that passes the closure-captured emojiMap
+    const renderFlairLocal = (comment: any): string => renderFlairBase(comment, emojiMap);
 
     /**
      * If embed_images is enabled, convert standalone i.imgur.com lines to embedded image markdown.
@@ -2970,74 +2927,11 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       return changed;
     }
 
-    /**
-     * Renders comment actions bar with votes, reply, award, share
-     */
-    function renderActions(comment: any, awardsCount: number): string {
+    // Wrapper for imported renderActions that uses closure-captured discussion state
+    const renderActionsLocal = (comment: any, _awardsCount: number): string => {
       const isArchived = discussion.archived || discussion.locked;
-      const disabledClass = isArchived ? ' ri-disabled' : '';
-      const disabledTitle = isArchived ? ' (post is archived/locked)' : '';
-      // Inline SVG markup (outline versions) for better color control via CSS currentColor
-      // Include both outline and filled groups; CSS toggles which is visible based on vote state
-      const upSvg = `<svg class="ri-icon ri-icon-up" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <g><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10zM2.989 9.179H7.84v5.731c0 1.13.81 2.163 1.934 2.278a2.163 2.163 0 002.386-2.15V9.179h4.851L10 2.163 2.989 9.179z"></path></g>
-        <g class="filled"><path d="M10 19a3.966 3.966 0 01-3.96-3.962V10.98H2.838a1.731 1.731 0 01-1.605-1.073 1.734 1.734 0 01.377-1.895L9.364.254a.925.925 0 011.272 0l7.754 7.759c.498.499.646 1.242.376 1.894-.27.652-.9 1.073-1.605 1.073h-3.202v4.058A3.965 3.965 0 019.999 19H10z"></path></g>
-      </svg>`;
-      const downSvg = `<svg class="ri-icon ri-icon-down" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
-        <g><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1zm7.01 9.82h-4.85V5.09c0-1.13-.81-2.163-1.934-2.278a2.163 2.163 0 00-2.386 2.15v5.859H2.989l7.01 7.016 7.012-7.016z"></path></g>
-        <g class="filled"><path d="M10 1a3.966 3.966 0 013.96 3.962V9.02h3.202c.706 0 1.335.42 1.605 1.073.27.652.122 1.396-.377 1.895l-7.754 7.759a.925.925 0 01-1.272 0l-7.754-7.76a1.734 1.734 0 01-.376-1.894c.27-.652.9-1.073 1.605-1.073h3.202V4.962A3.965 3.965 0 0110 1z"></path></g>
-      </svg>`;
-      const replySvg = `<svg class="ri-icon ri-icon-reply" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 1a9 9 0 00-9 9c0 1.947.79 3.58 1.935 4.957L.231 17.661A.784.784 0 00.785 19H10a9 9 0 009-9 9 9 0 00-9-9zm0 16.2H6.162c-.994.004-1.907.053-3.045.144l-.076-.188a36.981 36.981 0 002.328-2.087l-1.05-1.263C3.297 12.576 2.8 11.331 2.8 10c0-3.97 3.23-7.2 7.2-7.2s7.2 3.23 7.2 7.2-3.23 7.2-7.2 7.2z"></path></svg>`;
-      const shareSvg = `<svg class="ri-icon ri-icon-share" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M12.8 17.524l6.89-6.887a.9.9 0 000-1.273L12.8 2.477a1.64 1.64 0 00-1.782-.349 1.64 1.64 0 00-1.014 1.518v2.593C4.054 6.728 1.192 12.075 1 17.376a1.353 1.353 0 00.862 1.32 1.35 1.35 0 001.531-.364l.334-.381c1.705-1.944 3.323-3.791 6.277-4.103v2.509c0 .667.398 1.262 1.014 1.518a1.638 1.638 0 001.783-.349v-.002zm-.994-1.548V12h-.9c-3.969 0-6.162 2.1-8.001 4.161.514-4.011 2.823-8.16 8-8.16h.9V4.024L17.784 10l-5.977 5.976z"></path></svg>`;
-      return `
-        <div class="ri-actions">
-          <div class="ri-votes">
-            <button class="ri-vote-btn ri-upvote${disabledClass}" data-state="idle" title="Upvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>${upSvg}</button>
-            <span class="ri-score">${Number(comment.score).toLocaleString()}</span>
-            <button class="ri-vote-btn ri-downvote${disabledClass}" data-state="idle" title="Downvote${disabledTitle}" ${isArchived ? 'disabled' : ''}>${downSvg}</button>
-          </div>
-          <button class="ri-action-btn ri-reply${disabledClass}" title="Reply${disabledTitle}">${replySvg}<span>Reply</span></button>
-          <button class="ri-action-btn ri-share-btn" title="Share">${shareSvg}<span>Share</span></button>
-          <!-- Removed ellipsis menu placeholder per request -->
-        </div>
-      `;
-    }
-
-    /**
-     * Trigger slide animation for vote buttons
-     * @param voteBtn - The vote button element to animate
-     * @param isUpvote - True for upvote (slide from top), false for downvote (slide from bottom)
-     */
-    function triggerScoreAnimation(voteBtn: HTMLElement, isUpvote: boolean) {
-      // Simple spring-like animation for vote button
-      const startY = isUpvote ? -10 : 10;
-      const startTime = performance.now();
-      const duration = 300;
-      
-      // Reset transform
-      voteBtn.style.transform = `translateY(${startY}px)`;
-      voteBtn.style.transition = 'none';
-      
-      const animate = (currentTime: number) => {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        
-        // Spring easing function (approximation)
-        const spring = 1 - Math.pow(1 - progress, 3);
-        const currentY = startY * (1 - spring);
-        
-        voteBtn.style.transform = `translateY(${currentY}px)`;
-        
-        if (progress < 1) {
-          requestAnimationFrame(animate);
-        } else {
-          voteBtn.style.transform = '';
-          voteBtn.style.transition = '';
-        }
-      };
-      
-      requestAnimationFrame(animate);
-    }
+      return renderActionsBase(comment, { isArchived, score: comment.score });
+    };
 
     function renderComments(list: any[], depth = 0, highlightIds: Set<string> = new Set()) {
       const frag = document.createDocumentFragment();
@@ -3053,7 +2947,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           el.classList.add('ri-new-comment');
         }
         const edited = c.edited ? ' ΓÇó Edited' : '';
-        const flair = renderFlair(c);
+        const flair = renderFlairLocal(c);
         const tsText = formatRedditDate(c.created_utc);
         const tsTitle = new Date(c.created_utc * 1000).toLocaleString();
         
@@ -3071,7 +2965,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               <span>${edited}</span>
             </div>
             <div class="ri-text"></div>
-            ${renderActions(c, awardsCount)}
+            ${renderActionsLocal(c, awardsCount)}
             <div class="ri-children"></div>
           </div>
         `;
