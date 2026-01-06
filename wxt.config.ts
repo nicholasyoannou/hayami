@@ -1,8 +1,9 @@
 import { defineConfig } from 'wxt';
-import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './config';
+import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './src/config';
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
+  srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
   manifest: {
     name: 'Hayami',

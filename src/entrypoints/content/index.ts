@@ -19,8 +19,8 @@ import { wirePreviewHandlers } from '@/utils/previewHandlers';
 import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo';
 import { displayModeStorage, useDisplayMode } from '@/composables/useDisplayMode';
 import { isImageLink, isYouTubeLink, extractYouTubeId, proxifyImageUrl } from '@/composables/useImagePreview';
-import { AnimeInfo } from './content/types';
-import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from './content/mapping';
+import { AnimeInfo } from './types';
+import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from './mapping';
 
 let inlineDiscussionApp: VueApp | null = null;
 
