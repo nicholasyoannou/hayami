@@ -13,7 +13,6 @@ import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
 import { Toaster, toast } from 'vue-sonner';
 import 'vue-sonner/style.css';
-import YouTubeModal from '@/components/YouTubeModal.vue';
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
 import { wirePreviewHandlers } from '@/utils/previewHandlers';
 import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo';
@@ -24,7 +23,10 @@ import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from './m
 
 // New modular imports
 import { renderFlair as renderFlairBase, renderActions as renderActionsBase, triggerScoreAnimation } from './comments';
-import { formatYouTubeDate, formatYouTubeCommentText, getYouTubeAssetUrls } from './providers';
+import { formatYouTubeDate, formatYouTubeCommentText } from './providers';
+import { showCommentsSkeletonLoading, removeCommentsSkeletonLoading, generateSkeletonHtml } from './ui';
+import { createOverlay, setupYouTubeModalListener, setupGalleryModalListener } from './ui';
+import { findExactDateMatch } from './utils';
 
 let inlineDiscussionApp: VueApp | null = null;
 
@@ -207,138 +209,6 @@ export default defineContentScript({
   },
 });
 
-function openImageGalleryModal(images: string[]): void {
-  // Create modal container
-  const modal = document.createElement('div');
-  modal.className = 'ri-fullscreen-modal';
-
-  // Close button
-  const closeBtn = document.createElement('button');
-  closeBtn.className = 'ri-fullscreen-close';
-  closeBtn.innerHTML = '├ù';
-  closeBtn.onclick = () => {
-    modal.remove();
-    document.body.style.overflow = '';
-  };
-
-  // Counter
-  const counter = document.createElement('div');
-  counter.className = 'ri-fullscreen-counter';
-
-  // Content container (scrollable)
-  const content = document.createElement('div');
-  content.className = 'ri-fullscreen-content';
-
-  // Convert to proxied URLs
-  const proxiedImages = images.map(u => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
-
-  // Add all images
-  proxiedImages.forEach((imgSrc, idx) => {
-    const img = document.createElement('img');
-    img.className = 'ri-fullscreen-image';
-    img.src = imgSrc;
-    img.alt = `Image ${idx + 1}`;
-    img.style.opacity = '0';
-    img.onload = () => {
-      img.style.transition = 'opacity 0.3s';
-      img.style.opacity = '1';
-    };
-    content.appendChild(img);
-  });
-
-  // Utilities for centering and tracking current image
-  const imagesEls = Array.from(content.querySelectorAll('.ri-fullscreen-image')) as HTMLImageElement[];
-
-  const getCenteredIndex = (): number => {
-    if (imagesEls.length === 0) return 0;
-    const mid = content.scrollTop + content.clientHeight / 2;
-    let bestIdx = 0;
-    let bestDist = Number.POSITIVE_INFINITY;
-    imagesEls.forEach((im, i) => {
-      const imgMid = im.offsetTop + im.clientHeight / 2;
-      const d = Math.abs(imgMid - mid);
-      if (d < bestDist) { bestDist = d; bestIdx = i; }
-    });
-    return bestIdx;
-  };
-
-  const centerOnIndex = (idx: number) => {
-    if (imagesEls.length === 0) return;
-    const i = Math.max(0, Math.min(imagesEls.length - 1, idx));
-    const target = imagesEls[i];
-    const y = Math.max(0, target.offsetTop - (content.clientHeight - target.clientHeight) / 2);
-    content.scrollTo({ top: y, behavior: 'smooth' });
-  };
-
-  // Update counter based on centered image
-  const updateCounter = () => {
-    const i = getCenteredIndex();
-    counter.textContent = `${i + 1} / ${imagesEls.length}`;
-  };
-
-  // Keyboard navigation (Up/Down/Left/Right) ΓÇö center next/previous image
-  const handleKeyDown = (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape') {
-      modal.remove();
-      document.body.style.overflow = '';
-      document.removeEventListener('keydown', handleKeyDown);
-    } else if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft') {
-      ev.preventDefault();
-      const i = getCenteredIndex();
-      centerOnIndex(i - 1);
-    } else if (ev.key === 'ArrowDown' || ev.key === 'ArrowRight') {
-      ev.preventDefault();
-      const i = getCenteredIndex();
-      centerOnIndex(i + 1);
-    }
-  };
-  document.addEventListener('keydown', handleKeyDown);
-
-  // Update counter on scroll
-  content.addEventListener('scroll', updateCounter);
-
-  // Assemble modal
-  modal.appendChild(closeBtn);
-  modal.appendChild(counter);
-  modal.appendChild(content);
-  document.body.appendChild(modal);
-  document.body.style.overflow = 'hidden';
-
-  // Initial counter update
-  updateCounter();
-}
-
-function openYouTubeModal(videoId: string): void {
-  const host = document.createElement('div');
-  document.body.appendChild(host);
-  const app = createApp(YouTubeModal, { videoId, onClose: () => { app.unmount(); host.remove(); } });
-  app.mount(host);
-}
-
-/**
- * Set up listener for YouTube modal custom events from previewHandlers
- */
-function setupYouTubeModalListener(): void {
-  window.addEventListener('crunchyroll-comments:youtube-modal', ((ev: CustomEvent) => {
-    const videoId = ev.detail?.videoId;
-    if (videoId) {
-      openYouTubeModal(videoId);
-    }
-  }) as EventListener);
-}
-
-/**
- * Set up listener for gallery modal custom events from previewHandlers
- */
-function setupGalleryModalListener(): void {
-  window.addEventListener('crunchyroll-comments:gallery-modal', ((ev: CustomEvent) => {
-    const images = ev.detail?.images;
-    if (images && Array.isArray(images) && images.length > 0) {
-      openImageGalleryModal(images);
-    }
-  }) as EventListener);
-}
-
 /**
  * Fetch anime data from r-anime-wiki-mapper service
  */
@@ -483,52 +353,6 @@ async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
     console.error('Error fetching Reddit post from URL:', error);
     return null;
   }
-}
-
-/**
- * Shows skeleton loading in the comments section area
- */
-function showCommentsSkeletonLoading(): HTMLElement | null {
-  // Remove existing skeleton if present
-  const existing = document.getElementById('ri-loading-skeleton');
-  if (existing) existing.remove();
-
-  const layout = document.querySelector('.erc-watch-episode-layout');
-  const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
-  if (!wrapper) {
-    return null; // Can't show inline skeleton if wrapper not found
-  }
-
-  const container = document.createElement('section');
-  container.id = 'ri-loading-skeleton';
-  container.innerHTML = `
-    <div class="ri-toolbar" style="opacity:0.5;">
-      <div class="ri-sort">Sort by: <select class="ri-sort-select" disabled><option>Best</option></select></div>
-      <div class="ri-search"><input type="search" placeholder="Search comments" class="ri-search-input" disabled/></div>
-    </div>
-    <div class="ri-header" style="opacity:0.5;">
-      <h3 class="ri-title" style="background:linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;height:20px;border-radius:4px;"></h3>
-    </div>
-    <div class="ri-meta" style="opacity:0.5;height:16px;background:linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:4px;margin:6px 0 12px;width:200px;"></div>
-    <div class="ri-comments"></div>
-  `;
-  
-  const commentsRoot = container.querySelector('.ri-comments') as HTMLElement;
-  // Show skeleton comments
-  commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
-    `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
-  )).join('');
-
-  wrapper.appendChild(container);
-  return container;
-}
-
-/**
- * Removes skeleton loading from comments section
- */
-function removeCommentsSkeletonLoading(): void {
-  const skeleton = document.getElementById('ri-loading-skeleton');
-  if (skeleton) skeleton.remove();
 }
 
 async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
@@ -679,46 +503,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
   } finally {
     searchInProgress = false;
   }
-}
-
-/**
- * Helper: Find a post that matches the exact release date (same day)
- */
-function findExactDateMatch(posts: any[], releaseDateText?: string): any | null {
-  if (!releaseDateText) return null;
-  
-  const releaseDate = parseReleaseDateFromCrunchyroll(releaseDateText);
-  if (!releaseDate) return null;
-  
-  for (const post of posts) {
-    const postDate = new Date(post.created_utc * 1000);
-    if (isSameDay(releaseDate, postDate)) {
-      return post;
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Parse Crunchyroll release date text into a Date object
- */
-function parseReleaseDateFromCrunchyroll(releaseDateText: string): Date | null {
-  if (!releaseDateText) return null;
-  const text = releaseDateText.replace(/\s+/g, ' ').trim();
-  let cleaned = text.replace(/^(released\s+on|aired\s+on|premieres?\s+on|available\s+on|release\s*date:?|air\s*date:?)/i, '').trim();
-  const parsed = Date.parse(cleaned);
-  if (!Number.isNaN(parsed)) return new Date(parsed);
-  return null;
-}
-
-/**
- * Check if two dates are on the same day (ignoring time)
- */
-function isSameDay(date1: Date, date2: Date): boolean {
-  return date1.getFullYear() === date2.getFullYear() &&
-         date1.getMonth() === date2.getMonth() &&
-         date1.getDate() === date2.getDate();
 }
 
 /**
@@ -1377,9 +1161,7 @@ async function renderYouTubeComments(
   teardownYouTubeInfiniteScroll();
 
   try {
-    const skeletonHtml = Array.from({ length: 6 }).map(() => (
-      `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
-    )).join('');
+    const skeletonHtml = generateSkeletonHtml(6);
     commentsRoot.innerHTML = skeletonHtml;
 
     console.log('Fetching YouTube comments for video ID:', videoId);
@@ -1430,41 +1212,6 @@ async function renderYouTubeComments(
     const dislikeIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/dislike.svg');
     const dislikeUFIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/dislikeUnfilled.svg');
     const expandIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/expand.svg');
-
-    // Format date helper
-    function formatYouTubeDate(dateString: string): string {
-      try {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffMs = now.getTime() - date.getTime();
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMs / 3600000);
-        const diffDays = Math.floor(diffMs / 86400000);
-        const diffWeeks = Math.floor(diffDays / 7);
-        const diffMonths = Math.floor(diffDays / 30);
-        const diffYears = Math.floor(diffDays / 365);
-
-        if (diffMins < 1) return 'just now';
-        if (diffMins < 60) return `${diffMins} minute${diffMins !== 1 ? 's' : ''} ago`;
-        if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-        if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-        if (diffWeeks < 4) return `${diffWeeks} week${diffWeeks !== 1 ? 's' : ''} ago`;
-        if (diffMonths < 12) return `${diffMonths} month${diffMonths !== 1 ? 's' : ''} ago`;
-        return `${diffYears} year${diffYears !== 1 ? 's' : ''} ago`;
-      } catch {
-        return dateString;
-      }
-    }
-
-    function formatYouTubeCommentText(text: string): string {
-      let html = escapeHtml(text);
-      const urlRegex = /(https?:\/\/[^\s<>"']+)/g;
-      html = html.replace(urlRegex, (url) => {
-        return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" style="color: #5ba8ff; text-decoration: underline;">${escapeHtml(url)}</a>`;
-      });
-      html = html.replace(/\n/g, '<br/>');
-      return html;
-    }
 
     function renderYouTubeComment(comment: any, depth: number = 0): string {
       const tsText = formatYouTubeDate(comment.publishedAt);
@@ -4042,24 +3789,6 @@ function handleWrongClick(): void {
   const crEpisodeNumStr = extractEpisodeNumber(lastAnimeInfo.episodeName || '');
   const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
   showManualSearchUI(lastAnimeInfo, crEpisodeNum);
-}
-
-/**
- * Creates the overlay container for the discussion panel
- */
-function createOverlay(): HTMLDivElement {
-  // Remove existing overlay if present
-  const existing = document.getElementById('reddit-discussion-overlay');
-  if (existing) {
-    existing.remove();
-  }
-  
-  const overlay = document.createElement('div');
-  overlay.id = 'reddit-discussion-overlay';
-  // Overlay styles now imported from content.css
-  
-  document.body.appendChild(overlay);
-  return overlay;
 }
 
 // Dedicated manual search prompt with auto-search-as-you-type
