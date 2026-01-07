@@ -5,6 +5,7 @@ import { getPostComments, getMoreChildren, type RedditComment as RedditCommentDa
 
 const props = defineProps<{
   discussionId: string;
+  linkFullname: string;
   subreddit?: string;
   isArchived?: boolean;
   isLocked?: boolean;
@@ -23,6 +24,7 @@ const isLoading = ref(true);
 const error = ref<string | null>(null);
 const currentSort = ref(props.initialSort || 'best');
 const highlightIds = ref<Set<string>>(new Set());
+const rootMoreIds = ref<string[]>([]);
 
 // Pagination state
 const pageSize = 20;
@@ -77,8 +79,9 @@ async function loadComments(sort: 'best' | 'top' | 'new' = 'best') {
   try {
     const result = await getPostComments(props.discussionId, sort);
     comments.value = result.comments || [];
+    rootMoreIds.value = Array.isArray(result.rootMoreChildrenIds) ? [...result.rootMoreChildrenIds] : [];
     renderedCount.value = Math.min(pageSize, comments.value.length);
-    hasMore.value = comments.value.length > renderedCount.value;
+    hasMore.value = comments.value.length > renderedCount.value || rootMoreIds.value.length > 0;
     emit('commentsLoaded', comments.value.length);
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load comments';
@@ -90,12 +93,36 @@ async function loadComments(sort: 'best' | 'top' | 'new' = 'best') {
 
 function loadMoreComments() {
   if (loadingMore.value || !hasMore.value) return;
-  
+
   loadingMore.value = true;
+
+  // First, extend within already-fetched comments
   const newCount = Math.min(renderedCount.value + pageSize, filteredComments.value.length);
   renderedCount.value = newCount;
-  hasMore.value = newCount < filteredComments.value.length;
-  loadingMore.value = false;
+
+  // If we've shown all currently fetched comments but still have root "more" IDs, fetch another batch
+  const outOfFetched = renderedCount.value >= filteredComments.value.length;
+  const hasRootMore = rootMoreIds.value.length > 0;
+
+  const maybeFetchRootMore = async () => {
+    if (!outOfFetched || !hasRootMore) return;
+    const chunk = rootMoreIds.value.slice(0, 20);
+    rootMoreIds.value = rootMoreIds.value.slice(20);
+    try {
+      const added = await getMoreChildren(props.linkFullname, chunk);
+      if (Array.isArray(added) && added.length > 0) {
+        comments.value = [...comments.value, ...added];
+        renderedCount.value = Math.min(comments.value.length, renderedCount.value + added.length);
+      }
+    } catch (err) {
+      console.warn('Failed to load more root comments:', err);
+    }
+  };
+
+  Promise.resolve(maybeFetchRootMore()).finally(() => {
+    hasMore.value = renderedCount.value < filteredComments.value.length || rootMoreIds.value.length > 0;
+    loadingMore.value = false;
+  });
 }
 
 function handleReply(comment: RedditCommentData) {
@@ -106,6 +133,39 @@ async function handleSortChange(sort: 'best' | 'top' | 'new') {
   if (sort === currentSort.value) return;
   currentSort.value = sort;
   await loadComments(sort);
+}
+
+async function loadMoreForComment(commentId: string) {
+  // Find comment by id
+  function find(list: RedditCommentData[]): RedditCommentData | null {
+    for (const c of list) {
+      if (c.id === commentId) return c;
+      if (c.replies) {
+        const found = find(c.replies);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  const target = find(comments.value);
+  if (!target || !target.moreChildrenIds || target.moreChildrenIds.length === 0) return;
+
+  const chunk = target.moreChildrenIds.slice(0, 20);
+  const remaining = target.moreChildrenIds.slice(20);
+
+  try {
+    const added = await getMoreChildren(props.linkFullname, chunk);
+    target.moreChildrenIds = remaining;
+    if (target.moreCount && target.moreCount > 0) {
+      target.moreCount = Math.max(0, target.moreCount - chunk.length);
+    }
+    target.replies = [...(target.replies || []), ...added];
+    // Trigger reactivity
+    comments.value = [...comments.value];
+  } catch (err) {
+    console.warn('Failed to load more children for comment', commentId, err);
+  }
 }
 
 // Infinite scroll
@@ -145,6 +205,7 @@ watch(() => props.initialSort, (newSort) => {
 defineExpose({
   loadComments,
   handleSortChange,
+  loadMoreForComment,
   addComment: (comment: RedditCommentData, parentId?: string) => {
     if (!parentId) {
       // Top-level comment
@@ -208,6 +269,7 @@ defineExpose({
         :is-locked="isLocked"
         :emoji-map="emojiMap"
         :highlight-ids="highlightIds"
+        :on-load-more="loadMoreForComment"
         @reply="handleReply"
       />
       

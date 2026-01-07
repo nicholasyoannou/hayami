@@ -1819,6 +1819,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           currentYouTubeVideo = null;
           currentYouTubeOrder = 'relevance';
           applyRedditSortOptions();
+
+          // Tear down any Disqus artifacts before showing Reddit again
+          document.querySelectorAll('script[src*="disqus-loader.js"]').forEach((script) => script.remove());
+          document.querySelectorAll('iframe[src*="disqus.com"]').forEach((iframe) => iframe.remove());
+          const disqusContainer = getExternalCommentsContainer();
+          if (disqusContainer) {
+            disqusContainer.innerHTML = '';
+            disqusContainer.style.display = 'none';
+          }
           
           // Clean up any existing observers
           if (redditCommentsCleanup) {
@@ -1834,6 +1843,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           // Note: Vue component already updated its provider state via handleProviderChange
           // which was triggered by the RiTopStrip @provider-change event before this callback
           console.log(`[LoadingState] Switching to Reddit - Vue already handling rendering`);
+          clearLoadingState('Switch back to Reddit');
         } else if ((provider === 'youtube' || provider === 'reddit-youtube') && lastAnimeInfo) {
           // Clean up Reddit infinite scroll observer if switching from Reddit
           if (redditCommentsCleanup) {
@@ -1985,7 +1995,21 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
             
             if (!commentsSection) {
-              console.error('[LoadingState] External comments container not found after waiting');
+              console.warn('[LoadingState] External container still missing; attempting to create fallback container');
+              const hostEl = document.getElementById('ri-inline-vue-host');
+              const commentsRoot = hostEl?.querySelector('.ri-comments') as HTMLElement | null;
+              if (commentsRoot) {
+                const fallback = document.createElement('div');
+                fallback.className = 'ri-external-comments';
+                fallback.style.display = 'block';
+                commentsRoot.appendChild(fallback);
+                commentsSection = fallback;
+                console.log('[LoadingState] Created fallback external container');
+              }
+            }
+            
+            if (!commentsSection) {
+              console.error('[LoadingState] External comments container not found after waiting, even after fallback');
               toast.error('Failed to load YouTube comments', {
                 description: 'Comments container not found',
               });

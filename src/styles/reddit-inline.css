@@ -338,12 +338,14 @@
   padding-left: 8px;
 }
 
-/* Left margin collapse line - ONE CONTINUOUS line from toggle to bottom */
+/* Left margin collapse line - extends from collapse button down through entire comment thread */
 .ri-comment.depth-0::before {
   content: "";
   position: absolute;
-  top: 20px; /* Start below toggle button */
-  bottom: -8px; /* Extend to bottom */
+  /* Trunk (upper segment): start just below avatar and stop before the icon */
+  top: 38px;
+  height: 12px; /* stop with padding before icon */
+  bottom: auto;
   left: 9px;
   width: 2px;
   background: #343536;
@@ -360,42 +362,89 @@
   bottom: 0;
 }
 
-/* When a top-level comment is collapsed, keep the solid line visible */
+/* When a top-level comment itself is collapsed, show a single gradient line with avatar swap */
 .ri-comment.depth-0.collapsed::before,
 .ri-comment.depth-0.ri-collapsed::before {
-  bottom: -12px; /* reduced extension for tighter spacing */
-  background: #343536;
+  top: 38px;           /* start at original trunk top */
+  bottom: -15px;       /* shorter extension toward the next avatar */
+  height: auto;        /* allow the top/bottom anchors to define length */
+  background: #343536; /* solid line; remove fade */
+  transition: background 0.15s ease, opacity 0.15s ease;
 }
 
 /* But if it's the last top-level comment, don't overshoot past the list */
-.ri-comment.depth-0.collapsed:last-child::before,
+.ri-comment.depth-0.collapsed:last-child::before {
+  bottom: 0;
+}
 .ri-comment.depth-0.ri-collapsed:last-child::before {
   bottom: 0;
 }
 
 /* Add extra gap only when a top-level comment is collapsed so the trunk
    extension doesn't run into the next avatar */
-.ri-comment.depth-0.collapsed,
+.ri-comment.depth-0.collapsed {
+  margin-bottom: 10px; /* give line space to reach the next comment */
+}
 .ri-comment.depth-0.ri-collapsed {
-  margin-bottom: 8px; /* reduced from 24px for tighter spacing */
+  margin-bottom: 10px;
 }
 
 /* Avoid extra tail space at the very end */
-.ri-comment.depth-0.collapsed:last-child,
+.ri-comment.depth-0.collapsed:last-child {
+  margin-bottom: 0;
+}
 .ri-comment.depth-0.ri-collapsed:last-child {
   margin-bottom: 0;
 }
 /* Remove extra extension for non-top-level lines to avoid overlap */
 
-/* Vertical trunk: no longer needed - using single continuous line via ::before */
+/* Vertical trunk: lower segment resumes below icon */
 .ri-comment.depth-0::after {
-  display: none;
+  content: "";
+  position: absolute;
+  left: 9px;
+  top: 66px; /* icon bottom (48px + 18px) with padding */
+  bottom: -8px;
+  width: 2px;
+  background: #343536;
+  z-index: 1;
+  pointer-events: none;
 }
 
-/* Trunk icon - HIDDEN, no longer used */
+/* Small icon placed on the trunk line for top-level comments */
 .ri-comment.depth-0 .ri-trunk-icon {
-  display: none;
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 0.5px; /* center smaller circle over 2px trunk */
+  top: 48px; /* position between upper/lower segments with padding */
+  z-index: 2;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgb(242, 244, 245);
+  border-radius: 50%;
+  background: transparent;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
+.ri-comment.depth-0 .ri-trunk-icon::after {
+  content: "";
+  width: 8px;
+  height: 2px;
+  background: rgb(242, 244, 245);
+  border-radius: 1px;
+}
+.ri-comment.depth-0 .ri-trunk-icon:hover { 
+  background: #2a2a2c; /* match reply hover */
+}
+.ri-comment.depth-0 .ri-trunk-icon:active { 
+  background: #3a3a3c;
+}
+.ri-comment.depth-0.collapsed .ri-trunk-icon,
+.ri-comment.depth-0.ri-collapsed .ri-trunk-icon { display: none; }
 
 /* But if it's the last top-level comment, don't overshoot past the list */
 .ri-comment.depth-0.collapsed:last-child::before {
@@ -421,7 +470,7 @@
   padding-left: 1px; /* final micro tightening */
 }
 
-/* Hide the old gutter-centered thread line for top-level comments only; use the centered trunk instead */
+/* Hide the gutter-centered thread line for top-level comments; use the trunk instead */
 .ri-comment.depth-0 .ri-threadline {
   display: none;
 }
@@ -431,7 +480,7 @@
   content: "";
   position: absolute;
   left: 9px;
-  top: 74px; /* icon top (52px) + icon size (20px) + gap (2px) */
+  top: 66px; /* match old DOM placement */
   bottom: -8px;
   width: 2px;
   background: #343536;
@@ -439,39 +488,15 @@
   pointer-events: none;
 }
 
-/* Small icon placed on the trunk line for top-level comments */
-.ri-comment.depth-0 .ri-trunk-icon {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  left: 0px; /* center circle over 2px trunk (line at 9px; circle center at 10px) */
-  top: 52px; /* position between upper/lower segments */
-  z-index: 2;
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid rgb(242, 244, 245);
-  border-radius: 50%;
-  background: rgba(0,0,0,0.3); /* subtle dark backdrop */
-  box-sizing: border-box;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-/* Trunk icon styles removed - no longer using trunk icon */
-
-/* Collapsed state - line stays visible, no opacity change */
+/* Use the collapsed ::before gradient defined above; make it subtle by default */
 .ri-comment.depth-0.collapsed::before,
-.ri-comment.depth-0.ri-collapsed::before { 
-  background: #343536; 
-}
-/* No ::after segment anymore */
+.ri-comment.depth-0.ri-collapsed::before { opacity: 1; }
+/* Do not render the lower segment while collapsed */
 .ri-comment.depth-0.collapsed::after,
 .ri-comment.depth-0.ri-collapsed::after { display: none; }
 /* On hover over the line area, brighten to guide re-open */
 .ri-comment.depth-0.collapsed.line-hover::before,
-.ri-comment.depth-0.ri-collapsed.line-hover::before { background: #818384; }
+.ri-comment.depth-0.ri-collapsed.line-hover::before { opacity: 1; background: #343536; }
 
 /* ==================== Gutter & Collapse Button ==================== */
 .ri-gutter {
@@ -483,11 +508,8 @@
   margin-right: 8px;
 }
 
-/* Reduce left gutter for top-level - but keep toggle visible */
-.ri-comment.depth-0 > .ri-gutter { 
-  width: auto;
-  margin-right: 4px;
-}
+/* Reduce left gutter for top-level once toggle is hidden */
+.ri-comment.depth-0 > .ri-gutter { width: 0; }
 
 /* For nested comments, keep gutter width */
 .ri-comment:not(.depth-0) > .ri-gutter {
@@ -495,29 +517,7 @@
 }
 
 /* Collapse button positioned over the vertical line */
-.ri-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  background: transparent;
-  color: #818384;
-  font-size: 14px;
-  font-weight: bold;
-  cursor: pointer;
-  padding: 0;
-  margin: 0;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.ri-toggle:hover {
-  color: #d7dadc;
-  background: #272729;
-  border-radius: 4px;
-}
+.ri-toggle { display: none !important; }
 
 /* Vertical line - visible from collapse button down through comment, changes color on hover with pointer */
 .ri-threadline {
@@ -533,6 +533,36 @@
 
 .ri-threadline:hover {
   background: #818384;
+}
+
+.ri-spine-hit {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -32px;
+  width: 48px; /* wider hit area to match the visible long line */
+  cursor: pointer;
+  z-index: 2;
+}
+
+.ri-threadline-hit {
+  position: absolute;
+  top: 0;
+  bottom: -8px;
+  left: 0;
+  width: 20px;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.ri-threadline-hit-root {
+  position: absolute;
+  top: 5px;
+  bottom: -8px;
+  left: 0;
+  width: 24px;
+  cursor: pointer;
+  z-index: 2;
 }
 
 /* ==================== Avatar ==================== */
@@ -555,10 +585,25 @@
 .ri-comment.depth-0 > .ri-avatar {
   width: 28px;
   height: 28px;
-  margin-left: 0; /* No negative margin when toggle is visible */
+  margin-left: -11px; /* final left shift; trunk at 3px passes through center */
 }
 
-/* Avatar styling - no filter when collapsed, keep original avatar visible */
+/* When collapsed, avatar shows expand.svg - style it to match icon color */
+.ri-comment.depth-0.collapsed > .ri-avatar {
+  filter: brightness(0) saturate(100%) invert(96%) sepia(1%) saturate(3179%) hue-rotate(175deg) brightness(99%) contrast(93%);
+  /* This filter converts any color to rgb(242, 244, 245) */
+}
+/* Collapsed placeholder circle (replaces avatar image) */
+.ri-avatar-collapsed-placeholder {
+  width: 28px;
+  height: 28px;
+  margin-left: -11px; /* align to trunk like top-level avatar */
+  border-radius: 50%;
+  border: none;
+  background: #8b8c90; /* solid grey fill like old DOM */
+  object-fit: contain;
+  filter: none;
+}
 
 /* ==================== Comment Body ==================== */
 .ri-body {
@@ -582,15 +627,39 @@
 }
 
 .ri-badge {
-  background: #343536 !important;
-  color: #818384;
+  display: inline-flex;
+  align-items: center;
+  gap: 0; /* no gaps between icons/text */
+  background: #343536;
+  color: inherit; /* allow inline color to control contrast */
   border: 1px solid #343536;
   border-radius: 2px;
   padding: 0px 4px;
-  font-size: 11px;
-  font-weight: 500;
   font-size: 10px;
   line-height: 16px;
+}
+
+/* Flair rendering (Vue path) — mirror badge styling so fill surrounds content */
+.ri-flair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0; /* no gaps between icons/text */
+  vertical-align: middle;
+  min-height: 16px;
+  padding: 0px 4px;
+  background: #343536;
+  color: inherit; /* let inline style set readable color */
+  border: 1px solid #343536;
+  border-radius: 2px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.ri-flair img {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .ri-timestamp {
@@ -604,6 +673,33 @@
   font-size: 14px;
   color: #d7dadc;
   margin-top: 2px;
+  padding-right: 12px; /* prevent text from running too close to the right edge */
+}
+
+/* Load more buttons */
+.ri-load-more {
+  margin: 6px 0 2px 12px;
+  padding: 6px 10px;
+  background: #1f1f1f;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #d7dadc;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ri-load-more:hover:not(:disabled) {
+  background: #2a2a2a;
+  border-color: #4a4a4a;
+  color: #fff;
+}
+
+.ri-load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 /* Flair emoji images - small inline icons */
@@ -1190,39 +1286,20 @@
 /* Children collapsed state - hide all child comments but keep the container visible for the spine line */
 .ri-children.children-collapsed > .ri-comment,
 .ri-children.children-collapsed > template {
-  display: none;
-}
-
-/* Spine hit area for Vue - invisible click target for collapsing children */
-.ri-spine-hit-area {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -32px;
-  width: 32px;
-  cursor: pointer;
-  z-index: 1;
+  display: block; /* disable collapse on long line */
 }
 
 .ri-children.children-collapsed::before {
-  background: #818384;
+  background: #343536; /* keep consistent spine color */
 }
 
-/* Collapsed indicator - shows fading line when children are collapsed */
 .ri-children.children-collapsed::after {
-  content: "";
-  position: absolute;
-  left: -7px; /* align indicator with new spine */
-  top: 0;
-  width: 4px; /* thicker line when collapsed */
-  height: 240px; /* much longer collapsed indicator (double previous) */
-  background: linear-gradient(to bottom, #818384, transparent);
-  pointer-events: none;
+  display: none;
 }
 
 .ri-children.children-collapsed {
-  min-height: 240px; /* match the new indicator height */
-  cursor: pointer;
+  min-height: 0;
+  cursor: default;
 }
 
 /* ==================== Spoilers & More Replies ==================== */

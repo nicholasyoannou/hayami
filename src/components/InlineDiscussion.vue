@@ -536,6 +536,7 @@ defineExpose({
           v-show="currentProvider === 'reddit' && !isLoading"
           :key="`reddit-${discussion.id}-${redditCommentsKey}`"
           :discussion-id="discussion.id"
+          :link-fullname="postFullname"
           :subreddit="discussion.subreddit"
           :is-archived="discussion.archived"
           :is-locked="discussion.locked"

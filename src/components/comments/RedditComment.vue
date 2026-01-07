@@ -12,7 +12,7 @@ const props = defineProps<{
   emojiMap?: Record<string, string>;
   highlightIds?: Set<string>;
   onReply?: (comment: RedditComment) => void;
-  onLoadMore?: (comment: RedditComment) => Promise<RedditComment[]>;
+  onLoadMore?: (commentId: string) => Promise<void>;
 }>();
 
 const emit = defineEmits<{
@@ -22,6 +22,9 @@ const emit = defineEmits<{
 
 const depth = computed(() => props.depth ?? 0);
 const isCollapsed = ref(false);
+const isLineHover = ref(false);
+const threadlineHit = ref<HTMLElement | null>(null);
+const rootEl = ref<HTMLElement | null>(null);
 const avatarUrl = ref<string | null>(null);
 const score = ref(props.comment.score);
 const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
@@ -33,14 +36,9 @@ const showReplies = ref(true);
 const localReplies = ref<RedditComment[]>(props.comment.replies || []);
 const shareLabel = ref('Share');
 const isShareCopied = ref(false);
-const isLineHover = ref(false);
-const childrenCollapsed = ref(false);
+const childrenHost = ref<HTMLElement | null>(null);
 const isSpineHover = ref(false);
-
-// Expand icon URL for collapsed state
-const expandIconUrl = computed(() => 
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/expand.svg') ?? 'assets/expand.svg'
-);
+const showExpandAvatar = computed(() => depth.value === 0 && isCollapsed.value);
 
 // Watch for external reply updates
 watch(() => props.comment.replies, (newReplies) => {
@@ -51,6 +49,9 @@ watch(() => props.comment.replies, (newReplies) => {
 
 const isDisabled = computed(() => props.isArchived || props.isLocked || props.comment.author === '[deleted]');
 const isHighlighted = computed(() => props.highlightIds?.has(props.comment.id) ?? false);
+const hasMoreChildren = computed(() => (props.comment.moreChildrenIds?.length || 0) > 0);
+const remainingChildrenCount = computed(() => props.comment.moreCount || props.comment.moreChildrenIds?.length || 0);
+const loadingMoreChildren = ref(false);
 
 const awardsCount = computed(() => {
   if (Array.isArray(props.comment.all_awardings)) {
@@ -150,73 +151,78 @@ onMounted(async () => {
 
 function toggleCollapse() {
   isCollapsed.value = !isCollapsed.value;
-  // Auto-highlight the line after toggling (depth 0 only)
-  if (depth.value === 0) {
-    isLineHover.value = true;
-  }
 }
 
-// Handle mouse move to detect hover over the line area (for depth-0 comments)
-function handleMouseMove(ev: MouseEvent) {
-  if (depth.value !== 0) return;
-  
-  const el = ev.currentTarget as HTMLElement;
-  const rect = el.getBoundingClientRect();
-  const mouseX = ev.clientX - rect.left;
-  
-  // Check if mouse is over the line area (wider zone: 4px to 20px)
-  if (mouseX > 4 && mouseX < 20) {
-    isLineHover.value = true;
-    el.style.cursor = 'pointer';
-  } else {
-    isLineHover.value = false;
-    el.style.cursor = '';
-  }
+// Handle hover over children spine
+function handleSpineEnter() {
+  isSpineHover.value = true;
+}
+function handleSpineLeave() {
+  isSpineHover.value = false;
 }
 
-function handleMouseLeave(ev: MouseEvent) {
+// Handle click on spine: collapse/expand all descendants under this line
+function handleChildrenClick(ev: MouseEvent) {
+  ev.stopPropagation();
+  const host = childrenHost.value;
+  if (!host) return;
+  const targets = host.querySelectorAll('.ri-comment');
+  if (targets.length === 0) return;
+  const shouldCollapse = !targets[0].classList.contains('collapsed');
+  targets.forEach((el) => el.classList.toggle('collapsed', shouldCollapse));
+}
+
+function isOnTrunkLine(ev: MouseEvent): boolean {
+  if (depth.value !== 0 || !rootEl.value) return false;
+  const rect = rootEl.value.getBoundingClientRect();
+  const x = ev.clientX - rect.left;
+  return x > 4 && x < 20 && ev.clientY >= rect.top && ev.clientY <= rect.bottom;
+}
+
+function handleRootMouseMove(ev: MouseEvent) {
+  if (depth.value !== 0 || !rootEl.value) return;
+  const overLine = isOnTrunkLine(ev);
+  isLineHover.value = overLine;
+  rootEl.value.style.cursor = overLine ? 'pointer' : '';
+}
+
+function handleRootMouseLeave() {
+  if (depth.value !== 0 || !rootEl.value) return;
   isLineHover.value = false;
-  const el = ev.currentTarget as HTMLElement;
-  el.style.cursor = '';
+  rootEl.value.style.cursor = '';
 }
 
-// Handle click on the comment element (for line area clicks on depth-0)
-function handleCommentClick(ev: MouseEvent) {
-  if (depth.value !== 0) return;
-  
-  const el = ev.currentTarget as HTMLElement;
-  const rect = el.getBoundingClientRect();
+function handleRootClick(ev: MouseEvent) {
+  if (depth.value !== 0 || !rootEl.value) return;
+  const rect = rootEl.value.getBoundingClientRect();
   const clickX = ev.clientX - rect.left;
-  
-  // Click on the trunk line area (4px to 20px) -> toggle
+  const collapsed = isCollapsed.value;
+
+  // Click on the trunk line area toggles collapse/expand
   if (clickX > 4 && clickX < 20) {
     ev.stopPropagation();
     toggleCollapse();
+    return;
   }
-  
-  // If collapsed and clicking anywhere to the right, expand
-  if (isCollapsed.value && clickX >= 20) {
+
+  // If collapsed, clicking anywhere to the right re-expands (matches old DOM behavior)
+  if (collapsed && clickX >= 20) {
     ev.stopPropagation();
-    isCollapsed.value = false;
+    toggleCollapse();
   }
 }
 
-// Toggle children collapsed state (for nested replies)
-function toggleChildrenCollapsed() {
-  childrenCollapsed.value = !childrenCollapsed.value;
-}
-
-// Handle spine area click (for children container)
-function handleSpineClick(ev: MouseEvent) {
-  ev.stopPropagation();
-  toggleChildrenCollapsed();
-}
-
-// Handle click on collapsed children area to expand
-function handleChildrenClick(ev: MouseEvent) {
-  if (childrenCollapsed.value) {
+// Handle clicks on the entire comment container:
+// - For depth 0, defer to handleRootClick (line-based toggle)
+// - For deeper comments, if currently collapsed, expand on click anywhere in the container
+function handleContainerClick(ev: MouseEvent) {
+  if (depth.value === 0) {
+    handleRootClick(ev);
+    return;
+  }
+  if (isCollapsed.value) {
     ev.stopPropagation();
-    childrenCollapsed.value = false;
+    toggleCollapse();
   }
 }
 
@@ -296,6 +302,16 @@ async function handleDownvote() {
   }
 }
 
+async function handleLoadMoreChildren() {
+  if (!props.onLoadMore || loadingMoreChildren.value) return;
+  loadingMoreChildren.value = true;
+  try {
+    await props.onLoadMore(props.comment.id);
+  } finally {
+    loadingMoreChildren.value = false;
+  }
+}
+
 function handleReply() {
   if (props.onReply) {
     props.onReply(props.comment);
@@ -358,32 +374,53 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
       { 'awarded': awardsCount > 0 },
       { 'ri-collapsed': isCollapsed },
       { 'ri-new-comment': isHighlighted },
-      { 'line-hover': isLineHover }
+      { 'line-hover': isLineHover && depth === 0 }
     ]"
     :data-comment-id="comment.id"
-    @mousemove="handleMouseMove"
-    @mouseleave="handleMouseLeave"
-    @click="handleCommentClick"
+    ref="rootEl"
+    @mousemove="handleRootMouseMove"
+    @mouseenter="handleRootMouseMove"
+    @mouseleave="handleRootMouseLeave"
+    @click="handleContainerClick"
   >
+    <div 
+      v-if="depth === 0" 
+      class="ri-trunk-icon" 
+      aria-hidden="true" 
+      @click.stop="toggleCollapse"
+    ></div>
+
     <div class="ri-gutter">
-      <button 
-        class="ri-toggle" 
-        :aria-label="isCollapsed ? 'Expand' : 'Collapse'"
-        :aria-expanded="!isCollapsed"
+      <div 
+        class="ri-threadline" 
+        :class="{ 'ri-threadline-root': depth === 0 }" 
+        aria-hidden="false"
+      ></div>
+      <div 
+        v-if="depth > 0"
+        class="ri-threadline-hit"
         @click.stop="toggleCollapse"
-      >
-        {{ isCollapsed ? '+' : '–' }}
-      </button>
-      <div class="ri-threadline" @click.stop="toggleCollapse"></div>
+      ></div>
+      <div 
+        v-else
+        class="ri-threadline-hit-root"
+        @click.stop="toggleCollapse"
+      ></div>
     </div>
     
+    <div 
+      v-if="showExpandAvatar" 
+      class="ri-avatar ri-avatar-placeholder ri-avatar-collapsed-placeholder" 
+      @click.stop="toggleCollapse"
+    ></div>
     <img 
-      v-if="avatarUrl" 
+      v-else-if="avatarUrl" 
       class="ri-avatar" 
       :src="avatarUrl" 
       alt="" 
+      @click.stop="toggleCollapse"
     />
-    <div v-else class="ri-avatar ri-avatar-placeholder"></div>
+    <div v-else class="ri-avatar ri-avatar-placeholder" @click.stop="toggleCollapse"></div>
     
     <div class="ri-body">
       <div class="ri-line1">
@@ -455,41 +492,47 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
         v-if="!isCollapsed && visibleReplies.length > 0" 
         class="ri-children"
         :class="{ 
-          'children-collapsed': childrenCollapsed,
-          'spine-hover': isSpineHover 
+          'spine-hover': isSpineHover
         }"
-        @click="handleChildrenClick"
+        ref="childrenHost"
       >
-        <!-- Spine hit area for clicking to collapse children -->
         <div 
-          class="ri-spine-hit-area"
-          @click.stop="handleSpineClick"
-          @mouseenter="isSpineHover = true"
-          @mouseleave="isSpineHover = false"
+          class="ri-spine-hit"
+          @mouseenter="handleSpineEnter"
+          @mouseleave="handleSpineLeave"
+          @click.stop="handleChildrenClick"
         ></div>
+
+        <RedditComment
+          v-for="reply in visibleReplies"
+          :key="reply.id"
+          :comment="reply"
+          :depth="depth + 1"
+          :is-archived="isArchived"
+          :is-locked="isLocked"
+          :emoji-map="emojiMap"
+          :highlight-ids="highlightIds"
+          :on-reply="onReply"
+          :on-load-more="onLoadMore"
+          @reply="(c) => emit('reply', c)"
+        />
         
-        <template v-if="!childrenCollapsed">
-          <RedditComment
-            v-for="reply in visibleReplies"
-            :key="reply.id"
-            :comment="reply"
-            :depth="depth + 1"
-            :is-archived="isArchived"
-            :is-locked="isLocked"
-            :emoji-map="emojiMap"
-            :highlight-ids="highlightIds"
-            :on-reply="onReply"
-            @reply="(c) => emit('reply', c)"
-          />
-          
-          <button 
-            v-if="hasMoreReplies"
-            class="ri-load-more"
-            @click.stop="showReplies = true"
-          >
-            Load {{ localReplies.length - visibleReplies.length }} more replies
-          </button>
-        </template>
+        <button 
+          v-if="hasMoreReplies"
+          class="ri-load-more"
+          @click.stop="showReplies = true"
+        >
+          {{ localReplies.length - visibleReplies.length }} more replies
+        </button>
+
+        <button
+          v-if="hasMoreChildren"
+          class="ri-load-more"
+          :disabled="loadingMoreChildren"
+          @click.stop="handleLoadMoreChildren"
+        >
+          {{ loadingMoreChildren ? 'Loading…' : `${remainingChildrenCount} more replies` }}
+        </button>
       </div>
     </div>
   </div>
@@ -501,5 +544,10 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
   height: 24px;
   border-radius: 50%;
   background: #333;
+}
+
+.ri-avatar-expand {
+  object-fit: contain;
+  background: transparent;
 }
 </style>
