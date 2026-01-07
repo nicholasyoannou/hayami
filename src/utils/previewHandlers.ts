@@ -16,19 +16,71 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   const add = ctx.addEventListener.bind(ctx);
 
   // Hover preview for image anchors in rendered comments
-  add(document, 'mouseover', (ev) => {
+  add(document, 'mouseover', async (ev) => {
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
     if (!a.closest('.ri-text')) return; // only inside comment bodies
     const href = a.getAttribute('href') || '';
-    const ds = a.getAttribute('data-ri-images');
-    const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
+    let ds = a.getAttribute('data-ri-images');
+    let multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
+    
+    // Debug logging
+    if (ds) {
+      console.debug('[preview] Album link detected:', href, 'data-ri-images:', ds, 'parsed:', multi);
+    }
+    
+    // If no data-ri-images but link is an imgur album, fetch it on-demand
+    if (!multi) {
+      const albumMatch = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
+      if (albumMatch) {
+        console.debug('[preview] Fetching album on-demand:', albumMatch[1]);
+        try {
+          const albumId = albumMatch[1];
+          let images: string[] = [];
+          
+          // Try GB proxy first
+          try {
+            const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
+            const r = await fetch(proxyUrl);
+            if (r.ok) {
+              const j = await r.json();
+              if (Array.isArray(j)) images = j.filter(Boolean).map(String);
+            }
+          } catch (e1) {
+            // Fall back to Imgur API
+            try {
+              const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
+              const r = await fetch(apiUrl, { headers: { Accept: 'application/json' } });
+              if (r.ok) {
+                const j = await r.json();
+                if (j?.data && Array.isArray(j.data.images)) {
+                  images = j.data.images.map((it: any) => it.link).filter(Boolean);
+                }
+              }
+            } catch (e2) {
+              console.warn('[preview] Failed to fetch album:', e2);
+            }
+          }
+          
+          if (images.length > 0) {
+            console.debug('[preview] Album resolved to', images.length, 'images');
+            multi = images;
+            // Cache it for future hovers
+            a.setAttribute('data-ri-images', JSON.stringify(images));
+          }
+        } catch (e) {
+          console.warn('[preview] Album fetch failed:', e);
+        }
+      }
+    }
+    
     if (!multi && !isImageLink(href)) return;
 
     preview.initializePreview(multi, href);
     preview.setupImageLoadHandlers();
 
     if (multi && Array.isArray(multi) && multi.length > 0) {
+      console.debug('[preview] Loading multi-image gallery with', multi.length, 'images');
       preview.loadMultiImage(multi);
     } else {
       preview.loadSingleImage(href);

@@ -649,7 +649,7 @@
   padding: 0px 4px;
   background: #343536;
   color: inherit; /* let inline style set readable color */
-  border: 1px solid #343536;
+  /* border: 1px solid #343536; */
   border-radius: 2px;
   font-size: 10px;
   line-height: 16px;

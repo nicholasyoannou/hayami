@@ -177,6 +177,8 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
   const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
   if (anchors.length === 0) return false;
 
+  console.debug('[imgur] maybeHandleImgurAlbums: checking', anchors.length, 'anchors');
+
   const uk = await detectUserInUK();
 
   for (const a of anchors) {
@@ -184,6 +186,7 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
     const m = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
     if (!m) continue;
     const albumId = m[1];
+    console.debug('[imgur] Found album:', albumId, 'in link:', href);
 
     try {
       let images: string[] = [];
@@ -208,6 +211,8 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
         }
       }
 
+      console.debug('[imgur] Album', albumId, 'resolved to', images.length, 'images:', images);
+
       if (images.length === 1) {
         const original = images[0];
         const prox = PROXY_PREFIX + encodeURIComponent(original);
@@ -220,6 +225,7 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
         // Hover logic will proxy when loading
         try {
           a.setAttribute('data-ri-images', JSON.stringify(images));
+          console.debug('[imgur] Set data-ri-images on album link:', a.href, 'with', images.length, 'images');
           changed = true;
         } catch {
           // ignore JSON errors

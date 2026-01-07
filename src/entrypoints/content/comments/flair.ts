@@ -5,6 +5,35 @@
 import { escapeHtml } from '@/utils/markdown';
 
 /**
+ * Calculate relative luminance of a color (0-1, where 0 is black, 1 is white)
+ * Uses WCAG formula: https://www.w3.org/TR/WCAG20/#relativeluminancedef
+ */
+function getRelativeLuminance(hexColor: string): number {
+  try {
+    const hex = hexColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16) / 255;
+    const g = parseInt(hex.substring(2, 4), 16) / 255;
+    const b = parseInt(hex.substring(4, 6), 16) / 255;
+
+    const adjust = (c: number) =>
+      c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+
+    return 0.2126 * adjust(r) + 0.7152 * adjust(g) + 0.0722 * adjust(b);
+  } catch {
+    return 0.5; // fallback to neutral
+  }
+}
+
+/**
+ * Determine if light text (white) should be used based on background color luminance
+ * Returns true if luminance is dark (< 0.5), false if luminance is light (>= 0.5)
+ */
+function shouldUseLightText(bgColor: string): boolean {
+  const luminance = getRelativeLuminance(bgColor);
+  return luminance < 0.5;
+}
+
+/**
  * Renders user flair badge with colors and emoji support
  */
 export function renderFlair(
@@ -14,6 +43,9 @@ export function renderFlair(
   if (!comment.author_flair_text) return '';
 
   const bgColor = comment.author_flair_background_color || '#343536';
+  
+  // Determine text color based on luminance
+  const useLightText = shouldUseLightText(bgColor);
   let textColor =
     comment.author_flair_text_color === 'light'
       ? '#d7dadc'
@@ -21,9 +53,8 @@ export function renderFlair(
         ? '#1c1c1c'
         : '#818384';
   
-  // Force white text on default gray background for contrast
-  const effectiveTextColor =
-    String(bgColor).toLowerCase() === '#343536' ? '#ffffff' : textColor;
+  // Override with smart contrast logic: use luminance-based color selection
+  const effectiveTextColor = useLightText ? '#ffffff' : '#1c1c1c';
   
   let flairText = comment.author_flair_text;
 

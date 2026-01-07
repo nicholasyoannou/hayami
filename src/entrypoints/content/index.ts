@@ -2369,6 +2369,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
       if (anchors.length === 0) return false;
 
+      console.debug('[imgur-inline] maybeHandleImgurAlbums: checking', anchors.length, 'anchors');
+
       const uk = await detectUserInUK();
 
       for (const a of anchors) {
@@ -2376,6 +2378,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         const m = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
         if (!m) continue;
         const albumId = m[1];
+        console.debug('[imgur-inline] Found album:', albumId, 'in link:', href);
         try {
           let images: string[] = [];
           if (uk) {
@@ -2399,6 +2402,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
           }
 
+          console.debug('[imgur-inline] Album', albumId, 'resolved to', images.length, 'images:', images);
+
           if (images.length === 1) {
             const original = images[0];
             const prox = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(original)}`;
@@ -2411,6 +2416,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             try {
               // Store raw image URLs on data attribute; hover logic will proxy when loading
               a.setAttribute('data-ri-images', JSON.stringify(images));
+              console.debug('[imgur-inline] Set data-ri-images on album link:', a.href, 'with', images.length, 'images');
               // Preserve original album href so status bar shows the real album link
               // Click behavior (fullscreen modal) is handled elsewhere and remains unchanged
               changed = true;
