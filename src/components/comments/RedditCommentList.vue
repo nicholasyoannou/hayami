@@ -1,19 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
-import { getPostComments, getMoreChildren } from '@/utils/redditApi';
-
-interface RedditCommentData {
-  id: string;
-  author: string;
-  body: string;
-  score: number;
-  created_utc: number;
-  edited?: boolean | number;
-  likes?: boolean | null;
-  replies?: RedditCommentData[];
-  [key: string]: any;
-}
+import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData } from '@/utils/redditApi';
 
 const props = defineProps<{
   discussionId: string;
@@ -280,4 +268,3 @@ defineExpose({
   padding: 1rem 0;
 }
 </style>
-</script>

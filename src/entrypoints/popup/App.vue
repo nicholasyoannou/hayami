@@ -28,6 +28,7 @@ const displayMode = ref<'popup' | 'inline'>('popup');
 const embedImages = ref<boolean>(false);
 const commentsProvider = ref<'reddit' | 'disqus'>('reddit');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
+const useVueRendering = ref<boolean>(true);
 
 // Check authentication status on mount
 onMounted(async () => {
@@ -36,6 +37,7 @@ onMounted(async () => {
   await loadDisplayMode();
   await loadCommentsProvider();
   await loadNoCommentsMode();
+  await loadVueRenderingSetting();
 });
 
 async function checkAuthStatus() {
@@ -128,6 +130,21 @@ async function updateNoCommentsMode(mode: 'popup' | 'inline') {
   await chrome.storage.local.set({ no_comments_mode: mode });
   successMessage.value = mode === 'popup' ? 'No comments mode set to Popup' : 'No comments mode set to Inline selection';
   setTimeout(() => successMessage.value = null, 1500);
+}
+
+async function loadVueRenderingSetting() {
+  try {
+    const data = await chrome.storage.local.get('use_vue_rendering');
+    // Default to true (Vue rendering) if not set
+    useVueRendering.value = data?.use_vue_rendering !== false;
+  } catch {}
+}
+
+async function updateVueRendering(enabled: boolean) {
+  useVueRendering.value = enabled;
+  await chrome.storage.local.set({ use_vue_rendering: enabled });
+  successMessage.value = enabled ? 'Using new Vue rendering (reload page to apply)' : 'Using classic DOM rendering (reload page to apply)';
+  setTimeout(() => successMessage.value = null, 2000);
 }
 
 async function handleLogin() {
@@ -332,6 +349,15 @@ function openGoogleSettings() {
               <label><input type="radio" name="commentsProvider" value="disqus" :checked="commentsProvider==='disqus'" @change="() => updateCommentsProvider('disqus')"> Disqus</label>
             </div>
             <p class="small-note">Choose which provider to embed for episode discussions.</p>
+          </div>
+
+          <div style="margin-top:12px;">
+            <h4>Reddit rendering mode</h4>
+            <div class="radio-row">
+              <label><input type="radio" name="renderingMode" value="vue" :checked="useVueRendering" @change="() => updateVueRendering(true)"> New (Vue components)</label>
+              <label><input type="radio" name="renderingMode" value="dom" :checked="!useVueRendering" @change="() => updateVueRendering(false)"> Classic (DOM-based)</label>
+            </div>
+            <p class="small-note">New Vue mode has improved comment rendering. Classic mode uses the original implementation. Reload the page after changing.</p>
           </div>
         </div>
 

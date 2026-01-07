@@ -74,6 +74,44 @@ function teardownYouTubeInfiniteScroll(): void {
   youtubeCommentsSentinel = null;
 }
 
+/**
+ * Get the appropriate container for external (non-Vue) comment providers (Disqus/YouTube).
+ * Returns the .ri-external-comments element from the Vue component.
+ * This container always exists in the DOM (hidden with display:none when not active).
+ */
+function getExternalCommentsContainer(): HTMLElement | null {
+  // 1) Prefer Vue exposed handle (works even if DOM query misses)
+  if (inlineDiscussionApp && inlineDiscussionApp._instance) {
+    try {
+      const instance = inlineDiscussionApp._instance;
+      if (instance && instance.exposed && typeof instance.exposed.getExternalCommentsElement === 'function') {
+        const container = instance.exposed.getExternalCommentsElement();
+        if (container) {
+          console.log('[getExternalCommentsContainer] Got container from Vue exposed method');
+          return container as HTMLElement;
+        }
+      }
+    } catch (e) {
+      console.warn('[getExternalCommentsContainer] Failed to get from Vue:', e);
+    }
+  }
+
+  // 2) Direct DOM queries (both scoped and global) as fallback
+  const scoped = document.querySelector('#ri-inline-vue-host .ri-external-comments') as HTMLElement;
+  if (scoped) {
+    console.log('[getExternalCommentsContainer] Got container via scoped DOM query');
+    return scoped;
+  }
+  const globalContainer = document.querySelector('.ri-external-comments') as HTMLElement;
+  if (globalContainer) {
+    console.log('[getExternalCommentsContainer] Got container via global DOM query');
+    return globalContainer;
+  }
+
+  console.warn('[getExternalCommentsContainer] No container found');
+  return null;
+}
+
 // Track mounted Vue app instances for proper cleanup
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
 
@@ -414,13 +452,14 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
           }
           // No exact match found ΓÇö offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
-          const shouldFallback = await showDisqusSearchUI(animeInfo);
-          if (!shouldFallback) {
-            // user either embedded a thread or dismissed search; stop here
+          const disqusResult = await showDisqusSearchUI(animeInfo);
+          if (disqusResult === 'embedded') {
+            // user embedded a thread; stop here
             removeCommentsSkeletonLoading();
             return;
           }
-          // Continue with Reddit search - skeleton will be removed when Reddit discussion is shown or no discussion found
+          // User dismissed or clicked fallback - continue with Reddit search
+          // Skeleton will be removed when Reddit discussion is shown or no discussion found
         } catch (e) {
           console.warn('Disqus lookup failed, falling back to Reddit', e);
         }
@@ -1014,7 +1053,7 @@ function embedDisqusThreadPopup(thread: any, animeInfo: AnimeInfo): void {
  * Show a manual Disqus search UI. Returns `true` if caller should fallback to Reddit,
  * or `false` if user embedded a Disqus thread or dismissed without falling back.
  */
-async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<boolean> {
+async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'dismissed' | 'embedded'> {
   const overlay = createOverlay();
   overlay.innerHTML = `
     <div class="reddit-discussion-panel">
@@ -1036,13 +1075,14 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<boolean> {
   const useRedditBtn = overlay.querySelector('#use-reddit-btn') as HTMLButtonElement | null;
   const listHost = overlay.querySelector('#disqus-choice-list') as HTMLElement | null;
 
-  let resolved = false;
+  let result: 'fallback' | 'dismissed' | 'embedded' = 'dismissed';
 
   closeBtn?.addEventListener('click', () => {
+    result = 'dismissed';
     overlay.remove();
   });
   useRedditBtn?.addEventListener('click', () => {
-    resolved = true; // signal fallback to Reddit
+    result = 'fallback';
     overlay.remove();
   });
 
@@ -1069,10 +1109,10 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<boolean> {
 
     if (!threads || threads.length === 0) {
       if (listHost) listHost.innerHTML = `<li class="choice-item">No Disqus threads found in channel-discussanime.</li>`;
-      return new Promise<boolean>((res) => {
+      return new Promise<'fallback' | 'dismissed' | 'embedded'>((res) => {
         // wait for user to click Use Reddit or close
         const i = setInterval(() => {
-          if (overlay.parentElement === null) { clearInterval(i); res(resolved); }
+          if (overlay.parentElement === null) { clearInterval(i); res(result); }
         }, 200);
       });
     }
@@ -1093,20 +1133,20 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<boolean> {
           if (t) {
             await embedDisqusThreadDependingOnMode(t, animeInfo);
             overlay.remove();
-            resolved = false;
+            result = 'embedded';
           }
         });
       });
     }
 
-    return new Promise<boolean>((res) => {
+    return new Promise<'fallback' | 'dismissed' | 'embedded'>((res) => {
       const i = setInterval(() => {
-        if (overlay.parentElement === null) { clearInterval(i); res(resolved); }
+        if (overlay.parentElement === null) { clearInterval(i); res(result); }
       }, 200);
     });
   } catch (e) {
     console.warn('Disqus manual search failed', e);
-    return true; // fallback to reddit
+    return 'fallback'; // fallback to reddit
   }
 }
 
@@ -1170,35 +1210,30 @@ async function renderYouTubeComments(
     const totalComments = commentsResult.pageInfo?.totalResults || comments.length;
     let nextPageToken = commentsResult.nextPageToken;
 
-    // Update header for YouTube - replace Reddit header with YouTube header
-    const existingDiscussion = document.getElementById('reddit-inline-discussion');
-    if (existingDiscussion) {
-      const header = existingDiscussion.querySelector('.ri-header');
-      if (header) {
-        const youtubeUrl = `https://www.youtube.com/watch?v=${videoIdForUrl || videoId}`;
-        const replyIconUrl = chrome.runtime.getURL('assets/commentAssets/reply.svg');
-        
-        header.innerHTML = `
-          <div class="ri-title-row pt-1">
-            <h3 class="ri-title">${escapeHtml(videoTitle)}</h3>
-            <a class="ri-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener">
-              Open on YouTube
-            </a>
+    // Create YouTube header HTML to be included in the external container
+    const youtubeUrl = `https://www.youtube.com/watch?v=${videoIdForUrl || videoId}`;
+    const replyIconUrl = chrome.runtime.getURL('assets/commentAssets/reply.svg');
+    const youtubeHeaderHtml = `
+      <div class="ri-header" style="margin-bottom: 12px;">
+        <div class="ri-title-row pt-1">
+          <h3 class="ri-title">${escapeHtml(videoTitle)}</h3>
+          <a class="ri-link" href="${escapeHtml(youtubeUrl)}" target="_blank" rel="noopener">
+            Open on YouTube
+          </a>
+        </div>
+        <div class="ri-meta">
+          <div class="ri-post-actions">
+            <button class="ri-action-bubble" disabled style="cursor: default;">
+              <img class="ri-action-icon" src="${replyIconUrl}" alt="comments" />
+              ${totalComments.toLocaleString()}
+            </button>
           </div>
-          <div class="ri-meta">
-            <div class="ri-post-actions">
-              <button class="ri-action-bubble" disabled style="cursor: default;">
-                <img class="ri-action-icon" src="${replyIconUrl}" alt="comments" />
-                ${totalComments.toLocaleString()}
-              </button>
-            </div>
-          </div>
-        `;
-      }
-    }
+        </div>
+      </div>
+    `;
 
     if (comments.length === 0) {
-      commentsRoot.innerHTML = `
+      commentsRoot.innerHTML = youtubeHeaderHtml + `
         <div style="padding: 2rem; text-align: center; color: #888;">
           <p>No comments found for this video.</p>
         </div>
@@ -1401,7 +1436,8 @@ async function renderYouTubeComments(
       return slice.length > 0;
     };
 
-    commentsRoot.innerHTML = '';
+    // Clear and add YouTube header first, then render comments
+    commentsRoot.innerHTML = youtubeHeaderHtml;
     renderFromLoaded();
 
     const hasMorePotential = renderedCount < loadedComments.length || !!nextPageToken;
@@ -1545,13 +1581,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // Helper function to clear loading state
     const clearLoadingState = (context: string = 'unknown') => {
-      console.log(`[LoadingState] clearLoadingState called from: ${context}`);
-      console.log(`[LoadingState] inlineDiscussionApp exists:`, !!inlineDiscussionApp);
-      console.log(`[LoadingState] componentInstance exists:`, !!componentInstance);
+      console.log('=== [ClearLoadingState] START ===');
+      console.log(`Context: ${context}`);
+      console.log(`inlineDiscussionApp exists:`, !!inlineDiscussionApp);
+      console.log(`componentInstance exists:`, !!componentInstance);
       
       // Try multiple ways to access the component instance
       if (!componentInstance && inlineDiscussionApp) {
         const vueHost = document.getElementById('ri-inline-vue-host');
+        console.log('Vue host element found:', !!vueHost);
         if (vueHost) {
           // Method 1: Try accessing through Vue's internal structure
           const vueApp = inlineDiscussionApp as any;
@@ -1560,7 +1598,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             // Vue 3 stores component instance in the container's vnode
             if (container._vnode && container._vnode.component) {
               componentInstance = container._vnode.component;
-              console.log(`[LoadingState] Found component instance via _vnode.component`);
+              console.log(`✓ Found component instance via _vnode.component`);
             }
           }
           
@@ -1573,33 +1611,39 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           // Method 3: Try accessing through app's _instance
           if (!componentInstance && vueApp._instance) {
             componentInstance = vueApp._instance;
-            console.log(`[LoadingState] Found component instance via _instance`);
+            console.log(`✓ Found component instance via _instance`);
           }
         }
       }
       
-      if (componentInstance && componentInstance.exposed) {
-        console.log(`[LoadingState] componentInstance.exposed exists`);
-        try {
-          if (typeof componentInstance.exposed.clearLoading === 'function') {
-            console.log(`[LoadingState] Calling clearLoading()...`);
-            componentInstance.exposed.clearLoading();
-            console.log(`[LoadingState] clearLoading() called successfully`);
-          } else {
-            console.warn(`[LoadingState] clearLoading is not a function. Type:`, typeof componentInstance.exposed.clearLoading);
-            console.warn(`[LoadingState] Available exposed methods:`, Object.keys(componentInstance.exposed || {}));
+      console.log('About to call clearLoading in 100ms...');
+      // Small delay to ensure DOM mutations are settled
+      setTimeout(() => {
+        console.log('[ClearLoadingState] Timeout fired, checking component...');
+        if (componentInstance && componentInstance.exposed) {
+          console.log(`✓ componentInstance.exposed exists`);
+          try {
+            if (typeof componentInstance.exposed.clearLoading === 'function') {
+              console.log(`[ClearLoadingState] Calling clearLoading()...`);
+              componentInstance.exposed.clearLoading();
+              console.log(`✓ clearLoading() called successfully`);
+            } else {
+              console.warn(`✗ clearLoading is not a function. Type:`, typeof componentInstance.exposed.clearLoading);
+              console.warn(`Available exposed methods:`, Object.keys(componentInstance.exposed || {}));
+            }
+          } catch (e) {
+            console.error(`✗ Error clearing loading state:`, e);
+            console.error(`Error stack:`, e instanceof Error ? e.stack : 'No stack');
           }
-        } catch (e) {
-          console.error(`[LoadingState] Error clearing loading state:`, e);
-          console.error(`[LoadingState] Error stack:`, e instanceof Error ? e.stack : 'No stack');
+        } else {
+          console.warn(`✗ componentInstance or exposed is missing`);
+          console.warn(`  componentInstance:`, componentInstance);
+          if (componentInstance) {
+            console.warn(`  componentInstance keys:`, Object.keys(componentInstance));
+          }
         }
-      } else {
-        console.warn(`[LoadingState] componentInstance or exposed is missing`);
-        console.warn(`[LoadingState] componentInstance:`, componentInstance);
-        if (componentInstance) {
-          console.warn(`[LoadingState] componentInstance keys:`, Object.keys(componentInstance));
-        }
-      }
+        console.log('=== [ClearLoadingState] END ===');
+      }, 100); // Small delay to let DOM settle
     };
 
     const applyRedditSortOptions = () => {
@@ -1626,9 +1670,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     };
 
     const providerChangeCallback = async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube') => {
+        console.log('=== [ProviderChangeCallback] START ===');
         activeProvider = provider;
-        console.log('Content script received providerChange:', provider, 'lastAnimeInfo:', lastAnimeInfo);
-        console.log(`[LoadingState] Provider change started: ${provider}`);
+        console.log('Provider change callback received:', provider);
+        console.log('lastAnimeInfo:', lastAnimeInfo);
+        console.log(`Provider change started: ${provider}`);
+        console.log('Calling teardownYouTubeInfiniteScroll()');
         
         // Always clear any existing YouTube observers/sentinels before switching providers
         teardownYouTubeInfiniteScroll();
@@ -1655,205 +1702,115 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             redditCommentsSentinel = null;
           }
           
-          // Clear Reddit comments FIRST before showing skeleton
-          console.log(`[LoadingState] Clearing Reddit comments before switching to Disqus...`);
-          const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
-          if (commentsRoot) {
-            commentsRoot.innerHTML = '';
-            console.log(`[LoadingState] Reddit comments cleared`);
-          }
-          
-          // Also clear any Reddit-specific content in #reddit-inline-discussion
-          const existingDiscussion = document.getElementById('reddit-inline-discussion');
-          if (existingDiscussion) {
-            // Clear the comments content but keep the structure
-            const redditComments = existingDiscussion.querySelector('.ri-comments');
-            if (redditComments) {
-              redditComments.innerHTML = '';
-            }
-            // Clear any other Reddit-specific content
-            const redditToolbar = existingDiscussion.querySelector('.ri-toolbar');
-            if (redditToolbar) {
-              redditToolbar.remove();
-            }
-          }
-          
-          // NOW show skeleton loading after clearing Reddit comments
-          console.log(`[LoadingState] Provider change started: ${provider}`);
-          if (commentsRoot) {
-            commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
-              `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
-            )).join('');
-            console.log(`[LoadingState] Skeleton loading shown`);
-          } else {
-            console.warn(`[LoadingState] Comments root not found for skeleton`);
-          }
           console.log('Switching to Disqus, finding thread for:', lastAnimeInfo);
+          
+          // Note: Vue component already updated its provider state via handleProviderChange
+          // which was triggered by the RiTopStrip @provider-change event before this callback
+          
+          // Helper to render Disqus thread into the external comments container
+          const renderDisqusThread = async (thread: any) => {
+            console.log('[DisqusRender] Starting renderDisqusThread');
+            // Wait for external comments container to be available (Vue might still be rendering)
+            let externalContainer: HTMLElement | null = null;
+            for (let i = 0; i < 50; i++) {
+              console.log(`[DisqusRender] Attempt ${i+1}/50 to find external container...`);
+              externalContainer = getExternalCommentsContainer();
+              if (externalContainer) {
+                console.log('[DisqusRender] ✓ External comments container found after', i, 'attempts');
+                console.log('[DisqusRender] Container HTML before:', externalContainer.innerHTML.substring(0, 100));
+                break;
+              }
+              await new Promise(resolve => setTimeout(resolve, 50));
+            }
+            
+            if (!externalContainer) {
+              console.log('[DisqusRender] ✗ External comments container NOT found after 50 attempts');
+            }
+            
+            if (!externalContainer) {
+              console.log('[DisqusRender] ✗ External comments container NOT found, using popup fallback');
+              embedDisqusThreadPopup(thread, lastAnimeInfo);
+              clearLoadingState('Disqus popup fallback');
+              return;
+            }
+            
+            const title = thread.clean_title || thread.title || `${lastAnimeInfo?.animeName || 'Anime'} discussion`;
+            const threadUrl = thread.link || '';
+            const identifier = String(thread.id || thread.identifier || '');
+            const forumShortname = thread.forum || 'channel-discussanime';
+            const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
+            
+            console.log('[DisqusRender] Rendering Disqus content:');
+            console.log('  Title:', title);
+            console.log('  Forum:', forumShortname);
+            console.log('  URL:', threadUrl);
+            
+            // Render Disqus content into the external container
+            externalContainer.innerHTML = `
+              <div class="ri-header" style="margin-bottom: 12px;">
+                <h2 class="ri-title" style="font-size: 18px; margin: 0;">💬 ${escapeHtml(title)}</h2>
+                <div class="ri-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
+              </div>
+              <div id="disqus_thread"></div>
+            `;
+            console.log('[DisqusRender] Disqus HTML injected into container');
+            
+            // Inject Disqus script
+            const script = document.createElement('script');
+            script.src = chrome.runtime.getURL('disqus-loader.js');
+            script.async = true;
+            script.setAttribute('data-thread-url', threadUrl);
+            script.setAttribute('data-identifier', identifier);
+            script.setAttribute('data-forum', forumShortname);
+            script.setAttribute('data-title', title);
+            script.setAttribute('data-slug', threadSlug);
+            console.log('[DisqusRender] Appending disqus-loader.js script');
+            (document.head || document.body).appendChild(script);
+            
+            // Wait for Disqus to load
+            console.log(`[LoadingState] Waiting for Disqus to load...`);
+            waitForDisqusLoad(() => {
+              console.log(`[LoadingState] Disqus loaded, clearing loading state...`);
+              clearLoadingState('Disqus load complete');
+            });
+          };
           
           // Check cache first
           if (discussionCache.disqus && discussionCache.disqus.thread) {
-            console.log('Restoring Disqus from cache');
-            const thread = discussionCache.disqus.thread;
-            const existingDiscussion = document.getElementById('reddit-inline-discussion');
-            if (existingDiscussion) {
-              existingDiscussion.remove();
-            }
-            const commentsSection = document.querySelector('#ri-inline-vue-host .ri-comments');
-            if (commentsSection) {
-              commentsSection.innerHTML = '';
-            }
-            const layout = document.querySelector('.erc-watch-episode-layout');
-            const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
-            if (wrapper) {
-              const title = thread.clean_title || thread.title || `${lastAnimeInfo.animeName} discussion`;
-              const threadUrl = thread.link || '';
-              const identifier = String(thread.id || thread.identifier || '');
-              const forumShortname = thread.forum || 'channel-discussanime';
-              const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
-
-              const container = document.createElement('section');
-              container.id = 'reddit-inline-discussion';
-              container.style.marginTop = '0';
-              container.innerHTML = `
-                <div class="ri-header">
-                  <h2 class="ri-title">💬 Discussion: ${escapeHtml(title)}</h2>
-                  <div class="ri-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
-                </div>
-                <div id="disqus_thread"></div>
-              `;
-              wrapper.appendChild(container);
-              
-              // Re-inject Disqus script
-              const script = document.createElement('script');
-              script.src = chrome.runtime.getURL('disqus-loader.js');
-              script.async = true;
-              script.setAttribute('data-thread-url', threadUrl);
-              script.setAttribute('data-identifier', identifier);
-              script.setAttribute('data-forum', forumShortname);
-              script.setAttribute('data-title', title);
-              script.setAttribute('data-slug', threadSlug);
-              (document.head || document.body).appendChild(script);
-              
-              // Wait for Disqus to load before clearing loading state
-              console.log(`[LoadingState] Waiting for Disqus to load (cached)...`);
-              waitForDisqusLoad(() => {
-                console.log(`[LoadingState] Disqus loaded (cached), clearing loading state...`);
-                clearLoadingState('Disqus cached load complete');
-              });
-            } else {
-              // No cached Disqus, clear loading immediately
-              console.log(`[LoadingState] No cached Disqus, clearing loading state`);
-              clearLoadingState('Disqus no cache');
-            }
+            console.log('[DisqusProvider] Restoring Disqus from cache');
+            await renderDisqusThread(discussionCache.disqus.thread);
             return;
           }
           
           // Switch to Disqus - fetch if not cached
           try {
+            console.log('[DisqusProvider] Fetching Disqus thread...');
             const thread = await findThreadForAnime(lastAnimeInfo);
             if (thread) {
               // Cache the Disqus thread
               discussionCache.disqus = { thread };
-              // Update Vue app provider state first
-              if (inlineDiscussionApp && inlineDiscussionApp._instance) {
-                try {
-                  const instance = inlineDiscussionApp._instance;
-                  if (instance && instance.exposed) {
-                    // Try to update via exposed method if available
-                    if (typeof instance.exposed.handleProviderChange === 'function') {
-                      instance.exposed.handleProviderChange('disqus');
-                    }
-                  }
-                } catch (e) {
-                  console.warn('Could not update Vue app provider state:', e);
-                }
-              }
-              
-              // Clear comments section but keep the Vue component structure
-              const commentsSection = document.querySelector('#ri-inline-vue-host .ri-comments');
-              if (commentsSection) {
-                commentsSection.innerHTML = '';
-              }
-              
-              // Remove only the discussion content section, but keep the Vue component structure
-              // The #reddit-inline-discussion is part of the Vue component, so we need to be careful
-              const existingDiscussion = document.getElementById('reddit-inline-discussion');
-              if (existingDiscussion) {
-                // Only remove if it's not part of the Vue component structure
-                // Check if it's inside the Vue host
-                const vueHost = document.getElementById('ri-inline-vue-host');
-                if (vueHost && !vueHost.contains(existingDiscussion)) {
-                  // It's outside the Vue component, safe to remove
-                  existingDiscussion.remove();
+              console.log('[DisqusProvider] Thread found, rendering...');
+              await renderDisqusThread(thread);
+            } else {
+              // No Disqus thread found, show search UI
+              console.log(`[DisqusProvider] No Disqus thread found, showing search UI`);
+              const result = await showDisqusSearchUI(lastAnimeInfo);
+              if (result === 'fallback' || result === 'dismissed') {
+                // User wants to fallback to Reddit - switch provider without recreating Vue app
+                console.log(`[DisqusProvider] User chose to fallback to Reddit (${result})`);
+                // Update Vue component's provider state to trigger Reddit view
+                if (componentInstance?.exposed?.handleProviderChange) {
+                  componentInstance.exposed.handleProviderChange('reddit');
                 } else {
-                  // It's part of the Vue component, just clear its content
-                  existingDiscussion.innerHTML = '';
+                  // Fallback: clear loading state and let user manually switch
+                  clearLoadingState('Disqus fallback no component');
                 }
-              }
-              
-              // Use the existing #reddit-inline-discussion from Vue component (don't create a new one)
-              // The existingDiscussion should already exist from the Vue component
-              if (!existingDiscussion) {
-                // If it doesn't exist, fallback to popup
-                console.log(`[LoadingState] reddit-inline-discussion not found after clearing, using popup fallback`);
-                embedDisqusThreadPopup(thread, lastAnimeInfo);
-                clearLoadingState('Disqus popup');
-                return;
-              }
-
-              const title = thread.clean_title || thread.title || `${lastAnimeInfo.animeName} discussion`;
-              const threadUrl = thread.link || '';
-              const identifier = String(thread.id || thread.identifier || '');
-              const forumShortname = thread.forum || 'channel-discussanime';
-              const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
-
-              // Update the existing section with Disqus content (it's already part of Vue component)
-              existingDiscussion.innerHTML = `
-                <div class="ri-header">
-                  <h2 class="ri-title">💬 Discussion: ${escapeHtml(title)}</h2>
-                  <div class="ri-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
-                </div>
-                <div id="disqus_thread"></div>
-              `;
-                
-                // Cache the Disqus thread (already cached above, but ensure it's set)
-                if (!discussionCache.disqus) {
-                  discussionCache.disqus = { thread };
-                }
-
-                // Inject external script from extension (CSP-compliant)
-                const script = document.createElement('script');
-                script.src = chrome.runtime.getURL('disqus-loader.js');
-                script.async = true;
-                script.setAttribute('data-thread-url', threadUrl);
-                script.setAttribute('data-identifier', identifier);
-                script.setAttribute('data-forum', forumShortname);
-                script.setAttribute('data-title', title);
-                script.setAttribute('data-slug', threadSlug);
-                (document.head || document.body).appendChild(script);
-                
-                // Wait for Disqus to load before clearing loading state
-                console.log(`[LoadingState] Waiting for Disqus to load (fresh fetch)...`);
-                waitForDisqusLoad(() => {
-                  console.log(`[LoadingState] Disqus loaded, clearing loading state...`);
-                  clearLoadingState('Disqus fresh load complete');
-                });
               } else {
-                // No Disqus thread found, show search UI
-                console.log(`[LoadingState] No Disqus thread found, showing search UI`);
-                const shouldFallback = await showDisqusSearchUI(lastAnimeInfo);
-                if (shouldFallback) {
-                  // User wants to fallback to Reddit, reload Reddit discussion
-                  console.log(`[LoadingState] User chose to fallback to Reddit`);
-                  if (lastAnimeInfo) {
-                    await searchAndDisplayDiscussion(lastAnimeInfo);
-                  }
-                } else {
-                  // User dismissed or embedded, clear loading state
-                  console.log(`[LoadingState] Disqus search dismissed/embedded, clearing loading state`);
-                  clearLoadingState('Disqus search dismissed');
-                }
+                // User embedded a thread, clear loading state
+                console.log(`[DisqusProvider] Disqus thread embedded, clearing loading state`);
+                clearLoadingState('Disqus embedded');
               }
+            }
           } catch (e) {
             console.error('[LoadingState] Failed to switch to Disqus:', e);
             clearLoadingState('Disqus error');
@@ -1862,46 +1819,21 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           currentYouTubeVideo = null;
           currentYouTubeOrder = 'relevance';
           applyRedditSortOptions();
-          // Clean up any existing observers (shouldn't be Reddit, but just in case)
+          
+          // Clean up any existing observers
           if (redditCommentsCleanup) {
             redditCommentsCleanup();
             redditCommentsCleanup = null;
             redditCommentsObserver = null;
             redditCommentsSentinel = null;
           }
+          teardownYouTubeInfiniteScroll();
           
-          // Clear any existing content (Disqus/YouTube) before showing skeleton
-          console.log(`[LoadingState] Clearing existing content before switching to Reddit...`);
-          const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
-          if (commentsRoot) {
-            commentsRoot.innerHTML = '';
-            console.log(`[LoadingState] Existing comments cleared`);
-          }
-          
-          // Show skeleton loading
-          console.log(`[LoadingState] Provider change started: ${provider}`);
-          if (commentsRoot) {
-            commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
-              `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
-            )).join('');
-            console.log(`[LoadingState] Skeleton loading shown`);
-          } else {
-            console.warn(`[LoadingState] Comments root not found for skeleton`);
-          }
-          // Switch back to Reddit - check cache first
-          try {
-            if (discussionCache.reddit) {
-              console.log('Restoring Reddit discussion from cache');
-              await displayInlineDiscussion(discussionCache.reddit);
-            } else {
-              // No cache, fetch fresh
-              await searchAndDisplayDiscussion(lastAnimeInfo);
-            }
-            // Loading state is cleared by displayInlineDiscussion which creates a new Vue app
-          } catch (e) {
-            console.error('Failed to switch to Reddit:', e);
-            clearLoadingState();
-          }
+          // When switching back to Reddit, Vue's InlineDiscussion handles everything
+          // The RedditCommentList component will re-render and fetch comments
+          // Note: Vue component already updated its provider state via handleProviderChange
+          // which was triggered by the RiTopStrip @provider-change event before this callback
+          console.log(`[LoadingState] Switching to Reddit - Vue already handling rendering`);
         } else if ((provider === 'youtube' || provider === 'reddit-youtube') && lastAnimeInfo) {
           // Clean up Reddit infinite scroll observer if switching from Reddit
           if (redditCommentsCleanup) {
@@ -1911,25 +1843,14 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             redditCommentsSentinel = null;
           }
           
-          // Clear any existing content (Reddit/Disqus) before showing skeleton
-          console.log(`[LoadingState] Clearing existing content before switching to YouTube...`);
-          const commentsRoot = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
-          if (commentsRoot) {
-            commentsRoot.innerHTML = '';
-            console.log(`[LoadingState] Existing comments cleared`);
-          }
-          
-          // Show skeleton loading
           console.log(`[LoadingState] Provider change started: ${provider}`);
-          if (commentsRoot) {
-            commentsRoot.innerHTML = Array.from({ length: 6 }).map(() => (
-              `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
-            )).join('');
-            console.log(`[LoadingState] Skeleton loading shown`);
-            applyYouTubeSortOptions();
-          } else {
-            console.warn(`[LoadingState] Comments root not found for skeleton`);
-          }
+          applyYouTubeSortOptions();
+          
+          // Note: Vue component already updated its provider state via handleProviderChange
+          // which was triggered by the RiTopStrip @provider-change event before this callback
+          
+          // Wait for Vue to render the external comments container
+          await new Promise(resolve => setTimeout(resolve, 50));
           
           // Switch to YouTube - check authentication first
           console.log(`[LoadingState] Checking YouTube authentication...`);
@@ -1940,178 +1861,19 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               description: 'Please authenticate with Google in the extension settings to view YouTube comments.',
             });
             clearLoadingState('YouTube not authenticated');
-            // Fallback to Reddit if available
-            if (discussionCache.reddit) {
-              await displayInlineDiscussion(discussionCache.reddit);
-            }
             return;
           }
           console.log(`[LoadingState] YouTube authenticated, proceeding...`);
 
           try {
-            // Check if we're coming from Disqus (Disqus creates #reddit-inline-discussion with #disqus_thread)
-            const existingDiscussion = document.getElementById('reddit-inline-discussion');
-            const isFromDisqus = existingDiscussion && existingDiscussion.querySelector('#disqus_thread');
-            
-            if (isFromDisqus) {
-              console.log('[LoadingState] Switching from Disqus to YouTube, cleaning up Disqus...');
-              
-              // Remove Disqus scripts first
-              document.querySelectorAll('script[src*="disqus-loader.js"]').forEach(script => {
-                console.log('[LoadingState] Removing Disqus script:', script.src);
-                script.remove();
-              });
-              
-              // Remove Disqus iframe and related elements carefully
-              const disqusThread = existingDiscussion.querySelector('#disqus_thread');
-              if (disqusThread) {
-                console.log('[LoadingState] Found disqus_thread, removing it');
-                disqusThread.remove();
+            // Clean up any Disqus remnants
+            document.querySelectorAll('script[src*="disqus-loader.js"]').forEach(script => script.remove());
+            document.querySelectorAll('iframe[src*="disqus.com"]').forEach(iframe => iframe.remove());
+            document.querySelectorAll('div[id*="disqus"], div[class*="disqus"]').forEach(div => {
+              if (div.id !== 'disqus_thread' && !div.closest('#ri-inline-vue-host')) {
+                div.remove();
               }
-              
-              // Remove any Disqus iframes that might be orphaned
-              document.querySelectorAll('iframe[src*="disqus.com"]').forEach(iframe => {
-                console.log('[LoadingState] Removing Disqus iframe:', iframe.src);
-                iframe.remove();
-              });
-              
-              // Remove Disqus wrapper divs (like disqus_embed_host)
-              document.querySelectorAll('div[id*="disqus"], div[class*="disqus"]').forEach(div => {
-                if (div.id !== 'disqus_thread' && !div.closest('#ri-inline-vue-host')) {
-                  console.log('[LoadingState] Removing Disqus wrapper div:', div.id || div.className);
-                  div.remove();
-                }
-              });
-              
-              // CRITICAL: Disqus replaced the Vue component's content in #reddit-inline-discussion
-              // We need to restore the Vue component structure including .ri-comments
-              // Check if .ri-comments exists - if not, we need to restore the structure
-              const commentsCheck = existingDiscussion.querySelector('.ri-comments');
-              if (!commentsCheck) {
-                console.log('[LoadingState] .ri-comments missing after Disqus cleanup, restoring Vue component structure...');
-                
-                // Remove the Disqus header that was left behind
-                const disqusHeader = existingDiscussion.querySelector('.ri-header');
-                if (disqusHeader) {
-                  disqusHeader.remove();
-                }
-                
-                // Restore the full Vue component structure
-                // This matches what InlineDiscussion.vue renders
-                existingDiscussion.innerHTML = `
-                  <div class="ri-header">
-                    <div class="ri-title-row pt-1">
-                      <h3 class="ri-title"></h3>
-                      <div style="display: flex; align-items: center; gap: 8px;">
-                        <button
-                          class="ri-manual-search-btn"
-                          title="Search manually"
-                          style="background: none; border: none; color: #FF6740; cursor: pointer; font-size: 18px; padding: 0 4px; display: flex; align-items: center; opacity: 0.8; transition: opacity 0.2s;"
-                        >
-                          ?
-                        </button>
-                        <a class="ri-link" href="#" target="_blank" rel="noopener">Open on Reddit</a>
-                      </div>
-                    </div>
-                    <div class="ri-meta">
-                      <span class="ri-author"></span>
-                    </div>
-                  </div>
-                  <div class="ri-toolbar">
-                    <div class="ri-sort">
-                      Sort by:
-                      <select id="ri-sort-select" class="ri-sort-select">
-                        <option value="best" selected>Best</option>
-                        <option value="top">Top</option>
-                        <option value="new">New</option>
-                      </select>
-                    </div>
-                    <div class="ri-search">
-                      <input id="ri-search" type="search" placeholder="Search comments" class="ri-search-input" />
-                    </div>
-                  </div>
-                  <div id="ri-top-reply-host" class="ri-top-reply-container" style="display: none"></div>
-                  <div class="ri-comments"></div>
-                `;
-                
-                // Wire up manual search button
-                const manualSearchBtn = existingDiscussion.querySelector('.ri-manual-search-btn');
-                if (manualSearchBtn) {
-                  manualSearchBtn.addEventListener('click', () => {
-                    const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
-                    showManualSearchUI(
-                      lastAnimeInfo || { animeName: '', episodeName: '' }, 
-                      crEpisodeNum ? Number(crEpisodeNum) : undefined
-                    );
-                  });
-                  // Add hover effect handlers
-                  manualSearchBtn.addEventListener('mouseenter', (e) => {
-                    (e.currentTarget as HTMLElement).style.opacity = '1';
-                  });
-                  manualSearchBtn.addEventListener('mouseleave', (e) => {
-                    (e.currentTarget as HTMLElement).style.opacity = '0.8';
-                  });
-                }
-                
-                console.log('[LoadingState] Vue component structure restored, .ri-comments should now exist');
-              }
-              
-              // Wait a bit for DOM to settle
-              await new Promise(resolve => setTimeout(resolve, 200));
-            }
-
-            // Ensure Vue component structure exists (it might have been removed by Disqus)
-            let vueHost = document.getElementById('ri-inline-vue-host');
-            if (!vueHost) {
-              // Only recreate if it doesn't exist (which would only happen coming from Disqus)
-              console.log('Vue host not found, recreating structure...');
-              const layout = document.querySelector('.erc-watch-episode-layout');
-              const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
-              if (!wrapper) {
-                console.log(`[LoadingState] No wrapper found, clearing loading state`);
-                toast.error('Failed to load YouTube comments', {
-                  description: 'Content wrapper not found',
-                });
-                clearLoadingState('YouTube no wrapper');
-                return;
-              }
-
-              // Create Vue host if it doesn't exist
-              vueHost = document.createElement('div');
-              vueHost.id = 'ri-inline-vue-host';
-              wrapper.appendChild(vueHost);
-
-              // If we have a cached Reddit discussion, use it to create the Vue app
-              // Otherwise create a minimal discussion object
-              const discussionForVue = discussionCache.reddit || {
-                id: 'youtube-placeholder',
-                title: lastAnimeInfo.animeName,
-                author: '',
-                permalink: '',
-                score: 0,
-                num_comments: 0,
-              };
-
-              // Create or recreate Vue app
-              if (inlineDiscussionApp) {
-                try {
-                  inlineDiscussionApp.unmount();
-                } catch {}
-              }
-              inlineDiscussionApp = createApp(InlineDiscussion, {
-                discussion: discussionForVue,
-                provider: provider,
-                onProviderChange: providerChangeCallback,
-              });
-              inlineDiscussionApp.mount(vueHost);
-              
-              // Store component instance reference after mounting
-              const vueApp = inlineDiscussionApp as any;
-              if (vueApp._container && vueApp._container._vnode && vueApp._container._vnode.component) {
-                componentInstance = vueApp._container._vnode.component;
-                console.log(`[LoadingState] Stored component instance after mount (YouTube)`);
-              }
-            }
+            });
 
             // Extract episode number
             const episodeNumStr = extractEpisodeNumber(lastAnimeInfo.episodeName);
@@ -2121,17 +1883,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               toast.error('Could not extract episode number', {
                 description: 'Unable to determine episode number from episode name.',
               });
+              clearLoadingState('YouTube no episode number');
               return;
             }
 
             // Determine platform from provider
-            // For now, default to youtube-muse-asia, but this could be configurable
-            const platform = provider === 'reddit-youtube' 
-              ? 'youtube-muse-asia' // Could be configurable
-              : 'youtube-muse-asia'; // Default platform
+            const platform = 'youtube-muse-asia'; // Default platform, could be configurable
 
-            // Try to get season title from Crunchyroll metadata (similar to Reddit mapper)
-            let seasonTitle = 'Season 1'; // Default fallback
+            // Try to get season title from Crunchyroll metadata
+            let seasonTitle = 'Season 1';
             try {
               const episodeId = extractEpisodeIdFromUrl();
               if (episodeId) {
@@ -2142,13 +1902,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               }
             } catch (e) {
               console.log('Could not fetch season title from Crunchyroll metadata, using fallback:', e);
-              // Fallback: try to extract from episode name
               if (lastAnimeInfo.episodeName.includes('Season')) {
                 const seasonMatch = lastAnimeInfo.episodeName.match(/Season\s*(\d+)/i);
                 if (seasonMatch) {
                   seasonTitle = `${lastAnimeInfo.animeName} Season ${seasonMatch[1]}`;
                 } else {
-                  seasonTitle = lastAnimeInfo.animeName + ' ' + lastAnimeInfo.episodeName.split('Season')[0].trim() + ' Season 1';
+                  seasonTitle = lastAnimeInfo.animeName + ' Season 1';
                 }
               } else {
                 seasonTitle = `${lastAnimeInfo.animeName} Season 1`;
@@ -2184,8 +1943,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
 
             console.log('Found YouTube video:', video);
-            console.log('Video ID:', video.video_id);
-            console.log('Video Title:', video.title);
             currentYouTubeVideo = video;
 
             // Cache the YouTube data
@@ -2195,22 +1952,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               platform,
             };
 
-            // Update Vue app provider state
-            if (inlineDiscussionApp && inlineDiscussionApp._instance) {
-              try {
-                const instance = inlineDiscussionApp._instance;
-                if (instance && instance.exposed) {
-                  if (typeof instance.exposed.handleProviderChange === 'function') {
-                    instance.exposed.handleProviderChange(provider);
-                  }
-                }
-              } catch (e) {
-                console.warn('Could not update Vue app provider state:', e);
-              }
-            }
-
             // Wait for comments section to be available (Vue might still be rendering)
-            // After Disqus cleanup, we need to ensure the Vue component structure is intact
+            // Use getExternalCommentsContainer which handles Vue's .ri-external-comments
             let commentsSection: HTMLElement | null = null;
             const youtubeVueHost = document.getElementById('ri-inline-vue-host');
             console.log('[LoadingState] Vue host exists:', !!youtubeVueHost);
@@ -2224,64 +1967,29 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               return;
             }
             
-            // Check if #reddit-inline-discussion exists and has the .ri-comments structure
-            const redditDiscussion = document.getElementById('reddit-inline-discussion');
-            console.log('[LoadingState] reddit-inline-discussion exists:', !!redditDiscussion);
-            if (redditDiscussion) {
-              console.log('[LoadingState] reddit-inline-discussion children:', Array.from(redditDiscussion.children).map(el => el.tagName + (el.id ? '#' + el.id : '') + (el.className ? '.' + el.className : '')));
-            }
-            
-            // Wait for the .ri-comments element to appear
-            // It should be inside #reddit-inline-discussion which is inside the Vue component
+            // Wait for the external comments container to be available
             for (let i = 0; i < 50; i++) {
-              // Try finding it in the Vue host first
-              commentsSection = youtubeVueHost.querySelector('.ri-comments') as HTMLElement;
-              
-              // If not found, try finding it in reddit-inline-discussion
-              if (!commentsSection && redditDiscussion) {
-                commentsSection = redditDiscussion.querySelector('.ri-comments') as HTMLElement;
-              }
-              
-              // If still not found, try direct query
-              if (!commentsSection) {
-                commentsSection = document.querySelector('#ri-inline-vue-host .ri-comments') as HTMLElement;
-              }
+              commentsSection = getExternalCommentsContainer();
               
               if (commentsSection) {
-                console.log('[LoadingState] Comments section found after', i, 'attempts');
-                console.log('[LoadingState] Comments section parent:', commentsSection.parentElement?.tagName, commentsSection.parentElement?.id);
+                console.log('[LoadingState] External comments container found after', i, 'attempts');
                 break;
               }
               
               // Log progress every 10 attempts
               if (i % 10 === 0 && i > 0) {
-                console.log('[LoadingState] Still waiting for comments section, attempt', i);
-                console.log('[LoadingState] Vue host HTML:', youtubeVueHost.innerHTML.substring(0, 300));
+                console.log('[LoadingState] Still waiting for external comments container, attempt', i);
               }
               
               await new Promise(resolve => setTimeout(resolve, 100));
             }
             
             if (!commentsSection) {
-              console.error('[LoadingState] Comments section not found after waiting');
-              console.error('[LoadingState] Vue host element:', youtubeVueHost);
-              console.error('[LoadingState] Vue host innerHTML:', youtubeVueHost.innerHTML.substring(0, 1000));
-              console.error('[LoadingState] reddit-inline-discussion:', redditDiscussion);
-              if (redditDiscussion) {
-                console.error('[LoadingState] reddit-inline-discussion innerHTML:', redditDiscussion.innerHTML.substring(0, 500));
-              }
-              console.error('[LoadingState] All .ri-comments elements:', document.querySelectorAll('.ri-comments'));
-              console.error('[LoadingState] Elements in vueHost:', Array.from(youtubeVueHost.children).map(el => el.tagName + (el.id ? '#' + el.id : '') + (el.className ? '.' + el.className : '')));
+              console.error('[LoadingState] External comments container not found after waiting');
               toast.error('Failed to load YouTube comments', {
                 description: 'Comments container not found',
               });
               clearLoadingState('YouTube no comments section');
-              return;
-            }
-            
-            if (!commentsSection) {
-              console.error('[LoadingState] commentsSection is null before rendering');
-              clearLoadingState('YouTube commentsSection null');
               return;
             }
 
@@ -2337,6 +2045,27 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     if (vueApp._container && vueApp._container._vnode && vueApp._container._vnode.component) {
       componentInstance = vueApp._container._vnode.component;
       console.log(`[LoadingState] Stored component instance after mount`);
+    }
+
+    // Check storage setting for Vue rendering preference (defaults to true)
+    let USE_VUE_REDDIT_COMMENTS = true;
+    try {
+      const data = await chrome.storage.local.get('use_vue_rendering');
+      // If setting exists, use it; otherwise default to true (new Vue approach)
+      USE_VUE_REDDIT_COMMENTS = data?.use_vue_rendering !== false;
+      console.log(`[Vue] Rendering mode from settings: ${USE_VUE_REDDIT_COMMENTS ? 'Vue' : 'Classic DOM'}`);
+    } catch (e) {
+      console.warn('[Vue] Failed to read rendering setting, defaulting to Vue:', e);
+    }
+    
+    if (USE_VUE_REDDIT_COMMENTS) {
+      console.log('[Vue] Using Vue-based Reddit comment rendering');
+      // Set up cleanup for the mounted app
+      // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
+      redditCommentsCleanup = () => {
+        // no-op: keep Vue app alive; provider switching handled via exposed callbacks
+      };
+      return; // Skip all DOM-based comment rendering below
     }
 
     const commentsRoot = host.querySelector('.ri-comments') as HTMLElement;

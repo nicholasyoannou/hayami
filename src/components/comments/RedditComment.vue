@@ -1,32 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
-import { voteThing, getUserAvatar } from '@/utils/redditApi';
+import { voteThing, getUserAvatar, formatRedditDate, type RedditComment } from '@/utils/redditApi';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
-import { formatRedditDate } from '@/utils/redditApi';
 import { toast } from 'vue-sonner';
-
-interface RedditComment {
-  id: string;
-  author: string;
-  body: string;
-  body_html?: string;
-  score: number;
-  created_utc: number;
-  edited?: boolean | number;
-  likes?: boolean | null;
-  replies?: RedditComment[];
-  author_flair_text?: string;
-  author_flair_richtext?: any[];
-  author_flair_background_color?: string;
-  all_awardings?: any[];
-  total_awards_received?: number;
-  stickied?: boolean;
-  distinguished?: string;
-  is_submitter?: boolean;
-  depth?: number;
-  count?: number; // For "more" placeholders
-  children?: string[]; // For "more" placeholders
-}
 
 const props = defineProps<{
   comment: RedditComment;
@@ -55,6 +31,16 @@ const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
 const isVoting = ref(false);
 const showReplies = ref(true);
 const localReplies = ref<RedditComment[]>(props.comment.replies || []);
+const shareLabel = ref('Share');
+const isShareCopied = ref(false);
+const isLineHover = ref(false);
+const childrenCollapsed = ref(false);
+const isSpineHover = ref(false);
+
+// Expand icon URL for collapsed state
+const expandIconUrl = computed(() => 
+  (globalThis as any)?.chrome?.runtime?.getURL('assets/expand.svg') ?? 'assets/expand.svg'
+);
 
 // Watch for external reply updates
 watch(() => props.comment.replies, (newReplies) => {
@@ -77,25 +63,28 @@ const timestampText = computed(() => formatRedditDate(props.comment.created_utc)
 const timestampTitle = computed(() => new Date(props.comment.created_utc * 1000).toLocaleString());
 const editedText = computed(() => props.comment.edited ? ' • Edited' : '');
 
-// Render flair
+// Render flair - use inline styles like DOM version for consistent emoji sizing
 const flairHtml = computed(() => {
   const c = props.comment;
   if (!c.author_flair_text && (!c.author_flair_richtext || c.author_flair_richtext.length === 0)) {
     return '';
   }
   
+  // Inline styles for flair emojis (matches DOM rendering approach)
+  const emojiStyle = 'width:16px;height:16px;vertical-align:middle;display:inline-block;';
+  
   let inner = '';
   if (c.author_flair_richtext && c.author_flair_richtext.length > 0) {
     for (const part of c.author_flair_richtext) {
       if (part.e === 'emoji' && part.u) {
-        inner += `<img class="ri-flair-emoji" src="${escapeHtml(part.u)}" alt="${escapeHtml(part.a || '')}" />`;
+        inner += `<img class="ri-flair-emoji" src="${escapeHtml(part.u)}" alt="${escapeHtml(part.a || '')}" style="${emojiStyle}" />`;
       } else if (part.e === 'text' && part.t) {
         // Check for emoji shortcodes
         let text = part.t;
         if (props.emojiMap) {
           text = text.replace(/:([a-zA-Z0-9_-]+):/g, (match: string, code: string) => {
             const url = props.emojiMap?.[code];
-            return url ? `<img class="ri-flair-emoji" src="${escapeHtml(url)}" alt=":${escapeHtml(code)}:" />` : match;
+            return url ? `<img class="ri-flair-emoji" src="${escapeHtml(url)}" alt=":${escapeHtml(code)}:" style="${emojiStyle}" />` : match;
           });
         }
         inner += `<span>${text}</span>`;
@@ -161,6 +150,74 @@ onMounted(async () => {
 
 function toggleCollapse() {
   isCollapsed.value = !isCollapsed.value;
+  // Auto-highlight the line after toggling (depth 0 only)
+  if (depth.value === 0) {
+    isLineHover.value = true;
+  }
+}
+
+// Handle mouse move to detect hover over the line area (for depth-0 comments)
+function handleMouseMove(ev: MouseEvent) {
+  if (depth.value !== 0) return;
+  
+  const el = ev.currentTarget as HTMLElement;
+  const rect = el.getBoundingClientRect();
+  const mouseX = ev.clientX - rect.left;
+  
+  // Check if mouse is over the line area (wider zone: 4px to 20px)
+  if (mouseX > 4 && mouseX < 20) {
+    isLineHover.value = true;
+    el.style.cursor = 'pointer';
+  } else {
+    isLineHover.value = false;
+    el.style.cursor = '';
+  }
+}
+
+function handleMouseLeave(ev: MouseEvent) {
+  isLineHover.value = false;
+  const el = ev.currentTarget as HTMLElement;
+  el.style.cursor = '';
+}
+
+// Handle click on the comment element (for line area clicks on depth-0)
+function handleCommentClick(ev: MouseEvent) {
+  if (depth.value !== 0) return;
+  
+  const el = ev.currentTarget as HTMLElement;
+  const rect = el.getBoundingClientRect();
+  const clickX = ev.clientX - rect.left;
+  
+  // Click on the trunk line area (4px to 20px) -> toggle
+  if (clickX > 4 && clickX < 20) {
+    ev.stopPropagation();
+    toggleCollapse();
+  }
+  
+  // If collapsed and clicking anywhere to the right, expand
+  if (isCollapsed.value && clickX >= 20) {
+    ev.stopPropagation();
+    isCollapsed.value = false;
+  }
+}
+
+// Toggle children collapsed state (for nested replies)
+function toggleChildrenCollapsed() {
+  childrenCollapsed.value = !childrenCollapsed.value;
+}
+
+// Handle spine area click (for children container)
+function handleSpineClick(ev: MouseEvent) {
+  ev.stopPropagation();
+  toggleChildrenCollapsed();
+}
+
+// Handle click on collapsed children area to expand
+function handleChildrenClick(ev: MouseEvent) {
+  if (childrenCollapsed.value) {
+    ev.stopPropagation();
+    childrenCollapsed.value = false;
+  }
 }
 
 async function handleUpvote() {
@@ -247,14 +304,41 @@ function handleReply() {
 }
 
 function handleShare() {
-  const url = `https://www.reddit.com/comments/${props.comment.id}`;
-  if (navigator.share) {
-    navigator.share({ url }).catch(() => {});
-  } else {
-    navigator.clipboard.writeText(url).then(() => {
-      toast.success('Link copied');
-    });
-  }
+  // Use permalink if available, otherwise construct from id
+  const base = 'https://www.reddit.com';
+  const url = props.comment.permalink 
+    ? (base + props.comment.permalink) 
+    : `${base}/comments/${props.comment.id}`;
+  
+  const doCopy = async () => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(url);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = url;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        ta.remove();
+      }
+      shareLabel.value = 'Link copied!';
+      isShareCopied.value = true;
+      setTimeout(() => {
+        shareLabel.value = 'Share';
+        isShareCopied.value = false;
+      }, 1300);
+    } catch {
+      shareLabel.value = 'Copy failed';
+      setTimeout(() => {
+        shareLabel.value = 'Share';
+      }, 1300);
+    }
+  };
+  
+  doCopy();
 }
 
 // Limited replies for initial render
@@ -273,20 +357,24 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
       `depth-${depth}`,
       { 'awarded': awardsCount > 0 },
       { 'ri-collapsed': isCollapsed },
-      { 'ri-new-comment': isHighlighted }
+      { 'ri-new-comment': isHighlighted },
+      { 'line-hover': isLineHover }
     ]"
     :data-comment-id="comment.id"
+    @mousemove="handleMouseMove"
+    @mouseleave="handleMouseLeave"
+    @click="handleCommentClick"
   >
     <div class="ri-gutter">
       <button 
         class="ri-toggle" 
         :aria-label="isCollapsed ? 'Expand' : 'Collapse'"
         :aria-expanded="!isCollapsed"
-        @click="toggleCollapse"
+        @click.stop="toggleCollapse"
       >
         {{ isCollapsed ? '+' : '–' }}
       </button>
-      <div class="ri-threadline"></div>
+      <div class="ri-threadline" @click.stop="toggleCollapse"></div>
     </div>
     
     <img 
@@ -351,10 +439,11 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
         
         <button 
           class="ri-action-btn ri-share-btn"
+          :class="{ 'ri-copied': isShareCopied }"
           @click.stop="handleShare"
         >
           <img class="ri-action-icon" :src="shareIconUrl" alt="share" />
-          Share
+          <span>{{ shareLabel }}</span>
         </button>
       </div>
       
@@ -362,27 +451,45 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
       <slot name="reply-editor"></slot>
       
       <!-- Children -->
-      <div v-if="!isCollapsed && visibleReplies.length > 0" class="ri-children">
-        <RedditComment
-          v-for="reply in visibleReplies"
-          :key="reply.id"
-          :comment="reply"
-          :depth="depth + 1"
-          :is-archived="isArchived"
-          :is-locked="isLocked"
-          :emoji-map="emojiMap"
-          :highlight-ids="highlightIds"
-          :on-reply="onReply"
-          @reply="(c) => emit('reply', c)"
-        />
+      <div 
+        v-if="!isCollapsed && visibleReplies.length > 0" 
+        class="ri-children"
+        :class="{ 
+          'children-collapsed': childrenCollapsed,
+          'spine-hover': isSpineHover 
+        }"
+        @click="handleChildrenClick"
+      >
+        <!-- Spine hit area for clicking to collapse children -->
+        <div 
+          class="ri-spine-hit-area"
+          @click.stop="handleSpineClick"
+          @mouseenter="isSpineHover = true"
+          @mouseleave="isSpineHover = false"
+        ></div>
         
-        <button 
-          v-if="hasMoreReplies"
-          class="ri-load-more"
-          @click.stop="showReplies = true"
-        >
-          Load {{ localReplies.length - visibleReplies.length }} more replies
-        </button>
+        <template v-if="!childrenCollapsed">
+          <RedditComment
+            v-for="reply in visibleReplies"
+            :key="reply.id"
+            :comment="reply"
+            :depth="depth + 1"
+            :is-archived="isArchived"
+            :is-locked="isLocked"
+            :emoji-map="emojiMap"
+            :highlight-ids="highlightIds"
+            :on-reply="onReply"
+            @reply="(c) => emit('reply', c)"
+          />
+          
+          <button 
+            v-if="hasMoreReplies"
+            class="ri-load-more"
+            @click.stop="showReplies = true"
+          >
+            Load {{ localReplies.length - visibleReplies.length }} more replies
+          </button>
+        </template>
       </div>
     </div>
   </div>
@@ -396,4 +503,3 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
   background: #333;
 }
 </style>
-</script>

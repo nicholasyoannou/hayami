@@ -117,6 +117,18 @@ export function markdownToHtml(text: string): string {
   html = html.replace(/(^|[^\S\r\n>])\*([^*\n][^*\n]*?)\*(?=\s|$)/g, '$1<em>$2<\/em>');
   html = html.replace(/(^|[^\S\r\n>])_([^_\n][^_\n]*?)_(?=\s|$)/g, '$1<em>$2<\/em>');
   html = html.replace(/~~([^~]+)~~/g, '<del>$1<\/del>');
+  
+  // Markdown images: ![alt](url) - must be processed BEFORE regular links
+  // Proxy imgur images through DuckDuckGo to avoid CORS issues
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (_match, alt, url) => {
+    let src = url;
+    // Proxy i.imgur.com images through DuckDuckGo
+    if (/^https?:\/\/i\.imgur\.com\//i.test(url)) {
+      src = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
+    }
+    return `<img src="${src}" alt="${alt}" loading="lazy" />`;
+  });
+  
   // Markdown links: [text](url) - supports both absolute (http/https) and relative URLs
   html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, text, url) => {
     // If it's a relative URL, make it absolute by prepending reddit.com

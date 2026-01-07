@@ -176,7 +176,7 @@ interface RedditPost {
   locked?: boolean;
 }
 
-interface RedditComment {
+export interface RedditComment {
   id: string;
   author: string;
   body: string;
@@ -207,6 +207,12 @@ interface RedditComment {
   moreCount?: number; // number of additional replies not loaded under this comment
   moreChildrenIds?: string[]; // ids for /api/morechildren
   link_id?: string; // fullname of the post (t3_xxx)
+  stickied?: boolean;
+  distinguished?: string; // 'moderator', 'admin', etc.
+  is_submitter?: boolean;
+  depth?: number;
+  count?: number; // For "more" placeholders
+  children?: string[]; // For "more" placeholders
 }
 
 // Sort options we accept for comment listing
