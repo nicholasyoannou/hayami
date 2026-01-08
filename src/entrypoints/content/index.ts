@@ -976,127 +976,32 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any
 }
 
 /**
- * Embed a Disqus thread respecting the display mode (popup or inline)
+ * Tell the Vue layer to render Disqus in the external container.
+ * We now avoid DOM inline/popup embeds and rely on Vue provider switching.
  */
 async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
-  const displayMode = await displayModeStorage.getValue();
-  if (displayMode === 'inline') {
-    embedDisqusThreadInline(thread, animeInfo);
-  } else {
-    embedDisqusThreadPopup(thread, animeInfo);
-  }
-}
+  // Cache the thread for Vue-side render
+  discussionCache.disqus = { thread };
+  removeCommentsSkeletonLoading();
 
-/**
- * Embed a Disqus thread inline below the video player
- */
-function embedDisqusThreadInline(thread: any, animeInfo: AnimeInfo): void {
   try {
-    // Remove existing inline panel if present
-    const existing = document.getElementById('reddit-inline-discussion');
-    if (existing) existing.remove();
-
-    const layout = document.querySelector('.erc-watch-episode-layout');
-    const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
-    if (!wrapper) {
-      console.warn('content-wrapper not found; falling back to popup');
-      embedDisqusThreadPopup(thread, animeInfo);
+    // If Vue app is mounted, switch provider to Disqus so it renders in the external container
+    if (inlineDiscussionApp && (inlineDiscussionApp as any)._instance?.exposed?.handleProviderChange) {
+      (inlineDiscussionApp as any)._instance.exposed.handleProviderChange('disqus');
       return;
     }
-
-    const title = thread.clean_title || thread.title || `${animeInfo.animeName} discussion`;
-    // Use the 'link' field from the API response (e.g., "https://disqus.com/home/discussion/channel-discussanime/...")
-    const threadUrl = thread.link || '';
-    // Use 'id' field as identifier (e.g., "10641910832")
-    const identifier = String(thread.id || thread.identifier || '');
-    const forumShortname = thread.forum || 'channel-discussanime';
-    // Extract slug from the thread link (last part of URL path without trailing slash)
-    const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
-
-    const container = document.createElement('section');
-    container.id = 'reddit-inline-discussion';
-    container.style.marginTop = '0';
-    container.innerHTML = `
-      <div class="ri-header">
-        <h2 class="ri-title">💬 Discussion: ${escapeHtml(title)}</h2>
-        <div class="ri-meta">From Disqus • ${escapeHtml(forumShortname)}</div>
-      </div>
-      <div id="disqus_thread"></div>
-    `;
-
-    wrapper.appendChild(container);
-
-    // Inject external script from extension (CSP-compliant)
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('disqus-loader.js');
-    script.async = true;
-    script.setAttribute('data-thread-url', threadUrl);
-    script.setAttribute('data-identifier', identifier);
-    script.setAttribute('data-forum', forumShortname);
-    script.setAttribute('data-title', title);
-    script.setAttribute('data-slug', threadSlug);
-    (document.head || document.body).appendChild(script);
+    // If componentInstance is available via the current inlineDiscussionApp (fallback)
+    const vueHost = document.getElementById('ri-inline-vue-host');
+    const instance = (vueHost as any)?._vnode?.component;
+    if (instance?.exposed?.handleProviderChange) {
+      instance.exposed.handleProviderChange('disqus');
+      return;
+    }
   } catch (e) {
-    console.error('Failed to embed Disqus inline', e);
-    embedDisqusThreadPopup(thread, animeInfo);
+    console.warn('[Disqus] Failed to switch provider via Vue exposed handle:', e);
   }
-}
 
-/**
- * Embed a Disqus thread in a popup overlay
- */
-function embedDisqusThreadPopup(thread: any, animeInfo: AnimeInfo): void {
-  const overlay = createOverlay();
-  const title = thread.clean_title || thread.title || `${animeInfo.animeName} discussion`;
-  const threadUrl = thread.link || '';
-  const identifier = String(thread.id || thread.identifier || '');
-  const forumShortname = thread.forum || 'channel-discussanime';
-  const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
-  
-  overlay.innerHTML = `
-    <div class="reddit-discussion-panel">
-      <div class="panel-header">
-        <h3>💬 Disqus Discussion</h3>
-        <div class="panel-actions">
-          <button class="wrong-btn" id="disqus-wrong-btn" title="Refine search manually">Wrong?</button>
-          <button class="close-btn" id="disqus-close-btn">✕</button>
-        </div>
-      </div>
-      <div class="panel-content">
-        <div class="discussion-info">
-          <h4 class="discussion-title">${escapeHtml(title)}</h4>
-          <div class="discussion-meta">From Disqus ΓÇó ${escapeHtml(forumShortname)}</div>
-        </div>
-        <div id="disqus_embed_host">
-          <div id="disqus_thread"></div>
-        </div>
-      </div>
-    </div>
-  `;
-
-  const closeBtn = overlay.querySelector('#disqus-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-  const wrongBtn = overlay.querySelector('#disqus-wrong-btn');
-  wrongBtn?.addEventListener('click', () => {
-    const ep = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
-    showManualSearchUI(lastAnimeInfo || { animeName: animeInfo.animeName, episodeName: animeInfo.episodeName }, ep ? Number(ep) : undefined);
-    overlay.remove();
-  });
-
-  // Inject external script from extension (CSP-compliant)
-  try {
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('disqus-loader.js');
-    script.async = true;
-    script.setAttribute('data-thread-url', threadUrl);
-    script.setAttribute('data-identifier', identifier);
-    script.setAttribute('data-forum', forumShortname);
-    script.setAttribute('data-title', title);
-    script.setAttribute('data-slug', threadSlug);
-    (document.head || document.body).appendChild(script);
-  } catch (e) {
-    console.warn('Failed to inject Disqus embed', e);
-  }
+  console.warn('[Disqus] Vue instance not ready; Disqus thread cached for later render');
 }
 
 /**
