@@ -227,7 +227,11 @@ async function completeOnboarding() {
 .background-art {
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1e 100%);
+  opacity: 0.4;
+  /* color filtering */
+  filter: brightness(0.8) contrast(1.2) saturate(0.8);
+  background: url('/assets/simple-bg.jpg') no-repeat center center;
+  background-size: cover;
   overflow: hidden;
 }
 

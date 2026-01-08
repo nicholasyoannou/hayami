@@ -334,24 +334,24 @@ function handleMenuClick(provider: Provider) {
 }
 
 const fallbackTabs: DiscussionTab[] = [
-  {
-    id: 'clip',
-    title: '3:19 - Clip Discussion',
-    score: 230,
-    comments: 214,
-  },
-  {
-    id: 'pv',
-    title: '"Frieren: Beyond Journey" Season 2 New PV',
-    score: 120,
-    comments: 1100,
-  },
-  {
-    id: 'mha',
-    title: '[My Hero Academia] Deku really went bazooka this time huh',
-    score: 740,
-    comments: 980,
-  },
+  // {
+  //   id: 'clip',
+  //   title: '3:19 - Clip Discussion',
+  //   score: 230,
+  //   comments: 214,
+  // },
+  // {
+  //   id: 'pv',
+  //   title: '"Frieren: Beyond Journey" Season 2 New PV',
+  //   score: 120,
+  //   comments: 1100,
+  // },
+  // {
+  //   id: 'mha',
+  //   title: '[My Hero Academia] Deku really went bazooka this time huh',
+  //   score: 740,
+  //   comments: 980,
+  // },
 ];
 
 const tabItems = computed<DiscussionTab[]>(() => {
