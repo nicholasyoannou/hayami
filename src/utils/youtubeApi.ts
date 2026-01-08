@@ -239,7 +239,7 @@ export async function searchYouTubePlaylist(
     });
 
     const response = await fetch(
-      `https://r-anime-wiki-mapper-service.nicholas.dev/anime/search?${params.toString()}`,
+      `https://api.hayami.moe/anime/search?${params.toString()}`,
       {
         credentials: 'omit',
       }

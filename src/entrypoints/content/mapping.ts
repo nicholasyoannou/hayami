@@ -443,7 +443,7 @@ async function fetchAnimeMapperDataBySeriesAndSeason(
     const encodedSeason = encodeURIComponent(seasonTitle);
     // Reddit is the default; only append when explicitly requesting a non-default platform.
     const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
-    const url = `https://r-anime-wiki-mapper-service.nicholas.dev/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}`;
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}`;
     console.log('[Mapper Failover] Querying mapper service URL:', url);
     const response = await fetch(url);
 

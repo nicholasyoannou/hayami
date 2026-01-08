@@ -254,7 +254,7 @@ export default defineContentScript({
 async function fetchAnimeMapperData(animeName: string): Promise<any | null> {
   try {
     const encodedName = encodeURIComponent(animeName);
-    const response = await fetch(`https://r-anime-wiki-mapper-service.nicholas.dev/anime/${encodedName}`);
+    const response = await fetch(`https://api.hayami.moe/anime/${encodedName}`);
     
     if (!response.ok) {
       console.log('Mapper service returned non-OK status:', response.status);
