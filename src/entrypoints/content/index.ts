@@ -1039,99 +1039,14 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
  * or `false` if user embedded a Disqus thread or dismissed without falling back.
  */
 async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'dismissed' | 'embedded'> {
-  const overlay = createOverlay();
-  overlay.innerHTML = `
-    <div class="reddit-discussion-panel">
-      <div class="panel-header">
-        <h3>💬 Search Disqus</h3>
-        <div class="panel-actions">
-          <button class="close-btn" id="disqus-search-close">✕</button>
-        </div>
-      </div>
-      <div class="panel-content">
-        <p>Searching Disqus for threads in <strong>channel-discussanime</strong>...</p>
-        <ul class="choice-list" id="disqus-choice-list"></ul>
-        <div style="margin-top:12px"><button id="use-reddit-btn" class="reddit-btn">Use Reddit instead</button></div>
-      </div>
-    </div>
-  `;
-
-  const closeBtn = overlay.querySelector('#disqus-search-close') as HTMLElement | null;
-  const useRedditBtn = overlay.querySelector('#use-reddit-btn') as HTMLButtonElement | null;
-  const listHost = overlay.querySelector('#disqus-choice-list') as HTMLElement | null;
-
-  let result: 'fallback' | 'dismissed' | 'embedded' = 'dismissed';
-
-  closeBtn?.addEventListener('click', () => {
-    result = 'dismissed';
-    overlay.remove();
-  });
-  useRedditBtn?.addEventListener('click', () => {
-    result = 'fallback';
-    overlay.remove();
-  });
-
   try {
-    // compute since timestamp: START OF THE DAY (00:00:00) one day BEFORE the releaseDate
-    let sinceTs = Math.floor(Date.now() / 1000) - 30 * 24 * 3600;
-    if (animeInfo.releaseDate) {
-      const parsed = Date.parse(animeInfo.releaseDate);
-      if (!Number.isNaN(parsed)) {
-        const releaseDate = new Date(parsed);
-        // Set to one day before
-        releaseDate.setDate(releaseDate.getDate() - 1);
-        // Set to start of day (00:00:00.000)
-        releaseDate.setHours(0, 0, 0, 0);
-        sinceTs = Math.floor(releaseDate.getTime() / 1000);
-      }
-    }
-    let threads = await listThreadsForForumSince('channel-discussanime', sinceTs);
-    if (!threads || threads.length === 0) {
-      // broaden search to 90 days
-      const since2 = Math.floor(Date.now() / 1000) - 90 * 24 * 3600;
-      threads = await listThreadsForForumSince('channel-discussanime', since2);
-    }
-
-    if (!threads || threads.length === 0) {
-      if (listHost) listHost.innerHTML = `<li class="choice-item">No Disqus threads found in channel-discussanime.</li>`;
-      return new Promise<'fallback' | 'dismissed' | 'embedded'>((res) => {
-        // wait for user to click Use Reddit or close
-        const i = setInterval(() => {
-          if (overlay.parentElement === null) { clearInterval(i); res(result); }
-        }, 200);
-      });
-    }
-
-    // Render list
-    if (listHost) {
-      listHost.innerHTML = threads.slice(0, 20).map((t: any, idx: number) => {
-        const url = t.url || t.link || '';
-        const snippet = (t.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `<li class="choice-item"><div class="choice-title">${snippet}</div><div class="choice-meta">${escapeHtml(String(url))}</div><button class="reddit-btn disqus-select" data-index="${idx}">Embed</button></li>`;
-      }).join('');
-
-      // Wire handlers
-      Array.from(listHost.querySelectorAll('.disqus-select')).forEach(btn => {
-        btn.addEventListener('click', async (ev) => {
-          const idx = Number((ev.currentTarget as HTMLElement).getAttribute('data-index'));
-          const t = threads[idx];
-          if (t) {
-            await embedDisqusThreadDependingOnMode(t, animeInfo);
-            overlay.remove();
-            result = 'embedded';
-          }
-        });
-      });
-    }
-
-    return new Promise<'fallback' | 'dismissed' | 'embedded'>((res) => {
-      const i = setInterval(() => {
-        if (overlay.parentElement === null) { clearInterval(i); res(result); }
-      }, 200);
-    });
+    const event = new CustomEvent('ri-disqus-search-requested', { detail: { animeInfo } });
+    window.dispatchEvent(event);
+    console.log('[DisqusSearch] Routed manual Disqus search to Vue event');
+    return 'dismissed';
   } catch (e) {
-    console.warn('Disqus manual search failed', e);
-    return 'fallback'; // fallback to reddit
+    console.warn('[DisqusSearch] Failed to dispatch Vue event', e);
+    return 'fallback';
   }
 }
 
@@ -3362,29 +3277,32 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Initial page
     commentsRoot.innerHTML = '';
     appendNextPage();
-    io = new IntersectionObserver((entries) => {
+    const initialObserver = new IntersectionObserver((entries) => {
       const ent = entries[0];
       if (ent.isIntersecting) appendNextPage();
     }, { root: null, threshold: 0.1 });
+    io = initialObserver;
     // Create sentinel after content root
     const sentinel = document.createElement('div');
     sentinel.id = 'ri-sentinel';
     commentsRoot.after(sentinel);
-    io.observe(sentinel);
+    initialObserver.observe(sentinel);
     
     // Store globally for cleanup
     redditCommentsObserver = io;
     redditCommentsSentinel = sentinel;
 
     // Wire sort and search
-    const sortSelect = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
-    const searchInput = host.querySelector('#ri-search') as HTMLInputElement | null;
+    const sortSelectEl = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
+    const searchInputEl = host.querySelector('#ri-search') as HTMLInputElement | null;
     const addCommentBtn = host.querySelector('#ri-add-comment-btn') as HTMLButtonElement | null;
     const topReplyHost = host.querySelector('#ri-top-reply-host') as HTMLElement | null;
     applyRedditSortOptions();
-    sortSelect?.addEventListener('change', async () => {
+    if (sortSelectEl) {
+    const select = sortSelectEl as HTMLSelectElement;
+    select.addEventListener('change', async () => {
       if (activeProvider === 'youtube' || activeProvider === 'reddit-youtube') {
-        const selectedOrder = sortSelect.value === 'time' ? 'time' : 'relevance';
+        const selectedOrder = select.value === 'time' ? 'time' : 'relevance';
         currentYouTubeOrder = selectedOrder;
         if (!currentYouTubeVideo) {
           console.warn('YouTube video info missing for sort change');
@@ -3405,7 +3323,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       if (activeProvider === 'disqus') {
         return;
       }
-      currentSort = (sortSelect.value as any) || 'best';
+      currentSort = (select.value as any) || 'best';
       // Reset UI and show skeletons during fetch
       if (io) { try { io.disconnect(); } catch {}
       }
@@ -3415,7 +3333,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       allComments = (commentsModel?.comments ?? []) as any[];
       rootMoreIds = Array.isArray(commentsModel?.rootMoreChildrenIds) ? [...commentsModel.rootMoreChildrenIds] : [];
       linkFullname = commentsModel?.linkFullname || (discussion.id?.startsWith('t3_') ? discussion.id : `t3_${discussion.id}`);
-      filteredComments = applyFilter(allComments, searchInput?.value || '');
+      filteredComments = applyFilter(allComments, searchInputEl?.value || '');
       // Reset paging
       pageIndex = 0;
       commentsRoot.innerHTML = '';
@@ -3424,12 +3342,14 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       const newSentinel = document.createElement('div');
       newSentinel.id = 'ri-sentinel';
       commentsRoot.after(newSentinel);
-      io = new IntersectionObserver((entries) => {
+      const replacementObserver = new IntersectionObserver((entries) => {
         const ent = entries[0];
         if (ent.isIntersecting) appendNextPage();
       }, { root: null, threshold: 0.1 });
-      io.observe(newSentinel);
+      io = replacementObserver;
+      replacementObserver.observe(newSentinel);
     });
+    }
     let searchTimer: number | undefined;
     function applyFilter(list: any[], q: string) {
       const needle = (q || '').toLowerCase();
@@ -3437,7 +3357,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       // Simple filter on top-level comments only for now
       return list.filter(c => (c.body || '').toLowerCase().includes(needle) || (c.author || '').toLowerCase().includes(needle));
     }
-    searchInput?.addEventListener('input', () => {
+    if (searchInputEl) {
+    const searchInput = searchInputEl as HTMLInputElement;
+    searchInput.addEventListener('input', () => {
       if (searchTimer) clearTimeout(searchTimer);
       const q = searchInput.value;
       searchTimer = window.setTimeout(() => {
@@ -3447,24 +3369,27 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         appendNextPage();
       }, 250);
     });
+    }
 
     // Top-level Add Comment button logic (single mount, toggle display)
     if (addCommentBtn && topReplyHost && !discussion.archived && !discussion.locked) {
+      const addBtn = addCommentBtn as HTMLButtonElement;
+      const replyHost = topReplyHost as HTMLElement;
       let topApp: VueApp | null = null;
-      addCommentBtn.addEventListener('click', async () => {
+      addBtn.addEventListener('click', async () => {
         // Toggle existing
-        if (topReplyHost.style.display === 'block') {
+        if (replyHost.style.display === 'block') {
           if (topApp) {
             topApp.unmount();
             topApp = null;
-            mountedVueApps.delete(topReplyHost);
+            mountedVueApps.delete(replyHost);
           }
-          topReplyHost.style.display = 'none';
+          replyHost.style.display = 'none';
           return;
         }
         // Mount new editor
-        topReplyHost.style.display = 'block';
-        topReplyHost.innerHTML = '';
+        replyHost.style.display = 'block';
+        replyHost.innerHTML = '';
         const linkFullname = discussion.id?.startsWith('t3_') ? discussion.id : `t3_${discussion.id}`;
         topApp = createApp(MarkdownReplyEditor, {
           placeholder: 'Write a comment in markdown... (Ctrl+Enter to submit)',
@@ -3515,9 +3440,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 if (topApp) {
                   topApp.unmount();
                   topApp = null;
-                  mountedVueApps.delete(topReplyHost);
+                  mountedVueApps.delete(replyHost);
                 }
-                topReplyHost.style.display = 'none';
+                replyHost.style.display = 'none';
                 toast.success('Comment posted');
               } else {
                 toast.error(`Failed to post comment: ${res.error || 'Unknown error'}`);
@@ -3530,13 +3455,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             if (topApp) {
               topApp.unmount();
               topApp = null;
-              mountedVueApps.delete(topReplyHost);
+              mountedVueApps.delete(replyHost);
             }
-            topReplyHost.style.display = 'none';
+            replyHost.style.display = 'none';
           }
         });
-        topApp.mount(topReplyHost);
-        mountedVueApps.set(topReplyHost, topApp);
+        topApp.mount(replyHost);
+        mountedVueApps.set(replyHost, topApp);
       });
     }
 
@@ -3557,6 +3482,16 @@ function handleWrongClick(): void {
 
 // Dedicated manual search prompt with auto-search-as-you-type
 function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
+  try {
+    const event = new CustomEvent('ri-manual-search-requested', {
+      detail: { animeInfo, crEpisodeNum },
+    });
+    window.dispatchEvent(event);
+    console.log('[ManualSearch] Routed manual search to Vue event');
+    return; // bypass legacy DOM overlay
+  } catch (e) {
+    console.warn('[ManualSearch] Failed to dispatch manual search event', e);
+  }
   const overlay = createOverlay();
   const renderList = (items: any[]) => items.slice(0, 20).map((p, idx) => {
     const date = new Date(p.created_utc * 1000).toLocaleString();
@@ -3655,6 +3590,21 @@ function bootstrapContent(ctx: ContentScriptContext): void {
   if (isWatchPage(window.location.href)) {
     queueHandleWatchPage(ctx);
   }
+
+  // Handle manual search result from Vue modal
+  window.addEventListener('ri-manual-search-result', async (ev: any) => {
+    try {
+      const permalink = ev?.detail?.permalink || '';
+      if (!permalink) return;
+      const normalized = permalink.startsWith('http') ? permalink : `https://www.reddit.com${permalink}`;
+      const postData = await fetchRedditPostFromUrl(normalized);
+      if (postData) {
+        await displayDiscussionDependingOnMode(postData);
+      }
+    } catch (e) {
+      console.warn('[ManualSearch] Failed to handle manual search result', e);
+    }
+  });
 
   ctx.addEventListener(window, 'wxt:locationchange', (event: { newUrl: URL }) => {
     const newUrl = event.newUrl?.href;

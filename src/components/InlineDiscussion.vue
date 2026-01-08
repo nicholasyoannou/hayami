@@ -3,6 +3,7 @@ import { computed, ref, watch, nextTick, onUpdated } from 'vue';
 import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import { voteThing } from '../utils/redditApi';
+import { searchCustomPosts } from '../utils/redditApi';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube';
 
@@ -49,6 +50,52 @@ const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
   props.discussion.likes === false ? 'downvoted' :
   'idle'
 );
+
+// Manual search modal state (Vue-based replacement for legacy overlay)
+const manualSearchOpen = ref(false);
+const manualSearchQuery = ref('');
+const manualSearchResults = ref<any[]>([]);
+const manualSearchLoading = ref(false);
+const manualSearchError = ref<string | null>(null);
+
+function openManualSearchModal(initialQuery?: string) {
+  manualSearchOpen.value = true;
+  manualSearchQuery.value = initialQuery || props.discussion.title || '';
+  manualSearchResults.value = [];
+  manualSearchError.value = null;
+  runManualSearch();
+}
+
+async function runManualSearch() {
+  manualSearchLoading.value = true;
+  manualSearchError.value = null;
+  try {
+    const q = manualSearchQuery.value.trim() || props.discussion.title || '';
+    const results = q ? await searchCustomPosts(q) : [];
+    manualSearchResults.value = Array.isArray(results) ? results : [];
+    if (manualSearchResults.value.length === 0) {
+      manualSearchError.value = 'No results found. Try adjusting your query.';
+    }
+  } catch (e: any) {
+    manualSearchError.value = e?.message || 'Search failed.';
+  } finally {
+    manualSearchLoading.value = false;
+  }
+}
+
+function selectManualResult(item: any) {
+  try {
+    const permalink = item?.permalink || item?.url || '';
+    if (!permalink) return;
+    window.dispatchEvent(new CustomEvent('ri-manual-search-result', {
+      detail: { permalink },
+    }));
+  } catch (e) {
+    console.warn('[ManualSearch] Failed to dispatch selection', e);
+  } finally {
+    manualSearchOpen.value = false;
+  }
+}
 
 const redditUrl = computed(() => {
   const permalink = props.discussion.permalink || '';
@@ -263,6 +310,31 @@ watch(() => isLoading.value, (newVal, oldVal) => {
 
 watch(() => currentProvider.value, (newVal, oldVal) => {
   console.log('[WATCH] currentProvider changed:', { from: oldVal, to: newVal });
+});
+
+onMounted(() => {
+  const manualSearchHandler = (ev: Event) => {
+    const detail = (ev as CustomEvent)?.detail || {};
+    const animeInfo = detail.animeInfo;
+    const crEpisodeNum = detail.crEpisodeNum;
+    const initialParts: string[] = [];
+    if (animeInfo?.animeName) initialParts.push(animeInfo.animeName);
+    if (typeof crEpisodeNum === 'number') initialParts.push(`Episode ${crEpisodeNum}`);
+    const initial = initialParts.join(' ').trim() || props.discussion.title || '';
+    openManualSearchModal(initial);
+  };
+  const escHandler = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape' && manualSearchOpen.value) {
+      manualSearchOpen.value = false;
+    }
+  };
+  window.addEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
+  window.addEventListener('keydown', escHandler);
+
+  onUnmounted(() => {
+    window.removeEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
+    window.removeEventListener('keydown', escHandler);
+  });
 });
 
 onUpdated(() => {
@@ -554,5 +626,108 @@ defineExpose({
         />
       </div>
     </section>
+
+    <!-- Manual Search Modal -->
+    <div
+      v-if="manualSearchOpen"
+      class="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-4"
+      @click.self="manualSearchOpen = false"
+    >
+      <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
+          <h3 class="text-lg font-semibold text-white">Search r/anime</h3>
+          <button
+            class="text-[#aaa] hover:text-white"
+            @click="manualSearchOpen = false"
+            aria-label="Close"
+          >✕</button>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="flex gap-2">
+            <input
+              v-model="manualSearchQuery"
+              @keyup.enter="runManualSearch"
+              class="flex-1 bg-[#0f0f0f] border border-[#2f2f2f] rounded-lg px-3 py-2 text-sm text-white outline-none"
+              type="text"
+              placeholder="Type a query..."
+            />
+            <button
+              class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm"
+              @click="runManualSearch"
+              :disabled="manualSearchLoading"
+            >
+              {{ manualSearchLoading ? 'Searching...' : 'Search' }}
+            </button>
+          </div>
+          <div v-if="manualSearchError" class="text-sm text-red-400">
+            {{ manualSearchError }}
+          </div>
+          <div v-if="manualSearchLoading" class="text-sm text-[#ccc]">Searching...</div>
+          <ul v-else class="space-y-2 max-h-[320px] overflow-y-auto styled-scroll">
+            <li
+              v-for="(item, idx) in manualSearchResults"
+              :key="idx"
+              class="p-3 border border-[#262626] rounded-lg bg-[#0f0f0f]"
+            >
+              <div class="text-sm font-semibold text-white whitespace-normal break-words">{{ item.title }}</div>
+              <div class="text-xs text-[#aaa] flex items-center gap-2 mt-1">
+                <span>u/{{ item.author }}</span>
+                <span>•</span>
+                <span>{{ (item.num_comments ?? 0).toLocaleString() }} comments</span>
+              </div>
+              <div class="mt-2">
+                <button
+                  class="px-3 py-1 text-xs bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded"
+                  @click="selectManualResult(item)"
+                >
+                  Select
+                </button>
+              </div>
+            </li>
+            <li v-if="manualSearchResults.length === 0 && !manualSearchError" class="text-sm text-[#999]">
+              No results yet. Try searching above.
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.ri-loading-wave {
+  color: #bfbfbf;
+  font-size: 13px;
+  margin-bottom: 10px;
+  background: linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.styled-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a #141414;
+}
+.styled-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.styled-scroll::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 8px;
+}
+.styled-scroll::-webkit-scrollbar-track {
+  background: #141414;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+</style>
