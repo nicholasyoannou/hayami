@@ -433,11 +433,17 @@ function mapEpisodeWithSeasonsData(
   return null;
 }
 
-async function fetchAnimeMapperDataBySeriesAndSeason(seriesName: string, seasonTitle: string): Promise<any | null> {
+async function fetchAnimeMapperDataBySeriesAndSeason(
+  seriesName: string,
+  seasonTitle: string,
+  platform: 'reddit' | 'disqus' = 'reddit',
+): Promise<any | null> {
   try {
     const encodedSeries = encodeURIComponent(seriesName);
     const encodedSeason = encodeURIComponent(seasonTitle);
-    const url = `https://r-anime-wiki-mapper-service.nicholas.dev/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}`;
+    // Reddit is the default; only append when explicitly requesting a non-default platform.
+    const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
+    const url = `https://r-anime-wiki-mapper-service.nicholas.dev/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}`;
     console.log('[Mapper Failover] Querying mapper service URL:', url);
     const response = await fetch(url);
 
@@ -518,9 +524,12 @@ function mapEpisodeToSeasonEpisode(
   return null;
 }
 
-export async function tryMapperFailover(animeInfo: AnimeInfo): Promise<string | null> {
+export async function tryMapperFailover(
+  animeInfo: AnimeInfo,
+  platform: 'reddit' | 'disqus' = 'reddit',
+): Promise<string | null> {
   try {
-    console.log('[Mapper Failover] Starting failover process');
+    console.log('[Mapper Failover] Starting failover process', { platform });
     const episodeId = extractEpisodeIdFromUrl();
     if (!episodeId) {
       console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
@@ -575,15 +584,42 @@ export async function tryMapperFailover(animeInfo: AnimeInfo): Promise<string | 
     }
 
     console.log('[Mapper Failover] Querying mapper service with series_name and season_title...');
-    const mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle);
+    const mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform);
     console.log('[Mapper Failover] Mapper service response:', mapperResult);
-    if (!mapperResult || !(mapperResult as any).matched_result) {
-      console.log('[Mapper Failover] No matched_result from mapper service. Full response:', mapperResult);
+    if (!mapperResult || !(mapperResult as any).results || !(mapperResult as any).results.length) {
+      console.log('[Mapper Failover] No results from mapper service. Full response:', mapperResult);
       return null;
     }
-    console.log('[Mapper Failover] Found matched result:', (mapperResult as any).matched_result);
 
-    let matchedIndex = (mapperResult as any).matched_result.index;
+    // Prefer provided matched_result; otherwise fall back to best-effort match.
+    let matchedIndex = (mapperResult as any).matched_result?.index;
+    if (matchedIndex === undefined || matchedIndex === null) {
+      const results: any[] = (mapperResult as any).results || [];
+      const normalizedSeries = (seriesTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      const normalizedSeason = (seasonTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      let bestIdx = -1;
+      let bestScore = -1;
+
+      results.forEach((r, idx) => {
+        const name = String(r?.anime_name || '').toLowerCase();
+        const scoreSeries = normalizedSeries && name.includes(normalizedSeries) ? normalizedSeries.length : 0;
+        const scoreSeason = normalizedSeason && name.includes(normalizedSeason) ? normalizedSeason.length : 0;
+        const score = scoreSeries + scoreSeason;
+        if (score > bestScore) {
+          bestScore = score;
+          bestIdx = idx;
+        }
+      });
+
+      if (bestIdx === -1) {
+        bestIdx = 0; // fallback to first result
+      }
+      matchedIndex = bestIdx;
+      console.log('[Mapper Failover] No matched_result; selected best-effort index:', matchedIndex);
+    } else {
+      console.log('[Mapper Failover] Found matched result:', (mapperResult as any).matched_result);
+    }
+
     const initialMatchedResult = (mapperResult as any).results?.[matchedIndex];
 
     if (initialMatchedResult && ((initialMatchedResult as any).year === 'movies' || !(initialMatchedResult as any).episodes || typeof (initialMatchedResult as any).episodes !== 'object' || Object.keys((initialMatchedResult as any).episodes).length === 0)) {
@@ -644,20 +680,20 @@ export async function tryMapperFailover(animeInfo: AnimeInfo): Promise<string | 
 
     const episodeKeyStr = String(seasonEpisode);
     const episodeKeyNum = seasonEpisode;
-    let redditUrl = matchedSeason.episodes[episodeKeyStr] || matchedSeason.episodes[episodeKeyNum];
+    let mappedUrl = matchedSeason.episodes[episodeKeyStr] || matchedSeason.episodes[episodeKeyNum];
 
-    if (!redditUrl && seasonEpisode < 10) {
-      redditUrl = matchedSeason.episodes[`0${seasonEpisode}`];
+    if (!mappedUrl && seasonEpisode < 10) {
+      mappedUrl = matchedSeason.episodes[`0${seasonEpisode}`];
     }
 
-    if (!redditUrl) {
-      console.log(`No Reddit URL found for episode ${seasonEpisode} (tried keys: ${episodeKeyStr}, ${episodeKeyNum}) in matched season`);
+    if (!mappedUrl) {
+      console.log(`No ${platform} URL found for episode ${seasonEpisode} (tried keys: ${episodeKeyStr}, ${episodeKeyNum}) in matched season`);
       console.log('Available episode keys:', Object.keys(matchedSeason.episodes));
       return null;
     }
 
-    console.log('Found Reddit thread via failover:', redditUrl);
-    return redditUrl;
+    console.log(`Found ${platform} thread via failover:`, mappedUrl);
+    return mappedUrl;
   } catch (error) {
     console.error('Error in mapper failover:', error);
     return null;

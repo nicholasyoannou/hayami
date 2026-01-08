@@ -443,12 +443,26 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       const provider = d && d.comments_provider ? String(d.comments_provider) : 'reddit';
       if (provider === 'disqus') {
         try {
+          const releaseToday = isReleaseDateToday(animeInfo.releaseDate);
+          if (!releaseToday) {
+            const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus');
+            if (mappedDisqusUrl) {
+              const mappedThread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
+              if (mappedThread) {
+                discussionCache.disqus = { thread: mappedThread };
+                removeCommentsSkeletonLoading();
+                await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
+                return;
+              }
+            }
+          }
+
           const thread = await findThreadForAnime(animeInfo);
           if (thread) {
-          // Embed Disqus thread instead of Reddit, respecting display mode
-          removeCommentsSkeletonLoading();
-          await embedDisqusThreadDependingOnMode(thread, animeInfo);
-          return;
+            // Embed Disqus thread instead of Reddit, respecting display mode
+            removeCommentsSkeletonLoading();
+            await embedDisqusThreadDependingOnMode(thread, animeInfo);
+            return;
           }
           // No exact match found ΓÇö offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
@@ -923,6 +937,42 @@ function waitForDisqusLoad(callback: () => void): void {
     observer.disconnect();
     callback();
   }, 1500);
+}
+
+function isReleaseDateToday(releaseDate?: string): boolean {
+  if (!releaseDate) return false;
+  const parsed = Date.parse(releaseDate);
+  if (Number.isNaN(parsed)) return false;
+  const d = new Date(parsed);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+}
+
+function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any | null {
+  if (!threadUrl) return null;
+  const safeUrl = threadUrl.trim();
+  let slug = '';
+  try {
+    slug = new URL(safeUrl).pathname.split('/').filter(Boolean).pop() || '';
+  } catch {
+    slug = safeUrl.split('/').filter(Boolean).pop() || '';
+  }
+  const titleBase = animeInfo?.animeName || 'Discussion';
+  const episodePart = animeInfo?.episodeName ? ` - ${animeInfo.episodeName}` : '';
+  const title = `${titleBase}${episodePart}`.trim();
+  const identifier = slug || safeUrl;
+
+  return {
+    title,
+    clean_title: title,
+    link: safeUrl,
+    id: identifier,
+    identifier,
+    forum: 'channel-discussanime',
+    slug,
+  };
 }
 
 /**
@@ -1710,6 +1760,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           // Helper to render Disqus thread into the external comments container
           const renderDisqusThread = async (thread: any) => {
             console.log('[DisqusRender] Starting renderDisqusThread');
+            // Clear skeleton immediately once we start rendering a Disqus thread
+            removeCommentsSkeletonLoading();
             // Wait for external comments container to be available (Vue might still be rendering)
             let externalContainer: HTMLElement | null = null;
             for (let i = 0; i < 50; i++) {
@@ -1745,6 +1797,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             console.log('  Forum:', forumShortname);
             console.log('  URL:', threadUrl);
             
+            // Remove skeleton and clear Vue loading before rendering header/content
+            removeCommentsSkeletonLoading();
+            clearLoadingState('Disqus render start');
+
             // Render Disqus content into the external container
             externalContainer.innerHTML = `
               <div class="ri-header" style="margin-bottom: 12px;">
@@ -1785,7 +1841,34 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           // Switch to Disqus - fetch if not cached
           try {
             console.log('[DisqusProvider] Fetching Disqus thread...');
-            const thread = await findThreadForAnime(lastAnimeInfo);
+            if (!lastAnimeInfo) {
+              console.warn('[DisqusProvider] No anime info available; falling back to Reddit');
+              if (componentInstance?.exposed?.handleProviderChange) {
+                componentInstance.exposed.handleProviderChange('reddit');
+              } else {
+                clearLoadingState('Disqus fallback no anime info');
+              }
+              return;
+            }
+            let thread = discussionCache.disqus?.thread;
+
+            if (!thread && lastAnimeInfo) {
+              const releaseToday = isReleaseDateToday(lastAnimeInfo.releaseDate);
+              if (!releaseToday) {
+                const mappedDisqusUrl = await tryMapperFailover(lastAnimeInfo, 'disqus');
+                if (mappedDisqusUrl) {
+                  thread = buildDisqusThreadFromUrl(mappedDisqusUrl, lastAnimeInfo);
+                  if (thread) {
+                    console.log('[DisqusProvider] Using mapper Disqus match:', mappedDisqusUrl);
+                  }
+                }
+              }
+            }
+
+            if (!thread) {
+              thread = await findThreadForAnime(lastAnimeInfo);
+            }
+
             if (thread) {
               // Cache the Disqus thread
               discussionCache.disqus = { thread };
