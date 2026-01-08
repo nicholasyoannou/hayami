@@ -59,7 +59,7 @@
             class="w-full h-full object-cover"
             :src="subredditAvatar"
             :alt="`${subredditName} logo`"
-          />
+        />
         </span>
         <span class="truncate max-w-[8rem]">{{ subredditName }}</span>
       </div>

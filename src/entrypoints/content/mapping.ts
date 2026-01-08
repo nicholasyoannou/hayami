@@ -617,7 +617,7 @@ export async function tryMapperFailover(
       matchedIndex = bestIdx;
       console.log('[Mapper Failover] No matched_result; selected best-effort index:', matchedIndex);
     } else {
-      console.log('[Mapper Failover] Found matched result:', (mapperResult as any).matched_result);
+    console.log('[Mapper Failover] Found matched result:', (mapperResult as any).matched_result);
     }
 
     const initialMatchedResult = (mapperResult as any).results?.[matchedIndex];

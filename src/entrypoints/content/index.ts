@@ -1,4 +1,4 @@
-﻿// @ts-ignore Missing types for wxt in this context
+// @ts-ignore Missing types for wxt in this context
 import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing, extensionFetch } from '@/utils/redditApi';
 import { findThreadForAnime, listThreadsForForumSince } from '@/utils/disqusApi';
@@ -423,7 +423,7 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       } catch {}
       inlineDiscussionApp = null;
     }
-
+    
     // Mount an initial Vue loading shell so users see skeletons immediately
     mountLoadingShell();
     
@@ -460,9 +460,9 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
 
           const thread = await findThreadForAnime(animeInfo);
           if (thread) {
-            // Embed Disqus thread instead of Reddit, respecting display mode
-            await embedDisqusThreadDependingOnMode(thread, animeInfo);
-            return;
+          // Embed Disqus thread instead of Reddit, respecting display mode
+          await embedDisqusThreadDependingOnMode(thread, animeInfo);
+          return;
           }
           // No exact match found ΓÇö offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
@@ -1648,7 +1648,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             
             // Clear Vue loading before rendering header/content
             clearLoadingState('Disqus render start');
-
+            
             // Render Disqus content into the external container
             externalContainer.innerHTML = `
               <div class="ri-header" style="margin-bottom: 12px;">
@@ -2005,12 +2005,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Force Vue rendering path (legacy DOM rendering removed)
     const USE_VUE_REDDIT_COMMENTS = true;
     console.log('[Vue] Using Vue-based Reddit comment rendering (forced)');
-    // Set up cleanup for the mounted app
-    // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
-    redditCommentsCleanup = () => {
-      // no-op: keep Vue app alive; provider switching handled via exposed callbacks
-    };
-    return; // Skip all DOM-based comment rendering below
+      // Set up cleanup for the mounted app
+      // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
+      redditCommentsCleanup = () => {
+        // no-op: keep Vue app alive; provider switching handled via exposed callbacks
+      };
+      return; // Skip all DOM-based comment rendering below
 
     const commentsRoot = host.querySelector('.ri-comments') as HTMLElement;
     // Skeleton CSS now imported from content.css
