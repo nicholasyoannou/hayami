@@ -2087,26 +2087,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       console.log(`[LoadingState] Stored component instance after mount`);
     }
 
-    // Check storage setting for Vue rendering preference (defaults to true)
-    let USE_VUE_REDDIT_COMMENTS = true;
-    try {
-      const data = await chrome.storage.local.get('use_vue_rendering');
-      // If setting exists, use it; otherwise default to true (new Vue approach)
-      USE_VUE_REDDIT_COMMENTS = data?.use_vue_rendering !== false;
-      console.log(`[Vue] Rendering mode from settings: ${USE_VUE_REDDIT_COMMENTS ? 'Vue' : 'Classic DOM'}`);
-    } catch (e) {
-      console.warn('[Vue] Failed to read rendering setting, defaulting to Vue:', e);
-    }
-    
-    if (USE_VUE_REDDIT_COMMENTS) {
-      console.log('[Vue] Using Vue-based Reddit comment rendering');
-      // Set up cleanup for the mounted app
-      // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
-      redditCommentsCleanup = () => {
-        // no-op: keep Vue app alive; provider switching handled via exposed callbacks
-      };
-      return; // Skip all DOM-based comment rendering below
-    }
+    // Force Vue rendering path (legacy DOM rendering removed)
+    const USE_VUE_REDDIT_COMMENTS = true;
+    console.log('[Vue] Using Vue-based Reddit comment rendering (forced)');
+    // Set up cleanup for the mounted app
+    // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
+    redditCommentsCleanup = () => {
+      // no-op: keep Vue app alive; provider switching handled via exposed callbacks
+    };
+    return; // Skip all DOM-based comment rendering below
 
     const commentsRoot = host.querySelector('.ri-comments') as HTMLElement;
     // Skeleton CSS now imported from content.css
