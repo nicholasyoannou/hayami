@@ -1,4 +1,5 @@
-﻿import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+﻿// @ts-ignore Missing types for wxt in this context
+import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { searchAnimeDiscussion, extractEpisodeNumber, searchSeriesDiscussionsByDate, searchCustomPosts, getPostComments, formatRedditDate, getMoreChildren, getUserAvatar, getSubredditEmojiMap, submitComment, voteThing, extensionFetch } from '@/utils/redditApi';
 import { findThreadForAnime, listThreadsForForumSince } from '@/utils/disqusApi';
 import { getVideoComments, getCommentReplies, searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
@@ -19,12 +20,12 @@ import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo'
 import { displayModeStorage, useDisplayMode } from '@/composables/useDisplayMode';
 import { isImageLink, isYouTubeLink, extractYouTubeId, proxifyImageUrl } from '@/composables/useImagePreview';
 import { AnimeInfo } from './types';
-import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from './mapping';
+import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover, extractEpisodeIdFromUrl, fetchCrunchyrollEpisodeMetadata } from './mapping';
 
 // New modular imports
 import { renderFlair as renderFlairBase, renderActions as renderActionsBase, triggerScoreAnimation } from './comments';
 import { formatYouTubeDate, formatYouTubeCommentText } from './providers';
-import { showCommentsSkeletonLoading, removeCommentsSkeletonLoading, generateSkeletonHtml } from './ui';
+import { generateSkeletonHtml } from './ui';
 import { createOverlay, setupYouTubeModalListener, setupGalleryModalListener } from './ui';
 import { findExactDateMatch } from './utils';
 
@@ -422,9 +423,10 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       } catch {}
       inlineDiscussionApp = null;
     }
+
+    // Mount an initial Vue loading shell so users see skeletons immediately
+    mountLoadingShell();
     
-    // Show skeleton loading in comments section area while searching
-    const skeletonContainer = showCommentsSkeletonLoading();
     // Check if user is authenticated. If not, continue using the public
     // fallback paths (we added unauthenticated search/comments/morechildren)
     // so the UI won't force the user to log in just to view threads. Keep
@@ -450,7 +452,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
               const mappedThread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
               if (mappedThread) {
                 discussionCache.disqus = { thread: mappedThread };
-                removeCommentsSkeletonLoading();
                 await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
                 return;
               }
@@ -460,7 +461,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
           const thread = await findThreadForAnime(animeInfo);
           if (thread) {
             // Embed Disqus thread instead of Reddit, respecting display mode
-            removeCommentsSkeletonLoading();
             await embedDisqusThreadDependingOnMode(thread, animeInfo);
             return;
           }
@@ -469,7 +469,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
           const disqusResult = await showDisqusSearchUI(animeInfo);
           if (disqusResult === 'embedded') {
             // user embedded a thread; stop here
-            removeCommentsSkeletonLoading();
             return;
           }
           // User dismissed or clicked fallback - continue with Reddit search
@@ -489,7 +488,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       console.log('[Search] Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
       if (postData) {
-        removeCommentsSkeletonLoading();
         await displayDiscussionDependingOnMode(postData);
         return;
       }
@@ -511,7 +509,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
         // Extract post ID from Reddit URL and fetch post data
         const postData = await fetchRedditPostFromUrl(redditUrl);
         if (postData) {
-          removeCommentsSkeletonLoading();
           await displayDiscussionDependingOnMode(postData);
           return;
         }
@@ -522,7 +519,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
 
     if (!results || results.length === 0) {
       // No results from primary search - try manual search query automatically
-      removeCommentsSkeletonLoading();
       await tryAutoSelectFromManualSearch(animeInfo);
       return;
     }
@@ -533,7 +529,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     if (exactDateMatch) {
       // Auto-select the post that matches the exact release date
       console.log('Auto-selected post matching exact release date:', exactDateMatch.title);
-      removeCommentsSkeletonLoading();
       await displayDiscussionDependingOnMode(exactDateMatch);
       return;
     }
@@ -542,17 +537,14 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       // Auto-pick the only candidate
       const discussion = results[0];
       console.log('Auto-selected discussion:', discussion.title);
-      removeCommentsSkeletonLoading();
       await displayDiscussionDependingOnMode(discussion);
       return;
     }
 
     // Multiple candidates: show selection UI
-    removeCommentsSkeletonLoading();
     showSelectionUI(animeInfo, results, extractEpisodeNumber(animeInfo.episodeName) ? Number(extractEpisodeNumber(animeInfo.episodeName)) : undefined);
   } catch (error) {
     console.error('Error searching for discussion:', error);
-    removeCommentsSkeletonLoading();
   } finally {
     searchInProgress = false;
   }
@@ -747,7 +739,6 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
   // Remove existing inline panel and skeleton if present
   const existing = document.getElementById('reddit-inline-discussion');
   if (existing) existing.remove();
-  removeCommentsSkeletonLoading();
 
   const layout = document.querySelector('.erc-watch-episode-layout');
   const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
@@ -950,6 +941,46 @@ function isReleaseDateToday(releaseDate?: string): boolean {
     d.getDate() === now.getDate();
 }
 
+function mountLoadingShell(): void {
+  try {
+    // Avoid double-mounting if a host already exists
+    if (document.getElementById('ri-inline-vue-host')) return;
+    const layout = document.querySelector('.erc-watch-episode-layout');
+    const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+    if (!wrapper) {
+      console.warn('mountLoadingShell: wrapper not found');
+      return;
+    }
+
+    const host = document.createElement('div');
+    host.id = 'ri-inline-vue-host';
+    wrapper.appendChild(host);
+
+    const placeholderDiscussion = {
+      id: '',
+      title: 'Loading comments…',
+      author: '',
+      permalink: '',
+      score: 0,
+      num_comments: 0,
+      archived: false,
+      locked: false,
+      subreddit: 'anime',
+      subreddit_icon_url: null,
+      subreddit_primary_color: null,
+    };
+
+    inlineDiscussionApp = createApp(InlineDiscussion, {
+      discussion: placeholderDiscussion,
+      provider: 'reddit',
+      initialLoading: true,
+    });
+    inlineDiscussionApp.mount(host);
+  } catch (e) {
+    console.warn('mountLoadingShell failed:', e);
+  }
+}
+
 function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any | null {
   if (!threadUrl) return null;
   const safeUrl = threadUrl.trim();
@@ -982,7 +1013,6 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any
 async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
   // Cache the thread for Vue-side render
   discussionCache.disqus = { thread };
-  removeCommentsSkeletonLoading();
 
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
@@ -1315,9 +1345,11 @@ async function renderYouTubeComments(
                 loadMoreBtn.className = 'ri-load-more-replies';
                 loadMoreBtn.textContent = 'Load more replies';
                 loadMoreBtn.addEventListener('click', async () => {
-                  if (loadMoreBtn?.disabled) return;
-                  loadMoreBtn.disabled = true;
-                  loadMoreBtn.textContent = 'Loading...';
+                  const btn = loadMoreBtn;
+                  if (!btn) return;
+                  if (btn.disabled) return;
+                  btn.disabled = true;
+                  btn.textContent = 'Loading...';
                   try {
                     const moreReplies = await getCommentReplies(comment.id, 50);
                     const newReplies = moreReplies.filter((reply: any) => !renderedReplyIds.has(reply.id));
@@ -1665,8 +1697,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           // Helper to render Disqus thread into the external comments container
           const renderDisqusThread = async (thread: any) => {
             console.log('[DisqusRender] Starting renderDisqusThread');
-            // Clear skeleton immediately once we start rendering a Disqus thread
-            removeCommentsSkeletonLoading();
             // Wait for external comments container to be available (Vue might still be rendering)
             let externalContainer: HTMLElement | null = null;
             for (let i = 0; i < 50; i++) {
@@ -1685,9 +1715,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             }
             
             if (!externalContainer) {
-              console.log('[DisqusRender] ✗ External comments container NOT found, using popup fallback');
-              embedDisqusThreadPopup(thread, lastAnimeInfo);
-              clearLoadingState('Disqus popup fallback');
+              console.log('[DisqusRender] ✗ External comments container NOT found, aborting Disqus render');
+              clearLoadingState('Disqus container missing');
               return;
             }
             
@@ -1702,8 +1731,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             console.log('  Forum:', forumShortname);
             console.log('  URL:', threadUrl);
             
-            // Remove skeleton and clear Vue loading before rendering header/content
-            removeCommentsSkeletonLoading();
+            // Clear Vue loading before rendering header/content
             clearLoadingState('Disqus render start');
 
             // Render Disqus content into the external container
@@ -3639,8 +3667,8 @@ function bootstrapContent(ctx: ContentScriptContext): void {
     queueHandleWatchPage(ctx);
   }
 
-  ctx.addEventListener(window, 'wxt:locationchange', (event) => {
-    const newUrl = event.newUrl.href;
+  ctx.addEventListener(window, 'wxt:locationchange', (event: { newUrl: URL }) => {
+    const newUrl = event.newUrl?.href;
     console.log('URL changed to:', newUrl);
     if (isWatchPage(newUrl)) {
       queueHandleWatchPage(ctx);

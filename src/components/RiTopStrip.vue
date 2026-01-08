@@ -49,11 +49,17 @@
           class="flex items-center justify-center w-8 h-8 rounded-full border border-[#2f2f2f] overflow-hidden"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
         >
+          <div
+            v-if="props.isLoading"
+            class="w-full h-full shimmer-bg"
+            aria-hidden="true"
+          />
           <img
+            v-else
             class="w-full h-full object-cover"
             :src="subredditAvatar"
             :alt="`${subredditName} logo`"
-        />
+          />
         </span>
         <span class="truncate max-w-[8rem]">{{ subredditName }}</span>
       </div>
@@ -419,3 +425,19 @@ onUnmounted(() => {
 });
 </script>
 
+<style scoped>
+.shimmer-bg {
+  background: linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+</style>

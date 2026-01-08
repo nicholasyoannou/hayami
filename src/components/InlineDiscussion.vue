@@ -26,10 +26,11 @@ const props = defineProps<{
   discussion: Discussion;
   provider?: Provider;
   onProviderChange?: (provider: Provider) => void;
+  initialLoading?: boolean;
 }>();
 
 const currentProvider = ref<Provider>(props.provider || 'reddit');
-const isLoading = ref(false);
+const isLoading = ref(props.initialLoading ?? false);
 const commentSort = ref<'best' | 'top' | 'new'>('best');
 const searchQuery = ref('');
 const totalComments = ref(props.discussion.num_comments ?? 0);
