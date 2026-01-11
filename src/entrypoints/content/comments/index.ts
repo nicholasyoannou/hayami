@@ -9,3 +9,6 @@ export {
   applyDomParagraphListFallback,
   autolinkTextNodes,
 } from './markdown-fallbacks';
+export * from './renderer';
+export * from './markdown-processors';
+export * from './autolink';

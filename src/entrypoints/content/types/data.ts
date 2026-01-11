@@ -176,5 +176,29 @@ export interface ProviderContext {
   toast: typeof import('vue-sonner').toast;
 }
 
+// ==================== Mapper Types ====================
+
+export interface MapperResultItem {
+  mal_id?: number;
+  malId?: number;
+  episodes?: Record<number, string>;
+  [key: string]: unknown;
+}
+
+export interface MapperMatchedResult {
+  mal_id?: number;
+  malId?: number;
+  index?: number;
+  [key: string]: unknown;
+}
+
+export interface MapperResult {
+  count?: number;
+  matched_result?: MapperMatchedResult;
+  matched_results?: MapperMatchedResult[];
+  results?: MapperResultItem[];
+  [key: string]: unknown;
+}
+
 // Re-export AnimeInfo for convenience
 export type { AnimeInfo };

@@ -34,6 +34,7 @@ import { generateSkeletonHtml } from './ui';
 import { createOverlay, setupYouTubeModalListener, setupGalleryModalListener } from './ui';
 import { RedditSelectionPanel, RedditAuthPrompt, RedditNoDiscussionPanel, RedditDiscussionInfoPanel, RedditManualSearchPanel, type RedditPost } from '@/components/overlays';
 import { findExactDateMatch, isReleaseDateToday } from './utils/date-utils';
+import { DEBOUNCE_DELAY_MS } from './constants';
 import {
   renderMalAuthRequired,
   renderMalRateLimited,
@@ -42,9 +43,8 @@ import {
   renderMalTopicList,
   renderMalPostSkeleton,
   renderMalForumContainer,
-  type MalPost,
-  type MalTopic
 } from './templates';
+import type { MalForumResult, MalPost, MalTopic, MapperResult, MapperMatchedResult } from './types/data';
 import {
   renderRedditSelectionPanel,
   renderRedditAuthPrompt,
@@ -101,6 +101,8 @@ import type { CommentProvider, ProviderContext } from './types/data';
 // Import utilities
 import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageWrapper } from './utils/dom-helpers';
 import { handleError } from './utils/error-handler';
+import { debug } from '@/utils/debug';
+import { cancellableDebounce } from '@/utils/debounce';
 
 /**
  * Get the appropriate container for external (non-Vue) comment providers (Disqus/YouTube).
@@ -267,17 +269,10 @@ export function bbcodeToHtml(input: string): string {
   return out;
 }
 
-export function renderMalForumResult(result: {
-  status?: string;
-  topics?: any[];
-  selectedTopic?: any;
-  retryAfterSeconds?: number;
-  posts?: any[];
-  nextPageUrl?: string | null;
-}, animeTitle: string, topicId?: number | string): void {
+export function renderMalForumResult(result: MalForumResult, animeTitle: string, topicId?: number | string): void {
   const container = getExternalCommentsContainer();
   if (!container) {
-    console.warn('[MAL] External comments container not found for render');
+    debug.warn('[MAL] External comments container not found for render');
     return;
   }
 
@@ -351,7 +346,7 @@ export function renderMalForumResult(result: {
       postsList.querySelectorAll('.ri-mal-post-skel').forEach((el) => el.remove());
     };
 
-    const appendPosts = (posts: any[] = []) => {
+    const appendPosts = (posts: MalPost[] = []) => {
       posts.forEach((p) => {
         const li = document.createElement('li');
         li.className = 'ri-mal-post';
@@ -375,7 +370,7 @@ export function renderMalForumResult(result: {
           appendPosts(more.posts);
         }
       } catch (e) {
-        console.warn('[MAL] load more posts error:', e);
+        debug.warn('[MAL] load more posts error:', e);
       } finally {
         clearSkeletons();
         loading = false;
@@ -397,9 +392,9 @@ function setMalIdOnLastAnimeInfo(malId?: number | null): void {
   }
 }
 
-function extractMalIdFromMapperResult(mapperResult: any, matchedIndex?: number | null): number | null {
+function extractMalIdFromMapperResult(mapperResult: MapperResult | null | undefined, matchedIndex?: number | null): number | null {
   if (!mapperResult) return null;
-  const normalize = (val: any): number | null => {
+  const normalize = (val: unknown): number | null => {
     if (typeof val === 'number') return val;
     if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
     return null;
@@ -410,7 +405,7 @@ function extractMalIdFromMapperResult(mapperResult: any, matchedIndex?: number |
 
   if (Array.isArray(mapperResult?.matched_results)) {
     const firstAlt = mapperResult.matched_results.find(
-      (m: any) => normalize(m?.mal_id ?? m?.malId) !== null
+      (m: MapperMatchedResult) => normalize(m?.mal_id ?? m?.malId) !== null
     );
     if (firstAlt) {
       const id = normalize(firstAlt.mal_id ?? firstAlt.malId);
@@ -436,18 +431,18 @@ try {
   }
 } catch {}
 
-function queueHandleWatchPage(ctx: any) {
+function queueHandleWatchPage(ctx: ContentScriptContext): void {
   if (debounceTimer) {
     clearTimeout(debounceTimer);
   }
-  setDebounceTimer(window.setTimeout(() => handleWatchPage(ctx), 400));
+  setDebounceTimer(window.setTimeout(() => handleWatchPage(ctx), DEBOUNCE_DELAY_MS));
 }
 
 /**
  * Handles logic for watch pages - extracts and processes anime info
  */
-async function handleWatchPage(ctx: any): Promise<void> {
-  console.log('On watch page, extracting anime info...');
+async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
+  debug.log('On watch page, extracting anime info...');
 
   // Try to get anime info immediately
   let info = getAnimeInfo();
@@ -1985,7 +1980,7 @@ let contentScriptContext: ContentScriptContext | null = null;
 
 function bootstrapContent(ctx: ContentScriptContext): void {
   contentScriptContext = ctx; // Store for use in other functions
-  console.log('Crunchyroll Comments Revive extension loaded');
+  debug.log('Crunchyroll Comments Revive extension loaded');
   ensureToaster(ctx);
 
   const { isWatchPage } = useWatchPageDetection();
@@ -2012,7 +2007,7 @@ function bootstrapContent(ctx: ContentScriptContext): void {
 
   ctx.addEventListener(window, 'wxt:locationchange', (event: { newUrl: URL }) => {
     const newUrl = event.newUrl?.href;
-    console.log('URL changed to:', newUrl);
+    debug.log('URL changed to:', newUrl);
     if (isWatchPage(newUrl)) {
       queueHandleWatchPage(ctx);
     }
