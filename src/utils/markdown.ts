@@ -1,6 +1,6 @@
 // Shared markdown rendering utilities extracted from content.ts
 
-import * as Snudown from 'snudown-js';
+import * as Snudown from '@/lib/snudown';
 
 export function escapeHtml(s: string) {
   return s.replace(/[&<>\"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch] as string));
@@ -33,12 +33,42 @@ export function markdownToHtml(text: string): string {
   src = src.replace(/\[\]\(#[a-zA-Z0-9_-]+\)/g, '');
 
   // Strip any remaining HTML tags (Reddit sometimes leaves <strong>, <em>, etc. in body_html)
+  // BUT preserve spoiler syntax >!...!< by temporarily replacing it
+  // The issue: HTML tag stripping regex /<[^>]+>/g matches <! which breaks !< spoiler syntax
+  const SPOILER_START = '___RI_SPOILER_START_MARKER___';
+  const SPOILER_END = '___RI_SPOILER_END_MARKER___';
+  // Replace spoiler markers with temporary placeholders
+  src = src.replace(/>!/g, SPOILER_START);
+  src = src.replace(/!</g, SPOILER_END);
+  // Now strip HTML tags safely
   src = src.replace(/<[^>]+>/g, '');
+  // Restore spoiler markers
+  src = src.replace(new RegExp(SPOILER_START.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '>!');
+  src = src.replace(new RegExp(SPOILER_END.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '!<');
 
   // Use snudown-js to convert Reddit markdown to HTML
   let html = Snudown.markdown(src);
   
   if (DEBUG) { try { console.debug('[ri-markdown] after snudown-js', html); } catch {} }
+  
+  // Post-process spoilers: Ensure all spoiler spans have md-spoiler-text class
+  // Snudown-js should output spoilers correctly, we just need to ensure they have the right class
+  // Only map existing spoiler classes - don't try to detect spoilers by content
+  html = html.replace(/<span([^>]*class=["']([^"']*)["'][^>]*)>/gi, (match: string, attrs: string, classes: string) => {
+    // Check if this span has any spoiler-related class but not md-spoiler-text
+    if (/(?:^|\s)(?:md-)?spoiler/i.test(classes) && !/md-spoiler-text/i.test(classes)) {
+      return match.replace(/class=["']([^"']*)["']/, `class="$1 md-spoiler-text"`);
+    }
+    return match;
+  });
+  
+  // Ensure spacing before spoiler elements: add a space if a spoiler span appears directly after text
+  // This handles cases like "[text]>!spoiler!<" where snudown-js doesn't add a space
+  html = html.replace(/([^\s>])(<span[^>]*class=["'][^"']*md-spoiler-text[^"']*["'][^>]*>)/gi, (match: string, before: string, spoiler: string) => {
+    // Only add space if the character before is not whitespace and not a tag closing bracket
+    // This ensures we don't add spaces where they shouldn't be (e.g., inside tags)
+    return before + ' ' + spoiler;
+  });
 
   // Post-process links to make relative URLs absolute and add target/rel attributes
   // Process all anchor tags that don't already have target="_blank"
@@ -83,61 +113,6 @@ export function markdownToHtml(text: string): string {
     return match;
   });
   
-  // Post-process spoilers: snudown-js outputs spoilers, we need to ensure they have md-spoiler-text class
-  // Reddit spoiler syntax: >!spoiler text!<
-  // snudown-js typically outputs spoilers as <span> elements, we need to add the class
-  // Strategy: Find all elements that are likely spoilers and ensure they have md-spoiler-text class
-  
-  // First, handle spoilers that already have a class containing "spoiler"
-  html = html.replace(/<span([^>]*class=["']([^"']*spoiler[^"']*)["'][^>]*)>/gi, (match: string, attrs: string, classes: string) => {
-    // If it has spoiler class but not md-spoiler-text, add it
-    if (!classes.includes('md-spoiler-text')) {
-      return match.replace(/class=["']([^"']*)["']/, `class="$1 md-spoiler-text"`);
-    }
-    return match;
-  });
-
-  // Second, look for any span elements that might be spoilers based on content
-  // This handles cases where snudown-js outputs spoilers without explicit spoiler classes
-  // We look for spans that contain the spoiler markers >! and !<
-  html = html.replace(/(<span)([^>]*>)([^<]*>![^<]+!<[^<]*)(<\/span>)/gi, (match: string, open: string, attrs: string, content: string, close: string) => {
-    // Skip if it already has md-spoiler-text class
-    if (/class=["'][^"']*md-spoiler-text[^"']*["']/i.test(attrs)) {
-      return match;
-    }
-    
-    // Check if it already has a class attribute
-    if (/class=/i.test(attrs)) {
-      // Add md-spoiler-text to existing classes
-      return open + attrs.replace(/class=["']([^"']*)["']/, `class="$1 md-spoiler-text"`) + content + close;
-    } else {
-      // Add class attribute
-      return open + attrs.replace(/>/, ' class="md-spoiler-text">') + content + close;
-    }
-  });
-  
-  // Third, handle any remaining spoiler patterns that snudown-js might use
-  // Some markdown parsers output spoilers differently, so we catch common patterns
-  html = html.replace(/(<span[^>]*>)([^<]*>![^<]+!<[^<]*)(<\/span>)/gi, (match: string, open: string, content: string, close: string) => {
-    // Skip if already has md-spoiler-text
-    if (/md-spoiler-text/i.test(open)) {
-      return match;
-    }
-    // Add the class if missing
-    if (/class=/i.test(open)) {
-      return open.replace(/class=["']([^"']*)["']/, `class="$1 md-spoiler-text"`) + content + close;
-              } else {
-      return open.replace(/>/, ' class="md-spoiler-text">') + content + close;
-              }
-  });
-  
-  // Ensure spacing before spoiler elements: add a space if a spoiler span appears directly after text
-  // This handles cases like "[text]>!spoiler!<" where snudown-js doesn't add a space
-  html = html.replace(/([^\s>])(<span[^>]*class=["'][^"']*md-spoiler-text[^"']*["'][^>]*>)/gi, (match: string, before: string, spoiler: string) => {
-    // Only add space if the character before is not whitespace and not a tag closing bracket
-    // This ensures we don't add spaces where they shouldn't be (e.g., inside tags)
-    return before + ' ' + spoiler;
-  });
   
   // Handle old Reddit spoiler syntax: [label](/s "spoiler text")
   // Expected behavior: show label as normal text (NOT hidden), provide spoiler text only as a tooltip.

@@ -664,7 +664,10 @@ export async function getUserAvatar(username: string): Promise<string | null> {
       const about = await makeRedditRequest<any>(`/user/${encodeURIComponent(username)}/about.json`);
       const data = about?.data || null;
       const url = data?.snoovatar_img || data?.icon_img || null;
-      if (!url) return null;
+      if (!url) {
+        // No avatar found, use default snoovatar background
+        return 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+      }
       return normalizeAvatarCdnUrl(String(url));
     }
 
@@ -675,11 +678,11 @@ export async function getUserAvatar(username: string): Promise<string | null> {
       if (pic) return String(pic);
     } catch {}
 
-    // Fallback: return one of Reddit's default avatars randomly (avoid calling /about)
-    const idx = Math.floor(Math.random() * 7) + 1; // 1..7
-    return `https://www.redditstatic.com/avatars/defaults/v2/avatar_default_${idx}.png`;
+    // Fallback: return Reddit's default snoovatar background image
+    return 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
   } catch (e) {
-    return null;
+    // On error, return default snoovatar background
+    return 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
   }
 }
 

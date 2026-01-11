@@ -605,6 +605,12 @@
   filter: none;
 }
 
+/* Placeholder circle when no avatar is available */
+.ri-avatar-placeholder {
+  background: #2c2c2c; /* same as .ri-avatar background */
+  /* No image, just the empty circle */
+}
+
 /* ==================== Comment Body ==================== */
 .ri-body {
   flex: 1;
