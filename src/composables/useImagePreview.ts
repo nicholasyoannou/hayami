@@ -1,4 +1,4 @@
-import type { ContentScriptContext } from 'wxt/client';
+import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 
 /**
  * Manages image hover preview state and behavior

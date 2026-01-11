@@ -24,6 +24,20 @@ export function isSameDay(date1: Date, date2: Date): boolean {
 }
 
 /**
+ * Check if a release date string represents today's date
+ */
+export function isReleaseDateToday(releaseDate?: string): boolean {
+  if (!releaseDate) return false;
+  const parsed = Date.parse(releaseDate);
+  if (Number.isNaN(parsed)) return false;
+  const d = new Date(parsed);
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+}
+
+/**
  * Helper: Find a post that matches the exact release date (same day)
  */
 export function findExactDateMatch(posts: any[], releaseDateText?: string): any | null {

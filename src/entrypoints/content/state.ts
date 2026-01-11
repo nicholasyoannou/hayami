@@ -6,19 +6,10 @@
 import type { App as VueApp } from 'vue';
 import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo';
 import { useDisplayMode } from '@/composables/useDisplayMode';
-import type { AnimeInfo } from './types';
+import type { AnimeInfo, DiscussionCache, CommentProvider } from './types/data';
 
-// ==================== Types ====================
-
-export interface DiscussionCache {
-  reddit?: any;
-  disqus?: { thread: any; container?: HTMLElement };
-  youtube?: any;
-  'reddit-youtube'?: any;
-  mal?: { topics: any; selectedTopic?: any };
-}
-
-export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal';
+// Re-export types for convenience
+export type { DiscussionCache, CommentProvider };
 
 // ==================== State Variables ====================
 

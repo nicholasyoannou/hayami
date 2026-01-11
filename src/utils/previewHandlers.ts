@@ -1,4 +1,4 @@
-import type { ContentScriptContext } from 'wxt/client';
+import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import {
   useImagePreview,
   isImageLink,

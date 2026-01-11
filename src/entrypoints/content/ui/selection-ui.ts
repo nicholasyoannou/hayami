@@ -2,6 +2,7 @@
  * Selection UI for episode picking and manual search
  */
 
+import { createApp } from 'vue';
 import { escapeHtml } from '@/utils/markdown';
 import { extractEpisodeNumber, searchCustomPosts } from '@/utils/redditApi';
 import { createOverlay } from './overlays';
@@ -9,6 +10,7 @@ import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping } from '../mapping';
 import { lastAnimeInfo } from '../state';
 import type { AnimeInfo } from '../types';
+import { RedditDiscussionInfoPanel, RedditManualSearchPanel, type RedditPost } from '@/components/overlays';
 
 // Forward declarations - set by main module to avoid circular deps
 let displayDiscussionDependingOnModeFn: ((discussion: any) => Promise<void>) | null = null;
@@ -202,70 +204,34 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
  */
 export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
   const overlay = createOverlay();
-
-  overlay.innerHTML = `
-    <div class="reddit-discussion-panel">
-      <div class="panel-header">
-        <h3>🔎 Search r/anime</h3>
-        <button class="close-btn" id="reddit-close-btn">✕</button>
-      </div>
-      <div class="panel-content">
-        <div class="manual-search">
-          <div class="manual-row">
-            <input id="reddit-manual-query" class="manual-input" type="text" placeholder="Type a query (auto-searches)..." />
-          </div>
-        </div>
-        <ul class="choice-list" id="reddit-choice-list"></ul>
-      </div>
-    </div>
-  `;
-
-  const closeBtn = overlay.querySelector('#reddit-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-
-  const listEl = overlay.querySelector('#reddit-choice-list') as HTMLElement;
-  const queryInput = overlay.querySelector('#reddit-manual-query') as HTMLInputElement;
-
-  const wireChoiceHandlers = (items: any[]) => {
-    overlay.querySelectorAll('.choice-select').forEach(btn => {
-      btn.addEventListener('click', async (ev) => {
-        const index = Number((ev.currentTarget as HTMLElement).getAttribute('data-index'));
-        const chosen = items[index];
-        if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
-          const redditEp = parseEpisodeFromTitle(chosen.title);
-          if (redditEp !== null) {
-            const offset = redditEp - crEpisodeNum;
-            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
-          }
-        }
-        overlay.remove();
-        if (displayDiscussionDependingOnModeFn) {
-          await displayDiscussionDependingOnModeFn(chosen);
-        }
-      });
-    });
-  };
-
-  let searchTimer: number | undefined;
-  
-  async function runSearch(q: string) {
-    const results = q ? await searchCustomPosts(q) : [];
-    if (listEl) {
-      listEl.innerHTML = renderPostList(results);
-      wireChoiceHandlers(results);
-    }
-  }
-
-  queryInput.addEventListener('input', () => {
-    if (searchTimer) clearTimeout(searchTimer);
-    const q = queryInput.value.trim();
-    searchTimer = window.setTimeout(() => runSearch(q), 300);
-  });
-
-  // Prefill sensible default and trigger initial search
   const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
-  queryInput.value = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
-  runSearch(queryInput.value);
+  const initialQuery = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
+  
+  const app = createApp(RedditManualSearchPanel, {
+    initialQuery,
+    onSearch: async (query: string) => {
+      return query ? await searchCustomPosts(query) : [];
+    },
+    onClose: () => {
+      app.unmount();
+      overlay.remove();
+    },
+    onSelect: async (post: any, index: number) => {
+      if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
+        const redditEp = parseEpisodeFromTitle(post.title);
+        if (redditEp !== null) {
+          const offset = redditEp - crEpisodeNum;
+          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
+        }
+      }
+      app.unmount();
+      overlay.remove();
+      if (displayDiscussionDependingOnModeFn) {
+        await displayDiscussionDependingOnModeFn(post);
+      }
+    },
+  });
+  app.mount(overlay);
 }
 
 /**
@@ -275,43 +241,22 @@ export function displayDiscussionPopup(discussion: any): void {
   const overlay = createOverlay();
   const redditUrl = `https://www.reddit.com${discussion.permalink}`;
   
-  overlay.innerHTML = `
-    <div class="reddit-discussion-panel">
-      <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
-        <div class="panel-actions">
-          <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
-          <button class="close-btn" id="reddit-close-btn">✕</button>
-        </div>
-      </div>
-      <div class="panel-content">
-        <div class="discussion-info">
-          <h4 class="discussion-title">${escapeHtml(discussion.title)}</h4>
-          <div class="discussion-meta">
-            <span>👤 u/${escapeHtml(discussion.author)}</span>
-            <span>⭐ ${discussion.score} points</span>
-            <span>💬 ${discussion.num_comments} comments</span>
-          </div>
-          <div class="discussion-actions">
-            <a href="${escapeHtml(redditUrl)}" target="_blank" class="reddit-btn">
-              Open on Reddit
-            </a>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  const closeBtn = overlay.querySelector('#reddit-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-  
-  const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
-  wrongBtn?.addEventListener('click', () => {
-    const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
-    showManualSearchUI(
-      lastAnimeInfo || { animeName: '', episodeName: '' }, 
-      crEpisodeNum ? Number(crEpisodeNum) : undefined
-    );
-    overlay.remove();
+  const app = createApp(RedditDiscussionInfoPanel, {
+    discussion,
+    redditUrl,
+    onClose: () => {
+      app.unmount();
+      overlay.remove();
+    },
+    onWrong: () => {
+      const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+      app.unmount();
+      overlay.remove();
+      showManualSearchUI(
+        lastAnimeInfo || { animeName: '', episodeName: '' }, 
+        crEpisodeNum ? Number(crEpisodeNum) : undefined
+      );
+    },
   });
+  app.mount(overlay);
 }
