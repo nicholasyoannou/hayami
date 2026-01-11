@@ -5,7 +5,7 @@ import { RedditCommentList } from './comments';
 import { voteThing } from '../utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube';
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal';
 
 interface Discussion {
   id: string;

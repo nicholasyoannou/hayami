@@ -31,6 +31,12 @@
           :src="redditYoutubeCombUrl" 
           alt="reddit youtube logo" 
         />
+        <div
+          v-else-if="currentProvider === 'mal'"
+          class="h-5 w-10 flex items-center justify-center rounded bg-[#223] text-xs font-bold text-[#cbd5ff] px-2"
+        >
+          MAL
+        </div>
         <img 
           v-if="currentProvider === 'reddit'"
           class="h-5 opacity-80" 
@@ -203,7 +209,7 @@ interface DiscussionTab {
   active?: boolean;
 }
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube';
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal';
 
 interface MenuItem {
   id: Provider;
@@ -259,6 +265,9 @@ const youtubeLogoUrl =
 const redditYoutubeCombUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/redditYoutubeComb.svg') ??
   'assets/topCommentMenu/redditYoutubeComb.svg';
+const malLogoUrl =
+  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/mal.svg') ??
+  'assets/topCommentMenu/mal.svg';
 const discussionIconUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/discussion.svg') ??
   'assets/topCommentMenu/discussion.svg';
@@ -275,6 +284,7 @@ const menuItems = computed<MenuItem[]>(() => {
     { id: 'disqus', label: 'DISQUS', iconUrl: disqusLogoUrl },
     { id: 'reddit-youtube', label: 'Reddit YouTube', iconUrl: redditYoutubeCombUrl },
     { id: 'youtube', label: 'YouTube', iconUrl: youtubeLogoUrl },
+    { id: 'mal', label: 'MAL Forums', iconUrl: malLogoUrl },
   ];
   // Filter out the current provider from menu items (it's shown in the main logo position)
   return items.filter(item => item.id !== currentProvider.value);

@@ -53,3 +53,22 @@ export const GOOGLE_CLIENT_ID = '74928001886-t3tbc872m0mkflh0rr175s5ag1nn5t70.ap
  * Note: youtube.readonly is not sufficient for commentThreads.list API
  */
 export const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/youtube.force-ssl';
+
+/**
+ * MyAnimeList OAuth Configuration (PKCE, public client)
+ *
+ * App type: "Other" with PKCE enabled.
+ * Redirect URI: https://<YOUR_EXTENSION_ID>.chromiumapp.org/mal-auth
+ *
+ * NOTE: Do NOT embed the client secret in the extension. PKCE is sufficient.
+ */
+export const MAL_CLIENT_ID = '0f60d77af3199d3bfbb4a305d9070d1f';
+export const MAL_REDIRECT_PATH = 'mal-auth';
+export const MAL_SCOPES = 'read';
+
+/**
+ * Proxy endpoint for MAL token/refresh exchanges (server-side to avoid CORS).
+ * This should point to your backend/worker handling POST /mal/token
+ * with the MAL client secret.
+ */
+export const MAL_TOKEN_PROXY_URL = 'https://api.hayami.moe/mal/token';

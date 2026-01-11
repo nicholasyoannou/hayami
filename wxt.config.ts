@@ -22,7 +22,9 @@ export default defineConfig({
       'https://oauth.reddit.com/*',
       '*://*.crunchyroll.com/*',
       'https://disqus.com/*',
-      'https://*.disqus.com/*'
+      'https://*.disqus.com/*',
+      'https://api.myanimelist.net/*',
+      'https://myanimelist.net/*'
     ],
     version: '0.0.3',
     /**

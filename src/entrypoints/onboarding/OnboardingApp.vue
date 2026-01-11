@@ -11,7 +11,8 @@ const progress = computed(() => {
 const platforms = [
   { id: 'reddit', name: 'Reddit', icon: chrome.runtime.getURL('assets/topCommentMenu/reddit.svg') },
   { id: 'youtube', name: 'YouTube', icon: chrome.runtime.getURL('assets/topCommentMenu/youtubeLogo.svg') },
-  { id: 'disqus', name: 'Disqus', icon: chrome.runtime.getURL('assets/topCommentMenu/disqusLogo.svg') }
+  { id: 'disqus', name: 'Disqus', icon: chrome.runtime.getURL('assets/topCommentMenu/disqusLogo.svg') },
+  { id: 'mal', name: 'MAL Forums', icon: chrome.runtime.getURL('assets/topCommentMenu/mal.svg') }
 ];
 
 const connectedPlatforms = ref<Set<string>>(new Set());
@@ -23,15 +24,17 @@ onMounted(async () => {
 
 async function checkPlatformStatus() {
   try {
-    const [redditResult, youtubeResult] = await Promise.all([
+    const [redditResult, youtubeResult, malResult] = await Promise.all([
       chrome.runtime.sendMessage({ action: 'checkAuth' }),
-      chrome.runtime.sendMessage({ action: 'checkYouTubeAuth' })
+      chrome.runtime.sendMessage({ action: 'checkYouTubeAuth' }),
+      chrome.runtime.sendMessage({ action: 'checkMALAuth' })
     ]);
     
     connectedPlatforms.value = new Set();
     if (redditResult?.authenticated) connectedPlatforms.value.add('reddit');
     if (youtubeResult?.authenticated) connectedPlatforms.value.add('youtube');
     // Disqus doesn't require authentication, so we can consider it always available
+    if (malResult?.authenticated) connectedPlatforms.value.add('mal');
   } catch (error) {
     console.error('Error checking platform status:', error);
   }
@@ -61,6 +64,11 @@ async function handlePlatformClick(platformId: string) {
     } else if (platformId === 'disqus') {
       // Disqus doesn't require authentication
       connectedPlatforms.value.add('disqus');
+    } else if (platformId === 'mal') {
+      const result = await chrome.runtime.sendMessage({ action: 'authenticateMAL' });
+      if (result?.success) {
+        connectedPlatforms.value.add('mal');
+      }
     }
   } catch (error) {
     console.error(`Error connecting ${platformId}:`, error);

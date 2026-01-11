@@ -1,5 +1,6 @@
 import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
+import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 
 export default defineBackground(() => {
   console.log('Crunchyroll Comments Revive - Background service started', { 
@@ -121,6 +122,48 @@ export default defineBackground(() => {
         }
       })();
       return true; // keep channel open for async
+    }
+
+    if (message.action === 'authenticateMAL') {
+      (async () => {
+        try {
+          const result = await authenticateWithMAL();
+          sendResponse(result);
+        } catch (error) {
+          console.error('MAL authentication error:', error);
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'checkMALAuth') {
+      (async () => {
+        try {
+          const authenticated = await checkMALAuth();
+          sendResponse({ authenticated });
+        } catch (error) {
+          console.error('Error checking MAL auth:', error);
+          sendResponse({ authenticated: false });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'getMALToken') {
+      (async () => {
+        try {
+          const token = await getMALAccessToken(false);
+          sendResponse({ token });
+        } catch (error) {
+          console.error('Error getting MAL token:', error);
+          sendResponse({ token: null, error: error instanceof Error ? error.message : 'Unknown error' });
+        }
+      })();
+      return true;
     }
 
     if (message.action === 'getAnimeDiscussion') {

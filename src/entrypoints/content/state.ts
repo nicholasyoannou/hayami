@@ -15,9 +15,10 @@ export interface DiscussionCache {
   disqus?: { thread: any; container?: HTMLElement };
   youtube?: any;
   'reddit-youtube'?: any;
+  mal?: { topics: any; selectedTopic?: any };
 }
 
-export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube';
+export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal';
 
 // ==================== State Variables ====================
 
@@ -168,6 +169,7 @@ export function clearDiscussionCache(): void {
   discussionCache.disqus = undefined;
   discussionCache.youtube = undefined;
   discussionCache['reddit-youtube'] = undefined;
+  discussionCache.mal = undefined;
 }
 
 /**

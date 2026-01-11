@@ -20,6 +20,8 @@ import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo'
 import { displayModeStorage, useDisplayMode } from '@/composables/useDisplayMode';
 import { isImageLink, isYouTubeLink, extractYouTubeId, proxifyImageUrl } from '@/composables/useImagePreview';
 import { AnimeInfo } from './types';
+import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId } from '@/utils/malForums';
+import { getMALAccessToken } from '@/utils/malAuth';
 import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover, extractEpisodeIdFromUrl, fetchCrunchyrollEpisodeMetadata } from './mapping';
 
 // New modular imports
@@ -37,13 +39,21 @@ interface DiscussionCache {
   disqus?: { thread: any; container?: HTMLElement }; // Disqus thread data and container
   youtube?: any;
   'reddit-youtube'?: any;
+  mal?: {
+    topics?: any;
+    selectedTopic?: any;
+    status?: string;
+    retryAfterSeconds?: number;
+    posts?: any[];
+    nextPageUrl?: string | null;
+  };
 }
 
 const discussionCache: DiscussionCache = {};
 
 // State variables for watch page handling
 let debounceTimer: number | undefined;
-let lastAnimeInfo: { animeName: string; episodeName: string; releaseDate?: string } | null = null;
+let lastAnimeInfo: { animeName: string; episodeName: string; releaseDate?: string; malId?: number | null } | null = null;
 let lastProcessedKey: string | null = null;
 let activeObserver: MutationObserver | null = null;
 let searchInProgress: boolean = false;
@@ -115,6 +125,416 @@ function getExternalCommentsContainer(): HTMLElement | null {
 
 // Track mounted Vue app instances for proper cleanup
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
+
+function decodeEntities(str: string): string {
+  if (!str) return '';
+  const txt = document.createElement('textarea');
+  txt.innerHTML = str;
+  return txt.value;
+}
+
+function isLikelyUk(): boolean {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    if (tz.toLowerCase().includes('london')) return true;
+    const lang = (navigator.language || '').toLowerCase();
+    if (lang === 'en-gb') return true;
+  } catch {}
+  return false;
+}
+
+function bbcodeToHtml(input: string): string {
+  if (!input) return '';
+  // Decode HTML entities first
+  let out = decodeEntities(input);
+
+  // Handle [img ...]...[/img] with optional align/width/height/title/alt
+  out = out.replace(/\[img([^\]]*)\](.*?)\[\/img\]/gis, (_m, attrStr, rawSrc) => {
+    // If the inner content is already HTML (e.g., decoded div/a/img), just center-wrap it and proxy imgur if UK
+    let src = rawSrc.trim();
+    if (/^</.test(src)) {
+      if (isLikelyUk()) {
+        src = src.replace(/https?:\/\/i?\.?imgur\.com\/\S+/gi, (match: string) => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(match)}`);
+      }
+      return `<div style="text-align:center; width:100%;">${src}</div>`;
+    }
+
+    const attrs = (attrStr || '').trim();
+    let align = '';
+    let width = '';
+    let height = '';
+    let alt = '';
+    let title = '';
+    if (attrs) {
+      const alignMatch = attrs.match(/align\s*=\s*(left|right|center)/i);
+      if (alignMatch) align = alignMatch[1].toLowerCase();
+      const sizeMatch = attrs.match(/width\s*=\s*([0-9]+)/i);
+      if (sizeMatch) width = sizeMatch[1];
+      const hMatch = attrs.match(/height\s*=\s*([0-9]+)/i);
+      if (hMatch) height = hMatch[1];
+      const altMatch = attrs.match(/alt\s*=\s*["']?([^"']+)["']?/i);
+      if (altMatch) alt = altMatch[1];
+      const titleMatch = attrs.match(/title\s*=\s*["']?([^"']+)["']?/i);
+      if (titleMatch) title = titleMatch[1];
+    }
+    // UK users need imgur proxied
+    let finalSrc = src;
+    if (isLikelyUk() && /imgur\.com/i.test(src)) {
+      finalSrc = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(src)}`;
+    }
+
+    const styles: string[] = ['max-width:100%;border-radius:4px;'];
+    if (width) styles.push(`width:${width}px`);
+    if (height) styles.push(`height:${height}px`);
+    if (align === 'left') styles.push('float:left;margin:0 12px 8px 0;');
+    if (align === 'right') styles.push('float:right;margin:0 0 8px 12px;');
+    if (align === 'center') styles.push('display:block;margin:0 auto;');
+    const styleStr = styles.join('');
+    const altAttr = alt ? ` alt="${escapeHtml(alt)}"` : '';
+    const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+    const imgHtml = `<img src="${escapeHtml(finalSrc)}"${altAttr}${titleAttr} style="${styleStr}" />`;
+    if (align === 'center') {
+      return `<div style="text-align:center; width:100%;">${imgHtml}</div>`;
+    }
+    return imgHtml;
+  });
+
+  // Basic BBCode replacements
+  const replacements: [RegExp, string][] = [
+    [/\[b\](.*?)\[\/b\]/gis, '<strong>$1</strong>'],
+    [/\[i\](.*?)\[\/i\]/gis, '<em>$1</em>'],
+    [/\[u\](.*?)\[\/u\]/gis, '<u>$1</u>'],
+    [/\[s\](.*?)\[\/s\]/gis, '<s>$1</s>'],
+    [/\[center\](.*?)\[\/center\]/gis, '<div style="text-align:center;">$1</div>'],
+    [/\[right\](.*?)\[\/right\]/gis, '<div style="text-align:right;">$1</div>'],
+    [/\[justify\](.*?)\[\/justify\]/gis, '<div style="text-align:justify;">$1</div>'],
+    [/\[sub\](.*?)\[\/sub\]/gis, '<sub>$1</sub>'],
+    [/\[sup\](.*?)\[\/sup\]/gis, '<sup>$1</sup>'],
+    [/\[size=([0-9]+)\](.*?)\[\/size\]/gis, '<span style="font-size:$1%;">$2</span>'],
+    [/\[color=([#a-zA-Z0-9]+)\](.*?)\[\/color\]/gis, '<span style="color:$1;">$2</span>'],
+    [/\[quote(?:=[^\]]*)?\](.*?)\[\/quote\]/gis, '<blockquote>$1</blockquote>'],
+    [/\[spoiler(?:=[^\]]*)?\](.*?)\[\/spoiler\]/gis, '<details><summary>Spoiler</summary>$1</details>'],
+    [/\[url=(.+?)\](.*?)\[\/url\]/gis, '<a href="$1" target="_blank" rel="noopener">$2</a>'],
+    [/\[url\](.*?)\[\/url\]/gis, '<a href="$1" target="_blank" rel="noopener">$1</a>'],
+    [/\[list\](.*?)\[\/list\]/gis, '<ul>$1</ul>'],
+    [/\[list=1\](.*?)\[\/list\]/gis, '<ol>$1</ol>'],
+    [/\[\*\](.*?)(?=(\[\*\]|<\/ul>|<\/ol>|$))/gis, '<li>$1</li>'],
+    [/\[yt\](.*?)\[\/yt\]/gis, '<a href="https://www.youtube.com/watch?v=$1" target="_blank" rel="noopener">YouTube</a>'],
+    [/\[code\](.*?)\[\/code\]/gis, '<pre>$1</pre>'],
+    [/\[hr\]/gi, '<hr />'],
+  ];
+  replacements.forEach(([re, repl]) => {
+    out = out.replace(re, repl);
+  });
+  // Normalize line breaks: strip raw newlines first (they often trail <br/> from API), then collapse multiple <br>
+  out = out.replace(/\r?\n/g, '');
+  out = out.replace(/(<br\s*\/?>\s*){2,}/gi, '<br><br>');
+  
+  // Ensure divs with text-align:center are properly preserved (for signatures with pre-existing HTML)
+  // This fixes cases where the HTML already contains <div style="text-align: center;"> but it's not working
+  out = out.replace(/<div\s+style\s*=\s*["']([^"']*text-align\s*:\s*center[^"']*)["']([^>]*)>/gi, (match, styleContent, rest) => {
+    // Ensure the div has width:100% to allow centering to work properly
+    if (!/width\s*:\s*100%/.test(styleContent)) {
+      return `<div style="${styleContent}; width:100%;"${rest}>`;
+    }
+    return match;
+  });
+  
+  // Ensure images are properly centered when inside divs with text-align:center
+  // For signatures with structure like: <div style="text-align:center"><a><img /></a></div>
+  // We need to make the image block-level with auto margins for proper centering
+  // First, find divs with text-align:center that contain images
+  const centeredDivPattern = /<div\s+[^>]*text-align\s*:\s*center[^>]*>([\s\S]*?)<\/div>/gi;
+  out = out.replace(centeredDivPattern, (match: string, content: string) => {
+    // If this div contains an image, ensure the image is block-level and centered
+    if (/<img/.test(content)) {
+      // Replace images inside this centered div to be block-level with auto margins
+      const updatedContent = content.replace(/<img([^>]*)>/gi, (imgMatch: string, imgAttrs: string) => {
+        const hasStyle = /style\s*=\s*["']/.test(imgAttrs);
+        if (hasStyle) {
+          // Append to existing style
+          return imgMatch.replace(/style\s*=\s*["']([^"']*)["']/, (_styleMatch: string, existingStyle: string) => {
+            let newStyle = existingStyle;
+            if (!/display\s*:\s*block/.test(newStyle)) {
+              newStyle += '; display:block';
+            }
+            if (!/margin\s*:\s*0\s+auto/.test(newStyle)) {
+              newStyle += '; margin:0 auto';
+            }
+            if (!/max-width\s*:\s*100%/.test(newStyle)) {
+              newStyle += '; max-width:100%';
+            }
+            return `style="${newStyle}"`;
+          });
+        } else {
+          // Add new style attribute
+          return `<img${imgAttrs} style="display:block; margin:0 auto; max-width:100%;">`;
+        }
+      });
+      return match.replace(content, updatedContent);
+    }
+    return match;
+  });
+  
+  return out;
+}
+
+function renderMalForumResult(result: {
+  status?: string;
+  topics?: any[];
+  selectedTopic?: any;
+  retryAfterSeconds?: number;
+  posts?: any[];
+  nextPageUrl?: string | null;
+}, animeTitle: string, topicId?: number | string): void {
+  const container = getExternalCommentsContainer();
+  if (!container) {
+    console.warn('[MAL] External comments container not found for render');
+    return;
+  }
+
+  const { status, selectedTopic, topics, posts } = result || {};
+  const topicList = Array.isArray(topics) ? topics : [];
+  const postList = Array.isArray(posts) ? posts : [];
+
+  if (status === 'auth_required') {
+    container.innerHTML = `
+      <div style="padding:1rem; color:#f44;">MAL authentication required. Please connect in the extension.</div>
+    `;
+    return;
+  }
+
+  if (status === 'rate_limited') {
+    container.innerHTML = `
+      <div style="padding:1rem; color:#f0c040;">MAL rate limit hit. Please try again soon.</div>
+    `;
+    return;
+  }
+
+  if (status === 'no_topic' || !selectedTopic) {
+    container.innerHTML = `
+      <div style="padding:1rem; color:#ccc;">
+        No MAL forum topic found for ${escapeHtml(animeTitle)}.
+      </div>
+    `;
+    return;
+  }
+
+  const url = selectedTopic.url || `https://myanimelist.net/forum/?topicid=${selectedTopic.id || ''}`;
+  const comments = typeof selectedTopic.comments === 'number' ? selectedTopic.comments.toLocaleString() : '—';
+  const author = selectedTopic.author?.name ? `by ${escapeHtml(selectedTopic.author.name)}` : '';
+
+  const listHtml = topicList
+    .slice(0, 5)
+    .map((t) => {
+      const tUrl = t.url || `https://myanimelist.net/forum/?topicid=${t.id || ''}`;
+      return `<li style="margin-bottom:6px;"><a style="color:#9cf;" href="${escapeHtml(tUrl)}" target="_blank" rel="noopener">${escapeHtml(t.title || 'Untitled')}</a></li>`;
+    })
+    .join('');
+
+  const formatTs = (ts: string | undefined) => {
+    if (!ts) return '';
+    try {
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return escapeHtml(ts);
+      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+    } catch {
+      return escapeHtml(ts);
+    }
+  };
+
+  const postsHtml = postList.length
+  ? postList
+      .map((p) => {
+        const authorName = p?.author?.name ? escapeHtml(p.author.name) : 'Unknown';
+        const ts = formatTs(p?.created_at);
+        const avatar = (p?.author?.forum_avatar || p?.author?.forum_avator || p?.author?.avatar || '').trim();
+        const hasAvatar = avatar && avatar.length > 0 && !avatar.includes('kaomoji_mal_white.png');
+        const forumTitle = p?.author?.forum_title ? `<div style="color:#aaa; font-size:11px; margin-top:2px;">${escapeHtml(p.author.forum_title)}</div>` : '';
+        const bodyHtml = p?.body ? bbcodeToHtml(String(p.body)) : '<em style="color:#666;">(empty)</em>';
+        const sigHtml = p?.signature ? bbcodeToHtml(String(p.signature)) : '';
+        const postNum = p?.number ? `#${p.number}` : '';
+        return `<li class="ri-mal-post" style="display:flex; gap:12px; padding:12px 0; border-bottom:1px solid #2a2a2a;">
+          <div style="width:140px; min-width:140px; text-align:center; color:#aaa; font-size:12px;">
+            <div style="font-weight:700; color:#e0e0e0; margin-bottom:6px;">${authorName}</div>
+            ${forumTitle}
+            ${hasAvatar ? `<div style="width:110px; height:110px; margin:6px auto; overflow:hidden; border-radius:6px; background:#151515;"><img src="${escapeHtml(avatar)}" style="width:100%; height:100%; object-fit:cover;" /></div>` : ''}
+          </div>
+          <div style="flex:1; color:#ddd; line-height:1.6; font-size:14px;">
+            <div style="display:flex; justify-content:space-between; color:#9cf; font-size:12px; margin-bottom:6px;">
+              <span>${postNum}</span>
+              <span>${ts}</span>
+            </div>
+            <div class="ri-mal-body" style="margin-bottom:8px;">${bodyHtml}</div>
+            ${sigHtml ? `<div style="margin-top:10px; color:#8a8a8a; font-size:12px; border-top:1px dashed #2a2a2a; padding-top:8px; width:100%;">${sigHtml}</div>` : ''}
+            <div style="display:flex; gap:12px; color:#888; font-size:12px; align-items:center; margin-top:6px;">
+              <span style="cursor:pointer;">More</span>
+              <span style="cursor:pointer;">Gift</span>
+              <span style="cursor:pointer;">Reply</span>
+            </div>
+          </div>
+        </li>`;
+      })
+      .join('')
+  : '<li style="color:#aaa;">No posts loaded.</li>';
+    
+  container.innerHTML = `
+    <div class="ri-header" style="margin-bottom: 12px;">
+      <h2 class="ri-title" style="font-size: 18px; margin: 0;">💬 MAL: ${escapeHtml(selectedTopic.title || 'Episode Discussion')}</h2>
+      <div class="ri-meta" style="color:#aaa; font-size:12px;">${author} • ${comments} comments</div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <a style="color:#8ab4ff; font-weight:600;" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open on MyAnimeList</a>
+    </div>
+    <div class="ri-mal-posts-wrapper" style="padding:10px; background:#0d0d0d; border:1px solid #2b2b2b; border-radius:8px; margin-bottom:12px;">
+      <div style="font-size:13px; color:#ccc; margin-bottom:8px;">Latest posts</div>
+      <ul class="ri-mal-posts" style="padding-left:0; list-style:none; margin:0; color:#ddd; font-size:13px; line-height:1.5; position:relative;">
+        ${postsHtml}
+      </ul>
+    </div>
+    <div style="padding:10px; background:#111; border:1px solid #2b2b2b; border-radius:8px;">
+      <div style="font-size:12px; color:#aaa; margin-bottom:6px;">Other topics</div>
+      <ul style="padding-left:16px; color:#ccc; font-size:13px; list-style:disc;">
+        ${listHtml || '<li>No additional topics.</li>'}
+      </ul>
+    </div>
+  `;
+
+  const postsList = container.querySelector('.ri-mal-posts') as HTMLElement | null;
+  if (postsList && topicId && result.nextPageUrl) {
+    let nextUrl: string | null = result.nextPageUrl;
+    let loading = false;
+    const sentinel = document.createElement('div');
+    sentinel.className = 'ri-mal-posts-sentinel';
+    sentinel.style.height = '24px';
+    sentinel.style.margin = '8px 0';
+    postsList.appendChild(sentinel);
+
+    const addSkeleton = () => {
+      for (let i = 0; i < 3; i++) {
+        const sk = document.createElement('li');
+        sk.className = 'ri-mal-post-skel';
+        sk.style.marginBottom = '12px';
+        sk.style.paddingBottom = '8px';
+        sk.style.borderBottom = '1px solid #2a2a2a';
+        sk.innerHTML = `
+          <div style="width: 140px; height: 10px; background:#1f1f1f; border-radius:4px; margin-bottom:6px;"></div>
+          <div style="width: 100%; height: 10px; background:#1f1f1f; border-radius:4px; margin-bottom:6px;"></div>
+          <div style="width: 80%; height: 10px; background:#1f1f1f; border-radius:4px;"></div>
+        `;
+        postsList.insertBefore(sk, sentinel);
+      }
+    };
+
+    const clearSkeletons = () => {
+      postsList.querySelectorAll('.ri-mal-post-skel').forEach((el) => el.remove());
+    };
+
+    const appendPosts = (posts: any[] = []) => {
+      posts.forEach((p) => {
+        const li = document.createElement('li');
+        li.className = 'ri-mal-post';
+        li.style.marginBottom = '12px';
+        li.style.paddingBottom = '8px';
+        li.style.borderBottom = '1px solid #2a2a2a';
+        const authorName = p?.author?.name ? escapeHtml(p.author.name) : 'Unknown';
+        const ts = formatTs(p?.created_at);
+        const avatar = (p?.author?.forum_avatar || p?.author?.forum_avator || p?.author?.avatar || '').trim();
+        const hasAvatar = avatar && avatar.length > 0 && !avatar.includes('kaomoji_mal_white.png');
+        const forumTitle = p?.author?.forum_title ? `<div style="color:#aaa; font-size:11px; margin-top:2px;">${escapeHtml(p.author.forum_title)}</div>` : '';
+        const bodyHtml = p?.body ? bbcodeToHtml(String(p.body)) : '<em style="color:#666;">(empty)</em>';
+        const sigHtml = p?.signature ? bbcodeToHtml(String(p.signature)) : '';
+        const postNum = p?.number ? `#${p.number}` : '';
+        li.innerHTML = `
+          <div style="display:flex; gap:12px; padding:0; margin:0;">
+            <div style="width:140px; min-width:140px; text-align:center; color:#aaa; font-size:12px;">
+              <div style="font-weight:700; color:#e0e0e0; margin-bottom:6px;">${authorName}</div>
+              ${forumTitle}
+              ${hasAvatar ? `<div style="width:110px; height:110px; margin:6px auto; overflow:hidden; border-radius:6px; background:#151515;"><img src="${escapeHtml(avatar)}" style="width:100%; height:100%; object-fit:cover;" /></div>` : ''}
+            </div>
+            <div style="flex:1; color:#ddd; line-height:1.6; font-size:14px;">
+              <div style="display:flex; justify-content:space-between; color:#9cf; font-size:12px; margin-bottom:6px;">
+                <span>${postNum}</span>
+                <span>${ts}</span>
+              </div>
+              <div class="ri-mal-body" style="margin-bottom:8px;">${bodyHtml}</div>
+              ${sigHtml ? `<div style="margin-top:10px; color:#8a8a8a; font-size:12px; border-top:1px dashed #2a2a2a; padding-top:8px;">${sigHtml}</div>` : ''}
+              <div style="display:flex; gap:12px; color:#888; font-size:12px; align-items:center; margin-top:6px;">
+                <span style="cursor:pointer;">More</span>
+                <span style="cursor:pointer;">Gift</span>
+                <span style="cursor:pointer;">Reply</span>
+              </div>
+            </div>
+          </div>
+        `;
+        postsList.insertBefore(li, sentinel);
+      });
+    };
+
+    const observer = new IntersectionObserver(async (entries) => {
+      const entry = entries[0];
+      if (!entry?.isIntersecting || loading || !nextUrl) return;
+      loading = true;
+      addSkeleton();
+      try {
+        const more = await fetchMalTopicPosts(topicId, nextUrl);
+        nextUrl = more?.nextPageUrl || null;
+        if (more?.posts?.length) {
+          appendPosts(more.posts);
+        }
+      } catch (e) {
+        console.warn('[MAL] load more posts error:', e);
+      } finally {
+        clearSkeletons();
+        loading = false;
+        if (!nextUrl) {
+          observer.disconnect();
+          sentinel.remove();
+        }
+      }
+    }, { root: null, threshold: 0.1 });
+
+    observer.observe(sentinel);
+  }
+}
+
+function setMalIdOnLastAnimeInfo(malId?: number | null): void {
+  if (!malId) return;
+  if (lastAnimeInfo) {
+    lastAnimeInfo = { ...lastAnimeInfo, malId };
+  }
+}
+
+function extractMalIdFromMapperResult(mapperResult: any, matchedIndex?: number | null): number | null {
+  if (!mapperResult) return null;
+  const normalize = (val: any): number | null => {
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
+    return null;
+  };
+
+  const fromMatched = normalize(mapperResult?.matched_result?.mal_id ?? mapperResult?.matched_result?.malId);
+  if (fromMatched !== null) return fromMatched;
+
+  if (Array.isArray(mapperResult?.matched_results)) {
+    const firstAlt = mapperResult.matched_results.find(
+      (m: any) => normalize(m?.mal_id ?? m?.malId) !== null
+    );
+    if (firstAlt) {
+      const id = normalize(firstAlt.mal_id ?? firstAlt.malId);
+      if (id !== null) return id;
+    }
+  }
+
+  const idx = matchedIndex ?? mapperResult?.matched_result?.index ?? 0;
+  const candidate = normalize(
+    mapperResult?.results?.[idx]?.mal_id ??
+      mapperResult?.results?.[idx]?.malId ??
+      mapperResult?.results?.[0]?.mal_id ??
+      mapperResult?.results?.[0]?.malId
+  );
+  return candidate;
+}
 
 // Enable markdown debug logs by default (can be disabled via DevTools: window.RI_DEBUG_MARKDOWN=false) 
 try {
@@ -407,6 +827,7 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     discussionCache.disqus = undefined;
     discussionCache.youtube = undefined;
     discussionCache['reddit-youtube'] = undefined;
+    discussionCache.mal = undefined;
     
     // Remove old comments section if present (when navigating between episodes)
     const oldComments = document.getElementById('reddit-inline-discussion');
@@ -497,8 +918,10 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
 
     // Before showing selection/no discussion, check r-anime-wiki-mapper service (original method)
     const mapperResult = await fetchAnimeMapperData(animeInfo.animeName);
+    setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
     
     if (mapperResult && mapperResult.count === 1 && mapperResult.results && mapperResult.results.length > 0) {
+      setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, 0));
       const animeData = mapperResult.results[0];
       const epNum = extractEpisodeNumber(animeInfo.episodeName);
       
@@ -1467,7 +1890,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     let currentSort: 'best' | 'top' | 'new' = 'best';
     let currentYouTubeOrder: 'relevance' | 'time' = 'relevance';
     let currentYouTubeVideo: { video_id: string; title: string } | null = null;
-    let activeProvider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' = 'reddit';
+    let activeProvider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal' = 'reddit';
     const host = document.createElement('div');
     host.id = 'ri-inline-vue-host';
 
@@ -1571,7 +1994,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       select.disabled = false;
     };
 
-    const providerChangeCallback = async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube') => {
+    const providerChangeCallback = async (provider: 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal') => {
         console.log('=== [ProviderChangeCallback] START ===');
         activeProvider = provider;
         console.log('Provider change callback received:', provider);
@@ -1775,6 +2198,100 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           // which was triggered by the RiTopStrip @provider-change event before this callback
           console.log(`[LoadingState] Switching to Reddit - Vue already handling rendering`);
           clearLoadingState('Switch back to Reddit');
+        } else if (provider === 'mal' && lastAnimeInfo) {
+          // MAL provider: fetch forum topics using Jikan first, then MAL fallback for posts
+          let malId = lastAnimeInfo.malId;
+          if (!malId) {
+            console.warn('[MAL] No malId available; attempting search by anime name');
+            malId = await searchMalAnimeId(lastAnimeInfo.animeName);
+            if (malId) {
+              setMalIdOnLastAnimeInfo(malId);
+              console.log('[MAL] Resolved malId via search:', malId);
+            } else {
+              console.warn('[MAL] MAL search by name returned no ID');
+            }
+          }
+          if (!malId) {
+            console.warn('[MAL] Still no malId after search; cannot fetch forum topics');
+            toast.error('MAL ID missing', { description: 'Unable to fetch MAL forums for this episode.' });
+            clearLoadingState('MAL missing malId');
+            return;
+          }
+
+          // Clean up other observers
+          if (redditCommentsCleanup) {
+            redditCommentsCleanup();
+            redditCommentsCleanup = null;
+            redditCommentsObserver = null;
+            redditCommentsSentinel = null;
+          }
+          teardownYouTubeInfiniteScroll();
+
+          const episodeNum = extractEpisodeNumber(lastAnimeInfo.episodeName);
+
+          // Ensure token exists (non-interactive)
+          const token = await getMALAccessToken(false);
+          if (!token) {
+            toast.error('MAL authentication required', { description: 'Please authenticate MAL in the extension.' });
+            clearLoadingState('MAL auth required');
+            return;
+          }
+
+          try {
+            let forumResult = await fetchJikanForumTopics(malId);
+            if ((!forumResult.topics || forumResult.topics.length === 0) && forumResult.status !== 'auth_required') {
+              forumResult = await fetchMalForumTopics(malId, episodeNum ? Number(episodeNum) : undefined);
+            }
+
+            // Pick a topic if Jikan didn't preselect
+            if (!forumResult.selectedTopic && forumResult.topics?.length) {
+              const pick = episodeNum
+                ? forumResult.topics.find((t: any) => new RegExp(`episode\\s*${episodeNum}\\b`, 'i').test(t.title || ''))
+                : forumResult.topics[0];
+              if (pick) forumResult.selectedTopic = pick;
+            }
+
+            let postsResult: any = null;
+            if (forumResult?.selectedTopic?.id) {
+              postsResult = await fetchMalTopicPosts(forumResult.selectedTopic.id);
+            }
+
+            discussionCache.mal = {
+              topics: forumResult.topics,
+              selectedTopic: forumResult.selectedTopic,
+              status: forumResult.status,
+              retryAfterSeconds: forumResult.retryAfterSeconds,
+              posts: postsResult?.posts,
+              nextPageUrl: postsResult?.nextPageUrl ?? null,
+            };
+
+            if (forumResult.status === 'auth_required') {
+              toast.error('MAL authentication required', { description: 'Please authenticate MAL in the extension.' });
+            } else if (forumResult.status === 'rate_limited') {
+              toast.error('MAL rate limit hit', {
+                description: forumResult.retryAfterSeconds
+                  ? `Try again in ${forumResult.retryAfterSeconds} seconds.`
+                  : 'Please try again shortly.',
+              });
+            } else if (forumResult.status === 'no_topic') {
+              toast('No MAL forum topic found', { description: 'No episode thread located for this episode.' });
+            }
+
+            renderMalForumResult(
+              {
+                ...forumResult,
+                posts: postsResult?.posts,
+                nextPageUrl: postsResult?.nextPageUrl ?? null,
+              },
+              lastAnimeInfo.animeName,
+              forumResult.selectedTopic?.id
+            );
+            clearLoadingState('MAL fetch complete');
+          } catch (err) {
+            console.error('[MAL] Error fetching forum topics:', err);
+            toast.error('Failed to load MAL forums');
+            clearLoadingState('MAL error');
+          }
         } else if ((provider === 'youtube' || provider === 'reddit-youtube') && lastAnimeInfo) {
           // Clean up Reddit infinite scroll observer if switching from Reddit
           if (redditCommentsCleanup) {
