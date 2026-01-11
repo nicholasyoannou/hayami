@@ -99,7 +99,7 @@ import { setCurrentYouTubeVideo, setCurrentYouTubeOrder, getCurrentYouTubeOrder,
 import type { CommentProvider, ProviderContext } from './types/data';
 
 // Import utilities
-import { getExternalCommentsContainer as getExternalContainerUtil } from './utils/dom-helpers';
+import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageWrapper } from './utils/dom-helpers';
 import { handleError } from './utils/error-handler';
 
 /**
@@ -543,14 +543,31 @@ function observeAnimeInfoOnce(ctx: any): void {
     }
   });
 
-  // Start observing the document body for changes
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
+  // Optimize: Observe only the specific container instead of entire document.body
+  // This reduces performance impact significantly
+  const targetContainer = document.querySelector('.erc-watch-episode-layout') || document.body;
+  
+  // If we found the specific container, observe only that (more efficient)
+  // Otherwise fall back to body but with narrower scope
+  if (targetContainer !== document.body) {
+    observer.observe(targetContainer, {
+      childList: true,
+      subtree: true  // Still need subtree for nested content, but scope is much smaller
+    });
+  } else {
+    // Fallback: observe body but try to narrow scope
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+  
   setActiveObserver(observer);
 
-  console.log('Observer set up, waiting for anime info to load...');
+  // Only log in development mode
+  if (import.meta.env.DEV) {
+    console.log('Observer set up, waiting for anime info to load...');
+  }
 }
 
 export default defineContentScript({
@@ -1001,8 +1018,8 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
   const existing = document.getElementById('reddit-inline-discussion');
   if (existing) existing.remove();
 
-  const layout = document.querySelector('.erc-watch-episode-layout');
-  const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+  // Use cached utility function instead of repeated queries
+  const wrapper = getWatchPageWrapper();
   if (!wrapper) {
     // Fallback to popup if wrapper not found
     // Use popup directly since we can't show inline
@@ -1182,9 +1199,8 @@ function mountLoadingShell(): void {
     const loadingShellUi = createIntegratedUi(contentScriptContext, {
       position: 'inline',
       anchor: () => {
-        const layout = document.querySelector('.erc-watch-episode-layout');
-        const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
-        return wrapper || null;
+        // Use cached utility function for better performance
+        return getWatchPageWrapper();
       },
       append: 'last',
       tag: 'div',
@@ -1736,11 +1752,19 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       if (!host) return;
       const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
       if (!select) return;
-      select.innerHTML = `
-        <option value="best">Best</option>
-        <option value="top">Top</option>
-        <option value="new">New</option>
-      `;
+      // Use safer DOM manipulation instead of innerHTML
+      select.textContent = ''; // Clear existing options
+      const options = [
+        { value: 'best', label: 'Best' },
+        { value: 'top', label: 'Top' },
+        { value: 'new', label: 'New' },
+      ];
+      options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        select.appendChild(option);
+      });
       select.value = currentSort;
       select.disabled = false;
     };
@@ -1749,10 +1773,18 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       if (!host) return;
       const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
       if (!select) return;
-      select.innerHTML = `
-        <option value="relevance">Top</option>
-        <option value="time">Newest</option>
-      `;
+      // Use safer DOM manipulation instead of innerHTML
+      select.textContent = ''; // Clear existing options
+      const options = [
+        { value: 'relevance', label: 'Top' },
+        { value: 'time', label: 'Newest' },
+      ];
+      options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt.value;
+        option.textContent = opt.label;
+        select.appendChild(option);
+      });
       select.value = getCurrentYouTubeOrder();
       select.disabled = false;
     };
@@ -1856,14 +1888,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Get the host element after mounting
     host = document.getElementById('ri-inline-vue-host');
     
-    // Add event listener for manual search button
-    window.addEventListener('ri-manual-search-requested', () => {
-      const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
-      showManualSearchUI(
-        lastAnimeInfo || { animeName: '', episodeName: '' }, 
-        crEpisodeNum ? Number(crEpisodeNum) : undefined
-      );
-    });
+    // Note: 'ri-manual-search-requested' event listener is handled by InlineDiscussion.vue component
+    // No need to add it here to avoid duplicates
     
     // Store component instance reference after mounting
     const vueApp = inlineDiscussionApp as any;
@@ -1912,59 +1938,32 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
     console.log('[ManualSearch] Routed manual search to Vue event');
     return; // bypass legacy DOM overlay
   } catch (e) {
-    console.warn('[ManualSearch] Failed to dispatch manual search event', e);
-  }
-  const overlay = createOverlay();
-  const renderList = (items: any[]) => items.slice(0, 20).map((p, idx) => 
-    renderRedditChoiceItem(p, idx)
-  ).join('');
-
-  overlay.innerHTML = renderManualSearchPanel();
-
-  const closeBtn = overlay.querySelector('#reddit-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-
-  const listEl = overlay.querySelector('#reddit-choice-list') as HTMLElement;
-
-  const wireChoiceHandlers = (items: any[]) => {
-    overlay.querySelectorAll('.choice-select').forEach(btn => {
-      btn.addEventListener('click', async (ev) => {
-        const index = Number((ev.currentTarget as HTMLElement).getAttribute('data-index'));
-        const chosen = items[index];
+    console.warn('[ManualSearch] Failed to dispatch manual search event, using Vue component fallback', e);
+    // Fallback: Use Vue component instead of legacy innerHTML
+    const overlay = createOverlay();
+    const app = createApp(RedditManualSearchPanel, {
+      onClose: () => {
+        app.unmount();
+        overlay.remove();
+      },
+      onSearch: async (query: string) => {
+        return searchCustomPosts(query);
+      },
+      onSelect: async (post: RedditPost, index: number) => {
         if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
-          const redditEp = parseEpisodeFromTitle(chosen.title);
+          const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
             const offset = redditEp - crEpisodeNum;
             await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
           }
         }
+        app.unmount();
         overlay.remove();
-        await displayDiscussionDependingOnMode(chosen);
-      });
+        await displayDiscussionDependingOnMode(post);
+      },
     });
-  };
-
-  const queryInput = overlay.querySelector('#reddit-manual-query') as HTMLInputElement;
-
-  let searchTimer: number | undefined;
-  async function runSearch(q: string) {
-    const results = q ? await searchCustomPosts(q) : [];
-    if (listEl) {
-      listEl.innerHTML = renderList(results);
-      wireChoiceHandlers(results);
-    }
+    app.mount(overlay);
   }
-
-  queryInput.addEventListener('input', () => {
-    if (searchTimer) clearTimeout(searchTimer);
-    const q = queryInput.value.trim();
-    searchTimer = window.setTimeout(() => runSearch(q), 300);
-  });
-
-  // Prefill sensible default and trigger initial search
-  const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
-  queryInput.value = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
-  runSearch(queryInput.value);
 }
 function ensureToaster(ctx: ContentScriptContext): void {
   const existing = document.getElementById('cr-comments-toaster');
@@ -1996,7 +1995,8 @@ function bootstrapContent(ctx: ContentScriptContext): void {
   }
 
   // Handle manual search result from Vue modal
-  window.addEventListener('ri-manual-search-result', async (ev: any) => {
+  // Use WXT's ctx.addEventListener for automatic cleanup
+  ctx.addEventListener(window, 'ri-manual-search-result', async (ev: any) => {
     try {
       const permalink = ev?.detail?.permalink || '';
       if (!permalink) return;
