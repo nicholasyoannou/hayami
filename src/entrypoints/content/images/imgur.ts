@@ -82,87 +82,13 @@ export async function maybeApplyDomImgurEmbed(host: HTMLElement): Promise<boolea
 
 /**
  * Handle direct imgur.com/<id> links (not i.imgur.com)
- * Resolves the actual image URL and rewrites the anchor href to proxied version.
+ * Marks them for on-hover loading instead of resolving immediately.
+ * The actual resolution happens in previewHandlers.ts when user hovers.
  */
 export async function maybeHandleImgurDirect(host: HTMLElement): Promise<boolean> {
-  let changed = false;
-  const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
-  if (anchors.length === 0) return false;
-
-  for (const a of anchors) {
-    const href = a.getAttribute('href') || '';
-    // Match imgur.com/<id> but not i.imgur.com or imgur.com/a/ (albums)
-    const m = href.match(/^https?:\/\/(?:www\.)?imgur\.com\/(\w+)(?:\.\w+)?$/i);
-    if (!m) continue;
-    const id = m[1];
-    if (id.toLowerCase() === 'a' || id.toLowerCase() === 'gallery') continue;
-
-    try {
-      let resolved: string | null = null;
-
-      // Try to scrape the page for og:image meta
-      try {
-        const r = await extensionFetch(href);
-        if (r.ok) {
-          const html = await r.text();
-          const ogMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i);
-          if (ogMatch) resolved = ogMatch[1];
-        }
-      } catch {
-        // ignore and fall back to API
-      }
-
-      // If page fetch did not resolve, try Imgur API to resolve exact link
-      if (!resolved) {
-        const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
-        try {
-          const r = await extensionFetch(apiUrl, { headers: { Accept: 'application/json' } } as any);
-          if (r.ok) {
-            const j = await r.json();
-            if (j?.data?.link) resolved = j.data.link;
-          }
-        } catch {
-          // ignore and fall back
-        }
-      }
-
-      // If API didn't return a link, try common extensions on i.imgur.com
-      if (!resolved) {
-        const exts = ['.jpg', '.png', '.gif', '.webp'];
-        for (const ext of exts) {
-          const tryUrl = `https://i.imgur.com/${id}${ext}`;
-          try {
-            const r2 = await extensionFetch(tryUrl, { method: 'HEAD' } as any);
-            if (r2.ok) {
-              resolved = tryUrl;
-              break;
-            }
-          } catch {
-            // HEAD may be blocked; try GET as a last resort
-            try {
-              const r3 = await extensionFetch(tryUrl);
-              if (r3.ok) {
-                resolved = tryUrl;
-                break;
-              }
-            } catch {}
-          }
-        }
-      }
-
-      if (resolved) {
-        const prox = PROXY_PREFIX + encodeURIComponent(resolved);
-        a.setAttribute('href', prox);
-        a.setAttribute('target', '_blank');
-        a.setAttribute('rel', 'noopener noreferrer');
-        changed = true;
-      }
-    } catch (e) {
-      console.warn('Imgur direct resolver failed for', href, e);
-    }
-  }
-
-  return changed;
+  // Don't resolve immediately - let previewHandlers handle it on hover
+  // This allows for loading indicators and better UX
+  return false;
 }
 
 /**

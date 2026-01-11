@@ -81,6 +81,7 @@ async function loadComments(sort: 'best' | 'top' | 'new' = 'best') {
     comments.value = result.comments || [];
     rootMoreIds.value = Array.isArray(result.rootMoreChildrenIds) ? [...result.rootMoreChildrenIds] : [];
     renderedCount.value = Math.min(pageSize, comments.value.length);
+    // hasMore should be true if there are more comments to show OR if there are rootMoreIds to fetch
     hasMore.value = comments.value.length > renderedCount.value || rootMoreIds.value.length > 0;
     emit('commentsLoaded', comments.value.length);
   } catch (e) {
@@ -120,6 +121,7 @@ function loadMoreComments() {
   };
 
   Promise.resolve(maybeFetchRootMore()).finally(() => {
+    // Update hasMore: true if there are more visible comments OR more root comments to fetch
     hasMore.value = renderedCount.value < filteredComments.value.length || rootMoreIds.value.length > 0;
     loadingMore.value = false;
   });
@@ -136,11 +138,13 @@ async function handleSortChange(sort: 'best' | 'top' | 'new') {
 }
 
 async function loadMoreForComment(commentId: string) {
-  // Find comment by id
+  // Find comment by id recursively
   function find(list: RedditCommentData[]): RedditCommentData | null {
     for (const c of list) {
-      if (c.id === commentId) return c;
-      if (c.replies) {
+      if (c.id === commentId) {
+        return c;
+      }
+      if (c.replies && Array.isArray(c.replies)) {
         const found = find(c.replies);
         if (found) return found;
       }
@@ -149,19 +153,38 @@ async function loadMoreForComment(commentId: string) {
   }
 
   const target = find(comments.value);
-  if (!target || !target.moreChildrenIds || target.moreChildrenIds.length === 0) return;
+  if (!target) {
+    console.warn('Comment not found for loadMoreForComment:', commentId);
+    return;
+  }
+  if (!target.moreChildrenIds || target.moreChildrenIds.length === 0) {
+    return;
+  }
 
   const chunk = target.moreChildrenIds.slice(0, 20);
   const remaining = target.moreChildrenIds.slice(20);
 
   try {
     const added = await getMoreChildren(props.linkFullname, chunk);
-    target.moreChildrenIds = remaining;
+    
+    // Update the target comment's properties
+    if (remaining.length > 0) {
+      target.moreChildrenIds = remaining;
+    } else {
+      // Remove the property if no more children
+      target.moreChildrenIds = undefined;
+    }
+    
     if (target.moreCount && target.moreCount > 0) {
       target.moreCount = Math.max(0, target.moreCount - chunk.length);
     }
-    target.replies = [...(target.replies || []), ...added];
-    // Trigger reactivity
+    
+    // Merge new replies with existing ones - create new array to ensure reactivity
+    const existingReplies = Array.isArray(target.replies) ? [...target.replies] : [];
+    target.replies = [...existingReplies, ...added];
+    
+    // Force Vue reactivity by creating a new array reference
+    // This ensures Vue detects changes to deeply nested comment structures
     comments.value = [...comments.value];
   } catch (err) {
     console.warn('Failed to load more children for comment', commentId, err);
@@ -253,12 +276,12 @@ defineExpose({
     </div>
     
     <!-- Empty state -->
-    <div v-else-if="filteredComments.length === 0" class="ri-empty">
+    <div v-else-if="filteredComments.length === 0 && rootMoreIds.length === 0" class="ri-empty">
       <p v-if="searchQuery">No comments match your search.</p>
       <p v-else>No comments yet.</p>
     </div>
     
-    <!-- Comments -->
+    <!-- Comments (including case where we have rootMoreIds but no visible comments yet) -->
     <template v-else>
       <RedditComment
         v-for="comment in visibleComments"
@@ -273,9 +296,20 @@ defineExpose({
         @reply="handleReply"
       />
       
+      <!-- Load more button (when no visible comments but rootMoreIds exist) -->
+      <div v-if="visibleComments.length === 0 && rootMoreIds.length > 0 && !loadingMore" class="ri-load-more-container">
+        <button 
+          class="ri-load-more-btn"
+          @click="loadMoreComments"
+          :disabled="loadingMore"
+        >
+          Load comments ({{ rootMoreIds.length }} available)
+        </button>
+      </div>
+      
       <!-- Load more / Infinite scroll sentinel -->
       <div 
-        v-if="hasMore" 
+        v-if="hasMore && visibleComments.length > 0" 
         ref="sentinelRef"
         class="ri-load-more-sentinel"
       >
@@ -294,6 +328,34 @@ defineExpose({
 </template>
 
 <style scoped>
+.ri-load-more-container {
+  display: flex;
+  justify-content: center;
+  padding: 20px 0;
+  margin: 20px 0;
+}
+
+.ri-load-more-btn {
+  background: #ff4500;
+  color: #fff;
+  border: none;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.ri-load-more-btn:hover:not(:disabled) {
+  background: #ff5722;
+}
+
+.ri-load-more-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .ri-comment-list {
   display: flex;
   flex-direction: column;

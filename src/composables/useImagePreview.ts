@@ -115,10 +115,15 @@ export function useImagePreview() {
       imgPreviewEl.alt = '';
       imgPreviewHost!.appendChild(imgPreviewEl);
     }
-    if (multi && !galleryDots) {
+    // Only create dots container if there are multiple images
+    if (multi && multi.length > 1 && !galleryDots) {
       galleryDots = document.createElement('div');
       galleryDots.className = 'ri-img-dots';
       imgPreviewHost.appendChild(galleryDots);
+    }
+    // Hide dots if only 1 image
+    if (galleryDots) {
+      galleryDots.style.display = (multi && multi.length > 1) ? '' : 'none';
     }
 
     imgPreviewHost.classList.add('loading');
@@ -140,25 +145,31 @@ export function useImagePreview() {
       galleryPreloadTriggered = false;
       galleryPreloadedImages = [];
 
+      // Only show dots if there's more than 1 image
       if (galleryDots) {
         galleryDots.innerHTML = '';
-        galleryImages.forEach((g, idx) => {
-          const dot = document.createElement('div');
-          dot.className = 'ri-img-dot';
-          if (idx === 0) dot.classList.add('active');
-          dot.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            galleryIndex = idx;
-            if (imgPreviewEl) {
-              imgPreviewEl.src = galleryImages![galleryIndex];
-              imgPreviewEl.style.display = 'none';
-              imgPreviewHost!.classList.add('loading');
-              if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
-            }
-            triggerGalleryPrefetch('dot-click');
+        // Only create dots if there are multiple images
+        if (galleryImages.length > 1) {
+          galleryImages.forEach((g, idx) => {
+            const dot = document.createElement('div');
+            dot.className = 'ri-img-dot';
+            if (idx === 0) dot.classList.add('active');
+            dot.addEventListener('click', (ev) => {
+              ev.stopPropagation();
+              galleryIndex = idx;
+              if (imgPreviewEl) {
+                imgPreviewEl.src = galleryImages![galleryIndex];
+                imgPreviewEl.style.display = 'none';
+                imgPreviewHost!.classList.add('loading');
+                if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
+              }
+              triggerGalleryPrefetch('dot-click');
+            });
+            galleryDots!.appendChild(dot);
           });
-          galleryDots!.appendChild(dot);
-        });
+        }
+        // Hide dots container if only 1 image
+        galleryDots.style.display = galleryImages.length > 1 ? '' : 'none';
       }
 
       imgPreviewEl.src = galleryImages[0];

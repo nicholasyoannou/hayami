@@ -51,6 +51,18 @@ const isDisabled = computed(() => props.isArchived || props.isLocked || props.co
 const isHighlighted = computed(() => props.highlightIds?.has(props.comment.id) ?? false);
 const hasMoreChildren = computed(() => (props.comment.moreChildrenIds?.length || 0) > 0);
 const remainingChildrenCount = computed(() => props.comment.moreCount || props.comment.moreChildrenIds?.length || 0);
+
+// Watch for changes to moreChildrenIds to debug
+watch(() => props.comment.moreChildrenIds, (newIds, oldIds) => {
+  if (newIds && newIds.length > 0) {
+    console.debug('[RedditComment] moreChildrenIds changed for comment', props.comment.id, ':', oldIds, '->', newIds);
+  }
+}, { deep: true });
+
+// Watch hasMoreChildren computed
+watch(hasMoreChildren, (newVal) => {
+  console.debug('[RedditComment] hasMoreChildren changed for comment', props.comment.id, ':', newVal);
+});
 const loadingMoreChildren = ref(false);
 
 const awardsCount = computed(() => {
@@ -140,6 +152,41 @@ const bodyHtml = computed(() => {
   return markdownToHtml(raw);
 });
 
+// Ref for the comment text container to attach spoiler click handlers
+const textContainerRef = ref<HTMLElement | null>(null);
+
+// Debug: log moreChildrenIds when component is created
+onMounted(() => {
+  if (props.comment.moreChildrenIds && props.comment.moreChildrenIds.length > 0) {
+    console.debug('[RedditComment] Comment', props.comment.id, 'has moreChildrenIds:', props.comment.moreChildrenIds.length, props.comment.moreChildrenIds);
+  }
+  if (props.comment.moreCount && props.comment.moreCount > 0) {
+    console.debug('[RedditComment] Comment', props.comment.id, 'has moreCount:', props.comment.moreCount);
+  }
+  if (hasMoreChildren.value) {
+    console.debug('[RedditComment] Comment', props.comment.id, 'hasMoreChildren is TRUE');
+  } else {
+    console.debug('[RedditComment] Comment', props.comment.id, 'hasMoreChildren is FALSE', {
+      moreChildrenIds: props.comment.moreChildrenIds,
+      moreCount: props.comment.moreCount
+    });
+  }
+  
+  // Add click handler using event delegation on the container
+  if (textContainerRef.value) {
+    textContainerRef.value.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      // Check if clicked element or its parent is a spoiler
+      const spoiler = target.closest('.md-spoiler-text, .ri-spoiler') as HTMLElement;
+      if (spoiler && !spoiler.classList.contains('revealed')) {
+        e.preventDefault();
+        e.stopPropagation();
+        spoiler.classList.add('revealed');
+      }
+    });
+  }
+});
+
 // Asset URLs
 const upvoteIconUrl = computed(() => 
   (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/upvote.svg') ?? 'assets/commentAssets/upvote.svg'
@@ -198,10 +245,94 @@ function handleChildrenClick(ev: MouseEvent) {
   ev.stopPropagation();
   const host = childrenHost.value;
   if (!host) return;
-  const targets = host.querySelectorAll('.ri-comment');
+  
+  // Get all direct child comment elements
+  const targets = host.querySelectorAll(':scope > .ri-comment');
   if (targets.length === 0) return;
-  const shouldCollapse = !targets[0].classList.contains('collapsed');
-  targets.forEach((el) => el.classList.toggle('collapsed', shouldCollapse));
+  
+  // Helper function to get the actual isCollapsed ref value from a component instance
+  function getCollapsedState(componentInstance: any): boolean | null {
+    if (componentInstance?.setupState?.isCollapsed && 'value' in componentInstance.setupState.isCollapsed) {
+      return componentInstance.setupState.isCollapsed.value;
+    }
+    if (componentInstance?.ctx?.isCollapsed && 'value' in componentInstance.ctx.isCollapsed) {
+      return componentInstance.ctx.isCollapsed.value;
+    }
+    return null;
+  }
+  
+  // Determine the current state by checking the first child's actual ref state (not the class)
+  let shouldCollapse = true; // Default to collapsing
+  const firstTarget = targets[0] as HTMLElement;
+  
+  // Try to find the component instance and check its actual ref state
+  let current: Element | null = firstTarget;
+  while (current) {
+    const componentInstance = (current as any).__vueParentComponent;
+    if (componentInstance) {
+      const currentState = getCollapsedState(componentInstance);
+      if (currentState !== null) {
+        shouldCollapse = !currentState; // Toggle: if currently collapsed, expand; if expanded, collapse
+        break;
+      }
+    }
+    current = current.parentElement;
+  }
+  
+  // If we couldn't determine the state from the ref, fall back to checking the class
+  if (shouldCollapse === true && firstTarget.classList.contains('ri-collapsed')) {
+    shouldCollapse = false; // If class says collapsed, we should expand
+  }
+  
+  // Recursively toggle collapse state on all child comment components
+  function toggleCommentCollapse(el: Element, collapse: boolean) {
+    // Find the Vue component instance for this element
+    let componentInstance: any = null;
+    let current: Element | null = el;
+    
+    // Walk up the DOM tree to find the component instance
+    while (current && !componentInstance) {
+      if ((current as any).__vueParentComponent) {
+        componentInstance = (current as any).__vueParentComponent;
+        break;
+      }
+      current = current.parentElement;
+    }
+    
+    // Update the component's reactive state if we found it
+    if (componentInstance) {
+      // Try setupState (most common in <script setup>)
+      if (componentInstance.setupState?.isCollapsed && 'value' in componentInstance.setupState.isCollapsed) {
+        const currentState = componentInstance.setupState.isCollapsed.value;
+        // Only update if the state is different
+        if (currentState !== collapse) {
+          componentInstance.setupState.isCollapsed.value = collapse;
+        }
+      }
+      // Try ctx (for Options API or some cases)
+      else if (componentInstance.ctx?.isCollapsed && 'value' in componentInstance.ctx.isCollapsed) {
+        const currentState = componentInstance.ctx.isCollapsed.value;
+        if (currentState !== collapse) {
+          componentInstance.ctx.isCollapsed.value = collapse;
+        }
+      }
+      // Vue's reactivity will handle the class binding automatically via :class="{ 'ri-collapsed': isCollapsed }"
+    } else {
+      // Fallback: if we couldn't find the component instance, manually toggle the class
+      // This shouldn't normally happen
+      el.classList.toggle('ri-collapsed', collapse);
+    }
+    
+    // Recursively handle nested comments within this comment's children container
+    const childrenContainer = el.querySelector(':scope > .ri-children');
+    if (childrenContainer) {
+      const nestedComments = childrenContainer.querySelectorAll(':scope > .ri-comment');
+      nestedComments.forEach((nested) => toggleCommentCollapse(nested, collapse));
+    }
+  }
+  
+  // Toggle all direct children and their descendants
+  targets.forEach((el) => toggleCommentCollapse(el, shouldCollapse));
 }
 
 function isOnTrunkLine(ev: MouseEvent): boolean {
@@ -462,7 +593,7 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
         <span v-if="editedText">{{ editedText }}</span>
       </div>
       
-      <div class="ri-text" v-html="bodyHtml"></div>
+      <div class="ri-text" ref="textContainerRef" v-html="bodyHtml"></div>
       
       <div class="ri-actions">
         <div 
@@ -520,8 +651,9 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
       <slot name="reply-editor"></slot>
       
       <!-- Children -->
+      <!-- Render children section if there are visible replies OR if there are more children to load -->
       <div 
-        v-if="!isCollapsed && visibleReplies.length > 0" 
+        v-if="!isCollapsed && (visibleReplies.length > 0 || hasMoreChildren)" 
         class="ri-children"
         :class="{ 
           'spine-hover': isSpineHover

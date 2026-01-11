@@ -452,14 +452,26 @@ function parseComments(children: any[]): RedditComment[] {
         total_awards_received: data.total_awards_received,
         all_awardings: data.all_awardings,
         link_id: data.link_id,
+        // Initialize these properties so Vue can track them reactively
+        moreChildrenIds: undefined,
+        moreCount: undefined,
+        replies: undefined,
       };
 
       // Parse nested replies if they exist
-      if (data.replies && typeof data.replies === 'object') {
-        const repliesData = data.replies.data;
-        if (repliesData && repliesData.children) {
+      // Reddit returns replies as either:
+      // - Empty string "" when no replies
+      // - Object with Listing structure: { kind: "Listing", data: { children: [...] } }
+      // - Sometimes just a "more" node when replies aren't loaded yet
+      if (data.replies && typeof data.replies === 'object' && data.replies !== null) {
+        // Check if replies is a Listing structure (most common case)
+        if (data.replies.kind === 'Listing' && data.replies.data && data.replies.data.children && Array.isArray(data.replies.data.children)) {
+          const repliesData = data.replies.data;
+          const children = repliesData.children;
+          
           // detect if there's a 'more' node for additional replies
-          const moreNode = repliesData.children.find((n: any) => n && n.kind === 'more');
+          // This can be the ONLY child when no replies are loaded yet
+          const moreNode = children.find((n: any) => n && n.kind === 'more');
           if (moreNode && moreNode.data) {
             if (typeof moreNode.data.count === 'number') {
               comment.moreCount = moreNode.data.count;
@@ -467,9 +479,45 @@ function parseComments(children: any[]): RedditComment[] {
             if (Array.isArray(moreNode.data.children)) {
               comment.moreChildrenIds = moreNode.data.children;
             }
+            console.debug('[parseComments] Found more node for comment', comment.id, 'count:', moreNode.data.count, 'children:', moreNode.data.children);
           }
-          comment.replies = parseComments(repliesData.children);
+          // Parse actual comment replies (filter out 'more' nodes, returns empty array if only 'more' node exists)
+          comment.replies = parseComments(children);
         }
+        // Handle case where replies might be a "more" node directly (when no replies loaded but more exist)
+        else if (data.replies.kind === 'more' && data.replies.data) {
+          const moreData = data.replies.data;
+          if (typeof moreData.count === 'number') {
+            comment.moreCount = moreData.count;
+          }
+          if (Array.isArray(moreData.children)) {
+            comment.moreChildrenIds = moreData.children;
+          }
+          comment.replies = []; // No replies loaded yet
+          console.debug('[parseComments] Found direct more node for comment', comment.id, 'count:', moreData.count, 'children:', moreData.children);
+        }
+        // Fallback: check for Listing structure without explicit kind check (for compatibility)
+        else if (data.replies.data && data.replies.data.children && Array.isArray(data.replies.data.children)) {
+          const repliesData = data.replies.data;
+          const children = repliesData.children;
+          
+          const moreNode = children.find((n: any) => n && n.kind === 'more');
+          if (moreNode && moreNode.data) {
+            if (typeof moreNode.data.count === 'number') {
+              comment.moreCount = moreNode.data.count;
+            }
+            if (Array.isArray(moreNode.data.children)) {
+              comment.moreChildrenIds = moreNode.data.children;
+            }
+            console.debug('[parseComments] Found more node (fallback) for comment', comment.id, 'count:', moreNode.data.count, 'children:', moreNode.data.children);
+          }
+          comment.replies = parseComments(children);
+        }
+      }
+      
+      // Debug: log if we find moreChildrenIds
+      if (comment.moreChildrenIds && comment.moreChildrenIds.length > 0) {
+        console.debug('[parseComments] Found moreChildrenIds for comment', comment.id, ':', comment.moreChildrenIds.length, 'ids');
       }
 
       return comment;

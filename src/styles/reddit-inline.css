@@ -833,7 +833,7 @@
   list-style: none; /* neutralize potential global resets */
   counter-reset: ri-ol-counter;
   margin: 6px 0 12px 0;
-  padding-left: 32px; /* a bit more room for multi-digit numbers */
+  padding-left: 40px; /* increased indentation for better spacing */
 }
 .ri-text ol > li {
   position: relative;
@@ -843,12 +843,12 @@
 .ri-text ol > li::before {
   content: counter(ri-ol-counter) '. ';
   position: absolute;
-  left: -28px;
+  left: -36px;
   top: 0;
   line-height: 1.4;
   color: #d7dadc;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700; /* bold numbers */
 }
 
 /* ==================== Actions Bar ==================== */
@@ -1303,16 +1303,35 @@
 }
 
 /* ==================== Spoilers & More Replies ==================== */
-.ri-spoiler {
+.ri-spoiler,
+.md-spoiler-text {
   background: #333;
   color: transparent;
   border-radius: 3px;
   padding: 0 4px;
   cursor: pointer;
+  user-select: none;
+  transition: color 0.3s ease, background 0.3s ease;
+  white-space: pre-wrap; /* Preserve whitespace including leading/trailing spaces */
+  display: inline; /* Keep inline to preserve text flow */
 }
 
-.ri-spoiler.revealed {
-  color: #fff;
+.ri-spoiler.revealed,
+.md-spoiler-text.revealed {
+  color: inherit;
+  background: transparent;
+  padding: 0; /* Remove padding but preserve text content spacing */
+  border-radius: 0;
+  cursor: default;
+  white-space: pre-wrap; /* Continue preserving whitespace when revealed */
+}
+
+.md-spoiler-text:hover {
+  background: #444;
+}
+
+.md-spoiler-text.revealed:hover {
+  background: transparent;
 }
 
 /* Labeled spoiler (old reddit [label](/s "text"))
