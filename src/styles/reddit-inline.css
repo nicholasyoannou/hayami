@@ -1316,6 +1316,13 @@
   display: inline; /* Keep inline to preserve text flow */
 }
 
+/* Hide links inside unrevealed spoilers (only when NOT revealed) */
+.ri-spoiler:not(.revealed) a,
+.md-spoiler-text:not(.revealed) a {
+  color: transparent !important;
+  text-decoration: none;
+}
+
 .ri-spoiler.revealed,
 .md-spoiler-text.revealed {
   color: inherit;

@@ -466,7 +466,7 @@ function parseComments(children: any[]): RedditComment[] {
       if (data.replies && typeof data.replies === 'object' && data.replies !== null) {
         // Check if replies is a Listing structure (most common case)
         if (data.replies.kind === 'Listing' && data.replies.data && data.replies.data.children && Array.isArray(data.replies.data.children)) {
-          const repliesData = data.replies.data;
+        const repliesData = data.replies.data;
           const children = repliesData.children;
           
           // detect if there's a 'more' node for additional replies
@@ -492,7 +492,7 @@ function parseComments(children: any[]): RedditComment[] {
           }
           if (Array.isArray(moreData.children)) {
             comment.moreChildrenIds = moreData.children;
-          }
+        }
           comment.replies = []; // No replies loaded yet
           console.debug('[parseComments] Found direct more node for comment', comment.id, 'count:', moreData.count, 'children:', moreData.children);
         }

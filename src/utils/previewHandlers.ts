@@ -21,6 +21,13 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
     if (!a.closest('.ri-text')) return; // only inside comment bodies
+    
+    // Don't show preview if link is inside an unrevealed spoiler
+    const spoiler = a.closest('.md-spoiler-text, .ri-spoiler') as HTMLElement | null;
+    if (spoiler && !spoiler.classList.contains('revealed')) {
+      return; // Skip preview for links inside unrevealed spoilers
+    }
+    
     const href = a.getAttribute('href') || '';
     let ds = a.getAttribute('data-ri-images');
     let multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;

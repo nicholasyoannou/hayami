@@ -54,7 +54,7 @@ export function markdownToHtml(text: string): string {
     // Add target and rel attributes
     return `<a ${attrs.replace(/href=["'][^"']+["']/, `href="${href}"`)} target="_blank" rel="noopener noreferrer">`;
   });
-  
+
   // Post-process images to proxy imgur through DuckDuckGo to avoid CORS issues (UK only)
   // Check sessionStorage cache (set by detectUserInUK in imgur.ts)
   // Note: We check the cache synchronously here since markdownToHtml must be synchronous
@@ -96,7 +96,7 @@ export function markdownToHtml(text: string): string {
     }
     return match;
   });
-  
+
   // Second, look for any span elements that might be spoilers based on content
   // This handles cases where snudown-js outputs spoilers without explicit spoiler classes
   // We look for spans that contain the spoiler markers >! and !<
@@ -126,9 +126,17 @@ export function markdownToHtml(text: string): string {
     // Add the class if missing
     if (/class=/i.test(open)) {
       return open.replace(/class=["']([^"']*)["']/, `class="$1 md-spoiler-text"`) + content + close;
-    } else {
+              } else {
       return open.replace(/>/, ' class="md-spoiler-text">') + content + close;
-    }
+              }
+  });
+  
+  // Ensure spacing before spoiler elements: add a space if a spoiler span appears directly after text
+  // This handles cases like "[text]>!spoiler!<" where snudown-js doesn't add a space
+  html = html.replace(/([^\s>])(<span[^>]*class=["'][^"']*md-spoiler-text[^"']*["'][^>]*>)/gi, (match: string, before: string, spoiler: string) => {
+    // Only add space if the character before is not whitespace and not a tag closing bracket
+    // This ensures we don't add spaces where they shouldn't be (e.g., inside tags)
+    return before + ' ' + spoiler;
   });
   
   // Handle old Reddit spoiler syntax: [label](/s "spoiler text")
