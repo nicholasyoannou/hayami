@@ -1285,6 +1285,11 @@ export async function tryMapperFailover(
           return a.idx - b.idx;
         });
 
+      const matchedSeasonScore = scoreSeasonTitleMatch(matchedSeason?.anime_name, seasonTitle);
+      const airYearForEpisode = getEpisodeAirYear(episodeMetadata);
+      const matchedSeasonYear = parseMapperYear(matchedSeason?.year);
+      const lockMatchedSeason = matchedSeasonScore >= 8 || (airYearForEpisode !== null && matchedSeasonYear === airYearForEpisode);
+
       const sliceMatch = matchedResult?.is_exact_match === true
         ? null
         : findSliceEpisodeMatch(
@@ -1294,19 +1299,29 @@ export async function tryMapperFailover(
             ordered.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: o.hasZero })),
           );
 
-      if (sliceMatch) {
+      if (sliceMatch && (!lockMatchedSeason || sliceMatch.idx === matchedIndex)) {
         matchedIndex = sliceMatch.idx;
         matchedSeason = (mapperResult as any).results[matchedIndex];
         forcedSeasonEpisode = sliceMatch.episode;
         console.log('[Mapper Failover] Using slice-derived season/episode mapping:', {
           matchedIndex,
           forcedSeasonEpisode,
+          lockMatchedSeason,
+          matchedSeasonScore,
+          airYearForEpisode,
         });
 
         if (!matchedSeason || !matchedSeason.episodes || typeof matchedSeason.episodes !== 'object') {
           console.log('[Mapper Failover] Slice-derived matched season has no episodes');
           return null;
         }
+      } else if (sliceMatch && lockMatchedSeason && sliceMatch.idx !== matchedIndex) {
+        console.log('[Mapper Failover] Ignoring slice-derived override due to confident title/year match', {
+          sliceIdx: sliceMatch.idx,
+          matchedIndex,
+          matchedSeasonScore,
+          airYearForEpisode,
+        });
       }
 
       seasonEpisode = forcedSeasonEpisode ?? mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, (mapperResult as any).results);
