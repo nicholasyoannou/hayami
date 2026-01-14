@@ -302,7 +302,12 @@ function mapEpisodeWithSeasonsData(
   matchedSeason: any,
   mapperResults: any[],
 ): number | null {
-  if (!matchedSeason || !matchedSeason.episodes) {
+  // Movies don't need episode mapping - they have only one URL
+  if (!matchedSeason || (matchedSeason.year === 'movies' && Array.isArray(matchedSeason.movies))) {
+    return null;
+  }
+
+  if (!matchedSeason.episodes) {
     return null;
   }
 
@@ -470,7 +475,12 @@ function mapEpisodeToSeasonEpisode(
   matchedSeason: any,
   allSeasons: any[],
 ): number | null {
-  if (!matchedSeason || !matchedSeason.episodes) {
+  // Movies don't need episode mapping - they have only one URL
+  if (!matchedSeason || (matchedSeason.year === 'movies' && Array.isArray(matchedSeason.movies))) {
+    return null;
+  }
+
+  if (!matchedSeason.episodes) {
     return null;
   }
 
@@ -656,6 +666,15 @@ export async function tryMapperFailover(
     }
 
     const matchedSeason = (mapperResult as any).results[matchedIndex];
+    
+    // Handle both TV series (episodes) and movies
+    if (matchedSeason.year === 'movies' && Array.isArray(matchedSeason.movies) && matchedSeason.movies.length > 0) {
+      // For movies, return the first (typically only) movie URL
+      const movieUrl = matchedSeason.movies[0];
+      console.log(`Found ${platform} thread via failover (movie):`, movieUrl);
+      return movieUrl;
+    }
+    
     if (!matchedSeason.episodes || typeof matchedSeason.episodes !== 'object') {
       console.log('Matched season has no episodes');
       return null;

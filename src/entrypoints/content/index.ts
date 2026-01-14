@@ -829,8 +829,17 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       const animeData = mapperResult.results[0];
       const epNum = extractEpisodeNumber(animeInfo.episodeName);
       
+      // Handle both episodes (dictionary) and movies (array)
+      let redditUrl: string | undefined;
+      
       if (epNum && animeData.episodes && animeData.episodes[epNum]) {
-        const redditUrl = animeData.episodes[epNum];
+        redditUrl = animeData.episodes[epNum];
+      } else if (animeData.year === 'movies' && Array.isArray(animeData.movies) && animeData.movies.length > 0) {
+        // For movies, use the first (and typically only) movie URL
+        redditUrl = animeData.movies[0];
+      }
+      
+      if (redditUrl) {
         console.log('Found exact match in mapper service:', redditUrl);
         
         // Extract post ID from Reddit URL and fetch post data
