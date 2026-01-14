@@ -1104,14 +1104,6 @@ export async function tryMapperFailover(
       }
     }
 
-    // Heuristic: if mapper season has episode 0 and title suggests a special, force episode 0
-    if (matchedSeason?.episodes && Object.prototype.hasOwnProperty.call(matchedSeason.episodes, '0')) {
-      const title = String((episodeMetadata as any)?.title || (episodeMetadata as any)?.episode_title || '').toLowerCase();
-      if (title.includes('guardian fitz') || title.includes('prologue') || title.includes('special')) {
-        seasonEpisode = 0;
-      }
-    }
-
     if (seasonEpisode === null && (episodeMetadata as any)?.episode_number === 0 && hasZero) {
       seasonEpisode = 0;
     }
