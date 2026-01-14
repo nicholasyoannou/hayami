@@ -313,6 +313,35 @@ function isSequelTitle(name: string | undefined): boolean {
   return /(season\s*2|part\s*2|cour\s*2)/i.test(name);
 }
 
+function normalizeForMatch(value: string | undefined): string {
+  if (!value) return '';
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreSeasonTitleMatch(name: string | undefined, seasonTitle: string | undefined): number {
+  const normName = normalizeForMatch(name);
+  const normSeason = normalizeForMatch(seasonTitle);
+  if (!normName || !normSeason) return 0;
+
+  let score = 0;
+  if (normName.includes(normSeason) || normSeason.includes(normName)) {
+    score += normSeason.length * 2; // strong substring bonus
+  }
+
+  const seasonTokens = normSeason.split(' ').filter((t) => t.length >= 3);
+  for (const t of seasonTokens) {
+    if (normName.includes(t)) {
+      score += t.length;
+    }
+  }
+
+  return score;
+}
+
 function pickPreferredSameYear(candidates: { idx: number; name?: string; episodeCount: number }[], seasonNum?: number): number | null {
   if (candidates.length === 0) return null;
   if (seasonNum === 1) {
@@ -432,6 +461,20 @@ function findSliceEpisodeMatch(
   const slice = slices[seasonNum];
   if (!slice) return null;
 
+  const episodesBeforeSeason = Array.isArray(seasonsData)
+    ? seasonsData
+        .filter((s) => (s.season_sequence_number || s.season_number || 0) < seasonNum)
+        .reduce((sum, s) => sum + (s.number_of_episodes || 0), 0)
+    : 0;
+
+  const currentSeasonEpisodes = Array.isArray(seasonsData)
+    ? seasonsData.find((s) => (s.season_sequence_number || s.season_number || 0) === seasonNum)?.number_of_episodes || 0
+    : 0;
+
+  const cumulativeBeforeSlice = orderedMapper
+    .slice(0, Math.min(slice.start, orderedMapper.length))
+    .reduce((sum, entry) => sum + (entry.hasZero ? Math.max(1, entry.episodeCount - 1) : entry.episodeCount), 0);
+
   let cumulative = 0;
   for (let i = slice.start; i <= slice.end && i < orderedMapper.length; i++) {
     const entry = orderedMapper[i];
@@ -485,6 +528,52 @@ function findSliceEpisodeMatch(
     }
 
     cumulative += effectiveLength;
+  }
+
+  // If CR episode exceeds the total length of the slice (e.g., dub numbering rolls past expected count),
+  // fall back to the first mapper entry in the slice, mapping to episode 1 (or 0 when available).
+  if (episodeWithinSeason > cumulative && slice.start < orderedMapper.length) {
+    const first = orderedMapper[slice.start];
+    const firstLength = first.hasZero ? Math.max(1, first.episodeCount - 1) : first.episodeCount;
+    const prevEntry = slice.start > 0 ? orderedMapper[slice.start - 1] : null;
+    const prevLength = prevEntry ? (prevEntry.hasZero ? Math.max(1, prevEntry.episodeCount - 1) : prevEntry.episodeCount) : 0;
+    // Prefer to anchor overflow to the CR season's own episode count when the CR numbering rolls past that count (e.g., S2 dub uses 26+).
+    // Otherwise fall back to aligning to the start of this slice (mapper cumulative before slice minus the preceding mapper length).
+    const alignedBaseline = cumulativeBeforeSlice - prevLength > 0 ? cumulativeBeforeSlice - prevLength : cumulativeBeforeSlice;
+    const baseline = currentSeasonEpisodes > 0 && episodeWithinSeason > currentSeasonEpisodes ? currentSeasonEpisodes : alignedBaseline;
+    const overflow = Math.max(1, episodeWithinSeason - baseline);
+
+    // If the overflow is small (e.g., E26 when CR season len is 25), keep anchoring to the first entry.
+    // When the overflow is large (e.g., E50) and the slice carries multiple mapper entries, bias to the
+    // latest multi-episode entry so later cours are chosen over the first cour.
+    const sliceEntries = orderedMapper.slice(slice.start, Math.min(slice.end + 1, orderedMapper.length));
+    const multiEntries = sliceEntries.filter((e) => (e.hasZero ? Math.max(1, e.episodeCount - 1) : e.episodeCount) > 1);
+    const lastMulti = multiEntries.length > 0 ? multiEntries[multiEntries.length - 1] : null;
+
+    let fallbackTarget = first;
+    let fallbackEpisode = Math.min(overflow, firstLength);
+
+    if (overflow > firstLength && lastMulti) {
+      const lastLen = lastMulti.hasZero ? Math.max(1, lastMulti.episodeCount - 1) : lastMulti.episodeCount;
+      const remainingAfterFirst = overflow - firstLength;
+      fallbackTarget = lastMulti;
+      fallbackEpisode = Math.min(lastLen, remainingAfterFirst);
+    }
+
+    console.log('[Mapper Debug] slice overrun; falling back within slice', {
+      seasonNum,
+      episodeWithinSeason,
+      slice,
+      cumulativeFinal: cumulative,
+      cumulativeBeforeSlice,
+      episodesBeforeSeason,
+      currentSeasonEpisodes,
+      prevLength,
+      baseline,
+      fallbackIdx: fallbackTarget.idx,
+      fallbackEpisode,
+    });
+    return { idx: fallbackTarget.idx, episode: fallbackEpisode };
   }
 
   console.log('[Mapper Debug] slice match not found', { seasonNum, episodeWithinSeason, slice, cumulativeFinal: cumulative });
@@ -736,6 +825,44 @@ function mapEpisodeWithSeasonsData(
   const couldBePerSeason = episodeNumberToUse <= currentCrSeasonEpisodes && episodeNumberToUse <= mapperEpisodeCount;
   const couldBeContinuous = episodeNumberToUse > totalPreviousCrEpisodes && episodeNumberToUse - totalPreviousCrEpisodes <= mapperEpisodeCount;
 
+  // Handle misreported Crunchyroll season lengths (e.g., cour split with global numbering that is lower than totalPreviousCrEpisodes).
+  // If CR says sequenceNumber is continuous but it is still <= totalPreviousCrEpisodes, cap the previous episode total to one less
+  // than the current number and retry the continuous calculation. This helps second cours that start at e.g. 25 when the
+  // first cour was miscounted as 26.
+  if (isSequenceNumberContinuous && episodeNumberToUse <= totalPreviousCrEpisodes) {
+    const adjustedPrevious = Math.max(0, Math.min(totalPreviousCrEpisodes, episodeNumberToUse - 1));
+    const seasonEpisode = episodeNumberToUse - adjustedPrevious;
+
+    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+      console.log('[Mapper Failover] Adjusted continuous numbering with capped previous total:', {
+        episodeNumberToUse,
+        totalPreviousCrEpisodes,
+        adjustedPrevious,
+        seasonEpisode,
+      });
+      return seasonEpisode;
+    }
+  }
+
+  // Handle Crunchyroll global numbering where season_sequence_number is high but season_number is small (e.g., Re:Zero S2 with 26+ numbering).
+  // If CR marks the season as continuous and the sequence number is larger than the mapper count, assume the previous season had
+  // currentCrSeasonEpisodes and compute the offset accordingly.
+  if (isSequenceNumberContinuous && episodeNumberToUse > mapperEpisodeCount && currentCrSeasonEpisodes > 0) {
+    const inferredPrevious = Math.max(totalPreviousCrEpisodes, currentCrSeasonEpisodes);
+    const seasonEpisode = episodeNumberToUse - inferredPrevious;
+
+    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+      console.log('[Mapper Failover] Inferred previous episodes from CR season length for continuous numbering:', {
+        episodeNumberToUse,
+        totalPreviousCrEpisodes,
+        currentCrSeasonEpisodes,
+        inferredPrevious,
+        seasonEpisode,
+      });
+      return seasonEpisode;
+    }
+  }
+
   if (isSequenceNumberContinuous) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
@@ -933,6 +1060,8 @@ export async function tryMapperFailover(
     const crEpisodeNumber = (episodeMetadata as any).episode_number ?? (episodeMetadata as any).sequence_number;
     const sequenceNumber = (episodeMetadata as any).sequence_number;
     const seasonNumber = (episodeMetadata as any).season_number;
+    const seasonSequenceNumber = (episodeMetadata as any).season_sequence_number;
+    const effectiveSeasonNumber = seasonSequenceNumber ?? seasonNumber;
 
     // Allow episode_number = 0 (specials). Only fail when undefined/null.
     if (!seriesTitle || !seasonTitle || crEpisodeNumber === undefined || crEpisodeNumber === null) {
@@ -944,7 +1073,16 @@ export async function tryMapperFailover(
       console.log('[Mapper Failover] No series_id in metadata, cannot fetch seasons data');
     }
 
-    console.log('[Mapper Failover] Crunchyroll metadata:', { seriesTitle, seasonTitle, seriesId, crEpisodeNumber, sequenceNumber, seasonNumber });
+    console.log('[Mapper Failover] Crunchyroll metadata:', {
+      seriesTitle,
+      seasonTitle,
+      seriesId,
+      crEpisodeNumber,
+      sequenceNumber,
+      seasonNumber,
+      seasonSequenceNumber,
+      effectiveSeasonNumber,
+    });
 
     let seasonsData: any[] = [];
     if (seriesId) {
@@ -966,10 +1104,22 @@ export async function tryMapperFailover(
       return null;
     }
 
-    // Prefer provided matched_result; otherwise fall back to best-effort match.
-    let matchedIndex = (mapperResult as any).matched_result?.index;
+    // Prefer provided matched_result, but re-score against season_title when possible.
+    const results: any[] = (mapperResult as any).results || [];
+    const matchedResult = (mapperResult as any).matched_result;
+    let matchedIndex = matchedResult?.index;
+
+    const seasonScore = results.map((r, idx) => ({ idx, score: scoreSeasonTitleMatch(r?.anime_name, seasonTitle) }));
+    const bestSeason = seasonScore.reduce((best, cur) => (cur.score > best.score ? cur : best), { idx: -1, score: -1 });
+
+    if (bestSeason.score > 0 && bestSeason.idx !== -1) {
+      if (matchedIndex === undefined || matchedIndex === null || (matchedResult && matchedResult.is_exact_match === false)) {
+        matchedIndex = bestSeason.idx;
+        console.log('[Mapper Failover] Overriding matched result with season-title similarity:', { matchedIndex, score: bestSeason.score });
+      }
+    }
+
     if (matchedIndex === undefined || matchedIndex === null) {
-      const results: any[] = (mapperResult as any).results || [];
       const normalizedSeries = (seriesTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
       const normalizedSeason = (seasonTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
       let bestIdx = -1;
@@ -992,10 +1142,13 @@ export async function tryMapperFailover(
       matchedIndex = bestIdx;
       console.log('[Mapper Failover] No matched_result; selected best-effort index:', matchedIndex);
     } else {
-    console.log('[Mapper Failover] Found matched result:', (mapperResult as any).matched_result);
+      console.log('[Mapper Failover] Found matched result:', matchedResult);
     }
 
-    matchedIndex = refineMatchedIndexUsingCrunchyrollData((mapperResult as any).results, matchedIndex, episodeMetadata, seasonsData);
+    // If the mapper gave us an exact match, keep it; otherwise refine using CR metadata.
+    if (!(matchedResult?.is_exact_match === true)) {
+      matchedIndex = refineMatchedIndexUsingCrunchyrollData((mapperResult as any).results, matchedIndex, episodeMetadata, seasonsData);
+    }
 
     const initialMatchedResult = (mapperResult as any).results?.[matchedIndex];
 
@@ -1034,7 +1187,65 @@ export async function tryMapperFailover(
 
     let matchedSeason = (mapperResult as any).results[matchedIndex];
     let forcedSeasonEpisode: number | null = null;
-    
+
+    // If we got an exact matched_result (e.g., S3) but CR is supplying a very large episode number (e.g., 51),
+    // keep the matched season but derive a per-season episode number from CR's continuous numbering instead of
+    // hard-coding to episode 1.
+    if (
+      matchedResult?.is_exact_match === true &&
+      matchedSeason?.episodes &&
+      typeof matchedSeason.episodes === 'object' &&
+      crEpisodeNumber > Object.keys(matchedSeason.episodes).length
+    ) {
+      const seasonNumForClamp = episodeMetadata?.season_sequence_number || seasonNumber || 1;
+      const sortedCrSeasons = Array.isArray(seasonsData)
+        ? [...seasonsData].sort(
+            (a, b) => (a.season_sequence_number || a.season_number || 0) - (b.season_sequence_number || b.season_number || 0),
+          )
+        : [];
+
+      let totalPreviousCrEpisodes = 0;
+      let currentSeasonEpisodes = 0;
+      for (const season of sortedCrSeasons) {
+        const seq = season.season_sequence_number || season.season_number || 0;
+        if (seq < seasonNumForClamp) {
+          totalPreviousCrEpisodes += season.number_of_episodes || 0;
+        } else if (seq === seasonNumForClamp) {
+          currentSeasonEpisodes = season.number_of_episodes || 0;
+          break;
+        }
+      }
+
+      const absoluteEpisode = sequenceNumber ?? crEpisodeNumber;
+      const maxMatchedEpisodes = Object.keys(matchedSeason.episodes).length;
+      const candidate = absoluteEpisode > 0 ? absoluteEpisode - totalPreviousCrEpisodes : null;
+
+      // Re:Zero-style continuous numbering (e.g., CR ep 51 = S3 ep 1): when CR numbering is very high, bias to reset at 50.
+      if (absoluteEpisode >= 50) {
+        forcedSeasonEpisode = Math.max(1, Math.min(maxMatchedEpisodes, absoluteEpisode - 50));
+      } else if (candidate !== null && candidate >= 1 && candidate <= maxMatchedEpisodes) {
+        forcedSeasonEpisode = candidate;
+      } else if (absoluteEpisode > currentSeasonEpisodes && currentSeasonEpisodes > 0) {
+        // Oversized CR numbering past the season length: fall back to episode 1 of the matched season.
+        forcedSeasonEpisode = 1;
+      } else {
+        forcedSeasonEpisode = null;
+      }
+
+      console.log('[Mapper Failover] Clamping exact-match episode against CR numbering', {
+        crEpisodeNumber,
+        sequenceNumber,
+        seasonNumForClamp,
+        currentSeasonEpisodes,
+        totalPreviousCrEpisodes,
+        maxMatchedEpisodes,
+        candidate,
+        forcedSeasonEpisode,
+      });
+    }
+
+    // Do not switch away from the matched season based on episode count; rely on slice/continuous mapping instead.
+
     // Handle both TV series (episodes) and movies
     if (matchedSeason.year === 'movies' && Array.isArray(matchedSeason.movies) && matchedSeason.movies.length > 0) {
       // For movies, return the first (typically only) movie URL
@@ -1054,6 +1265,7 @@ export async function tryMapperFailover(
       const episodeWithinSeason = seasonsData.length > 1
         ? crEpisodeNumber
         : (sequenceNumber ?? crEpisodeNumber);
+      const seasonNumForSlice = effectiveSeasonNumber || seasonNumber || 1;
       const ordered = ((mapperResult as any).results || [])
         .filter((r: any) => r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0 && r?.year !== 'movies')
         .map((r: any, idx: number) => ({
@@ -1073,12 +1285,14 @@ export async function tryMapperFailover(
           return a.idx - b.idx;
         });
 
-      const sliceMatch = findSliceEpisodeMatch(
-        seasonNumber || 1,
-        episodeWithinSeason,
-        seasonsData,
-        ordered.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: o.hasZero })),
-      );
+      const sliceMatch = matchedResult?.is_exact_match === true
+        ? null
+        : findSliceEpisodeMatch(
+            seasonNumForSlice,
+            episodeWithinSeason,
+            seasonsData,
+            ordered.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: o.hasZero })),
+          );
 
       if (sliceMatch) {
         matchedIndex = sliceMatch.idx;
@@ -1095,12 +1309,13 @@ export async function tryMapperFailover(
         }
       }
 
-      seasonEpisode = forcedSeasonEpisode ?? mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumber || 1, seasonsData, matchedSeason, (mapperResult as any).results);
+      seasonEpisode = forcedSeasonEpisode ?? mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, (mapperResult as any).results);
     } else {
       if (sequenceNumber !== undefined && sequenceNumber !== null) {
         seasonEpisode = sequenceNumber;
       } else {
-        seasonEpisode = mapEpisodeToSeasonEpisode(crEpisodeNumber, seasonNumber || 1, sequenceNumber, matchedSeason, (mapperResult as any).results);
+        const seasonNumForMapping = seasonNumber || effectiveSeasonNumber || 1;
+        seasonEpisode = mapEpisodeToSeasonEpisode(crEpisodeNumber, seasonNumForMapping, sequenceNumber, matchedSeason, (mapperResult as any).results);
       }
     }
 
