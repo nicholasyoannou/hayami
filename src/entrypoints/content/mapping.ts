@@ -1145,6 +1145,32 @@ export async function tryMapperFailover(
       console.log('[Mapper Failover] Found matched result:', matchedResult);
     }
 
+    // If the mapper gave multiple exact matches (e.g., S2 vs S2 Part 2), prefer the one whose title "part" marker
+    // aligns with the Crunchyroll season title. Use matched_results metadata to detect exact matches.
+    if (matchedResult?.is_exact_match && Array.isArray((mapperResult as any)?.matched_results)) {
+      const hasPart2 = (s: string | undefined) => !!s && /part\s*2|part\s*ii|cour\s*2/i.test(s);
+      const crHasPart2 = hasPart2(seasonTitle);
+      const mapperHasPart2 = hasPart2(matchedResult.anime_name);
+
+      if (mapperHasPart2 && !crHasPart2) {
+        const alternatives = ((mapperResult as any).matched_results as any[]).filter(
+          (m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0 && !hasPart2(m?.anime_name),
+        );
+        if (alternatives.length > 0) {
+          const alt = alternatives[0];
+          if (typeof alt.index === 'number' && alt.index !== matchedIndex) {
+            matchedIndex = alt.index;
+            console.log('[Mapper Failover] Swapping to non-Part-2 exact match to align with CR season title', {
+              previous: matchedResult?.index,
+              next: matchedIndex,
+              crHasPart2,
+              mapperHasPart2,
+            });
+          }
+        }
+      }
+    }
+
     // If the mapper gave us an exact match, keep it; otherwise refine using CR metadata.
     if (!(matchedResult?.is_exact_match === true)) {
       matchedIndex = refineMatchedIndexUsingCrunchyrollData((mapperResult as any).results, matchedIndex, episodeMetadata, seasonsData);
@@ -1290,14 +1316,42 @@ export async function tryMapperFailover(
       const matchedSeasonYear = parseMapperYear(matchedSeason?.year);
       const lockMatchedSeason = matchedSeasonScore >= 8 || (airYearForEpisode !== null && matchedSeasonYear === airYearForEpisode);
 
-      const sliceMatch = matchedResult?.is_exact_match === true
-        ? null
-        : findSliceEpisodeMatch(
+      // If Crunchyroll numbers the season far beyond the matched cour length (e.g., cour 2 starts at 25 while mapper has 12 eps),
+      // fold the CR number back into the cour length when the season is clearly longer than the matched cour.
+      if (forcedSeasonEpisode === null && matchedResult?.is_exact_match === true && matchedSeason?.episodes) {
+        const matchedSeasonEpisodeCount = Object.keys(matchedSeason.episodes || {}).length;
+        const crSeasonEpisodes = seasonsData.find(
+          (s) => (s.season_sequence_number || s.season_number || 0) === seasonNumForSlice,
+        )?.number_of_episodes || 0;
+
+        if (
+          matchedSeasonEpisodeCount > 0 &&
+          crEpisodeNumber > matchedSeasonEpisodeCount &&
+          crSeasonEpisodes >= matchedSeasonEpisodeCount * 2
+        ) {
+          forcedSeasonEpisode = ((crEpisodeNumber - 1) % matchedSeasonEpisodeCount) + 1;
+          console.log('[Mapper Failover] Folding CR episode into matched cour length', {
+            crEpisodeNumber,
+            matchedSeasonEpisodeCount,
+            crSeasonEpisodes,
+            forcedSeasonEpisode,
+          });
+        }
+      }
+
+      const canSliceOverrideExact = matchedResult?.is_exact_match === true
+        ? crEpisodeNumber > Object.keys(matchedSeason?.episodes || {}).length ||
+          ((sequenceNumber ?? 0) > Object.keys(matchedSeason?.episodes || {}).length)
+        : true;
+
+      const sliceMatch = canSliceOverrideExact
+        ? findSliceEpisodeMatch(
             seasonNumForSlice,
             episodeWithinSeason,
             seasonsData,
             ordered.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: o.hasZero })),
-          );
+          )
+        : null;
 
       if (sliceMatch && (!lockMatchedSeason || sliceMatch.idx === matchedIndex)) {
         matchedIndex = sliceMatch.idx;
