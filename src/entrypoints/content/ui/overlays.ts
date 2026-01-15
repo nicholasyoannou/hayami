@@ -40,7 +40,7 @@ export function showAuthPrompt(): void {
   overlay.innerHTML = `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
         <button class="close-btn" id="reddit-close-btn">✕</button>
       </div>
       <div class="panel-content">

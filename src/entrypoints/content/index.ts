@@ -30,7 +30,7 @@ import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover, extractEpi
 // New modular imports
 import { renderFlair as renderFlairBase, renderActions as renderActionsBase, triggerScoreAnimation } from './comments';
 import { formatYouTubeDate, formatYouTubeCommentText } from './providers/youtube-utils';
-import { generateSkeletonHtml } from './ui';
+import { generateSkeletonHtml, removeCommentsSkeletonLoading } from './ui';
 import { createOverlay, setupYouTubeModalListener, setupGalleryModalListener } from './ui';
 import { RedditSelectionPanel, RedditAuthPrompt, RedditNoDiscussionPanel, RedditDiscussionInfoPanel, RedditManualSearchPanel, type RedditPost } from '@/components/overlays';
 import { findExactDateMatch, isReleaseDateToday } from './utils/date-utils';
@@ -981,6 +981,7 @@ function showAuthPrompt(): void {
  * Shows a message when no discussion is found
  */
 async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
+  removeCommentsSkeletonLoading();
   // Check user preference for no-comments behavior
   let noCommentsMode: 'popup' | 'inline' = 'popup';
   try {
@@ -1021,6 +1022,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
   // Remove existing inline panel and skeleton if present
   const existing = document.getElementById('reddit-inline-discussion');
   if (existing) existing.remove();
+  removeCommentsSkeletonLoading();
 
   // Use cached utility function instead of repeated queries
   const wrapper = getWatchPageWrapper();
@@ -1045,11 +1047,11 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
   container.id = 'reddit-inline-discussion';
   container.innerHTML = `
     <div class="ri-header">
-      <h3 class="ri-title">≡ƒìÑ r/anime Discussion</h3>
+      <h3 class="ri-title">r/anime Discussion</h3>
     </div>
     <div class="ri-meta">No discussion thread found</div>
     <div class="ri-no-comments-content">
-      <p>≡ƒô¡ No discussion thread found for:</p>
+      <p>No discussion thread found for:</p>
       <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
       <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
       <div style="margin-top:16px;">

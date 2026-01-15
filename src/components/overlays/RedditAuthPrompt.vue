@@ -13,7 +13,7 @@ function handleLogin(): void {
 <template>
   <div class="reddit-discussion-panel">
     <div class="panel-header">
-      <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
       <button class="close-btn" @click="emit('close')">✕</button>
     </div>
     <div class="panel-content">

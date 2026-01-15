@@ -51,7 +51,7 @@ export function showSelectionUI(
   overlay.innerHTML = `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
         <div class="panel-actions">
           <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
           <button class="close-btn" id="reddit-close-btn">✕</button>
@@ -97,6 +97,7 @@ export function showSelectionUI(
  * Shows a message when no discussion is found
  */
 export async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
+  removeCommentsSkeletonLoading();
   // Check user preference for no-comments behavior
   let noCommentsMode: 'popup' | 'inline' = 'popup';
   try {
@@ -121,7 +122,7 @@ function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
   overlay.innerHTML = `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
         <div class="panel-actions">
           <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
           <button class="close-btn" id="reddit-close-btn">✕</button>
@@ -129,7 +130,7 @@ function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
       </div>
       <div class="panel-content">
         <div class="no-discussion">
-          <p>📡 No discussion thread found for:</p>
+          <p>No discussion thread found for:</p>
           <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
           <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
         </div>
@@ -173,11 +174,11 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
   container.id = 'reddit-inline-discussion';
   container.innerHTML = `
     <div class="ri-header">
-      <h3 class="ri-title">📍 r/anime Discussion</h3>
+      <h3 class="ri-title">r/anime Discussion</h3>
     </div>
     <div class="ri-meta">No discussion thread found</div>
     <div class="ri-no-comments-content">
-      <p>📡 No discussion thread found for:</p>
+      <p>No discussion thread found for:</p>
       <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
       <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
       <div style="margin-top:16px;">

@@ -34,7 +34,7 @@ export function renderRedditSelectionPanel(animeName: string, choicesHtml: strin
   return `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
         <div class="panel-actions">
           <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
           <button class="close-btn" id="reddit-close-btn">✕</button>
@@ -55,7 +55,7 @@ export function renderRedditAuthPrompt(): string {
   return `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
         <button class="close-btn" id="reddit-close-btn">✕</button>
       </div>
       <div class="panel-content">
@@ -75,7 +75,7 @@ export function renderNoDiscussionPanel(animeName: string, episodeNumber: string
   return `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
         <div class="panel-actions">
           <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
           <button class="close-btn" id="reddit-close-btn">✕</button>
@@ -83,7 +83,7 @@ export function renderNoDiscussionPanel(animeName: string, episodeNumber: string
       </div>
       <div class="panel-content">
         <div class="no-discussion">
-          <p>😔 No discussion thread found for:</p>
+          <p>No discussion thread found for:</p>
           <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
           <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
         </div>
@@ -99,7 +99,7 @@ export function renderDiscussionInfoPanel(discussion: RedditPost, redditUrl: str
   return `
     <div class="reddit-discussion-panel">
       <div class="panel-header">
-        <h3>📍 r/anime Discussion</h3>
+        <h3>r/anime Discussion</h3>
         <div class="panel-actions">
           <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
           <button class="close-btn" id="reddit-close-btn">✕</button>

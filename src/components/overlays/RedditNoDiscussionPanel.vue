@@ -15,7 +15,7 @@ const emit = defineEmits<{
 <template>
   <div class="reddit-discussion-panel">
     <div class="panel-header">
-      <h3>📍 r/anime Discussion</h3>
+      <h3>r/anime Discussion</h3>
       <div class="panel-actions">
         <button class="wrong-btn" @click="emit('wrong')" title="Refine search manually">Wrong?</button>
         <button class="close-btn" @click="emit('close')">✕</button>
@@ -23,7 +23,7 @@ const emit = defineEmits<{
     </div>
     <div class="panel-content">
       <div class="no-discussion">
-        <p>😔 No discussion thread found for:</p>
+        <p>No discussion thread found for:</p>
         <p class="anime-title">{{ animeName }} - Episode {{ episodeNumber }}</p>
         <p class="hint">
           Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.
