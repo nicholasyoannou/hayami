@@ -925,6 +925,18 @@ function mapEpisodeWithSeasonsData(
     return crEpisodeNumber;
   }
 
+  // Final fallback: if the exact key exists in the mapper data (even when beyond mapperEpisodeCount due to sparsity), use it.
+  const directKeyCandidates = [episodeNumberToUse, crEpisodeNumber, sequenceNumber].filter(
+    (v): v is number => typeof v === 'number' && !Number.isNaN(v),
+  );
+
+  for (const candidate of directKeyCandidates) {
+    if (Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(candidate))) {
+      console.log('[Mapper Failover] Direct key hit in mapper episodes despite count mismatch:', candidate);
+      return candidate;
+    }
+  }
+
   console.log('[Mapper Failover] Could not determine episode mapping');
   return null;
 }
@@ -1152,6 +1164,28 @@ export async function tryMapperFailover(
       const crHasPart2 = hasPart2(seasonTitle);
       const mapperHasPart2 = hasPart2(matchedResult.anime_name);
 
+      // For season_number/sequence_number = 1, prefer the earliest exact-match season (by year) to avoid jumping to later cours.
+      const crSeasonNum = episodeMetadata?.season_number ?? episodeMetadata?.season_sequence_number;
+      if (crSeasonNum === 1) {
+        const exacts = ((mapperResult as any).matched_results as any[])
+          .filter((m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0)
+          .map((m) => ({
+            idx: m.index,
+            year: parseMapperYear(m.year),
+            name: m.anime_name,
+          }))
+          .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
+
+        if (exacts.length > 0 && typeof exacts[0].idx === 'number' && exacts[0].idx !== matchedIndex) {
+          matchedIndex = exacts[0].idx;
+          console.log('[Mapper Failover] Season number=1; preferring earliest exact-match season', {
+            previous: matchedResult?.index,
+            next: matchedIndex,
+            chosenYear: exacts[0].year,
+          });
+        }
+      }
+
       if (mapperHasPart2 && !crHasPart2) {
         const alternatives = ((mapperResult as any).matched_results as any[]).filter(
           (m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0 && !hasPart2(m?.anime_name),
@@ -1178,15 +1212,28 @@ export async function tryMapperFailover(
 
     const initialMatchedResult = (mapperResult as any).results?.[matchedIndex];
 
-    if (initialMatchedResult && ((initialMatchedResult as any).year === 'movies' || !(initialMatchedResult as any).episodes || typeof (initialMatchedResult as any).episodes !== 'object' || Object.keys((initialMatchedResult as any).episodes).length === 0)) {
-      console.log('[Mapper Failover] Matched result is a movie, looking for TV series alternative...');
+    if (
+      initialMatchedResult &&
+      ((initialMatchedResult as any).year === 'movies' ||
+        !(initialMatchedResult as any).episodes ||
+        typeof (initialMatchedResult as any).episodes !== 'object' ||
+        Object.keys((initialMatchedResult as any).episodes).length === 0)
+    ) {
+      console.log('[Mapper Failover] Matched result is a movie or has no episodes, looking for TV series alternative...');
 
-      if ((mapperResult as any).matched_results && Array.isArray((mapperResult as any).matched_results)) {
-        for (const altMatch of (mapperResult as any).matched_results) {
+      const matchedResultsMeta = (mapperResult as any).matched_results;
+      if (matchedResultsMeta && Array.isArray(matchedResultsMeta)) {
+        for (const altMatch of matchedResultsMeta) {
           if (altMatch.index !== matchedIndex && altMatch.has_episodes && altMatch.episode_count > 0) {
             const altResult = (mapperResult as any).results?.[altMatch.index];
-            if (altResult && altResult.episodes && typeof altResult.episodes === 'object' && Object.keys(altResult.episodes).length > 0 && altResult.year !== 'movies') {
-              console.log('[Mapper Failover] Found TV series alternative:', altMatch.anime_name, altMatch.year);
+            if (
+              altResult &&
+              altResult.episodes &&
+              typeof altResult.episodes === 'object' &&
+              Object.keys(altResult.episodes).length > 0 &&
+              altResult.year !== 'movies'
+            ) {
+              console.log('[Mapper Failover] Found TV series alternative from matched_results:', altMatch.anime_name, altMatch.year);
               matchedIndex = altMatch.index;
               break;
             }
@@ -1194,10 +1241,21 @@ export async function tryMapperFailover(
         }
       }
 
-      if (matchedIndex === (mapperResult as any).matched_result.index && (mapperResult as any).results && Array.isArray((mapperResult as any).results)) {
+      // When matched_result is missing or still points to a movie, fall back to any result with episodes.
+      if (
+        ((mapperResult as any).matched_result?.index === undefined || matchedIndex === (mapperResult as any).matched_result?.index) &&
+        (mapperResult as any).results &&
+        Array.isArray((mapperResult as any).results)
+      ) {
         for (let i = 0; i < (mapperResult as any).results.length; i++) {
           const result = (mapperResult as any).results[i];
-          if (result && result.episodes && typeof result.episodes === 'object' && Object.keys(result.episodes).length > 0 && result.year !== 'movies') {
+          if (
+            result &&
+            result.episodes &&
+            typeof result.episodes === 'object' &&
+            Object.keys(result.episodes).length > 0 &&
+            result.year !== 'movies'
+          ) {
             console.log('[Mapper Failover] Found TV series in all results:', result.anime_name, result.year);
             matchedIndex = i;
             break;
@@ -1428,6 +1486,24 @@ export async function tryMapperFailover(
         mappedUrl = matchedSeason.episodes[k as any];
         seasonEpisode = typeof k === 'number' ? k : parseInt(String(k), 10);
         break;
+      }
+    }
+
+    // Numeric fallback: some mapper keys are zero-padded or stringy. Compare by numeric value.
+    if (!mappedUrl) {
+      const desiredNums = keyCandidates
+        .map((k) => (typeof k === 'number' ? k : parseInt(String(k), 10)))
+        .filter((n) => Number.isFinite(n));
+      const desiredSet = new Set(desiredNums);
+
+      for (const key of Object.keys(matchedSeason.episodes)) {
+        const num = parseInt(key, 10);
+        if (Number.isFinite(num) && desiredSet.has(num)) {
+          mappedUrl = matchedSeason.episodes[key];
+          seasonEpisode = num;
+          console.log('[Mapper Failover] Numeric key match despite formatting:', { key, seasonEpisode });
+          break;
+        }
       }
     }
 
