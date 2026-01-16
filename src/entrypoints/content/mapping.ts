@@ -666,6 +666,32 @@ function refineMatchedIndexUsingCrunchyrollData(
   const looksCollapsed = hasSeasonsData && seasonsData.length === 1 && totalCrEpisodes >= totalMapperEpisodes && totalMapperEpisodes > 0;
   const absoluteEpisodePosition = episodeMetadata?.sequence_number ?? episodeMetadata?.episode_number;
 
+  // When no Crunchyroll seasons data is available but the mapper has multiple seasons, try to place
+  // the absolute episode ordinal across the mapper timeline to pick the correct season.
+  if (!hasSeasonsData && absoluteEpisodePosition && totalMapperEpisodes > 0) {
+    const sorted = cleanedResults
+      .filter((r) => r.hasEpisodes && !r.isMovie)
+      .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
+
+    let cumulative = 0;
+    for (const entry of sorted) {
+      const len = entry.episodeCount;
+      const start = cumulative + 1;
+      const end = cumulative + len;
+      if (absoluteEpisodePosition >= start && absoluteEpisodePosition <= end) {
+        console.log('[Mapper Failover] Refined matched index using ordinal across mapper timeline (no CR seasons):', {
+          from: matchedIndex,
+          to: entry.idx,
+          absoluteEpisodePosition,
+          start,
+          end,
+        });
+        return entry.idx;
+      }
+      cumulative += len;
+    }
+  }
+
   if (looksCollapsed && absoluteEpisodePosition) {
     const sorted = cleanedResults
       .filter((r) => r.hasEpisodes && !r.isMovie)
@@ -737,6 +763,7 @@ function mapEpisodeWithSeasonsData(
   seasonsData: any[],
   matchedSeason: any,
   mapperResults: any[],
+  matchedIdx: number,
 ): number | null {
   if (!matchedSeason || !matchedSeason.episodes) {
     return null;
@@ -749,7 +776,7 @@ function mapEpisodeWithSeasonsData(
     return 0;
   }
 
-  const mapperEpisodeCount = Object.keys(matchedSeason.episodes).length;
+  let mapperEpisodeCount = Object.keys(matchedSeason.episodes).length;
 
   const sortedCrSeasons = [...seasonsData].sort(
     (a, b) => (a.season_sequence_number || a.season_number || 0) - (b.season_sequence_number || b.season_number || 0),
@@ -786,6 +813,55 @@ function mapEpisodeWithSeasonsData(
   let totalPreviousMapperEpisodes = 0;
   const matchedYear = matchedSeason.year === 'movies' ? 9999 : parseInt(matchedSeason.year || '0', 10);
   const matchedName = matchedSeason.anime_name;
+  const tokenizeFranchise = (name: string | undefined): Set<string> => {
+    if (!name) return new Set();
+    const stop = new Set([
+      'season',
+      'part',
+      'final',
+      'kanketsu',
+      'hen',
+      'oad',
+      'ova',
+      'movie',
+      'tv',
+      'dub',
+      'english',
+      'spanish',
+      'german',
+      'french',
+      'no',
+      'on',
+      'the',
+    ]);
+    return new Set(
+      normalizeForMatch(name)
+        .split(' ')
+        .filter((t) => t && t.length >= 3 && !stop.has(t) && !/^\d+$/.test(t)),
+    );
+  };
+  const matchedTokens = tokenizeFranchise(matchedName);
+
+  const isSeasonalEntry = (name: string | undefined) => {
+    if (!name) return false;
+    return /season|final|part\s*\d+/i.test(name);
+  };
+
+  const isLooseFranchise = (name: string | undefined) => {
+    if (!matchedTokens.size || !name) return false;
+    const other = tokenizeFranchise(name);
+    if (!other.size) return false;
+    let overlap = 0;
+    for (const t of other) {
+      if (matchedTokens.has(t)) overlap += 1;
+    }
+    return overlap >= 1;
+  };
+
+  const isDisqualifiedAggregate = (name: string | undefined) => {
+    if (!name) return false;
+    return /manga|reader|watcher|mixed|thread/i.test(name);
+  };
 
   const sortedMapperSeasons = [...mapperResults].sort((a, b) => {
     const yearA = a.year === 'movies' ? 9999 : parseInt(a.year || '0', 10);
@@ -793,19 +869,109 @@ function mapEpisodeWithSeasonsData(
     return yearA - yearB;
   });
 
+  // Ordered mapper list (non-movie, has episodes) for positional baseline.
+  const orderedMapperForBaseline = (mapperResults || [])
+    .map((r: any, idx: number) => ({
+      idx,
+      year: r?.year === 'movies' ? 9999 : parseInt(r?.year || '0', 10),
+      name: r?.anime_name,
+      hasEpisodes: r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0,
+      episodeCount: r?.episodes ? Object.keys(r.episodes).length : 0,
+      hasZero: r?.episodes ? Object.prototype.hasOwnProperty.call(r.episodes, '0') : false,
+    }))
+    .filter((r) => r.hasEpisodes)
+    .sort((a, b) => {
+      const yearDiff = (a.year ?? 9999) - (b.year ?? 9999);
+      if (yearDiff !== 0) return yearDiff;
+      const sequelDiff = (isSequelTitle(a.name) ? 1 : -1) - (isSequelTitle(b.name) ? 1 : -1);
+      if (sequelDiff !== 0) return sequelDiff;
+      if (a.hasZero !== b.hasZero) return a.hasZero ? 1 : -1;
+      return a.idx - b.idx;
+    });
+
+  let looseBaseline = 0;
+  let looseSeasonsCount = 0;
+  let yearBaseline = 0;
+  for (const entry of orderedMapperForBaseline) {
+    if (entry.idx === matchedIdx) break;
+    if (isDisqualifiedAggregate(entry.name)) continue;
+    if (!isSeasonalEntry(entry.name)) continue;
+    if (!isLooseFranchise(entry.name)) continue;
+
+    const len = entry.hasZero ? Math.max(1, entry.episodeCount - 1) : entry.episodeCount;
+    if (len <= 0) continue;
+
+    looseBaseline += len;
+    looseSeasonsCount += 1;
+    if (entry.year && entry.year <= matchedYear) {
+      yearBaseline += len;
+    }
+    if (looseSeasonsCount >= 2) break; // use first two qualifying seasons before the match
+  }
+
+  // Fallback baseline: cumulative episodes before the matched season, but still ignore aggregate/misc entries
+  // and require season/part markers to avoid manga/mixed threads bloating counts.
+  let fallbackPreviousMapperEpisodes = 0;
+  for (const season of sortedMapperSeasons) {
+    if (season === matchedSeason) break;
+    if (isDisqualifiedAggregate(season.anime_name)) continue;
+    if (!isSeasonalEntry(season.anime_name)) continue;
+    if (!isLooseFranchise(season.anime_name)) continue;
+    if (season?.episodes && typeof season.episodes === 'object') {
+      fallbackPreviousMapperEpisodes += Object.keys(season.episodes).length;
+    }
+  }
+  // Ensure fallback baseline reflects loose franchise ordering but never exceeds CR previous total.
+  const preferredBaseline = yearBaseline > 0 ? yearBaseline : looseBaseline;
+  fallbackPreviousMapperEpisodes = Math.max(fallbackPreviousMapperEpisodes, preferredBaseline);
+  // Snap fallback toward the CR-derived previous total (minus a small cushion) but never beyond the current ordinal.
+  fallbackPreviousMapperEpisodes = Math.max(fallbackPreviousMapperEpisodes, Math.max(0, totalPreviousCrEpisodes - 2));
+  const ordinalPosition = Math.max(0, (sequenceNumber ?? crEpisodeNumber ?? 1) - 1);
+  const crPreviousCap = totalPreviousCrEpisodes > 0 ? totalPreviousCrEpisodes : ordinalPosition;
+  fallbackPreviousMapperEpisodes = Math.min(fallbackPreviousMapperEpisodes, crPreviousCap, ordinalPosition);
+
+  const isSameFranchise = (name: string | undefined) => {
+    if (!matchedTokens.size) return false;
+    const other = tokenizeFranchise(name);
+    if (!other.size) return false;
+
+    let overlap = 0;
+    for (const t of other) {
+      if (matchedTokens.has(t)) {
+        overlap += 1;
+      }
+    }
+
+    if (overlap < 2) return false;
+
+    const unionSize = new Set([...matchedTokens, ...other]).size || 1;
+    const jaccard = overlap / unionSize;
+    const overlapRatio = overlap / Math.min(matchedTokens.size, other.size);
+
+    return jaccard >= 0.5 || overlapRatio >= 0.6;
+  };
+
   for (const season of sortedMapperSeasons) {
     const seasonYear = season.year === 'movies' ? 9999 : parseInt(season.year || '0', 10);
-    if (
-      seasonYear < matchedYear &&
-      season.anime_name &&
-      matchedName &&
-      (season.anime_name.includes(matchedName.split('(')[0].trim()) || matchedName.includes(season.anime_name.split('(')[0].trim()))
-    ) {
-      if (season.episodes && typeof season.episodes === 'object') {
-        totalPreviousMapperEpisodes += Object.keys(season.episodes).length;
-      }
-    } else if (seasonYear === matchedYear && season.anime_name === matchedName) {
+
+    if (season === matchedSeason || (seasonYear === matchedYear && season.anime_name === matchedName)) {
       break;
+    }
+
+    if (!isSameFranchise(season.anime_name)) {
+      continue;
+    }
+
+    if (isDisqualifiedAggregate(season.anime_name)) {
+      continue;
+    }
+
+    if (!isSeasonalEntry(season.anime_name)) {
+      continue;
+    }
+
+    if (season.episodes && typeof season.episodes === 'object') {
+      totalPreviousMapperEpisodes += Object.keys(season.episodes).length;
     }
   }
 
@@ -816,10 +982,123 @@ function mapEpisodeWithSeasonsData(
     totalPreviousCrEpisodes,
     currentCrSeasonEpisodes,
     totalPreviousMapperEpisodes,
+    fallbackPreviousMapperEpisodes,
     mapperEpisodeCount,
   });
 
   const episodeNumberToUse = isSequenceNumberContinuous ? sequenceNumber : effectiveEpisodeNumber;
+
+  // Prefer mapper-derived baseline when available (same-franchise cumulative episodes) before relying on CR counts.
+  const mapperBaseline = totalPreviousMapperEpisodes >= 1 ? totalPreviousMapperEpisodes : fallbackPreviousMapperEpisodes;
+
+  console.log('[Mapper Debug] Mapper baseline candidates', {
+    totalPreviousMapperEpisodes,
+    fallbackPreviousMapperEpisodes,
+    mapperBaseline,
+    isSequenceNumberContinuous,
+    episodeNumberToUse,
+  });
+
+  // CR collapsed all seasons into one bucket (e.g., season_number=1, number_of_episodes cumulative), but
+  // mapper has multiple seasons with continuous ordinals (absolute episode positions). Use the ordinal to
+  // place within the mapper timeline instead of trusting CR per-season counts.
+  const looksCollapsedSingleCrSeason = Array.isArray(seasonsData) && seasonsData.length === 1 && orderedMapperForBaseline.length > 1;
+  if (looksCollapsedSingleCrSeason) {
+    const orderedTimeline = [...orderedMapperForBaseline].sort((a, b) => a.year - b.year || (isSequelTitle(a.name) ? 1 : -1) - (isSequelTitle(b.name) ? 1 : -1));
+    let cumulative = 0;
+    for (const entry of orderedTimeline) {
+      const len = entry.hasZero ? Math.max(1, entry.episodeCount - 1) : entry.episodeCount;
+      const start = cumulative + 1;
+      const end = cumulative + len;
+      if (episodeNumberToUse >= start && episodeNumberToUse <= end) {
+        const seasonEpisode = episodeNumberToUse - cumulative;
+        const targetSeason = mapperResults?.[entry.idx];
+        const targetHasEpisode = targetSeason?.episodes && Object.prototype.hasOwnProperty.call(targetSeason.episodes, String(seasonEpisode));
+
+        // Remap the matched season to the ordinal-derived season when CR collapsed seasons into one.
+        if (targetSeason && targetHasEpisode) {
+          matchedSeason = targetSeason;
+          matchedIdx = entry.idx;
+          mapperEpisodeCount = Object.keys(targetSeason.episodes).length;
+          console.log('[Mapper Failover] Collapsed CR season: remapped season via ordinal timeline', {
+            episodeNumberToUse,
+            start,
+            end,
+            cumulative,
+            seasonEpisode,
+            matchedIdx,
+          });
+          return seasonEpisode;
+        }
+      }
+      cumulative += len;
+    }
+  }
+
+  if (isSequenceNumberContinuous && mapperBaseline >= 1) {
+    const baseline = totalPreviousCrEpisodes > 0 ? Math.min(mapperBaseline, totalPreviousCrEpisodes) : mapperBaseline;
+    const seasonEpisode = episodeNumberToUse - baseline;
+
+    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+      console.log('[Mapper Failover] Adjusted using mapper baseline before CR counts:', {
+        episodeNumberToUse,
+        totalPreviousCrEpisodes,
+        totalPreviousMapperEpisodes,
+        fallbackPreviousMapperEpisodes,
+        baseline,
+        seasonEpisode,
+      });
+      return seasonEpisode;
+    }
+  }
+
+   // If the same-franchise baseline was too small, retry with the raw cumulative mapper baseline.
+   if (
+     isSequenceNumberContinuous &&
+     fallbackPreviousMapperEpisodes >= 1 &&
+     fallbackPreviousMapperEpisodes !== mapperBaseline
+   ) {
+     const baseline = totalPreviousCrEpisodes > 0 ? Math.min(fallbackPreviousMapperEpisodes, totalPreviousCrEpisodes) : fallbackPreviousMapperEpisodes;
+     const seasonEpisode = episodeNumberToUse - baseline;
+
+     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+       console.log('[Mapper Failover] Adjusted using fallback mapper baseline:', {
+         episodeNumberToUse,
+         totalPreviousCrEpisodes,
+         totalPreviousMapperEpisodes,
+         fallbackPreviousMapperEpisodes,
+         baseline,
+         seasonEpisode,
+       });
+       return seasonEpisode;
+     }
+   }
+
+  // Crunchyroll sometimes reports inflated episode totals for earlier seasons (e.g., OADs counted in S1) while still
+  // numbering the current season continuously (e.g., S3E1 labeled as ep38). When that happens the naive previous-episode
+  // total derived from CR season counts can be too large, causing later episodes in the same season to map to episode 1
+  // repeatedly. Use the smaller of the sequence/episode ordinals as a baseline to trim the CR-derived previous total and
+  // restore a sane continuous offset.
+  if (isSequenceNumberContinuous && currentCrSeasonEpisodes > 0 && (crEpisodeNumber ?? 0) > currentCrSeasonEpisodes) {
+    const ordinalForBaseline = Math.max(1, Math.min(sequenceNumber ?? crEpisodeNumber ?? 0, crEpisodeNumber ?? sequenceNumber ?? 0));
+    const overcount = Math.max(0, totalPreviousCrEpisodes - Math.max(0, ordinalForBaseline - 1));
+    const adjustedPrevious = Math.max(0, totalPreviousCrEpisodes - overcount);
+    const seasonEpisode = episodeNumberToUse - adjustedPrevious;
+
+    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+      console.log('[Mapper Failover] Adjusted continuous numbering using CR/global baseline:', {
+        episodeNumberToUse,
+        crEpisodeNumber,
+        sequenceNumber,
+        ordinalForBaseline,
+        totalPreviousCrEpisodes,
+        adjustedPrevious,
+        overcount,
+        seasonEpisode,
+      });
+      return seasonEpisode;
+    }
+  }
 
   const isDefinitelyContinuous = episodeNumberToUse > totalPreviousCrEpisodes + currentCrSeasonEpisodes;
   const couldBePerSeason = episodeNumberToUse <= currentCrSeasonEpisodes && episodeNumberToUse <= mapperEpisodeCount;
@@ -1165,8 +1444,12 @@ export async function tryMapperFailover(
       const mapperHasPart2 = hasPart2(matchedResult.anime_name);
 
       // For season_number/sequence_number = 1, prefer the earliest exact-match season (by year) to avoid jumping to later cours.
+      // Skip this preference when CR collapsed seasons (single CR season with a high absolute episode number),
+      // otherwise we downgrade a correct later cour to the first season.
       const crSeasonNum = episodeMetadata?.season_number ?? episodeMetadata?.season_sequence_number;
-      if (crSeasonNum === 1) {
+      const absoluteEpisodePosition = sequenceNumber ?? crEpisodeNumber ?? 0;
+      const looksCollapsedCr = Array.isArray(seasonsData) && seasonsData.length === 1 && absoluteEpisodePosition > ((matchedResult?.episode_count ?? 0) || 0);
+      if (crSeasonNum === 1 && !looksCollapsedCr) {
         const exacts = ((mapperResult as any).matched_results as any[])
           .filter((m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0)
           .map((m) => ({
@@ -1270,7 +1553,8 @@ export async function tryMapperFailover(
     }
 
     let matchedSeason = (mapperResult as any).results[matchedIndex];
-    let forcedSeasonEpisode: number | null = null;
+    let forcedSeasonEpisode: number | null = null; // derived from slice matching
+    let clampSeasonEpisode: number | null = null; // last-resort clamp for oversized CR numbering
 
     // If we got an exact matched_result (e.g., S3) but CR is supplying a very large episode number (e.g., 51),
     // keep the matched season but derive a per-season episode number from CR's continuous numbering instead of
@@ -1306,14 +1590,14 @@ export async function tryMapperFailover(
 
       // Re:Zero-style continuous numbering (e.g., CR ep 51 = S3 ep 1): when CR numbering is very high, bias to reset at 50.
       if (absoluteEpisode >= 50) {
-        forcedSeasonEpisode = Math.max(1, Math.min(maxMatchedEpisodes, absoluteEpisode - 50));
+        clampSeasonEpisode = Math.max(1, Math.min(maxMatchedEpisodes, absoluteEpisode - 50));
       } else if (candidate !== null && candidate >= 1 && candidate <= maxMatchedEpisodes) {
-        forcedSeasonEpisode = candidate;
+        clampSeasonEpisode = candidate;
       } else if (absoluteEpisode > currentSeasonEpisodes && currentSeasonEpisodes > 0) {
         // Oversized CR numbering past the season length: fall back to episode 1 of the matched season.
-        forcedSeasonEpisode = 1;
+        clampSeasonEpisode = 1;
       } else {
-        forcedSeasonEpisode = null;
+        clampSeasonEpisode = null;
       }
 
       console.log('[Mapper Failover] Clamping exact-match episode against CR numbering', {
@@ -1436,7 +1720,13 @@ export async function tryMapperFailover(
         });
       }
 
-      seasonEpisode = forcedSeasonEpisode ?? mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, (mapperResult as any).results);
+      seasonEpisode = mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, (mapperResult as any).results, matchedIndex);
+      if (seasonEpisode === null && forcedSeasonEpisode !== null) {
+        seasonEpisode = forcedSeasonEpisode;
+      }
+      if (seasonEpisode === null && clampSeasonEpisode !== null) {
+        seasonEpisode = clampSeasonEpisode;
+      }
     } else {
       if (sequenceNumber !== undefined && sequenceNumber !== null) {
         seasonEpisode = sequenceNumber;
@@ -1527,4 +1817,9 @@ export const __mappingDebug = {
   findSliceEpisodeMatch,
   parseMapperYear,
   isSequelTitle,
+};
+
+// Test-only hooks for offline verification
+export const __mappingTest = {
+  mapEpisodeWithSeasonsData,
 };
