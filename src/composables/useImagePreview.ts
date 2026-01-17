@@ -17,33 +17,55 @@ export function useImagePreview() {
   let galleryPreloadTriggered = false;
   let galleryPreloadedImages: HTMLImageElement[] = [];
   const maxVisibleDots = 10;
+  let dotsWindowStart = 0; // keeps dot window sliding instead of pinning to center
 
   function renderDots(): void {
     if (!galleryDots || !galleryImages || galleryImages.length <= 1) return;
     const total = galleryImages.length;
-    const half = Math.floor(maxVisibleDots / 2);
-    const start = Math.max(0, Math.min(galleryIndex - half, Math.max(0, total - maxVisibleDots)));
-    const end = Math.min(total, start + maxVisibleDots);
+    const visibleCount = Math.min(maxVisibleDots, total);
+    const buffer = 2; // how many dots to keep visible ahead/behind before sliding window
+
+    if (total <= visibleCount) {
+      dotsWindowStart = 0;
+    } else {
+      const leftEdge = dotsWindowStart + buffer;
+      const rightEdge = dotsWindowStart + visibleCount - buffer - 1;
+
+      if (galleryIndex <= leftEdge) {
+        dotsWindowStart = Math.max(0, galleryIndex - buffer);
+      } else if (galleryIndex >= rightEdge) {
+        dotsWindowStart = Math.min(total - visibleCount, galleryIndex - visibleCount + buffer + 1);
+      }
+    }
+
+    const start = Math.max(0, Math.min(dotsWindowStart, total - visibleCount));
+    const end = start + visibleCount;
+    const showLeftOverflow = start > 0;
+    const showRightOverflow = end < total;
 
     galleryDots.innerHTML = '';
+
+    const addOverflowIndicator = (side: 'left' | 'right') => {
+      const dot = document.createElement('div');
+      dot.className = 'ri-img-dot ri-img-dot-more';
+      dot.dataset.side = side;
+      galleryDots!.appendChild(dot);
+    };
+
+    if (showLeftOverflow) addOverflowIndicator('left');
+
     for (let i = start; i < end; i++) {
       const dot = document.createElement('div');
       dot.className = 'ri-img-dot';
       if (i === galleryIndex) dot.classList.add('active');
       dot.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        galleryIndex = i;
-        if (imgPreviewEl) {
-          imgPreviewEl.src = galleryImages![galleryIndex];
-          imgPreviewEl.style.display = 'none';
-          imgPreviewHost!.classList.add('loading');
-          if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
-        }
-        renderDots();
-        triggerGalleryPrefetch('dot-click');
+        displayGalleryImage(i, 'dot-click');
       });
       galleryDots.appendChild(dot);
     }
+
+    if (showRightOverflow) addOverflowIndicator('right');
   }
 
   function triggerGalleryPrefetch(reason: string = 'unknown'): void {
@@ -73,12 +95,36 @@ export function useImagePreview() {
       imgPreviewHost.style.opacity = '0';
     }
     try { if (imgPreviewEl) { imgPreviewEl.src = ''; imgPreviewEl.onload = null; imgPreviewEl.onerror = null; } } catch {}
-    try { galleryImages = null; galleryIndex = 0; } catch {}
+    try { galleryImages = null; galleryIndex = 0; dotsWindowStart = 0; } catch {}
     galleryPreloadedImages = [];
     galleryPreloadTriggered = false;
     try { if (galleryDots && galleryDots.parentElement) galleryDots.parentElement.removeChild(galleryDots); } catch {}
     galleryDots = null;
     currentGalleryAnchor = null;
+  }
+
+  function displayGalleryImage(targetIndex: number, reason: string): void {
+    if (!galleryImages || galleryImages.length <= 0 || !imgPreviewEl || !imgPreviewHost) return;
+    const clamped = ((targetIndex % galleryImages.length) + galleryImages.length) % galleryImages.length;
+    galleryIndex = clamped;
+    const nextSrc = galleryImages[clamped];
+    const preloaded = galleryPreloadedImages.find((img) => img.src === nextSrc && img.complete);
+
+    imgPreviewEl.src = nextSrc;
+
+    if (preloaded) {
+      if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner);
+      imgPreviewHost.classList.remove('loading');
+      imgPreviewEl.style.display = 'block';
+      updateImageSize();
+    } else {
+      imgPreviewEl.style.display = 'none';
+      imgPreviewHost.classList.add('loading');
+      if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner!);
+    }
+
+    renderDots();
+    triggerGalleryPrefetch(reason);
   }
 
   function updateImageSize(): void {
@@ -173,8 +219,16 @@ export function useImagePreview() {
         }
       });
       galleryIndex = 0;
+      dotsWindowStart = 0;
       galleryPreloadTriggered = false;
       galleryPreloadedImages = [];
+
+      // Ensure dots container exists even if initializePreview ran without multi
+      if (!galleryDots && galleryImages.length > 1) {
+        galleryDots = document.createElement('div');
+        galleryDots.className = 'ri-img-dots';
+        imgPreviewHost.appendChild(galleryDots);
+      }
 
       // Only show dots if there's more than 1 image
       if (galleryDots) {
@@ -186,7 +240,7 @@ export function useImagePreview() {
         galleryDots.style.display = galleryImages.length > 1 ? '' : 'none';
       }
 
-      imgPreviewEl.src = galleryImages[0];
+      displayGalleryImage(0, 'init');
     } catch (e) {
       imgPreviewEl.src = proxifyImageUrl(multi[0]);
     }
@@ -213,19 +267,11 @@ export function useImagePreview() {
 
   function navigateGallery(direction: 'prev' | 'next'): void {
     if (!galleryImages || galleryImages.length <= 1 || !imgPreviewEl || !imgPreviewHost) return;
+    const nextIndex = direction === 'prev'
+      ? (galleryIndex - 1 + galleryImages.length) % galleryImages.length
+      : (galleryIndex + 1) % galleryImages.length;
 
-    if (direction === 'prev') {
-      galleryIndex = (galleryIndex - 1 + galleryImages.length) % galleryImages.length;
-    } else {
-      galleryIndex = (galleryIndex + 1) % galleryImages.length;
-    }
-
-    imgPreviewEl.src = galleryImages[galleryIndex];
-    imgPreviewEl.style.display = 'none';
-    imgPreviewHost.classList.add('loading');
-    if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner);
-    renderDots();
-    triggerGalleryPrefetch('keyboard');
+    displayGalleryImage(nextIndex, 'keyboard');
   }
 
   function loadSingleImage(href: string): void {

@@ -330,8 +330,12 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   const hidePreview = () => preview.hidePreview();
 
   add(document, 'mouseout', (ev) => {
-    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
-    if (a && a.closest('.ri-text')) hidePreview();
+    const targetAnchor = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    if (!targetAnchor || !targetAnchor.closest('.ri-text')) return;
+
+    const toEl = ev.relatedTarget as HTMLElement | null;
+    if (toEl && targetAnchor.contains(toEl)) return; // still inside same anchor
+    hidePreview();
   });
 
   add(document, 'scroll', hidePreview, true);
@@ -347,7 +351,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   // Keyboard navigation
   add(document, 'keydown', (ev) => {
-    if (!preview.galleryImages || preview.galleryImages.length <= 1) return;
+    if (!preview.isActive || !preview.galleryImages || preview.galleryImages.length <= 1) return;
 
     if (ev.key === 'ArrowLeft') {
       ev.preventDefault();

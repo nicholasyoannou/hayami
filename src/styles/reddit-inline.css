@@ -996,6 +996,13 @@
   cursor: pointer;
   transition: all 0.2s;
 }
+.ri-img-dot-more {
+  width: 6px;
+  height: 6px;
+  background: rgba(255,255,255,0.2);
+  cursor: default;
+  pointer-events: none;
+}
 .ri-img-dot:hover {
   background: rgba(255,255,255,0.6);
   transform: scale(1.2);
