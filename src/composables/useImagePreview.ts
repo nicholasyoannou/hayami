@@ -16,6 +16,35 @@ export function useImagePreview() {
   let currentGalleryAnchor: HTMLAnchorElement | null = null;
   let galleryPreloadTriggered = false;
   let galleryPreloadedImages: HTMLImageElement[] = [];
+  const maxVisibleDots = 10;
+
+  function renderDots(): void {
+    if (!galleryDots || !galleryImages || galleryImages.length <= 1) return;
+    const total = galleryImages.length;
+    const half = Math.floor(maxVisibleDots / 2);
+    const start = Math.max(0, Math.min(galleryIndex - half, Math.max(0, total - maxVisibleDots)));
+    const end = Math.min(total, start + maxVisibleDots);
+
+    galleryDots.innerHTML = '';
+    for (let i = start; i < end; i++) {
+      const dot = document.createElement('div');
+      dot.className = 'ri-img-dot';
+      if (i === galleryIndex) dot.classList.add('active');
+      dot.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        galleryIndex = i;
+        if (imgPreviewEl) {
+          imgPreviewEl.src = galleryImages![galleryIndex];
+          imgPreviewEl.style.display = 'none';
+          imgPreviewHost!.classList.add('loading');
+          if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
+        }
+        renderDots();
+        triggerGalleryPrefetch('dot-click');
+      });
+      galleryDots.appendChild(dot);
+    }
+  }
 
   function triggerGalleryPrefetch(reason: string = 'unknown'): void {
     if (!galleryImages || galleryImages.length <= 1 || galleryPreloadTriggered) return;
@@ -75,13 +104,7 @@ export function useImagePreview() {
     // Update gallery dots
     try {
       if (galleryDots) {
-        Array.from(galleryDots.querySelectorAll('.ri-img-dot')).forEach((dot, i) => {
-          if (i === galleryIndex) {
-            dot.classList.add('active');
-          } else {
-            dot.classList.remove('active');
-          }
-        });
+        renderDots();
       }
     } catch {}
   }
@@ -156,25 +179,8 @@ export function useImagePreview() {
       // Only show dots if there's more than 1 image
       if (galleryDots) {
         galleryDots.innerHTML = '';
-        // Only create dots if there are multiple images
         if (galleryImages.length > 1) {
-        galleryImages.forEach((g, idx) => {
-          const dot = document.createElement('div');
-          dot.className = 'ri-img-dot';
-          if (idx === 0) dot.classList.add('active');
-          dot.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            galleryIndex = idx;
-            if (imgPreviewEl) {
-              imgPreviewEl.src = galleryImages![galleryIndex];
-              imgPreviewEl.style.display = 'none';
-              imgPreviewHost!.classList.add('loading');
-              if (!imgPreviewHost!.contains(imgPreviewSpinner)) imgPreviewHost!.appendChild(imgPreviewSpinner!);
-            }
-            triggerGalleryPrefetch('dot-click');
-          });
-          galleryDots!.appendChild(dot);
-        });
+          renderDots();
         }
         // Hide dots container if only 1 image
         galleryDots.style.display = galleryImages.length > 1 ? '' : 'none';
@@ -218,6 +224,7 @@ export function useImagePreview() {
     imgPreviewEl.style.display = 'none';
     imgPreviewHost.classList.add('loading');
     if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner);
+    renderDots();
     triggerGalleryPrefetch('keyboard');
   }
 

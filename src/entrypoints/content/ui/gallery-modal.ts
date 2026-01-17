@@ -4,13 +4,7 @@
 
 import { createApp } from 'vue';
 import YouTubeModal from '@/components/YouTubeModal.vue';
-
-/**
- * Proxifies an image URL through DuckDuckGo
- */
-export function proxifyImageUrl(url: string): string {
-  return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
-}
+import { proxifyImageUrl } from '@/composables/useImagePreview';
 
 /**
  * Opens a fullscreen gallery modal for viewing images
@@ -24,10 +18,13 @@ export function openImageGalleryModal(images: string[]): void {
   const closeBtn = document.createElement('button');
   closeBtn.className = 'ri-fullscreen-close';
   closeBtn.innerHTML = '×';
-  closeBtn.onclick = () => {
+  let handleKeyDown: (ev: KeyboardEvent) => void;
+  const closeModal = () => {
     modal.remove();
     document.body.style.overflow = '';
+    if (handleKeyDown) document.removeEventListener('keydown', handleKeyDown);
   };
+  closeBtn.onclick = closeModal;
 
   // Counter
   const counter = document.createElement('div');
@@ -37,8 +34,8 @@ export function openImageGalleryModal(images: string[]): void {
   const content = document.createElement('div');
   content.className = 'ri-fullscreen-content';
 
-  // Convert to proxied URLs
-  const proxiedImages = images.map(u => proxifyImageUrl(u));
+  // Convert to proxied URLs only when needed (imgur UK workaround)
+  const proxiedImages = images.map((u) => proxifyImageUrl(u));
 
   // Add all images
   proxiedImages.forEach((imgSrc, idx) => {
@@ -46,11 +43,6 @@ export function openImageGalleryModal(images: string[]): void {
     img.className = 'ri-fullscreen-image';
     img.src = imgSrc;
     img.alt = `Image ${idx + 1}`;
-    img.style.opacity = '0';
-    img.onload = () => {
-      img.style.transition = 'opacity 0.3s';
-      img.style.opacity = '1';
-    };
     content.appendChild(img);
   });
 
@@ -75,7 +67,8 @@ export function openImageGalleryModal(images: string[]): void {
     const i = Math.max(0, Math.min(imagesEls.length - 1, idx));
     const target = imagesEls[i];
     const y = Math.max(0, target.offsetTop - (content.clientHeight - target.clientHeight) / 2);
-    content.scrollTo({ top: y, behavior: 'smooth' });
+    content.scrollTop = y; // force instant jump
+    updateCounter();
   };
 
   // Update counter based on centered image
@@ -85,11 +78,9 @@ export function openImageGalleryModal(images: string[]): void {
   };
 
   // Keyboard navigation (Up/Down/Left/Right) — center next/previous image
-  const handleKeyDown = (ev: KeyboardEvent) => {
+  handleKeyDown = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape') {
-      modal.remove();
-      document.body.style.overflow = '';
-      document.removeEventListener('keydown', handleKeyDown);
+      closeModal();
     } else if (ev.key === 'ArrowUp' || ev.key === 'ArrowLeft') {
       ev.preventDefault();
       const i = getCenteredIndex();

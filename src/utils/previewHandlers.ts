@@ -110,6 +110,14 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     const href = a.getAttribute('href') || '';
     let ds = a.getAttribute('data-ri-images');
     let multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
+    let previewInitialized = false;
+
+    const ensurePreviewStarted = () => {
+      if (previewInitialized) return;
+      preview.initializePreview(null, href);
+      preview.setupImageLoadHandlers();
+      previewInitialized = true;
+    };
     
     // Debug logging
     if (ds) {
@@ -125,6 +133,8 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
         try {
           const albumId = albumMatch[1];
           let images: string[] = [];
+
+          ensurePreviewStarted(); // show spinner immediately
           
           // Try GB proxy first
           try {
@@ -169,6 +179,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
         if (imgchestAlbumMatch) {
           console.debug('[preview] Fetching ImgChest album on-demand:', imgchestAlbumMatch[1]);
           try {
+            ensurePreviewStarted(); // show spinner immediately
             const images = await fetchImgchestAlbumImages(imgchestAlbumMatch[1]);
             if (images.length > 0) {
               console.debug('[preview] ImgChest album resolved to', images.length, 'images');
@@ -293,10 +304,15 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       }
     }
     
-    if (!multi && !isImageLink(href)) return;
+    if (!multi && !isImageLink(href)) {
+      if (previewInitialized) preview.hidePreview();
+      return;
+    }
 
-    preview.initializePreview(multi, href);
-    preview.setupImageLoadHandlers();
+    if (!previewInitialized) {
+      preview.initializePreview(multi, href);
+      preview.setupImageLoadHandlers();
+    }
 
     if (multi && Array.isArray(multi) && multi.length > 0) {
       console.debug('[preview] Loading multi-image gallery with', multi.length, 'images');
@@ -331,7 +347,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   // Keyboard navigation
   add(document, 'keydown', (ev) => {
-    if (!preview.isActive || !preview.galleryImages || preview.galleryImages.length <= 1) return;
+    if (!preview.galleryImages || preview.galleryImages.length <= 1) return;
 
     if (ev.key === 'ArrowLeft') {
       ev.preventDefault();
