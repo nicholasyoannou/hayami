@@ -131,7 +131,10 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
       if (uk) {
         // GB proxy service returns a JSON array of i.imgur.com links
         const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
-        const r = await fetch(proxyUrl);
+        const clientId = await getImgurClientId();
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        if (clientId) headers['X-Imgur-Client-ID'] = clientId;
+        const r = await fetch(proxyUrl, { headers });
         if (r.ok) {
           const j = await r.json();
           if (Array.isArray(j)) images = j.filter(Boolean).map(String);
