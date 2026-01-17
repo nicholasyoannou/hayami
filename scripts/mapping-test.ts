@@ -83,6 +83,32 @@ function runBookwormCase(crEpisodeNumber: number, sequenceNumber: number, expect
 
 runBookwormCase(35, 35, 9);
 
+// Tojima single-season case with noisy other search results; should stay on episode 15.
+const tojimaMapper = [
+  { anime_name: 'Fate/Zero - [Season 2 here](http://www.reddit.com/r/anime/wiki/discussion_archive/2012#wiki_spring)', year: '2011', episodes: buildEpisodes(11) },
+  { anime_name: 'Fate/Zero 2nd Season - [Season 1 here](http://www.reddit.com/r/anime/wiki/discussion_archive/2011#wiki_fall)', year: '2012', episodes: buildEpisodes(11) },
+  { anime_name: 'Peeping Life TV: Season 1??', year: '2015', episodes: buildEpisodes(12) },
+  { anime_name: '12-sai.: Chicchana Mune no Tokimeki 2nd Season (Age 12., Juuni-sai.)', year: '2016', episodes: buildEpisodes(8) },
+  { anime_name: 'Toujima Tanzaburou wa Kamen Rider ni Naritai (Tojima Wants to Be a Kamen Rider)', year: '2025', episodes: buildEpisodes(15) },
+];
+
+const tojimaSeasons = [{ season_sequence_number: 1, season_number: 1, number_of_episodes: 15 }];
+
+function runTojimaCase(crEpisodeNumber: number, sequenceNumber: number, expected: number) {
+  const result = __mappingTest.mapEpisodeWithSeasonsData(
+    crEpisodeNumber,
+    sequenceNumber,
+    1,
+    tojimaSeasons,
+    tojimaMapper[4],
+    tojimaMapper,
+    4,
+  );
+  assertEqual(`Tojima CR ep ${crEpisodeNumber} seq ${sequenceNumber}`, result, expected);
+}
+
+runTojimaCase(15, 15, 15);
+
 if (process.exitCode === undefined) {
   console.log('All mapping tests passed.');
 }

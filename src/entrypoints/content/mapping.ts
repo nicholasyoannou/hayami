@@ -771,6 +771,20 @@ function mapEpisodeWithSeasonsData(
 
   const effectiveEpisodeNumber = crEpisodeNumber ?? sequenceNumber ?? 0;
 
+  // Fast path for single-season shows: if the matched season already has this exact episode key,
+  // trust it and skip ordinal/slice heuristics that can be polluted by unrelated search results.
+  if (
+    Array.isArray(seasonsData) &&
+    seasonsData.length === 1 &&
+    matchedSeason?.episodes &&
+    Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(effectiveEpisodeNumber))
+  ) {
+    console.log('[Mapper Failover] Single-season direct hit; using matched season episode key', {
+      effectiveEpisodeNumber,
+    });
+    return effectiveEpisodeNumber;
+  }
+
   if ((effectiveEpisodeNumber === 0 || sequenceNumber === 0) && Object.prototype.hasOwnProperty.call(matchedSeason.episodes, '0')) {
     console.log('[Mapper Failover] Detected zero-index special; mapping to episode 0');
     return 0;
@@ -1656,7 +1670,7 @@ export async function tryMapperFailover(
       const matchedSeasonScore = scoreSeasonTitleMatch(matchedSeason?.anime_name, seasonTitle);
       const airYearForEpisode = getEpisodeAirYear(episodeMetadata);
       const matchedSeasonYear = parseMapperYear(matchedSeason?.year);
-      const lockMatchedSeason = matchedSeasonScore >= 8 || (airYearForEpisode !== null && matchedSeasonYear === airYearForEpisode);
+      const lockMatchedSeason = seasonsData.length === 1 || matchedSeasonScore >= 8 || (airYearForEpisode !== null && matchedSeasonYear === airYearForEpisode);
 
       // If Crunchyroll numbers the season far beyond the matched cour length (e.g., cour 2 starts at 25 while mapper has 12 eps),
       // fold the CR number back into the cour length when the season is clearly longer than the matched cour.
