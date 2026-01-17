@@ -12,7 +12,7 @@ const platforms = [
   { id: 'reddit', name: 'Reddit', icon: chrome.runtime.getURL('assets/topCommentMenu/reddit.svg') },
   { id: 'youtube', name: 'YouTube', icon: chrome.runtime.getURL('assets/topCommentMenu/youtubeLogo.svg') },
   { id: 'disqus', name: 'Disqus', icon: chrome.runtime.getURL('assets/topCommentMenu/disqusLogo.svg') },
-  { id: 'mal', name: 'MAL Forums', icon: chrome.runtime.getURL('assets/topCommentMenu/mal.svg') }
+  { id: 'mal', name: 'MAL Forums', icon: chrome.runtime.getURL('assets/topCommentMenu/malLogo.svg') }
 ];
 
 const connectedPlatforms = ref<Set<string>>(new Set());

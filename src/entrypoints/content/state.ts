@@ -159,7 +159,6 @@ export function clearDiscussionCache(): void {
   discussionCache.reddit = undefined;
   discussionCache.disqus = undefined;
   discussionCache.youtube = undefined;
-  discussionCache['reddit-youtube'] = undefined;
   discussionCache.mal = undefined;
 }
 

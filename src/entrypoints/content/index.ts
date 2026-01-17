@@ -730,7 +730,6 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     discussionCache.reddit = undefined;
     discussionCache.disqus = undefined;
     discussionCache.youtube = undefined;
-    discussionCache['reddit-youtube'] = undefined;
     discussionCache.mal = undefined;
     
     // Remove old comments section if present (when navigating between episodes)

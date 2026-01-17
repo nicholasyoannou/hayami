@@ -25,7 +25,6 @@ function getProvider(provider: CommentProvider): any {
         providers.set(provider, new RedditProvider());
         break;
       case 'youtube':
-      case 'reddit-youtube':
         providers.set(provider, new YouTubeProvider());
         break;
       case 'mal':

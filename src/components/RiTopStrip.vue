@@ -25,12 +25,6 @@
           :src="youtubeLogoUrl" 
           alt="youtube logo" 
         />
-        <img 
-          v-else-if="currentProvider === 'reddit-youtube'"
-          class="h-5 opacity-80" 
-          :src="redditYoutubeCombUrl" 
-          alt="reddit youtube logo" 
-        />
         <div
           v-else-if="currentProvider === 'mal'"
           class="h-5 w-10 flex items-center justify-center rounded bg-[#223] text-xs font-bold text-[#cbd5ff] px-2"
@@ -209,7 +203,7 @@ interface DiscussionTab {
   active?: boolean;
 }
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal';
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal';
 
 interface MenuItem {
   id: Provider;
@@ -262,12 +256,9 @@ const disqusLogoUrl =
 const youtubeLogoUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/youtubeLogo.svg') ??
   'assets/topCommentMenu/youtubeLogo.svg';
-const redditYoutubeCombUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/redditYoutubeComb.svg') ??
-  'assets/topCommentMenu/redditYoutubeComb.svg';
 const malLogoUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/mal.svg') ??
-  'assets/topCommentMenu/mal.svg';
+  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/malLogo.svg') ??
+  'assets/topCommentMenu/malLogo.svg';
 const discussionIconUrl =
   (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/discussion.svg') ??
   'assets/topCommentMenu/discussion.svg';
@@ -282,7 +273,6 @@ const menuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [
     { id: 'reddit', label: 'Reddit', iconUrl: redditLogoUrl },
     { id: 'disqus', label: 'DISQUS', iconUrl: disqusLogoUrl },
-    { id: 'reddit-youtube', label: 'Reddit YouTube', iconUrl: redditYoutubeCombUrl },
     { id: 'youtube', label: 'YouTube', iconUrl: youtubeLogoUrl },
     { id: 'mal', label: 'MAL Forums', iconUrl: malLogoUrl },
   ];

@@ -153,7 +153,6 @@ export interface DiscussionCache {
     video: YouTubeVideo;
     platform?: string;
   } | YouTubeVideo; // Support both old format (just video) and new format (with playlist/platform)
-  'reddit-youtube'?: any; // Mixed provider type
   mal?: {
     topics?: MalTopic[];
     selectedTopic?: MalTopic;
@@ -166,7 +165,7 @@ export interface DiscussionCache {
 
 // ==================== Provider Types ====================
 
-export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'reddit-youtube' | 'mal';
+export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal';
 
 export interface ProviderContext {
   animeInfo: AnimeInfo | null;
