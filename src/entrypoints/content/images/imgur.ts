@@ -9,6 +9,17 @@ import { extensionFetch } from '@/utils/redditApi';
 
 const PROXY_PREFIX = 'https://external-content.duckduckgo.com/iu/?u=';
 
+async function getImgurClientId(): Promise<string | null> {
+  try {
+    const data = await chrome.storage.local.get('imgur_client_id');
+    const raw = data?.imgur_client_id;
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  } catch (e) {
+    console.warn('[imgur] Failed to read Imgur Client ID', e);
+    return null;
+  }
+}
+
 /**
  * Check if user is in the UK (for Imgur geo-restrictions)
  * Caches result in session storage
@@ -128,7 +139,10 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
       } else {
         // Fallback to Imgur API public album endpoint
         const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
-        const r = await extensionFetch(apiUrl, { headers: { Accept: 'application/json' } } as any);
+        const clientId = await getImgurClientId();
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        if (clientId) headers['X-Imgur-Client-ID'] = clientId;
+        const r = await extensionFetch(apiUrl, { headers } as any);
         if (r.ok) {
           const j = await r.json();
           if (j?.data && Array.isArray(j.data.images)) {

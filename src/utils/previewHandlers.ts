@@ -7,6 +7,85 @@ import {
   extractYouTubeId,
 } from '@/composables/useImagePreview';
 import { detectUserInUK } from '@/entrypoints/content/images/imgur';
+import { extensionFetch } from '@/utils/redditApi';
+
+let cachedImgchestApiKey: string | null | undefined;
+
+async function getImgurClientId(): Promise<string | null> {
+  try {
+    const data = await chrome.storage.local.get('imgur_client_id');
+    const raw = data?.imgur_client_id;
+    return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+  } catch (e) {
+    console.warn('[preview] Failed to read Imgur Client ID', e);
+    return null;
+  }
+}
+
+async function getImgchestApiKey(): Promise<string | null> {
+  try {
+    const data = await chrome.storage.local.get('imgchest_api_key');
+    const raw = data?.imgchest_api_key;
+    cachedImgchestApiKey = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+    return cachedImgchestApiKey;
+  } catch (e) {
+    console.warn('[preview] Failed to read ImgChest API key', e);
+    cachedImgchestApiKey = null;
+    return null;
+  }
+}
+
+function extractImgchestImages(payload: any): string[] {
+  const urls: string[] = [];
+  const maybePush = (val: any) => {
+    const link = (typeof val === 'string' && val) || val?.direct_url || val?.directUrl || val?.cdn_url || val?.cdnUrl || val?.url || val?.link || val?.image || val?.src || val?.file;
+    if (typeof link === 'string' && link.trim()) urls.push(link.trim());
+  };
+
+  const roots = [payload?.data, payload?.album, payload?.post, payload?.result, payload];
+  for (const root of roots) {
+    if (!root) continue;
+    const lists = [root.images, root.files, root.items, root.attachments, root.media, root];
+    for (const arr of lists) {
+      if (Array.isArray(arr)) {
+        arr.forEach(maybePush);
+      }
+    }
+  }
+
+  return Array.from(new Set(urls));
+}
+
+async function fetchImgchestAlbumImages(albumId: string): Promise<string[]> {
+  const key = await getImgchestApiKey();
+  if (!key) {
+    console.warn('[preview] ImgChest API key not set; cannot resolve album');
+    return [];
+  }
+
+  const headers = { Accept: 'application/json', Authorization: `Bearer ${key}` } as Record<string, string>;
+  const endpoints = [
+    `https://api.imgchest.com/v1/album/${encodeURIComponent(albumId)}`,
+    `https://api.imgchest.com/v1/post/${encodeURIComponent(albumId)}`,
+  ];
+
+  for (const url of endpoints) {
+    try {
+      const resp = await extensionFetch(url, { headers } as any);
+      if (!resp.ok) {
+        console.warn('[preview] ImgChest request failed', url, resp.status);
+        continue;
+      }
+      const payload = await resp.json();
+      const images = extractImgchestImages(payload);
+      if (images.length > 0) return images;
+    } catch (e) {
+      console.warn('[preview] ImgChest fetch error', e);
+    }
+  }
+
+  return [];
+}
 
 /**
  * Wires up all image preview and YouTube modal handlers
@@ -59,7 +138,10 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
             // Fall back to Imgur API
             try {
               const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
-              const r = await fetch(apiUrl, { headers: { Accept: 'application/json' } });
+              const clientId = await getImgurClientId();
+              const headers: Record<string, string> = { Accept: 'application/json' };
+              if (clientId) headers['X-Imgur-Client-ID'] = clientId;
+              const r = await fetch(apiUrl, { headers });
               if (r.ok) {
                 const j = await r.json();
                 if (j?.data && Array.isArray(j.data.images)) {
@@ -83,108 +165,128 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       }
       // Check for direct imgur link: imgur.com/<id>
       else {
-        const directMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.com\/(\w+)(?:\.\w+)?$/i);
-        if (directMatch) {
-          const id = directMatch[1];
-          // Skip if it's 'a' or 'gallery' (those are albums)
-          if (id.toLowerCase() !== 'a' && id.toLowerCase() !== 'gallery') {
-            console.debug('[preview] Fetching imgur direct link on-demand:', id);
-            try {
-              let resolved: string | null = null;
-              const isUK = await detectUserInUK();
-              
-              // For UK users, try to construct i.imgur.com URL directly and use it
-              // (GB proxy might not have direct image endpoint, so we'll proxy through DuckDuckGo)
-              if (isUK) {
-                // Try common extensions on i.imgur.com first (most reliable for UK)
-                const exts = ['.jpg', '.png', '.gif', '.webp'];
-                for (const ext of exts) {
-                  const tryUrl = `https://i.imgur.com/${id}${ext}`;
-                  try {
-                    const r = await fetch(tryUrl, { method: 'HEAD' });
-                    if (r.ok) {
-                      resolved = tryUrl;
-                      break;
-                    }
-                  } catch {
-                    // Try GET as fallback
-                    try {
-                      const r2 = await fetch(tryUrl);
-                      if (r2.ok) {
-                        resolved = tryUrl;
-                        break;
-                      }
-                    } catch {}
-                  }
-                }
+        const imgchestAlbumMatch = href.match(/^https?:\/\/(?:www\.)?imgchest\.com\/(?:a|p)\/([\w-]+)/i);
+        if (imgchestAlbumMatch) {
+          console.debug('[preview] Fetching ImgChest album on-demand:', imgchestAlbumMatch[1]);
+          try {
+            const images = await fetchImgchestAlbumImages(imgchestAlbumMatch[1]);
+            if (images.length > 0) {
+              console.debug('[preview] ImgChest album resolved to', images.length, 'images');
+              multi = images;
+              a.setAttribute('data-ri-images', JSON.stringify(images));
+            } else {
+              console.warn('[preview] ImgChest album returned no images');
+            }
+          } catch (e) {
+            console.warn('[preview] ImgChest album fetch failed:', e);
+          }
+        } else {
+          const directMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.com\/(\w+)(?:\.\w+)?$/i);
+          if (directMatch) {
+            const id = directMatch[1];
+            // Skip if it's 'a' or 'gallery' (those are albums)
+            if (id.toLowerCase() !== 'a' && id.toLowerCase() !== 'gallery') {
+              console.debug('[preview] Fetching imgur direct link on-demand:', id);
+              try {
+                let resolved: string | null = null;
+                const isUK = await detectUserInUK();
                 
-                // If extensions didn't work, try GB proxy service (if it exists)
-                if (!resolved) {
-                  try {
-                    const proxyUrl = `https://gbr-img-service.quack.si/i/${encodeURIComponent(id)}`;
-                    const r = await fetch(proxyUrl);
-                    if (r.ok) {
-                      const j = await r.json();
-                      if (typeof j === 'string') {
-                        resolved = j;
-                      } else if (j?.link || j?.url || j?.image) {
-                        resolved = j.link || j.url || j.image;
-                      } else if (Array.isArray(j) && j.length > 0) {
-                        resolved = typeof j[0] === 'string' ? j[0] : (j[0]?.link || j[0]?.url || j[0]?.image);
-                      }
-                    }
-                  } catch (e1) {
-                    console.debug('[preview] GB proxy failed:', e1);
-                  }
-                }
-              } else {
-                // For non-UK users, try Imgur API first
-                try {
-                  const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
-                  const r = await fetch(apiUrl, { headers: { Accept: 'application/json' } });
-                  if (r.ok) {
-                    const j = await r.json();
-                    if (j?.data?.link) resolved = j.data.link;
-                  }
-                } catch (e2) {
-                  console.debug('[preview] Imgur API failed, trying extensions:', e2);
-                }
-                
-                // Fall back to trying common extensions
-                if (!resolved) {
+                // For UK users, try to construct i.imgur.com URL directly and use it
+                // (GB proxy might not have direct image endpoint, so we'll proxy through DuckDuckGo)
+                if (isUK) {
+                  // Try common extensions on i.imgur.com first (most reliable for UK)
                   const exts = ['.jpg', '.png', '.gif', '.webp'];
                   for (const ext of exts) {
                     const tryUrl = `https://i.imgur.com/${id}${ext}`;
                     try {
-                      const r2 = await fetch(tryUrl, { method: 'HEAD' });
-                      if (r2.ok) {
+                      const r = await fetch(tryUrl, { method: 'HEAD' });
+                      if (r.ok) {
                         resolved = tryUrl;
                         break;
                       }
                     } catch {
+                      // Try GET as fallback
                       try {
-                        const r3 = await fetch(tryUrl);
-                        if (r3.ok) {
+                        const r2 = await fetch(tryUrl);
+                        if (r2.ok) {
                           resolved = tryUrl;
                           break;
                         }
                       } catch {}
                     }
                   }
+                  
+                  // If extensions didn't work, try GB proxy service (if it exists)
+                  if (!resolved) {
+                    try {
+                      const proxyUrl = `https://gbr-img-service.quack.si/i/${encodeURIComponent(id)}`;
+                      const r = await fetch(proxyUrl);
+                      if (r.ok) {
+                        const j = await r.json();
+                        if (typeof j === 'string') {
+                          resolved = j;
+                        } else if (j?.link || j?.url || j?.image) {
+                          resolved = j.link || j.url || j.image;
+                        } else if (Array.isArray(j) && j.length > 0) {
+                          resolved = typeof j[0] === 'string' ? j[0] : (j[0]?.link || j[0]?.url || j[0]?.image);
+                        }
+                      }
+                    } catch (e1) {
+                      console.debug('[preview] GB proxy failed:', e1);
+                    }
+                  }
+                } else {
+                  // For non-UK users, try Imgur API first
+                  try {
+                    const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
+                    const clientId = await getImgurClientId();
+                    const headers: Record<string, string> = { Accept: 'application/json' };
+                    if (clientId) headers['X-Imgur-Client-ID'] = clientId;
+                    const r = await fetch(apiUrl, { headers });
+                    if (r.ok) {
+                      const j = await r.json();
+                      if (j?.data?.link) resolved = j.data.link;
+                    }
+                  } catch (e2) {
+                    console.debug('[preview] Imgur API failed, trying extensions:', e2);
+                  }
+                  
+                  // Fall back to trying common extensions
+                  if (!resolved) {
+                    const exts = ['.jpg', '.png', '.gif', '.webp'];
+                    for (const ext of exts) {
+                      const tryUrl = `https://i.imgur.com/${id}${ext}`;
+                      try {
+                        const r2 = await fetch(tryUrl, { method: 'HEAD' });
+                        if (r2.ok) {
+                          resolved = tryUrl;
+                          break;
+                        }
+                      } catch {
+                        try {
+                          const r3 = await fetch(tryUrl);
+                          if (r3.ok) {
+                            resolved = tryUrl;
+                            break;
+                          }
+                        } catch {}
+                      }
+                    }
+                  }
                 }
+                
+                if (resolved) {
+                  console.debug('[preview] Imgur direct link resolved to:', resolved);
+                  // Set as single image in array format for consistency
+                  multi = [resolved];
+                  // Cache it for future hovers
+                  a.setAttribute('data-ri-images', JSON.stringify(multi));
+                } else {
+                  console.warn('[preview] Failed to resolve imgur direct link:', id);
+                }
+              } catch (e) {
+                console.warn('[preview] Imgur direct link fetch failed:', e);
               }
-              
-              if (resolved) {
-                console.debug('[preview] Imgur direct link resolved to:', resolved);
-                // Set as single image in array format for consistency
-                multi = [resolved];
-                // Cache it for future hovers
-                a.setAttribute('data-ri-images', JSON.stringify(multi));
-              } else {
-                console.warn('[preview] Failed to resolve imgur direct link:', id);
-              }
-            } catch (e) {
-              console.warn('[preview] Imgur direct link fetch failed:', e);
             }
           }
         }

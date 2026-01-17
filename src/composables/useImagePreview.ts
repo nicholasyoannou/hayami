@@ -140,7 +140,15 @@ export function useImagePreview() {
   function loadMultiImage(multi: string[]): void {
     if (!imgPreviewEl || !imgPreviewHost) return;
     try {
-      galleryImages = multi.map(u => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`);
+      galleryImages = multi.map((u) => {
+        try {
+          return /^https?:\/\/i\.imgur\.com\//i.test(u)
+            ? `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`
+            : u;
+        } catch {
+          return u;
+        }
+      });
       galleryIndex = 0;
       galleryPreloadTriggered = false;
       galleryPreloadedImages = [];

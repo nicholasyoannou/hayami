@@ -24,7 +24,9 @@ export default defineConfig({
       'https://disqus.com/*',
       'https://*.disqus.com/*',
       'https://api.myanimelist.net/*',
-      'https://myanimelist.net/*'
+      'https://myanimelist.net/*',
+      'https://api.imgchest.com/*',
+      'https://imgchest.com/*'
     ],
     version: '0.0.3',
     /**

@@ -26,6 +26,8 @@ const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 const displayMode = ref<'popup' | 'inline'>('popup');
 const embedImages = ref<boolean>(false);
+const imgurClientId = ref<string>('');
+const imgchestApiKey = ref<string>('');
 const commentsProvider = ref<'reddit' | 'disqus'>('reddit');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
 const useVueRendering = ref<boolean>(true);
@@ -38,6 +40,8 @@ onMounted(async () => {
   await loadCommentsProvider();
   await loadNoCommentsMode();
   await loadVueRenderingSetting();
+  await loadImgurClientId();
+  await loadImgchestApiKey();
 });
 
 async function checkAuthStatus() {
@@ -82,6 +86,32 @@ async function loadDisplayMode() {
   } catch {}
 }
 
+async function loadImgurClientId() {
+  try {
+    const data = await chrome.storage.local.get('imgur_client_id');
+    imgurClientId.value = typeof data?.imgur_client_id === 'string' ? data.imgur_client_id : '';
+  } catch {}
+}
+
+async function saveImgurClientId() {
+  try {
+    await chrome.storage.local.set({ imgur_client_id: imgurClientId.value.trim() });
+    successMessage.value = 'Imgur Client ID saved';
+    setTimeout(() => successMessage.value = null, 1500);
+  } catch (e) {
+    console.error('Failed to save Imgur Client ID', e);
+    errorMessage.value = 'Failed to save Imgur Client ID';
+    setTimeout(() => errorMessage.value = null, 2000);
+  }
+}
+
+async function loadImgchestApiKey() {
+  try {
+    const data = await chrome.storage.local.get('imgchest_api_key');
+    imgchestApiKey.value = typeof data?.imgchest_api_key === 'string' ? data.imgchest_api_key : '';
+  } catch {}
+}
+
 async function loadCommentsProvider() {
   try {
     const d = await chrome.storage.local.get('comments_provider');
@@ -116,6 +146,19 @@ async function updateDisplayMode(mode: 'popup' | 'inline') {
   await chrome.storage.local.set({ display_mode: mode });
   successMessage.value = mode === 'popup' ? 'Display mode set to Popup overlay' : 'Display mode set to Inline comments';
   setTimeout(() => successMessage.value = null, 2000);
+}
+
+async function saveImgchestApiKey() {
+  try {
+    const trimmed = (imgchestApiKey.value || '').trim();
+    await chrome.storage.local.set({ imgchest_api_key: trimmed });
+    successMessage.value = trimmed ? 'ImgChest API key saved' : 'ImgChest API key cleared';
+    setTimeout(() => successMessage.value = null, 1500);
+  } catch (e) {
+    console.error('Failed to save ImgChest API key', e);
+    errorMessage.value = 'Failed to save ImgChest API key';
+    setTimeout(() => errorMessage.value = null, 2000);
+  }
 }
 
 async function updateEmbedImages(enabled: boolean) {
@@ -331,6 +374,36 @@ function openGoogleSettings() {
               <span>Enable image embeds from standalone i.imgur.com links</span>
             </label>
             <p class="small-note">When enabled, a single-line image link (e.g. https://i.imgur.com/xyz.jpg) will be embedded via DuckDuckGo's image proxy.</p>
+          </div>
+
+          <div style="margin-top:12px;">
+            <h4>Imgur Client ID</h4>
+            <p class="small-note">Used for Imgur API requests (header: X-Imgur-Client-ID). Required for UK users when resolving Imgur links/albums.</p>
+            <div class="input-row">
+              <input
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                v-model="imgurClientId"
+                placeholder="Enter your Imgur Client ID"
+              />
+              <button class="btn btn-secondary" style="width:auto;min-width:90px;padding:8px 12px;" @click="saveImgurClientId">Save</button>
+            </div>
+          </div>
+
+          <div style="margin-top:12px;">
+            <h4>ImgChest API key</h4>
+            <p class="small-note">Needed to load ImgChest albums. Stored locally in this browser only.</p>
+            <div class="input-row">
+              <input
+                type="password"
+                autocomplete="off"
+                spellcheck="false"
+                v-model="imgchestApiKey"
+                placeholder="Enter your ImgChest API key"
+              />
+              <button class="btn btn-secondary" style="width:auto;min-width:90px;padding:8px 12px;" @click="saveImgchestApiKey">Save</button>
+            </div>
           </div>
 
           <div style="margin-top:12px;">
@@ -690,6 +763,9 @@ function openGoogleSettings() {
   background: #e8f5e9;
   color: #2e7d32;
 }
+
+.input-row { display:flex; gap:8px; align-items:center; }
+.input-row input { flex:1; padding:8px; border:1px solid #ddd; border-radius:6px; font-size:13px; }
 
 .footer {
   text-align: center;
