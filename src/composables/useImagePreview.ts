@@ -177,6 +177,7 @@ export function useImagePreview() {
     if (!imgPreviewHost) {
       imgPreviewHost = document.createElement('div');
       imgPreviewHost.className = 'ri-img-tooltip';
+      imgPreviewHost.tabIndex = -1; // enable focus so key events work even before user clicks
       document.body.appendChild(imgPreviewHost);
     }
     if (!imgPreviewEl) {
@@ -204,6 +205,7 @@ export function useImagePreview() {
     if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner);
     imgPreviewHost.style.display = 'flex';
     imgPreviewHost.style.opacity = '0';
+    try { imgPreviewHost.focus({ preventScroll: true }); } catch {}
   }
 
   function loadMultiImage(multi: string[]): void {
@@ -297,6 +299,7 @@ export function useImagePreview() {
     navigateGallery,
     triggerGalleryPrefetch,
     cleanup,
+    focusHost: () => { try { imgPreviewHost?.focus({ preventScroll: true }); } catch {} },
     get isActive() { return imgPreviewHost !== null && imgPreviewHost.style.display !== 'none'; },
     get galleryImages() { return galleryImages; },
     set galleryImages(val) { galleryImages = val; },

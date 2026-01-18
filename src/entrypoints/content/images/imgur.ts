@@ -133,7 +133,7 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
         const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
         const clientId = await getImgurClientId();
         const headers: Record<string, string> = { Accept: 'application/json' };
-        if (clientId) headers['X-Imgur-Client-ID'] = clientId;
+        if (clientId) headers['AP-Key'] = clientId; // gbr-img-service expects AP-Key
         const r = await fetch(proxyUrl, { headers });
         if (r.ok) {
           const j = await r.json();

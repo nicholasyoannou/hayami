@@ -116,6 +116,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       if (previewInitialized) return;
       preview.initializePreview(null, href);
       preview.setupImageLoadHandlers();
+      preview.focusHost(); // ensure keyboard nav works without prior click
       previewInitialized = true;
     };
     
@@ -141,7 +142,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
             const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
             const clientId = await getImgurClientId();
             const headers: Record<string, string> = { Accept: 'application/json' };
-            if (clientId) headers['X-Imgur-Client-ID'] = clientId;
+            if (clientId) headers['AP-Key'] = clientId; // gbr-img-service expects AP-Key
             const r = await fetch(proxyUrl, { headers });
             if (r.ok) {
               const j = await r.json();
@@ -315,13 +316,16 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     if (!previewInitialized) {
       preview.initializePreview(multi, href);
       preview.setupImageLoadHandlers();
+      preview.focusHost();
     }
 
     if (multi && Array.isArray(multi) && multi.length > 0) {
       console.debug('[preview] Loading multi-image gallery with', multi.length, 'images');
       preview.loadMultiImage(multi);
+      preview.focusHost();
     } else {
       preview.loadSingleImage(href);
+      preview.focusHost();
     }
   });
 
