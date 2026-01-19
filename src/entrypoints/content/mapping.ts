@@ -591,6 +591,7 @@ function refineMatchedIndexUsingCrunchyrollData(
   }
 
   const airYear = getEpisodeAirYear(episodeMetadata);
+  const requiredEpisode = (episodeMetadata?.sequence_number ?? episodeMetadata?.episode_number ?? 1) as number;
   const cleanedResults = results.map((r, idx) => ({
     idx,
     year: parseMapperYear(r?.year),
@@ -599,6 +600,8 @@ function refineMatchedIndexUsingCrunchyrollData(
     hasEpisodes: r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0,
     name: (results as any)[idx]?.anime_name,
   }));
+
+  const coversRequiredEpisode = (entry: { episodeCount: number }) => entry.episodeCount >= requiredEpisode;
 
   const hasSeasonsData = Array.isArray(seasonsData) && seasonsData.length > 0;
   const seasonNum = episodeMetadata?.season_number || episodeMetadata?.season_sequence_number;
@@ -619,7 +622,7 @@ function refineMatchedIndexUsingCrunchyrollData(
   }
 
   if (airYear) {
-    const sameYear = cleanedResults.filter((r) => r.hasEpisodes && r.year === airYear);
+    const sameYear = cleanedResults.filter((r) => r.hasEpisodes && r.year === airYear && coversRequiredEpisode(r));
     if (sameYear.length) {
       const chosenIdx = pickPreferredSameYear(
         sameYear.map((r) => ({ idx: r.idx, name: (results as any)[r.idx]?.anime_name, episodeCount: r.episodeCount })),
@@ -632,7 +635,7 @@ function refineMatchedIndexUsingCrunchyrollData(
     }
 
     const newestAtOrBefore = cleanedResults
-      .filter((r) => r.hasEpisodes && r.year !== null && r.year <= airYear)
+      .filter((r) => r.hasEpisodes && r.year !== null && r.year <= airYear && coversRequiredEpisode(r))
       .sort((a, b) => (b.year ?? -9999) - (a.year ?? -9999))[0];
     if (newestAtOrBefore) {
       console.log('[Mapper Failover] Refined matched index using nearest past year:', { airYear, from: matchedIndex, to: newestAtOrBefore.idx, year: newestAtOrBefore.year });
@@ -640,7 +643,7 @@ function refineMatchedIndexUsingCrunchyrollData(
     }
 
     const earliestAfter = cleanedResults
-      .filter((r) => r.hasEpisodes && r.year !== null && r.year > airYear)
+      .filter((r) => r.hasEpisodes && r.year !== null && r.year > airYear && coversRequiredEpisode(r))
       .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999))[0];
     if (earliestAfter) {
       return earliestAfter.idx;
@@ -1417,10 +1420,40 @@ export async function tryMapperFailover(
     const seasonScore = results.map((r, idx) => ({ idx, score: scoreSeasonTitleMatch(r?.anime_name, seasonTitle) }));
     const bestSeason = seasonScore.reduce((best, cur) => (cur.score > best.score ? cur : best), { idx: -1, score: -1 });
 
+    // Only override the mapper-provided match when the season-title similarity is meaningfully better AND the candidate
+    // can actually cover the requested episode. This prevents short, unrelated shows (e.g., Yami Shibai 4-ep) from hijacking
+    // a 24-episode season like Gachiakuta.
     if (bestSeason.score > 0 && bestSeason.idx !== -1) {
-      if (matchedIndex === undefined || matchedIndex === null || (matchedResult && matchedResult.is_exact_match === false)) {
+      const crEpisodeCeiling = crEpisodeNumber ?? sequenceNumber ?? 1;
+      const matchedCandidate = matchedIndex !== undefined && matchedIndex !== null ? results[matchedIndex] : null;
+      const matchedEpisodesCount = matchedCandidate?.episodes && typeof matchedCandidate.episodes === 'object' ? Object.keys(matchedCandidate.episodes).length : 0;
+      const matchedSeasonScore = matchedCandidate ? scoreSeasonTitleMatch(matchedCandidate?.anime_name, seasonTitle) : 0;
+      const bestCandidate = results[bestSeason.idx];
+      const bestEpisodesCount = bestCandidate?.episodes && typeof bestCandidate.episodes === 'object' ? Object.keys(bestCandidate.episodes).length : 0;
+      const bestCoversEpisode = bestEpisodesCount >= crEpisodeCeiling;
+      const matchedCoversEpisode = matchedEpisodesCount >= crEpisodeCeiling;
+      const scoreGain = bestSeason.score - matchedSeasonScore;
+
+      const allowOverride =
+        matchedIndex === undefined ||
+        matchedIndex === null ||
+        matchedResult?.is_exact_match === false;
+
+      const shouldOverride =
+        allowOverride &&
+        bestCoversEpisode &&
+        (!matchedCoversEpisode || scoreGain >= 5 || (scoreGain > 0 && bestEpisodesCount >= matchedEpisodesCount));
+
+      if (shouldOverride) {
         matchedIndex = bestSeason.idx;
-        console.log('[Mapper Failover] Overriding matched result with season-title similarity:', { matchedIndex, score: bestSeason.score });
+        console.log('[Mapper Failover] Overriding matched result with season-title similarity:', {
+          matchedIndex,
+          score: bestSeason.score,
+          scoreGain,
+          bestEpisodesCount,
+          matchedEpisodesCount,
+          crEpisodeCeiling,
+        });
       }
     }
 
