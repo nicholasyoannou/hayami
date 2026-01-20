@@ -106,7 +106,7 @@
 
     <div 
       v-if="showTabs"
-      class="flex flex-1 min-w-0 overflow-visible bg-[#191919] border-b border-[#2f2f2f] mr-[-1rem] transition-opacity duration-300 relative"
+      class="flex flex-1 min-w-0 overflow-visible bg-[#191919] border-b border-[#2f2f2f] transition-opacity duration-300 relative"
       :class="{ 'opacity-0 pointer-events-none': menuOpen }"
       ref="tabsContainer"
     >
