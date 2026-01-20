@@ -109,6 +109,37 @@ function runTojimaCase(crEpisodeNumber: number, sequenceNumber: number, expected
 
 runTojimaCase(15, 15, 15);
 
+// Arne S1 should stay on episode 3 even when other results include a higher-scoring different-year season.
+const arneMapper = [
+  {
+    anime_name: 'Arne no Jikenbo (The Case Book of Arne)',
+    year: '2026',
+    episodes: {
+      1: 'https://reddit.test/arne-1',
+      2: 'https://reddit.test/arne-1',
+      3: 'https://reddit.test/arne-3',
+    },
+  },
+  { anime_name: 'Yami Shibai Season 15', year: '2025', episodes: buildEpisodes(4) },
+];
+
+const arneSeasons = [{ season_sequence_number: 1, season_number: 1, number_of_episodes: 3 }];
+
+function runArneCase(crEpisodeNumber: number, sequenceNumber: number, expected: number) {
+  const result = __mappingTest.mapEpisodeWithSeasonsData(
+    crEpisodeNumber,
+    sequenceNumber,
+    1,
+    arneSeasons,
+    arneMapper[0],
+    arneMapper,
+    0,
+  );
+  assertEqual(`Arne CR ep ${crEpisodeNumber} seq ${sequenceNumber}`, result, expected);
+}
+
+runArneCase(3, 3, 3);
+
 if (process.exitCode === undefined) {
   console.log('All mapping tests passed.');
 }

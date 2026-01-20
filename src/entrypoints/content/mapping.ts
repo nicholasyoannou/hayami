@@ -93,6 +93,7 @@ function refineMatchedIndexUsingCrunchyrollData(
   }
 
   const airYear = getEpisodeAirYear(episodeMetadata);
+  const safeAirYear = airYear !== null && airYear >= 2021 ? airYear : null; // Ignore pre-2021 CR years; often inaccurate.
   const requiredEpisode = (episodeMetadata?.sequence_number ?? episodeMetadata?.episode_number ?? 1) as number;
   const cleanedResults = results.map((r, idx) => ({
     idx,
@@ -123,29 +124,29 @@ function refineMatchedIndexUsingCrunchyrollData(
     }
   }
 
-  if (airYear) {
-    const sameYear = cleanedResults.filter((r) => r.hasEpisodes && r.year === airYear && coversRequiredEpisode(r));
+  if (safeAirYear) {
+    const sameYear = cleanedResults.filter((r) => r.hasEpisodes && r.year === safeAirYear && coversRequiredEpisode(r));
     if (sameYear.length) {
       const chosenIdx = pickPreferredSameYear(
         sameYear.map((r) => ({ idx: r.idx, name: (results as any)[r.idx]?.anime_name, episodeCount: r.episodeCount })),
         seasonNum,
       );
       if (chosenIdx !== null) {
-        console.log('[Mapper Failover] Refined matched index using air date year (preferred within year):', { airYear, from: matchedIndex, to: chosenIdx });
+        console.log('[Mapper Failover] Refined matched index using air date year (preferred within year):', { airYear: safeAirYear, from: matchedIndex, to: chosenIdx });
         return chosenIdx;
       }
     }
 
     const newestAtOrBefore = cleanedResults
-      .filter((r) => r.hasEpisodes && r.year !== null && r.year <= airYear && coversRequiredEpisode(r))
+      .filter((r) => r.hasEpisodes && r.year !== null && r.year <= safeAirYear && coversRequiredEpisode(r))
       .sort((a, b) => (b.year ?? -9999) - (a.year ?? -9999))[0];
     if (newestAtOrBefore) {
-      console.log('[Mapper Failover] Refined matched index using nearest past year:', { airYear, from: matchedIndex, to: newestAtOrBefore.idx, year: newestAtOrBefore.year });
+      console.log('[Mapper Failover] Refined matched index using nearest past year:', { airYear: safeAirYear, from: matchedIndex, to: newestAtOrBefore.idx, year: newestAtOrBefore.year });
       return newestAtOrBefore.idx;
     }
 
     const earliestAfter = cleanedResults
-      .filter((r) => r.hasEpisodes && r.year !== null && r.year > airYear && coversRequiredEpisode(r))
+      .filter((r) => r.hasEpisodes && r.year !== null && r.year > safeAirYear && coversRequiredEpisode(r))
       .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999))[0];
     if (earliestAfter) {
       return earliestAfter.idx;
@@ -935,6 +936,12 @@ export async function tryMapperFailover(
       const bestCoversEpisode = bestEpisodesCount >= crEpisodeCeiling;
       const matchedCoversEpisode = matchedEpisodesCount >= crEpisodeCeiling;
       const scoreGain = bestSeason.score - matchedSeasonScore;
+      const rawAirYear = getEpisodeAirYear(episodeMetadata);
+      const airYearForEpisode = rawAirYear !== null && rawAirYear >= 2021 ? rawAirYear : null; // Ignore pre-2021 CR years.
+      const matchedYear = parseMapperYear(matchedCandidate?.year);
+      const bestYear = parseMapperYear(bestCandidate?.year);
+      const matchedAlignsAirYear = airYearForEpisode !== null && matchedYear === airYearForEpisode;
+      const bestAlignsAirYear = airYearForEpisode !== null && bestYear === airYearForEpisode;
 
       const allowOverride =
         matchedIndex === undefined ||
@@ -944,9 +951,23 @@ export async function tryMapperFailover(
       const shouldOverride =
         allowOverride &&
         bestCoversEpisode &&
-        (!matchedCoversEpisode || scoreGain >= 5 || (scoreGain > 0 && bestEpisodesCount >= matchedEpisodesCount));
+        (!matchedCoversEpisode ||
+          (bestAlignsAirYear && !matchedAlignsAirYear) ||
+          scoreGain >= 5 ||
+          (scoreGain > 0 && bestEpisodesCount >= matchedEpisodesCount));
 
-      if (shouldOverride) {
+      if (matchedAlignsAirYear && !bestAlignsAirYear && matchedCoversEpisode) {
+        console.log('[Mapper Failover] Keeping matched result aligned with air year despite higher season-title score:', {
+          matchedIndex,
+          matchedYear,
+          bestYear,
+          airYearForEpisode,
+          scoreGain,
+          bestEpisodesCount,
+          matchedEpisodesCount,
+          crEpisodeCeiling,
+        });
+      } else if (shouldOverride) {
         matchedIndex = bestSeason.idx;
         console.log('[Mapper Failover] Overriding matched result with season-title similarity:', {
           matchedIndex,
@@ -1203,7 +1224,8 @@ export async function tryMapperFailover(
         });
 
       const matchedSeasonScore = scoreSeasonTitleMatch(matchedSeason?.anime_name, seasonTitle);
-      const airYearForEpisode = getEpisodeAirYear(episodeMetadata);
+      const rawAirYear = getEpisodeAirYear(episodeMetadata);
+      const airYearForEpisode = rawAirYear !== null && rawAirYear >= 2021 ? rawAirYear : null; // Ignore pre-2021 CR years.
       const matchedSeasonYear = parseMapperYear(matchedSeason?.year);
       const lockMatchedSeason = seasonsData.length === 1 || matchedSeasonScore >= 8 || (airYearForEpisode !== null && matchedSeasonYear === airYearForEpisode);
 
