@@ -842,9 +842,74 @@ export async function tryMapperFailover(
 ): Promise<string | null> {
   try {
     console.log('[Mapper Failover] Starting failover process', { platform });
+
+    // If we are not on a Crunchyroll watch URL (e.g., animepahe), skip CR metadata and
+    // fall back to a lightweight mapper lookup by series name + episode number.
+    const extractEpisodeFromInfo = (): number | null => {
+      const raw = animeInfo?.episodeName || '';
+      const patterns = [
+        /Episode\s*(\d+)/i,
+        /Ep\.?(\d+)/i,
+        /E\s*(\d+)/i,
+        /#(\d+)/,
+        /(\d+)/,
+      ];
+      for (const p of patterns) {
+        const m = raw.match(p);
+        if (m && m[1]) {
+          const n = Number.parseInt(m[1], 10);
+          if (Number.isFinite(n)) return n;
+        }
+      }
+      return null;
+    };
+
     const episodeId = extractEpisodeIdFromUrl();
     if (!episodeId) {
       console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
+      const episodeFromInfo = extractEpisodeFromInfo();
+      const mapperResult = animeInfo?.animeName ? await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, platform) : null;
+      if (!mapperResult || !Array.isArray((mapperResult as any).results) || !(mapperResult as any).results.length) {
+        return null;
+      }
+
+      const results: any[] = (mapperResult as any).results;
+      const preferredIdx = typeof (mapperResult as any).matched_result?.index === 'number' ? (mapperResult as any).matched_result.index : 0;
+      const order = Array.from(new Set([preferredIdx, ...results.map((_, i) => i)]));
+      const desiredKeys = new Set<string | number>();
+      if (episodeFromInfo !== null) {
+        desiredKeys.add(String(episodeFromInfo));
+        desiredKeys.add(episodeFromInfo);
+        if (episodeFromInfo < 10) desiredKeys.add(`0${episodeFromInfo}`);
+      }
+
+      for (const idx of order) {
+        const res = results[idx];
+        if (!res) continue;
+        if (res.year === 'movies' && Array.isArray(res.movies) && res.movies.length > 0) {
+          return res.movies[0];
+        }
+        const eps = res.episodes;
+        if (eps && typeof eps === 'object' && Object.keys(eps).length > 0) {
+          if (desiredKeys.size > 0) {
+            for (const key of Object.keys(eps)) {
+              const num = Number.parseInt(key, 10);
+              if (desiredKeys.has(key) || desiredKeys.has(num)) {
+                console.log(`[Mapper Failover] Lightweight match via series lookup (idx=${idx}, key=${key})`);
+                return eps[key];
+              }
+            }
+          }
+          // No specific episode parsed; fall back to first available episode URL.
+          const firstKey = Object.keys(eps)[0];
+          if (firstKey && eps[firstKey]) {
+            console.log(`[Mapper Failover] Lightweight match via first episode (idx=${idx}, key=${firstKey})`);
+            return eps[firstKey];
+          }
+        }
+      }
+
+      console.log('[Mapper Failover] Lightweight mapper lookup found no episode match');
       return null;
     }
     console.log('[Mapper Failover] Extracted episode ID:', episodeId);
