@@ -184,6 +184,7 @@ export class DisqusProvider extends BaseProvider {
     const { animeInfo, discussionCache, clearLoadingState, getExternalCommentsContainer } = context;
     
     this.validateAnimeInfo(animeInfo);
+    const releaseToday = isReleaseDateToday(animeInfo?.releaseDate);
 
     // Check cache first
     if (discussionCache.disqus?.thread) {
@@ -206,7 +207,7 @@ export class DisqusProvider extends BaseProvider {
     try {
       let thread = discussionCache.disqus?.thread;
 
-      if (!thread) {
+      if (!thread && !releaseToday) {
         const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus');
         if (mappedDisqusUrl) {
           thread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
@@ -216,8 +217,12 @@ export class DisqusProvider extends BaseProvider {
         }
       }
 
+      if (!thread && releaseToday) {
+        console.log('[DisqusProvider] Skipping Hayami mapper for same-day airing; using direct Disqus lookup');
+      }
+
       // Fallback for non-Crunchyroll pages (e.g., animepahe) without episode IDs
-      if (!thread && animeInfo.animeName) {
+      if (!thread && !releaseToday && animeInfo.animeName) {
         const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'disqus');
         if (mapperData?.results?.length) {
           const epNum = parseEpisodeFromTitle(animeInfo.episodeName || '') || 1;
@@ -235,7 +240,7 @@ export class DisqusProvider extends BaseProvider {
       }
 
       // Avoid season-mismatched grabs if mapper search didn’t return an exact episode hit
-      if (!thread && animeInfo.animeName) {
+      if (!thread && animeInfo.animeName && !releaseToday) {
         console.log('[DisqusProvider] No exact mapper Disqus episode match; skipping mismatched season threads');
       }
 

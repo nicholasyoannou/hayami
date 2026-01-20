@@ -14,6 +14,7 @@ import {
   fetchCrunchyrollSeasons,
   getCrunchyrollAccessToken,
 } from './net/crunchyroll-client';
+import { isReleaseDateToday } from './utils/date-utils';
 
 export { SERIES_MAPPING_KEY } from './mapping-keys';
 export { getSeriesMapping, saveSeriesMapping } from './storage/series-mapping';
@@ -875,6 +876,12 @@ export async function tryMapperFailover(
 ): Promise<string | null> {
   try {
     console.log('[Mapper Failover] Starting failover process', { platform });
+
+    // For Disqus, bypass Hayami mapper on same-day airings and let native Disqus lookup run instead.
+    if (platform === 'disqus' && isReleaseDateToday(animeInfo?.releaseDate)) {
+      console.log('[Mapper Failover] Skipping mapper for Disqus because release is today');
+      return null;
+    }
 
     // If we are not on a Crunchyroll watch URL (e.g., animepahe), skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.

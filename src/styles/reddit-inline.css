@@ -813,6 +813,24 @@
   text-decoration: underline;
 }
 
+/* High-visibility links inside comment bodies */
+#reddit-inline-discussion .ri-text a,
+.ri-comment .ri-text a {
+  color: #3a9d99;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+#reddit-inline-discussion .ri-text a:hover,
+.ri-comment .ri-text a:hover {
+  color: #ffffff;
+}
+
+#reddit-inline-discussion .ri-text a:visited,
+.ri-comment .ri-text a:visited {
+  color: #338c86;
+}
+
 /* Proper list styling inside comment text
    Use a pseudo-bullet so we still show markers even if site CSS disables list-style */
 .ri-text ul {
