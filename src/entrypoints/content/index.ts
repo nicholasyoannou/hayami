@@ -1357,12 +1357,14 @@ function mountLoadingShell(): void {
         loadingWrapper = wrapper;
         applySidePadding(wrapper);
 
-        const shadow = wrapper.attachShadow({ mode: 'open' });
+        // Inject styles directly into host
         const style = document.createElement('style');
         style.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
-        shadow.appendChild(style);
+        wrapper.appendChild(style);
+
+        // Mount Vue loading shell in a child mount point
         const mountPoint = document.createElement('div');
-        shadow.appendChild(mountPoint);
+        wrapper.appendChild(mountPoint);
 
         const app1 = createApp(InlineDiscussion, {
           discussion: placeholderDiscussion,
