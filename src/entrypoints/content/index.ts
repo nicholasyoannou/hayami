@@ -425,6 +425,17 @@ function extractMalIdFromMapperResult(mapperResult: MapperResult | null | undefi
   return candidate;
 }
 
+function extractSeasonNumber(title?: string | null): number | null {
+  if (!title) return null;
+  const m1 = title.match(/season\s*(\d+)/i);
+  if (m1) return Number(m1[1]);
+  const m2 = title.match(/\bS(\d{1,2})\b/i);
+  if (m2) return Number(m2[1]);
+  const m3 = title.match(/(\d)(?:st|nd|rd|th)\s+season/i);
+  if (m3) return Number(m3[1]);
+  return null;
+}
+
 // Enable markdown debug logs by default (can be disabled via DevTools: window.RI_DEBUG_MARKDOWN=false) 
 try {
   if (!(window as any).RI_DEBUG_MARKDOWN) {
@@ -862,19 +873,42 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
 
     const epNum = extractEpisodeNumber(animeInfo.episodeName);
+    const targetMalId = lastAnimeInfo?.malId || null;
+    const targetSeason = extractSeasonNumber(animeInfo.animeName);
+    const normalizeMal = (val: unknown): number | null => {
+      if (typeof val === 'number') return val;
+      if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
+      return null;
+    };
+    const entryMal = (entry: any): number | null => normalizeMal(entry?.mal_id ?? entry?.malId ?? entry?.external_sites?.mal_id);
     const tryMapperDirect = async (): Promise<boolean> => {
       if (!mapperResult?.results?.length || !epNum) return false;
 
       const candidates = mapperResult.results;
+      const malPreferred = targetMalId ? candidates
+        .map((c, i) => ({ c, i, mid: entryMal(c) }))
+        .filter((x) => x.mid === targetMalId)
+        .map((x) => x.i) : [];
       const matchedIdx = typeof mapperResult.matched_result?.index === 'number' ? mapperResult.matched_result.index : null;
 
       const pickOrder = [
+        ...(malPreferred.length ? malPreferred : []),
         ...(matchedIdx !== null ? [matchedIdx] : []),
         ...candidates.map((_, i) => i),
       ].filter((v, i, arr) => arr.indexOf(v) === i);
 
       for (const idx of pickOrder) {
         const entry: any = candidates[idx];
+        if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) {
+          continue;
+        }
+        const entrySeason = extractSeasonNumber(entry?.title || entry?.anime_name || entry?.name || entry?.alt_title);
+        if (entrySeason && targetSeason && entrySeason !== targetSeason) {
+          continue;
+        }
+        if (entrySeason && !targetSeason && entrySeason > 1) {
+          continue;
+        }
         const url = entry?.episodes?.[epNum];
         if (url) {
           console.log('[Mapper] Using mapped episode URL', { idx, epNum, url });
@@ -892,24 +926,32 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, 0));
       const animeData = mapperResult.results[0];
 
-      // Handle both episodes (dictionary) and movies (array)
-      let redditUrl: string | undefined;
+      const mapperSeason = extractSeasonNumber(animeData?.title || animeData?.anime_name || animeData?.name || animeData?.alt_title);
+      if (targetMalId && entryMal(animeData) && entryMal(animeData) !== targetMalId) {
+        console.log('[Mapper] Skipping single-result mismatch by MAL id', { targetMalId, mapperMal: entryMal(animeData) });
+      } else if ((mapperSeason && targetSeason && mapperSeason !== targetSeason) || (mapperSeason && !targetSeason && mapperSeason > 1)) {
+        console.log('[Mapper] Skipping single-result mismatch by season', { targetSeason, mapperSeason });
+      } else {
 
-      if (epNum && animeData.episodes && animeData.episodes[epNum]) {
-        redditUrl = animeData.episodes[epNum];
-      } else if (animeData.year === 'movies' && Array.isArray(animeData.movies) && animeData.movies.length > 0) {
-        // For movies, use the first (and typically only) movie URL
-        redditUrl = animeData.movies[0];
-      }
+        // Handle both episodes (dictionary) and movies (array)
+        let redditUrl: string | undefined;
 
-      if (redditUrl) {
-        console.log('Found exact match in mapper service:', redditUrl);
+        if (epNum && animeData.episodes && animeData.episodes[epNum]) {
+          redditUrl = animeData.episodes[epNum];
+        } else if (animeData.year === 'movies' && Array.isArray(animeData.movies) && animeData.movies.length > 0) {
+          // For movies, use the first (and typically only) movie URL
+          redditUrl = animeData.movies[0];
+        }
 
-        // Extract post ID from Reddit URL and fetch post data
-        const postData = await fetchRedditPostFromUrl(redditUrl);
-        if (postData) {
-          await displayDiscussionDependingOnMode(postData);
-          return;
+        if (redditUrl) {
+          console.log('Found exact match in mapper service:', redditUrl);
+
+          // Extract post ID from Reddit URL and fetch post data
+          const postData = await fetchRedditPostFromUrl(redditUrl);
+          if (postData) {
+            await displayDiscussionDependingOnMode(postData);
+            return;
+          }
         }
       }
     } else {
