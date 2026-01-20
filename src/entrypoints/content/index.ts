@@ -1395,8 +1395,19 @@ function mountLoadingShell(): void {
       if (anchor && loadingWrapper && anchor !== loadingWrapper) {
         try {
           const node = (loadingShellUi as any).root ?? (loadingShellUi as any).container ?? loadingWrapper;
-          if (customSiteMapping?.display === 'replace') anchor.replaceWith(node);
-          else anchor.appendChild(node);
+
+          // For replace mode, swap the anchor with a stable placeholder so final render stays in place
+          if (customSiteMapping?.display === 'replace') {
+            if (!(node as any).__hayamiReplacedOriginal) {
+              const placeholder = document.createElement('div');
+              placeholder.style.minHeight = `${anchor.getBoundingClientRect().height || 1}px`;
+              anchor.replaceWith(placeholder);
+              (node as any).__hayamiReplacedOriginal = anchor;
+              placeholder.appendChild(node);
+            }
+          } else {
+            anchor.appendChild(node);
+          }
         } catch (e) {
           console.warn('Failed to move loading shell to custom anchor', e);
         }
@@ -2068,6 +2079,28 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // Get the host element after mounting
     host = document.getElementById('ri-inline-vue-host');
+
+    // If a custom mapping exists, re-parent the host to the chosen anchor (including replace mode)
+    getCustomMountAnchor().then((anchor) => {
+      if (!anchor || !host || anchor === host) return;
+      try {
+        const node = (inlineDiscussionUi as any).root ?? (inlineDiscussionUi as any).container ?? host;
+
+        if (customSiteMapping?.display === 'replace') {
+          if (!(node as any).__hayamiReplacedOriginal) {
+            const placeholder = document.createElement('div');
+            placeholder.style.minHeight = `${anchor.getBoundingClientRect().height || 1}px`;
+            anchor.replaceWith(placeholder);
+            (node as any).__hayamiReplacedOriginal = anchor;
+            placeholder.appendChild(node);
+          }
+        } else {
+          anchor.appendChild(node);
+        }
+      } catch (e) {
+        console.warn('Failed to move inline discussion host to custom anchor', e);
+      }
+    });
 
     // Note: 'ri-manual-search-requested' event listener is handled by InlineDiscussion.vue component     
     // No need to add it here to avoid duplicates
