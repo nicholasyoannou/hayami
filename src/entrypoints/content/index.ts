@@ -9,9 +9,9 @@ import { getStoredUsername } from '@/utils/redditAuth';
 import { isYouTubeAuthenticated } from '@/utils/youtubeAuth';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { isAuthenticated } from '@/utils/redditAuth';
-import '@/styles/tailwind.css';
-import '@/styles/reddit-inline.css';
-import '@/styles/youtube-inline.css';
+import tailwindCss from '@/styles/tailwind.css?inline';
+import redditInlineCss from '@/styles/reddit-inline.css?inline';
+import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
 import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
 import { Toaster, toast } from 'vue-sonner';
@@ -1208,12 +1208,20 @@ function mountLoadingShell(): void {
       tag: 'div',
       onMount: (wrapper) => {
         wrapper.id = 'ri-inline-vue-host';
+
+        const shadow = wrapper.attachShadow({ mode: 'open' });
+        const style = document.createElement('style');
+        style.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
+        shadow.appendChild(style);
+        const mountPoint = document.createElement('div');
+        shadow.appendChild(mountPoint);
+
         const app1 = createApp(InlineDiscussion, {
           discussion: placeholderDiscussion,
           provider: 'reddit',
           initialLoading: true,
         });
-        app1.mount(wrapper);
+        app1.mount(mountPoint);
         setInlineDiscussionApp(app1);
         return app1;
       },
@@ -1874,6 +1882,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       onMount: (wrapper) => {
         wrapper.id = 'ri-inline-vue-host';
         host = wrapper; // Store reference for later queries
+
+        const shadow = wrapper.attachShadow({ mode: 'open' });
+        const style = document.createElement('style');
+        style.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
+        shadow.appendChild(style);
+        const mountPoint = document.createElement('div');
+        shadow.appendChild(mountPoint);
         
         // Mount Vue inline discussion shell; comments list will still be rendered
         // by the existing content script logic into the .ri-comments element.
@@ -1882,7 +1897,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           provider: 'reddit',
           onProviderChange: providerChangeCallback,
         });
-        app2.mount(wrapper);
+        app2.mount(mountPoint);
         setInlineDiscussionApp(app2);
         return app2;
       },
