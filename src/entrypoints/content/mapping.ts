@@ -823,14 +823,14 @@ export async function tryMapperFailover(
     console.log('[Mapper Failover] Extracted episode ID:', episodeId);
 
     console.log('[Mapper Failover] Fetching Crunchyroll episode metadata...');
-    const crMetadata = await fetchCrunchyrollEpisodeMetadata(episodeId);
-    if (!crMetadata || !(crMetadata as any).data || !(crMetadata as any).data[0]) {
-      console.log('[Mapper Failover] Could not fetch Crunchyroll episode metadata. Response:', crMetadata);
+    const crMetadataResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
+    if (!crMetadataResult.ok || !(crMetadataResult.data as any).data || !(crMetadataResult.data as any).data[0]) {
+      console.log('[Mapper Failover] Could not fetch Crunchyroll episode metadata. Response:', crMetadataResult);
       return null;
     }
     console.log('[Mapper Failover] Successfully fetched Crunchyroll metadata');
 
-    const episodeData = (crMetadata as any).data[0];
+    const episodeData = (crMetadataResult.data as any).data[0];
     const episodeMetadata = (episodeData as any).episode_metadata;
 
     if (!episodeMetadata) {
@@ -871,10 +871,10 @@ export async function tryMapperFailover(
     let seasonsData: any[] = [];
     if (seriesId) {
       const accessToken = await getCrunchyrollAccessToken();
-      if (accessToken) {
-        const seasonsResponse = await fetchCrunchyrollSeasons(seriesId, accessToken);
-        if (seasonsResponse && (seasonsResponse as any).data && Array.isArray((seasonsResponse as any).data)) {
-          seasonsData = (seasonsResponse as any).data;
+      if (accessToken.ok) {
+        const seasonsResponse = await fetchCrunchyrollSeasons(seriesId, accessToken.data);
+        if (seasonsResponse.ok && (seasonsResponse.data as any).data && Array.isArray((seasonsResponse.data as any).data)) {
+          seasonsData = (seasonsResponse.data as any).data;
           console.log('[Mapper Failover] Fetched seasons data, found', seasonsData.length, 'seasons');
         }
       }

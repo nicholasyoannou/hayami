@@ -1,3 +1,6 @@
+import { logger } from '../utils/logger';
+import { Result, ok, err } from './result';
+
 /**
  * Try to extract episode metadata from page's JavaScript state
  */
@@ -8,7 +11,7 @@ function tryGetEpisodeMetadataFromPage(): any | null {
     if (win.__INITIAL_STATE__) {
       const state = win.__INITIAL_STATE__;
       if (state.episode || state.media || state.currentMedia) {
-        console.log('[Mapper Failover] Found episode data in __INITIAL_STATE__');
+        logger.debug('[Mapper Failover] Found episode data in __INITIAL_STATE__');
         return state.episode || state.media || state.currentMedia;
       }
     }
@@ -16,7 +19,7 @@ function tryGetEpisodeMetadataFromPage(): any | null {
     if (win.__CR_DATA__ || win.crunchyroll?.data) {
       const data = win.__CR_DATA__ || win.crunchyroll?.data;
       if (data.episode || data.media) {
-        console.log('[Mapper Failover] Found episode data in Crunchyroll globals');
+        logger.debug('[Mapper Failover] Found episode data in Crunchyroll globals');
         return data.episode || data.media;
       }
     }
@@ -26,7 +29,7 @@ function tryGetEpisodeMetadataFromPage(): any | null {
       try {
         const data = JSON.parse(script.textContent || '{}');
         if (data.episode_metadata || data.episode || data.media) {
-          console.log('[Mapper Failover] Found episode data in JSON script tag');
+          logger.debug('[Mapper Failover] Found episode data in JSON script tag');
           return data;
         }
       } catch {
@@ -34,15 +37,15 @@ function tryGetEpisodeMetadataFromPage(): any | null {
       }
     }
   } catch (error) {
-    console.log('[Mapper Failover] Error trying to get metadata from page:', error);
+    logger.debug('[Mapper Failover] Error trying to get metadata from page:', error);
   }
   return null;
 }
 
-export async function getCrunchyrollAccessToken(): Promise<string | null> {
+export async function getCrunchyrollAccessToken(): Promise<Result<string>> {
   try {
     const url = 'https://www.crunchyroll.com/auth/v1/token';
-    console.log('[Mapper Failover] Fetching access token from auth endpoint...');
+    logger.debug('[Mapper Failover] Fetching access token from auth endpoint...');
 
     const headers: HeadersInit = {
       Accept: 'application/json, text/plain, */*',
@@ -64,45 +67,45 @@ export async function getCrunchyrollAccessToken(): Promise<string | null> {
       body: 'grant_type=client_id',
     });
 
-    console.log('[Mapper Failover] Auth token response status:', response.status, response.ok);
+    logger.debug('[Mapper Failover] Auth token response status:', response.status, response.ok);
 
     if (!response.ok) {
       const text = await response.text();
-      console.log('[Mapper Failover] Auth token request failed:', response.status, text);
-      return null;
+      logger.warn('[Mapper Failover] Auth token request failed:', response.status, text);
+      return err('Failed to fetch access token', response.status);
     }
 
     const data = await response.json();
     const accessToken = (data as any)?.access_token;
 
     if (accessToken) {
-      console.log('[Mapper Failover] Successfully obtained access token');
-      return accessToken;
+      logger.debug('[Mapper Failover] Successfully obtained access token');
+      return ok(accessToken);
     }
 
-    console.log('[Mapper Failover] No access_token in auth response:', data);
-    return null;
+    logger.warn('[Mapper Failover] No access_token in auth response:', data);
+    return err('No access_token in response');
   } catch (error) {
-    console.error('[Mapper Failover] Error getting access token:', error);
-    return null;
+    logger.error('[Mapper Failover] Error getting access token:', error);
+    return err('Error getting access token');
   }
 }
 
-export async function fetchCrunchyrollEpisodeMetadata(episodeId: string): Promise<any | null> {
+export async function fetchCrunchyrollEpisodeMetadata(episodeId: string): Promise<Result<any>> {
   try {
     const pageData = tryGetEpisodeMetadataFromPage();
     if (pageData && pageData.episode_metadata) {
-      console.log('[Mapper Failover] Using episode metadata from page state');
-      return { data: [{ episode_metadata: pageData.episode_metadata }] };
+      logger.debug('[Mapper Failover] Using episode metadata from page state');
+      return ok({ data: [{ episode_metadata: pageData.episode_metadata }] });
     }
 
     const url = `https://www.crunchyroll.com/content/v2/cms/objects/${episodeId}?ratings=true&locale=en-US`;
-    console.log('[Mapper Failover] Fetching from Crunchyroll API:', url);
+    logger.debug('[Mapper Failover] Fetching from Crunchyroll API:', url);
 
     const accessToken = await getCrunchyrollAccessToken();
-    if (!accessToken) {
-      console.log('[Mapper Failover] Failed to get access token, request will likely fail');
-      return null;
+    if (!accessToken.ok) {
+      logger.warn('[Mapper Failover] Failed to get access token, request will likely fail');
+      return err('No access token');
     }
 
     const headers: HeadersInit = {
@@ -114,7 +117,7 @@ export async function fetchCrunchyrollEpisodeMetadata(episodeId: string): Promis
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
       'User-Agent': navigator.userAgent,
-      Authorization: `Bearer ${accessToken}`,
+      Authorization: `Bearer ${accessToken.data}`,
     };
 
     const response = await fetch(url, {
@@ -123,14 +126,14 @@ export async function fetchCrunchyrollEpisodeMetadata(episodeId: string): Promis
       mode: 'cors',
     });
 
-    console.log('[Mapper Failover] Crunchyroll API response status:', response.status, response.ok);
+    logger.debug('[Mapper Failover] Crunchyroll API response status:', response.status, response.ok);
 
     if (!response.ok) {
-      console.log('[Mapper Failover] Crunchyroll API returned non-OK status:', response.status);
+      logger.warn('[Mapper Failover] Crunchyroll API returned non-OK status:', response.status);
       const text = await response.text();
-      console.log('[Mapper Failover] Crunchyroll API error response:', text);
+      logger.debug('[Mapper Failover] Crunchyroll API error response:', text);
 
-      console.log('[Mapper Failover] Attempting fallback with XMLHttpRequest...');
+      logger.debug('[Mapper Failover] Attempting fallback with XMLHttpRequest...');
       try {
         const xhrResult = await new Promise<any>((resolve, reject) => {
           const xhr = new XMLHttpRequest();
@@ -154,33 +157,33 @@ export async function fetchCrunchyrollEpisodeMetadata(episodeId: string): Promis
           xhr.onerror = () => reject(new Error('XHR error'));
           xhr.send();
         });
-        console.log('[Mapper Failover] XHR fallback succeeded');
-        return xhrResult;
+        logger.debug('[Mapper Failover] XHR fallback succeeded');
+        return ok(xhrResult);
       } catch (xhrError) {
-        console.log('[Mapper Failover] XHR fallback also failed:', xhrError);
+        logger.warn('[Mapper Failover] XHR fallback also failed:', xhrError);
       }
 
-      return null;
+      return err('Crunchyroll episode fetch failed', response.status);
     }
 
     const data = await response.json();
-    console.log('[Mapper Failover] Crunchyroll API response data structure:', {
+    logger.debug('[Mapper Failover] Crunchyroll API response data structure:', {
       hasData: !!data,
       hasDataArray: !!(data && (data as any).data),
       dataLength: (data as any)?.data?.length,
       firstItemHasMetadata: !!((data as any)?.data?.[0]?.episode_metadata),
     });
-    return data;
+    return ok(data);
   } catch (error) {
-    console.error('[Mapper Failover] Error fetching Crunchyroll episode metadata:', error);
-    return null;
+    logger.error('[Mapper Failover] Error fetching Crunchyroll episode metadata:', error);
+    return err('Error fetching episode metadata');
   }
 }
 
-export async function fetchCrunchyrollSeasons(seriesId: string, accessToken: string): Promise<any | null> {
+export async function fetchCrunchyrollSeasons(seriesId: string, accessToken: string): Promise<Result<any>> {
   try {
     const url = `https://www.crunchyroll.com/content/v2/cms/series/${seriesId}/seasons?force_locale=ja-JP&locale=en-US`;
-    console.log('[Mapper Failover] Fetching seasons data from Crunchyroll API:', url);
+    logger.debug('[Mapper Failover] Fetching seasons data from Crunchyroll API:', url);
     const headers: HeadersInit = {
       Accept: 'application/json, text/plain, */*',
       'Accept-Language': navigator.language || 'en-US,en;q=0.9',
@@ -199,19 +202,19 @@ export async function fetchCrunchyrollSeasons(seriesId: string, accessToken: str
       mode: 'cors',
     });
 
-    console.log('[Mapper Failover] Seasons API response status:', response.status, response.ok);
+    logger.debug('[Mapper Failover] Seasons API response status:', response.status, response.ok);
 
     if (!response.ok) {
       const text = await response.text();
-      console.log('[Mapper Failover] Seasons API request failed:', response.status, text);
-      return null;
+      logger.warn('[Mapper Failover] Seasons API request failed:', response.status, text);
+      return err('Failed to fetch seasons', response.status);
     }
 
     const data = await response.json();
-    console.log('[Mapper Failover] Successfully fetched seasons data:', data);
-    return data;
+    logger.debug('[Mapper Failover] Successfully fetched seasons data:', data);
+    return ok(data);
   } catch (error) {
-    console.error('[Mapper Failover] Error fetching seasons data:', error);
-    return null;
+    logger.error('[Mapper Failover] Error fetching seasons data:', error);
+    return err('Error fetching seasons');
   }
 }

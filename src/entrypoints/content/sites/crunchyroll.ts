@@ -26,15 +26,16 @@ export const crunchyrollAdapter: SiteAdapter = {
     if (!ctx.episodeId) return null;
 
     const episodeData = await fetchCrunchyrollEpisodeMetadata(ctx.episodeId);
-    const episodeMetadata = (episodeData as any)?.data?.[0]?.episode_metadata;
+    if (!episodeData.ok) return null;
+    const episodeMetadata = (episodeData.data as any)?.data?.[0]?.episode_metadata;
     const seriesId = episodeMetadata?.series_id ?? null;
 
     let seasonsData: any[] = [];
     if (seriesId) {
       const token = await getCrunchyrollAccessToken();
-      if (token) {
-        const seasons = await fetchCrunchyrollSeasons(seriesId, token);
-        seasonsData = (seasons as any)?.data ?? [];
+      if (token.ok) {
+        const seasons = await fetchCrunchyrollSeasons(seriesId, token.data);
+        seasonsData = (seasons.ok ? (seasons.data as any)?.data : []) ?? [];
       }
     }
 

@@ -88,8 +88,8 @@ export class YouTubeProvider extends BaseProvider {
         const episodeId = extractEpisodeIdFromUrl();
         if (episodeId) {
           const crMetadata = await fetchCrunchyrollEpisodeMetadata(episodeId);
-          if (crMetadata?.data?.[0]?.episode_metadata?.season_title) {
-            seasonTitle = crMetadata.data[0].episode_metadata.season_title;
+          if (crMetadata.ok && crMetadata.data?.data?.[0]?.episode_metadata?.season_title) {
+            seasonTitle = crMetadata.data.data[0].episode_metadata.season_title;
           }
         }
       } catch (e) {
