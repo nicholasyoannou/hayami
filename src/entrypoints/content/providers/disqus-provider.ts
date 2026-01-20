@@ -16,7 +16,7 @@ import {
 } from '../constants';
 import { getContainerWithRetry, removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { handleProviderError } from '../utils/error-handler';
-import { parseEpisodeFromTitle, tryMapperFailover } from '../mapping';
+import { parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName } from '../mapping';
 import { isReleaseDateToday } from '../utils/date-utils';
 
 /**
@@ -214,6 +214,29 @@ export class DisqusProvider extends BaseProvider {
             console.log('[DisqusProvider] Using mapper Disqus match:', mappedDisqusUrl);
           }
         }
+      }
+
+      // Fallback for non-Crunchyroll pages (e.g., animepahe) without episode IDs
+      if (!thread && animeInfo.animeName) {
+        const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'disqus');
+        if (mapperData?.results?.length) {
+          const epNum = parseEpisodeFromTitle(animeInfo.episodeName || '') || 1;
+          for (const entry of mapperData.results) {
+            const maybeUrl = entry?.episodes?.[epNum] || entry?.episodes?.[String(epNum)];
+            if (maybeUrl) {
+              thread = buildDisqusThreadFromUrl(maybeUrl, animeInfo);
+              if (thread) {
+                console.log('[DisqusProvider] Using series-name mapper Disqus match:', maybeUrl);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // Avoid season-mismatched grabs if mapper search didn’t return an exact episode hit
+      if (!thread && animeInfo.animeName) {
+        console.log('[DisqusProvider] No exact mapper Disqus episode match; skipping mismatched season threads');
       }
 
       if (!thread) {

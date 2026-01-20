@@ -41,6 +41,32 @@ export function resolveCurrentAdapter(location: Location = window.location) {
 }
 
 /**
+ * Lightweight mapper lookup by series name only (no Crunchyroll metadata).
+ * Supports platform hint (reddit|disqus) by forwarding to the search endpoint.
+ */
+export async function fetchAnimeMapperDataBySeriesName(
+  seriesName: string,
+  platform: 'reddit' | 'disqus' = 'reddit',
+): Promise<any | null> {
+  try {
+    const encodedSeries = encodeURIComponent(seriesName);
+    const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}`;
+    console.log('[Mapper] Querying mapper by series name:', { url, platform });
+    const response = await fetch(url);
+    if (!response.ok) {
+      console.log('[Mapper] Series-name mapper returned non-OK status:', response.status, response.statusText);
+      return null;
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('[Mapper] Error fetching by series name:', error);
+    return null;
+  }
+}
+
+/**
  * Extract episode ID from Crunchyroll watch URL
  * e.g., https://www.crunchyroll.com/watch/G0DUN9VD2/the-last-one -> G0DUN9VD2
  */

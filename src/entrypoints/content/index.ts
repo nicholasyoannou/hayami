@@ -780,6 +780,23 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     discussionCache.disqus = undefined;
     discussionCache.youtube = undefined;
     discussionCache.mal = undefined;
+
+    // Hard-clear any leftover Disqus artifacts before mounting the new episode
+    // to avoid stale threads sticking around between navigations.
+    document.querySelectorAll('script[src*="disqus"]').forEach((el) => el.remove());
+    document.querySelectorAll('iframe[src*="disqus"]').forEach((el) => el.remove());
+    const oldDisqus = document.getElementById('disqus_thread');
+    if (oldDisqus) {
+      oldDisqus.remove();
+    }
+    // Clear the global DISQUS singleton so the embed script reinitializes cleanly.
+    if ((window as any).DISQUS) {
+      try {
+        delete (window as any).DISQUS;
+      } catch {
+        (window as any).DISQUS = undefined;
+      }
+    }
     
     // Remove old comments section if present (when navigating between episodes)
     const oldComments = document.getElementById('reddit-inline-discussion');
@@ -2000,29 +2017,29 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       position: 'inline',
       anchor: () => {
         const layout = document.querySelector('.erc-watch-episode-layout');
-        const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+        const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;  
         if (!wrapper) {
           console.warn('content-wrapper inside .erc-watch-episode-layout not found');
         }
-        return wrapper || getWatchPageWrapper() || document.body;
+        return wrapper || null;
       },
       append: 'last',
       tag: 'div',
       onMount: (wrapper) => {
         wrapper.id = 'ri-inline-vue-host';
         host = wrapper; // Store reference for later queries
-        applySidePadding(wrapper);
 
-        const shadow = wrapper.attachShadow({ mode: 'open' });
+        // Apply padding and inject scoped styles directly into the host
+        applySidePadding(wrapper);
         const style = document.createElement('style');
         style.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
-        shadow.appendChild(style);
+        wrapper.appendChild(style);
+
+        // Mount Vue inline discussion shell inside a dedicated mount point
         const mountPoint = document.createElement('div');
-        shadow.appendChild(mountPoint);
-        
-        // Mount Vue inline discussion shell; comments list will still be rendered
-        // by the existing content script logic into the .ri-comments element.
-        const app2 = createApp(InlineDiscussion, { 
+        wrapper.appendChild(mountPoint);
+
+        const app2 = createApp(InlineDiscussion, {
           discussion,
           provider: 'reddit',
           onProviderChange: providerChangeCallback,
@@ -2046,35 +2063,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Store reference and mount
     (window as any).__crInlineDiscussionUi = inlineDiscussionUi;
     inlineDiscussionUi.mount();
-    
+
     // Get the host element after mounting
     host = document.getElementById('ri-inline-vue-host');
-    applySidePadding(host);
 
-    // Hide host initially for popup/icon modes and expose launcher
-    if (customSiteMapping && (customSiteMapping.display === 'popup' || customSiteMapping.display === 'icon')) {
-      if (host) host.style.display = 'none';
-      ensureLaunchButton(host);
-    }
-
-    // Move host under custom anchor if available
-    getCustomMountAnchor().then((anchor) => {
-      if (anchor && host && anchor !== host) {
-        try {
-          if (customSiteMapping?.display === 'replace') {
-            anchor.replaceWith(host);
-          } else {
-            anchor.appendChild(host);
-          }
-        } catch (e) {
-          console.warn('Failed to move inline host to custom anchor', e);
-        }
-      }
-    });
-    
-    // Note: 'ri-manual-search-requested' event listener is handled by InlineDiscussion.vue component
+    // Note: 'ri-manual-search-requested' event listener is handled by InlineDiscussion.vue component     
     // No need to add it here to avoid duplicates
-    
+
     // Store component instance reference after mounting
     const vueApp = inlineDiscussionApp as any;
     if (vueApp._container && vueApp._container._vnode && vueApp._container._vnode.component) {
