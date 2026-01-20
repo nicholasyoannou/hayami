@@ -2418,11 +2418,15 @@ function ensureLaunchButton(host: HTMLElement | null): void {
 function openSiteMapperOverlay(ctx: ContentScriptContext): void {
   if (document.getElementById('hayami-site-mapper-overlay')) return;
 
-  ensurePermissionForCurrentSite().then((granted) => {
+  ensurePermissionForCurrentSite().then(async (granted) => {
     if (!granted) {
       toast.error('Permission denied. Enable site access to continue.');
       return;
     }
+
+    // Refresh the latest mapping before rendering so the placement radios and inputs preselect correctly
+    const existingMapping = await loadCustomMappingForOrigin();
+    setCustomSiteMapping(existingMapping);
 
     const overlay = document.createElement('div');
     overlay.id = 'hayami-site-mapper-overlay';
