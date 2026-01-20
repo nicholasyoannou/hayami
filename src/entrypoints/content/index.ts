@@ -26,6 +26,8 @@ import { AnimeInfo } from './types';
 import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId } from '@/utils/malForums';
 import { getMALAccessToken } from '@/utils/malAuth';
 import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover, extractEpisodeIdFromUrl, fetchCrunchyrollEpisodeMetadata } from './mapping';
+import { detectChibi, evaluateChibiWithOverrides, loadChibiOverrideForOrigin, matchChibiPage, saveChibiOverrideForOrigin } from './chibi';
+import type { ChibiOverrideEntry, ChibiSync } from './chibi';
 
 // New modular imports
 import { renderFlair as renderFlairBase, renderActions as renderActionsBase, triggerScoreAnimation } from './comments';
@@ -445,7 +447,13 @@ async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
   debug.log('On watch page, extracting anime info...');
 
   // Try to get anime info immediately
-  let info = getCustomAnimeInfo() || getAnimeInfo();
+  let info = getCustomAnimeInfo();
+  if (!info) {
+    info = await getChibiAnimeInfo();
+  }
+  if (!info) {
+    info = getAnimeInfo();
+  }
 
   if (info) {
     console.log('Anime Info:', info);
@@ -462,6 +470,36 @@ async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
     // If not found, wait for the content to load
     console.log('Anime info not found yet, waiting for content to load...');
     observeAnimeInfoOnce(ctx);
+  }
+}
+
+async function getChibiAnimeInfo(): Promise<{ animeName: string; episodeName: string; releaseDate?: string } | null> {
+  try {
+    const detected = await detectChibi(document, window.location);
+    if (!detected || !detected.title) return null;
+
+    const title = typeof detected.title === 'string' ? detected.title.trim() : String(detected.title ?? '').trim();
+    if (!title) return null;
+
+    const episodeRaw = detected.episode;
+    let episodeName = '';
+    if (typeof episodeRaw === 'number') {
+      episodeName = `Episode ${episodeRaw}`;
+    } else if (typeof episodeRaw === 'string' && episodeRaw.trim()) {
+      const trimmed = episodeRaw.trim();
+      episodeName = /^episode/i.test(trimmed) ? trimmed : `Episode ${trimmed}`;
+    }
+
+    if (!episodeName) return null;
+
+    return {
+      animeName: title,
+      episodeName,
+      releaseDate: undefined,
+    };
+  } catch (e) {
+    console.warn('[chibi] detection failed', e);
+    return null;
   }
 }
 
@@ -822,25 +860,51 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
     // Before showing selection/no discussion, check r-anime-wiki-mapper service (original method)
     const mapperResult = await fetchAnimeMapperData(animeInfo.animeName);
     setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
-    
+
+    const epNum = extractEpisodeNumber(animeInfo.episodeName);
+    const tryMapperDirect = async (): Promise<boolean> => {
+      if (!mapperResult?.results?.length || !epNum) return false;
+
+      const candidates = mapperResult.results;
+      const matchedIdx = typeof mapperResult.matched_result?.index === 'number' ? mapperResult.matched_result.index : null;
+
+      const pickOrder = [
+        ...(matchedIdx !== null ? [matchedIdx] : []),
+        ...candidates.map((_, i) => i),
+      ].filter((v, i, arr) => arr.indexOf(v) === i);
+
+      for (const idx of pickOrder) {
+        const entry: any = candidates[idx];
+        const url = entry?.episodes?.[epNum];
+        if (url) {
+          console.log('[Mapper] Using mapped episode URL', { idx, epNum, url });
+          const postData = await fetchRedditPostFromUrl(url);
+          if (postData) {
+            await displayDiscussionDependingOnMode(postData);
+            return true;
+          }
+        }
+      }
+      return false;
+    };
+
     if (mapperResult && mapperResult.count === 1 && mapperResult.results && mapperResult.results.length > 0) {
       setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, 0));
       const animeData = mapperResult.results[0];
-      const epNum = extractEpisodeNumber(animeInfo.episodeName);
-      
+
       // Handle both episodes (dictionary) and movies (array)
       let redditUrl: string | undefined;
-      
+
       if (epNum && animeData.episodes && animeData.episodes[epNum]) {
         redditUrl = animeData.episodes[epNum];
       } else if (animeData.year === 'movies' && Array.isArray(animeData.movies) && animeData.movies.length > 0) {
         // For movies, use the first (and typically only) movie URL
         redditUrl = animeData.movies[0];
       }
-      
+
       if (redditUrl) {
         console.log('Found exact match in mapper service:', redditUrl);
-        
+
         // Extract post ID from Reddit URL and fetch post data
         const postData = await fetchRedditPostFromUrl(redditUrl);
         if (postData) {
@@ -848,6 +912,9 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
           return;
         }
       }
+    } else {
+      const used = await tryMapperDirect();
+      if (used) return;
     }
 
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
@@ -866,6 +933,24 @@ async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
       console.log('Auto-selected post matching exact release date:', exactDateMatch.title);
       await displayDiscussionDependingOnMode(exactDateMatch);
       return;
+    }
+
+    const episodeFromInfo = extractEpisodeNumber(animeInfo.episodeName || '');
+    if (typeof episodeFromInfo === 'number') {
+      const epMatches = results.filter((r) => parseEpisodeFromTitle(r.title) === episodeFromInfo);
+      if (epMatches.length === 1) {
+        console.log('Auto-selected post by episode match:', epMatches[0].title);
+        await displayDiscussionDependingOnMode(epMatches[0]);
+        return;
+      }
+      if (epMatches.length > 1) {
+        const autoLovepon = epMatches.find((r) => (r.author || '').toLowerCase() === 'autolovepon');
+        if (autoLovepon) {
+          console.log('Auto-selected AutoLovepon post by episode match:', autoLovepon.title);
+          await displayDiscussionDependingOnMode(autoLovepon);
+          return;
+        }
+      }
     }
 
     if (results.length === 1) {
@@ -1200,6 +1285,8 @@ function mountLoadingShell(): void {
       subreddit_primary_color: null,
     };
 
+    let loadingWrapper: HTMLElement | null = null;
+
     // Use WXT's integrated UI for inline positioning
     const loadingShellUi = createIntegratedUi(contentScriptContext, {
       position: 'inline',
@@ -1208,6 +1295,8 @@ function mountLoadingShell(): void {
       tag: 'div',
       onMount: (wrapper) => {
         wrapper.id = 'ri-inline-vue-host';
+        loadingWrapper = wrapper;
+        applySidePadding(wrapper);
 
         const shadow = wrapper.attachShadow({ mode: 'open' });
         const style = document.createElement('style');
@@ -1242,13 +1331,11 @@ function mountLoadingShell(): void {
 
     // After mount, if a custom anchor exists, move the wrapper under it
     getCustomMountAnchor().then((anchor) => {
-      if (anchor && anchor !== wrapper) {
+      if (anchor && loadingWrapper && anchor !== loadingWrapper) {
         try {
-          if (customSiteMapping?.display === 'replace') {
-            anchor.replaceWith((loadingShellUi as any).root ?? (loadingShellUi as any).container ?? wrapper);
-          } else {
-            anchor.appendChild((loadingShellUi as any).root ?? (loadingShellUi as any).container ?? wrapper);
-          }
+          const node = (loadingShellUi as any).root ?? (loadingShellUi as any).container ?? loadingWrapper;
+          if (customSiteMapping?.display === 'replace') anchor.replaceWith(node);
+          else anchor.appendChild(node);
         } catch (e) {
           console.warn('Failed to move loading shell to custom anchor', e);
         }
@@ -1882,6 +1969,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       onMount: (wrapper) => {
         wrapper.id = 'ri-inline-vue-host';
         host = wrapper; // Store reference for later queries
+        applySidePadding(wrapper);
 
         const shadow = wrapper.attachShadow({ mode: 'open' });
         const style = document.createElement('style');
@@ -1919,6 +2007,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     
     // Get the host element after mounting
     host = document.getElementById('ri-inline-vue-host');
+    applySidePadding(host);
 
     // Hide host initially for popup/icon modes and expose launcher
     if (customSiteMapping && (customSiteMapping.display === 'popup' || customSiteMapping.display === 'icon')) {
@@ -2036,7 +2125,7 @@ function ensureToaster(ctx: ContentScriptContext): void {
 // Store content script context globally for WXT UI helpers
 let contentScriptContext: ContentScriptContext | null = null;
 
-type DisplayPlacement = 'below' | 'insert' | 'replace';
+type DisplayPlacement = 'below' | 'insert' | 'replace' | 'popup' | 'icon';
 
 interface CustomSiteMapping {
   origin: string;
@@ -2045,6 +2134,7 @@ interface CustomSiteMapping {
   mountSelector: string;
   titleSelector: string;
   episodeSelector: string;
+  sidePadding?: number;
   anchorXPath?: string;
   mountXPath?: string;
   titleXPath?: string;
@@ -2058,6 +2148,17 @@ let launchButton: HTMLButtonElement | null = null;
 
 function setCustomSiteMapping(mapping: CustomSiteMapping | null): void {
   customSiteMapping = mapping;
+}
+
+function applySidePadding(target: HTMLElement | null | undefined): void {
+  if (!target) return;
+  const raw = customSiteMapping?.sidePadding;
+  const numeric = typeof raw === 'string' ? Number.parseFloat(raw as any) : raw;
+  if (numeric === undefined || numeric === null) return;
+  if (!Number.isFinite(numeric) || numeric < 0) return;
+  target.style.boxSizing = 'border-box';
+  target.style.paddingLeft = `${numeric}px`;
+  target.style.paddingRight = `${numeric}px`;
 }
 
 async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | null> {
@@ -2300,8 +2401,10 @@ function openSiteMapperOverlay(ctx: ContentScriptContext): void {
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .field { display: flex; flex-direction: column; gap: 6px; }
       .field label { font-weight: 600; font-size: 13px; }
-      input[type='text'] { background: #0c0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px 12px; color: #fff; }
-      input[type='text']:focus { outline: none; border-color: #5ba8ff; box-shadow: 0 0 0 2px rgba(91,168,255,0.25); }
+      input[type='text'], input[type='number'] { background: #0c0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px 12px; color: #fff; }
+      input[type='text']:focus, input[type='number']:focus { outline: none; border-color: #5ba8ff; box-shadow: 0 0 0 2px rgba(91,168,255,0.25); }
+      textarea { background: #0c0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px 12px; color: #fff; resize: vertical; min-height: 96px; font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; }
+      textarea:focus { outline: none; border-color: #5ba8ff; box-shadow: 0 0 0 2px rgba(91,168,255,0.25); }
       .radio-row { display: flex; gap: 12px; align-items: center; }
       .radio-row label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
       .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
@@ -2311,6 +2414,12 @@ function openSiteMapperOverlay(ctx: ContentScriptContext): void {
       .pick { padding: 6px 10px; font-size: 12px; }
       .blurred { filter: blur(2px); }
       .hint { font-size: 12px; color: rgba(255,255,255,0.7); }
+      .section-title { font-size: 14px; font-weight: 700; margin: 6px 0; }
+      .chibi-card { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; background: #0c0e14; display: flex; flex-direction: column; gap: 8px; }
+      .chibi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(91,168,255,0.1); color: #cce6ff; font-weight: 600; font-size: 12px; }
+      .chibi-preview { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45; }
+      .disabled { opacity: 0.6; pointer-events: none; }
       .pick-indicator { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #0d6efd; color: #0b1220; padding: 8px 14px; border-radius: 999px; font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,0.35); pointer-events: none; z-index: 2147483001; }
     `;
     shadow.appendChild(style);
@@ -2360,6 +2469,37 @@ function openSiteMapperOverlay(ctx: ContentScriptContext): void {
           </div>
         </div>
       </div>
+      <div class="row">
+        <div class="field" style="grid-column: span 2;">
+          <label>Side padding (px) <span class="hint">Adds horizontal space inside the injected comments</span></label>
+          <input id="sidePadding" type="number" min="0" step="4" placeholder="0" />
+        </div>
+      </div>
+      <div class="chibi-card" id="chibiSection">
+        <div class="section-title">MALSync site data</div>
+        <div class="hint" id="chibiStatus">Loading MALSync match…</div>
+        <div class="chibi-grid">
+          <div class="field">
+            <label>getTitle override <span class="hint">JSON array of steps; blank uses MALSync default</span></label>
+            <textarea id="chibiTitleOverride" spellcheck="false" placeholder='e.g. [["querySelector",".title"],["text"],["trim"]]'></textarea>
+          </div>
+          <div class="field">
+            <label>getEpisode override <span class="hint">JSON array of steps</span></label>
+            <textarea id="chibiEpisodeOverride" spellcheck="false" placeholder='e.g. [["regex","episode-(\\d+)",1]]'></textarea>
+          </div>
+        </div>
+        <div class="field">
+          <label>getIdentifier override <span class="hint">Optional slug/ID extractor</span></label>
+          <textarea id="chibiIdentifierOverride" spellcheck="false" placeholder='e.g. [["url"],["urlPart",3]]'></textarea>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+          <div class="chibi-preview" id="chibiPreview">Awaiting preview…</div>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <button class="pick" id="chibiTest">Preview extraction</button>
+            <button class="pick" id="chibiReset">Reset overrides</button>
+          </div>
+        </div>
+      </div>
       <div class="actions">
         <button id="cancelMapper">Cancel</button>
         <button id="saveMapper" class="primary">Save & Embed</button>
@@ -2373,12 +2513,126 @@ function openSiteMapperOverlay(ctx: ContentScriptContext): void {
     const anchorInput = shadow.getElementById('anchorSelector') as HTMLInputElement;
     const titleInput = shadow.getElementById('titleSelector') as HTMLInputElement;
     const episodeInput = shadow.getElementById('episodeSelector') as HTMLInputElement;
+    const paddingInput = shadow.getElementById('sidePadding') as HTMLInputElement | null;
+
+    const chibiSection = shadow.getElementById('chibiSection') as HTMLElement | null;
+    const chibiStatus = shadow.getElementById('chibiStatus') as HTMLElement | null;
+    const chibiPreview = shadow.getElementById('chibiPreview') as HTMLElement | null;
+    const chibiTitleArea = shadow.getElementById('chibiTitleOverride') as HTMLTextAreaElement | null;
+    const chibiEpisodeArea = shadow.getElementById('chibiEpisodeOverride') as HTMLTextAreaElement | null;
+    const chibiIdentifierArea = shadow.getElementById('chibiIdentifierOverride') as HTMLTextAreaElement | null;
+    const chibiTestBtn = shadow.getElementById('chibiTest') as HTMLButtonElement | null;
+    const chibiResetBtn = shadow.getElementById('chibiReset') as HTMLButtonElement | null;
+    const chibiMatch = matchChibiPage(location.href);
+    const chibiDefaults = (chibiMatch?.page.sync || {}) as Partial<ChibiSync>;
+    const chibiDefaultStrings = {
+      title: chibiDefaults.getTitle ? JSON.stringify(chibiDefaults.getTitle, null, 2) : '',
+      episode: chibiDefaults.getEpisode ? JSON.stringify(chibiDefaults.getEpisode, null, 2) : '',
+      identifier: chibiDefaults.getIdentifier ? JSON.stringify(chibiDefaults.getIdentifier, null, 2) : '',
+    };
+
+    const deepEqualSteps = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
+    const serializeSteps = (steps?: any[]) => (steps ? JSON.stringify(steps, null, 2) : '');
+    const parseSteps = (raw: string): any[] | null => {
+      const trimmed = (raw || '').trim();
+      if (!trimmed) return null;
+      try {
+        const parsed = JSON.parse(trimmed);
+        return Array.isArray(parsed) ? parsed : null;
+      } catch (e) {
+        console.warn('[chibi] failed to parse override', e);
+        return null;
+      }
+    };
+
+    const buildChibiOverrides = (): { overrides: Partial<ChibiSync> } | { error: string } => {
+      if (!chibiMatch) return { overrides: {} };
+      const overrides: Partial<ChibiSync> = {};
+
+      const parsedTitle = chibiTitleArea ? parseSteps(chibiTitleArea.value) : null;
+      const parsedEpisode = chibiEpisodeArea ? parseSteps(chibiEpisodeArea.value) : null;
+      const parsedIdentifier = chibiIdentifierArea ? parseSteps(chibiIdentifierArea.value) : null;
+
+      if (chibiTitleArea && chibiTitleArea.value.trim() && !parsedTitle) return { error: 'Invalid JSON for getTitle override' };
+      if (chibiEpisodeArea && chibiEpisodeArea.value.trim() && !parsedEpisode) return { error: 'Invalid JSON for getEpisode override' };
+      if (chibiIdentifierArea && chibiIdentifierArea.value.trim() && !parsedIdentifier) return { error: 'Invalid JSON for getIdentifier override' };
+
+      if (parsedTitle && !deepEqualSteps(parsedTitle, chibiDefaults.getTitle)) overrides.getTitle = parsedTitle as any[];
+      if (parsedEpisode && !deepEqualSteps(parsedEpisode, chibiDefaults.getEpisode)) overrides.getEpisode = parsedEpisode as any[];
+      if (parsedIdentifier && !deepEqualSteps(parsedIdentifier, chibiDefaults.getIdentifier)) overrides.getIdentifier = parsedIdentifier as any[];
+
+      return { overrides };
+    };
+
+    const updateChibiPreview = () => {
+      if (!chibiPreview) return;
+      if (!chibiMatch) {
+        chibiPreview.textContent = 'No MALSync mapping available for this URL.';
+        return;
+      }
+      const built = buildChibiOverrides();
+      if ('error' in built) {
+        chibiPreview.textContent = built.error;
+        return;
+      }
+      const result = evaluateChibiWithOverrides(chibiMatch, built.overrides, document, window.location);
+      const parts = [
+        result.title ? `Title: ${result.title}` : 'Title: (none)',
+        result.episode !== undefined && result.episode !== null ? `Episode: ${result.episode}` : 'Episode: (none)',
+        result.identifier ? `Identifier: ${result.identifier}` : 'Identifier: (none)',
+      ];
+      if (result.errors?.length) {
+        parts.push(`Errors: ${result.errors.slice(0, 3).join('; ')}`);
+      }
+      chibiPreview.textContent = parts.join(' | ');
+    };
+
+    const hydrateChibiSection = async () => {
+      if (!chibiSection) return;
+      if (!chibiMatch) {
+        chibiSection.classList.add('disabled');
+        if (chibiStatus) chibiStatus.textContent = 'No MALSync config found for this site.';
+        return;
+      }
+      if (chibiStatus) {
+        chibiStatus.textContent = `Matched MALSync: ${chibiMatch.page.name || chibiMatch.page.key}`;
+      }
+      const storedOverride = await loadChibiOverrideForOrigin(location.origin);
+      const overridesToUse = storedOverride && storedOverride.key === chibiMatch.page.key ? storedOverride.overrides : undefined;
+
+      if (chibiTitleArea) chibiTitleArea.value = overridesToUse?.getTitle ? serializeSteps(overridesToUse.getTitle) : chibiDefaultStrings.title;
+      if (chibiEpisodeArea) chibiEpisodeArea.value = overridesToUse?.getEpisode ? serializeSteps(overridesToUse.getEpisode) : chibiDefaultStrings.episode;
+      if (chibiIdentifierArea) chibiIdentifierArea.value = overridesToUse?.getIdentifier ? serializeSteps(overridesToUse.getIdentifier) : chibiDefaultStrings.identifier;
+
+      updateChibiPreview();
+    };
+
+    void hydrateChibiSection();
+
+    if (chibiTestBtn) {
+      chibiTestBtn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        updateChibiPreview();
+      });
+    }
+
+    if (chibiResetBtn) {
+      chibiResetBtn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        if (!chibiMatch) return;
+        if (chibiTitleArea) chibiTitleArea.value = chibiDefaultStrings.title;
+        if (chibiEpisodeArea) chibiEpisodeArea.value = chibiDefaultStrings.episode;
+        if (chibiIdentifierArea) chibiIdentifierArea.value = chibiDefaultStrings.identifier;
+        updateChibiPreview();
+      });
+    }
 
     if (customSiteMapping) {
       mountInput.value = customSiteMapping.mountSelector || '';
       anchorInput.value = customSiteMapping.anchorSelector || '';
       titleInput.value = customSiteMapping.titleSelector || '';
       episodeInput.value = customSiteMapping.episodeSelector || '';
+      if (paddingInput) paddingInput.value = (customSiteMapping.sidePadding ?? '').toString();
       (mountInput as any)._hayamiXPath = customSiteMapping.mountXPath || '';
       (anchorInput as any)._hayamiXPath = customSiteMapping.anchorXPath || '';
       (titleInput as any)._hayamiXPath = customSiteMapping.titleXPath || '';
@@ -2542,6 +2796,8 @@ function openSiteMapperOverlay(ctx: ContentScriptContext): void {
     shadow.getElementById('saveMapper')?.addEventListener('click', async () => {
       cleanupPickers();
       const placement = placements.find((p) => p.checked)?.value as DisplayPlacement || 'below';
+      const parsedPadding = paddingInput ? Number.parseFloat(paddingInput.value) : NaN;
+      const sidePadding = Number.isFinite(parsedPadding) && parsedPadding >= 0 ? parsedPadding : 0;
       const mapping: CustomSiteMapping = {
         origin: location.origin,
         display: placement,
@@ -2549,17 +2805,31 @@ function openSiteMapperOverlay(ctx: ContentScriptContext): void {
         mountSelector: mountInput.value.trim() || anchorInput.value.trim() || 'body',
         titleSelector: titleInput.value.trim(),
         episodeSelector: episodeInput.value.trim(),
+        sidePadding,
         anchorXPath: (anchorInput as any)._hayamiXPath || customSiteMapping?.anchorXPath || '',
         mountXPath: (mountInput as any)._hayamiXPath || customSiteMapping?.mountXPath || '',
         titleXPath: (titleInput as any)._hayamiXPath || customSiteMapping?.titleXPath || '',
         episodeXPath: (episodeInput as any)._hayamiXPath || customSiteMapping?.episodeXPath || '',
       };
 
+      let chibiOverrideEntry: ChibiOverrideEntry | null = null;
+      if (chibiMatch) {
+        const built = buildChibiOverrides();
+        if ('error' in built) {
+          toast.error(built.error);
+          return;
+        }
+        if (Object.keys(built.overrides).length > 0) {
+          chibiOverrideEntry = { key: chibiMatch.page.key, overrides: built.overrides };
+        }
+      }
+
       try {
         const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
         const map = stored?.[CUSTOM_SITE_MAPPINGS_KEY] || {};
         map[location.origin] = mapping;
         await chrome.storage.local.set({ [CUSTOM_SITE_MAPPINGS_KEY]: map });
+        await saveChibiOverrideForOrigin(location.origin, chibiOverrideEntry);
         setCustomSiteMapping(mapping);
         toast.success('Site mapping saved');
         overlay.remove();

@@ -6,7 +6,7 @@ const outputPath = process.env.MALSYNC_OUTPUT || 'src/lib/chibi/malsync-pages.js
 const allowedTypes = new Set(
   (process.env.MALSYNC_TYPES || 'anime')
     .split(',')
-    .map(s => s.trim())
+    .map(s => s.trim().toLowerCase())
     .filter(Boolean),
 );
 const syncKeys = ['getTitle', 'getIdentifier', 'getEpisode', 'getOverviewUrl', 'getImage', 'nextEpUrl'];
@@ -41,12 +41,22 @@ function trimPage(meta, page) {
   };
 }
 
+function typeMatches(meta) {
+  const norm = String(meta?.type || '').toLowerCase();
+  const hasFilter = allowedTypes.size > 0;
+  if (!norm) return !hasFilter || allowedTypes.has('');
+  if (allowedTypes.has(norm)) return true;
+  if (allowedTypes.has('anime') && norm.includes('anime')) return true;
+  if (!hasFilter && norm.includes('anime')) return true; // permissive default
+  return false;
+}
+
 async function main() {
   const list = await fetchJson(`${root}/list.json`);
   if (!list || !list.pages) throw new Error('Unexpected list.json shape');
 
   const pageEntries = Object.entries(list.pages).filter(([, meta]) =>
-    meta && allowedTypes.has(meta.type),
+    meta && typeMatches(meta),
   );
 
   const results = {};
@@ -58,9 +68,13 @@ async function main() {
       if (!entry) break;
       const [key, meta] = entry;
       const url = `${root}/pages/${key}.json`;
-      const page = await fetchJson(url);
-      results[key] = trimPage(meta, page);
-      process.stdout.write('.');
+      try {
+        const page = await fetchJson(url);
+        results[key] = trimPage(meta, page);
+        process.stdout.write('.');
+      } catch (err) {
+        console.warn(`\nFailed to fetch ${key}:`, err?.message || err);
+      }
     }
   });
 
