@@ -26,7 +26,11 @@ export default defineConfig({
       'https://api.myanimelist.net/*',
       'https://myanimelist.net/*',
       'https://api.imgchest.com/*',
-      'https://imgchest.com/*'
+      'https://imgchest.com/*',
+      'https://api.bilibili.com/*',
+      'https://www.bilibili.com/*',
+      'https://*.hdslb.com/*',
+      'https://api.hayami.moe/*'
     ],
     version: '0.0.3',
     /**
