@@ -1,5 +1,5 @@
 <template>
-  <div class="flex w-full items-end gap-3 -mt-4 -mx-4 pl-4 pr-0 pt-4 relative">
+  <div class="flex w-full items-end gap-3 pt-4 px-0 relative">
     <div class="flex items-center gap-2 shrink-0 relative z-30" ref="logoContainer">
       <!-- Provider Logo Button -->
       <div 
