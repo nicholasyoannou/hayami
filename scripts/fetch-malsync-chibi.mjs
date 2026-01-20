@@ -1,7 +1,14 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-const root = (process.env.MALSYNC_ROOT || 'https://chibi.malsync.moe/config').replace(/\/$/, '');
+const roots = [
+  process.env.MALSYNC_ROOT,
+  'https://chibi.malsync.moe/config',
+  'https://raw.githubusercontent.com/MALSync/chibi/master/config',
+  'https://raw.githubusercontent.com/MALSync/MALSync/master/chibi/config',
+]
+  .filter(Boolean)
+  .map(r => r.replace(/\/$/, ''));
 const outputPath = process.env.MALSYNC_OUTPUT || 'src/lib/chibi/malsync-pages.json';
 const allowedTypes = new Set(
   (process.env.MALSYNC_TYPES || 'anime')
@@ -10,11 +17,33 @@ const allowedTypes = new Set(
     .filter(Boolean),
 );
 const syncKeys = ['getTitle', 'getIdentifier', 'getEpisode', 'getOverviewUrl', 'getImage', 'nextEpUrl'];
+let activeRoot = roots[0];
 
 async function fetchJson(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed fetch ${url}: ${res.status}`);
   return res.json();
+}
+
+async function fetchJsonFromRoots(relPath, preferredRoot) {
+  const attempts = preferredRoot
+    ? [preferredRoot, ...roots.filter(r => r !== preferredRoot)]
+    : roots;
+
+  const trimmed = relPath.replace(/^\//, '');
+  const errors = [];
+
+  for (const base of attempts) {
+    const url = `${base}/${trimmed}`;
+    try {
+      const data = await fetchJson(url);
+      return { data, root: base };
+    } catch (err) {
+      errors.push(`${url}: ${err?.message || err}`);
+    }
+  }
+
+  throw new Error(`Failed to fetch ${trimmed} from all roots:\n${errors.join('\n')}`);
 }
 
 function pickSync(sync) {
@@ -52,7 +81,8 @@ function typeMatches(meta) {
 }
 
 async function main() {
-  const list = await fetchJson(`${root}/list.json`);
+  const { data: list, root: discoveredRoot } = await fetchJsonFromRoots('list.json');
+  activeRoot = discoveredRoot || roots[0];
   if (!list || !list.pages) throw new Error('Unexpected list.json shape');
 
   const pageEntries = Object.entries(list.pages).filter(([, meta]) =>
@@ -67,9 +97,8 @@ async function main() {
       const entry = queue.shift();
       if (!entry) break;
       const [key, meta] = entry;
-      const url = `${root}/pages/${key}.json`;
       try {
-        const page = await fetchJson(url);
+        const { data: page } = await fetchJsonFromRoots(`pages/${key}.json`, activeRoot);
         results[key] = trimPage(meta, page);
         process.stdout.write('.');
       } catch (err) {
@@ -86,7 +115,7 @@ async function main() {
   );
 
   const fullOutput = {
-    source: root,
+    source: activeRoot,
     fetchedAt: new Date().toISOString(),
     pages: sorted,
   };
