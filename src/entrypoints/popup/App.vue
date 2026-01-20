@@ -297,7 +297,7 @@ function openGoogleSettings() {
 <template>
   <div class="popup-container">
     <div class="header">
-      <h1>🍥 Crunchyroll Comments Revive</h1>
+      <h1>Hayami</h1>
       <p class="subtitle">Bring back episode discussions from r/anime</p>
     </div>
 

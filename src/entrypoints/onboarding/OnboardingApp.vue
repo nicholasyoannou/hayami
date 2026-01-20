@@ -1,12 +1,25 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
+import { RedditCommentList } from '@/components/comments';
+import '@/styles/reddit-inline.css';
 
 const currentStep = ref(0);
 const isComplete = ref(false);
+const previewScale = ref(1);
+const imgurApiKey = ref('');
+const imagechestApiKey = ref('');
+
+const previewPostId = '108dj9x';
+const previewLinkFullname = 't3_108dj9x';
+const previewSubreddit = 'anime';
+
+const redditPreviewUrl = 'https://www.reddit.com/r/anime/comments/108dj9x/';
 
 const progress = computed(() => {
   return ((currentStep.value + 1) / steps.length) * 100;
 });
+
+const isPreviewStep = computed(() => currentStep.value === 4);
 
 const platforms = [
   { id: 'reddit', name: 'Reddit', icon: chrome.runtime.getURL('assets/topCommentMenu/reddit.svg') },
@@ -17,9 +30,25 @@ const platforms = [
 
 const connectedPlatforms = ref<Set<string>>(new Set());
 const isConnecting = ref<string | null>(null);
+const redditSelected = computed(() => connectedPlatforms.value.has('reddit'));
 
 onMounted(async () => {
   await checkPlatformStatus();
+  try {
+    const stored = await chrome.storage.local.get(['imgur_api_key', 'imagechest_api_key']);
+    if (stored?.imgur_api_key) imgurApiKey.value = stored.imgur_api_key;
+    if (stored?.imagechest_api_key) imagechestApiKey.value = stored.imagechest_api_key;
+  } catch (e) {
+    console.warn('Failed to load image host keys', e);
+  }
+});
+
+watch(currentStep, (step) => {
+  if (step === 4) {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    });
+  }
 });
 
 async function checkPlatformStatus() {
@@ -95,7 +124,12 @@ const steps = [
   },
   {
     title: '⚙️ Adjust Display Settings',
-    content: 'You can view comments beneath the video player, or near it, depending on the platform.',
+    content: 'See how a Reddit thread will look beneath your player. Adjust text size and preview live.',
+    icon: ''
+  },
+  {
+    title: '🔑 Image previews',
+    content: 'Add Imgur and ImageChest API keys so image previews can work smoothly. You can skip if you do not use image previews.',
     icon: ''
   },
   {
@@ -106,6 +140,12 @@ const steps = [
 ];
 
 function nextStep() {
+  if (currentStep.value === 4) {
+    // Persist the chosen scale when leaving the preview step
+    persistDisplayScale();
+  } else if (currentStep.value === 5) {
+    persistMediaKeys();
+  }
   if (currentStep.value < steps.length - 1) {
     currentStep.value++;
   } else {
@@ -131,10 +171,29 @@ async function completeOnboarding() {
     window.close();
   }, 1500);
 }
+
+async function persistDisplayScale() {
+  try {
+    await chrome.storage.local.set({ reddit_comment_scale: previewScale.value });
+  } catch (e) {
+    console.warn('Failed to persist reddit_comment_scale', e);
+  }
+}
+
+async function persistMediaKeys() {
+  try {
+    await chrome.storage.local.set({
+      imgur_api_key: imgurApiKey.value.trim(),
+      imagechest_api_key: imagechestApiKey.value.trim()
+    });
+  } catch (e) {
+    console.warn('Failed to persist image host keys', e);
+  }
+}
 </script>
 
 <template>
-  <div class="onboarding-container">
+  <div class="onboarding-container" :class="{ 'scroll-step': isPreviewStep }">
     <div class="background-art">
       <div class="stars"></div>
       <div class="trees"></div>
@@ -144,7 +203,7 @@ async function completeOnboarding() {
       <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
     
-    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep < 3 }" v-if="!isComplete">
+    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep < 4, 'wide-step': currentStep === 4 }" v-if="!isComplete">
       <div class="modal-content">
         <div v-if="steps[currentStep].icon" class="step-icon">{{ steps[currentStep].icon }}</div>
         <h1 class="step-title">{{ steps[currentStep].title }}</h1>
@@ -199,7 +258,80 @@ async function completeOnboarding() {
           </button>
         </div>
         
-        <div class="modal-actions">
+        <div v-if="currentStep === 4" class="reddit-full-preview">
+          <div class="preview-header full">
+            <div>
+              <div class="preview-title">Reddit comments are mounted</div>
+              <div class="preview-subtitle">Live UI (no iframe): {{ redditPreviewUrl }}</div>
+            </div>
+            <span class="badge" :class="{ active: redditSelected }">{{ redditSelected ? 'Connected' : 'Connect Reddit to preview live' }}</span>
+          </div>
+
+          <div class="slider-row inline">
+            <label for="fontScale">Comment scale</label>
+            <input
+              id="fontScale"
+              type="range"
+              min="0.9"
+              max="1.3"
+              step="0.05"
+              v-model.number="previewScale"
+            />
+            <span class="slider-value">{{ (previewScale * 100).toFixed(0) }}%</span>
+          </div>
+
+          <div class="comment-section-wrapper">
+            <div
+              id="reddit-inline-discussion"
+              class="comment-section"
+              :style="{
+                transform: `scale(${previewScale})`,
+                transformOrigin: 'top left',
+                width: `${(1 / previewScale) * 100}%`
+              }"
+            >
+              <RedditCommentList
+                :discussion-id="previewPostId"
+                :link-fullname="previewLinkFullname"
+                :subreddit="previewSubreddit"
+                initial-sort="top"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div v-if="currentStep === 5" class="keys-step">
+          <div class="preview-header">
+            <div>
+              <div class="preview-title">Image hosting API keys</div>
+              <div class="preview-subtitle">Optional: store Imgur and ImageChest keys for uploads.</div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label class="field">
+              <span class="field-label">Imgur Client ID</span>
+              <input
+                type="text"
+                v-model.trim="imgurApiKey"
+                placeholder="e.g. 123abc..."
+              />
+              <span class="field-hint">Find this in your Imgur app settings.</span>
+            </label>
+
+            <label class="field">
+              <span class="field-label">ImageChest API Key</span>
+              <input
+                type="text"
+                v-model.trim="imagechestApiKey"
+                placeholder="e.g. ich_xxx..."
+              />
+              <span class="field-hint">Available from your ImageChest account page.</span>
+            </label>
+          </div>
+        </div>
+        
+        <div class="modal-actions" :class="{ floating: isPreviewStep }">
           <button v-if="currentStep > 0" @click="prevStep" class="btn btn-back">
             Back
           </button>
@@ -220,6 +352,10 @@ async function completeOnboarding() {
   </div>
 </template>
 
+<style>
+@import './reddit-inline-import.css';
+</style>
+
 <style scoped>
 .onboarding-container {
   position: fixed;
@@ -230,6 +366,13 @@ async function completeOnboarding() {
   background: #0a0a0a;
   overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+}
+
+.onboarding-container.scroll-step {
+  align-items: flex-start;
+  overflow-y: auto;
+  padding-top: 20px;
+  padding-bottom: 20px;
 }
 
 .background-art {
@@ -305,6 +448,11 @@ async function completeOnboarding() {
   box-shadow: 0 5px 5px rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.1);
   animation: fadeIn 0.4s ease-out;
+}
+
+.onboarding-modal.wide-step {
+  max-width: 1200px;
+  width: 98%;
 }
 
 .onboarding-modal.fixed-size {
@@ -568,6 +716,14 @@ async function completeOnboarding() {
   padding-top: 20px;
 }
 
+.modal-actions.floating {
+  position: sticky;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(30, 30, 40, 0) 0%, rgba(30, 30, 40, 0.95) 30%);
+  padding-top: 28px;
+  margin-top: 24px;
+}
+
 .btn {
   border-radius: 8px;
   font-weight: 600;
@@ -602,5 +758,236 @@ async function completeOnboarding() {
   color: rgba(255, 255, 255, 0.9);
   border-color: rgba(255, 255, 255, 0.4);
   background: rgba(255, 255, 255, 0.05);
+}
+
+.keys-step {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field-label {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.field input[type='text'] {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+}
+
+.field input[type='text']:focus {
+  outline: none;
+  border-color: rgba(91, 168, 255, 0.6);
+  box-shadow: 0 0 0 3px rgba(91, 168, 255, 0.2);
+}
+
+.field-hint {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.reddit-full-preview {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+}
+
+.preview-header.full {
+  align-items: flex-start;
+}
+
+.slider-fab {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.slider-fab:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.slider-popup {
+  position: absolute;
+  top: 52px;
+  right: 12px;
+  padding: 12px 14px;
+  background: rgba(20, 20, 28, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  z-index: 2;
+}
+
+.slider-popup input[type='range'] {
+  width: 100%;
+  accent-color: #5ba8ff;
+}
+
+.comment-section-wrapper {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0f1113;
+  overflow: visible;
+  position: relative;
+}
+
+.comment-section {
+  width: 100%;
+  min-height: 720px;
+  padding: 18px;
+  box-sizing: border-box;
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.preview-pane {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.preview-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: white;
+}
+
+.preview-subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.7);
+  word-break: break-all;
+}
+
+.badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.badge.active {
+  background: rgba(91, 168, 255, 0.15);
+  border-color: rgba(91, 168, 255, 0.4);
+  color: #9ed0ff;
+}
+
+.reddit-embed {
+  border: 0;
+  width: 100%;
+  height: 280px;
+  border-radius: 10px;
+  background: #0f1113;
+}
+
+.slider-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 8px 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.slider-row.inline {
+  margin: 12px 0 14px 0;
+}
+
+.slider-row input[type='range'] {
+  width: 100%;
+  accent-color: #5ba8ff;
+}
+
+.slider-value {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.comment-preview {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.comment-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.comment-text {
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.dots {
+  opacity: 0.6;
+}
+
+.author {
+  font-weight: 600;
 }
 </style>

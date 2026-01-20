@@ -3,7 +3,7 @@ import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated 
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 
 export default defineBackground(() => {
-  console.log('Crunchyroll Comments Revive - Background service started', { 
+  console.log('Hayami - Background service started', { 
     id: browser.runtime.id 
   });
 

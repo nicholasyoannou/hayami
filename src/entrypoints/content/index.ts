@@ -1990,7 +1990,7 @@ let contentScriptContext: ContentScriptContext | null = null;
 
 function bootstrapContent(ctx: ContentScriptContext): void {
   contentScriptContext = ctx; // Store for use in other functions
-  debug.log('Crunchyroll Comments Revive extension loaded');
+  debug.log('Hayami extension loaded');
   ensureToaster(ctx);
 
   const { isWatchPage } = useWatchPageDetection();
