@@ -5,6 +5,7 @@
       "name": "wxt-vue-starter",
       "dependencies": {
         "css-ripple-effect": "^1.0.5",
+        "element-picker": "^1.0.1",
         "vue": "^3.5.26",
         "vue-lite-youtube-embed": "^1.2.4",
         "vue-sonner": "^2.0.9",
@@ -386,6 +387,8 @@
     "dotenv-expand": ["dotenv-expand@12.0.3", "", { "dependencies": { "dotenv": "^16.4.5" } }, "sha512-uc47g4b+4k/M/SeaW1y4OApx+mtLWl92l5LMPP0GNXctZqELk+YGgOPIIC5elYmUH4OuoK3JLhuRUYegeySiFA=="],
 
     "electron-to-chromium": ["electron-to-chromium@1.5.267", "", {}, "sha512-0Drusm6MVRXSOJpGbaSVgcQsuB4hEkMpHXaVstcPmhu5LIedxs1xNK/nIxmQIU/RPC0+1/o0AVZfBTkTNJOdUw=="],
+
+    "element-picker": ["element-picker@1.0.1", "", {}, "sha512-+UWFUdKk9VQyc8T+41ngKuTkkbLbH6Hb9omYyWGmXcMXWteFQI0IM38YwBXSOYQodze+ZNLMNVtpM+UUNlPxbw=="],
 
     "emoji-regex": ["emoji-regex@10.6.0", "", {}, "sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A=="],
 

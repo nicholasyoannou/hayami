@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "css-ripple-effect": "^1.0.5",
+    "element-picker": "^1.0.1",
     "vue": "^3.5.26",
     "vue-lite-youtube-embed": "^1.2.4",
     "vue-sonner": "^2.0.9"

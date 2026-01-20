@@ -2,13 +2,71 @@ import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 
+const CONTEXT_MENU_ID = 'hayami-configure-site';
+
+async function requestSitePermission(url: string): Promise<boolean> {
+  try {
+    const originPattern = `${new URL(url).origin}/*`;
+    return await browser.permissions.request({ origins: [originPattern] });
+  } catch (e) {
+    console.warn('Permission request failed', e);
+    return false;
+  }
+}
+
+async function openMapperForTab(tabId: number, url?: string): Promise<void> {
+  if (!url) return;
+  const granted = await requestSitePermission(url);
+  if (!granted) {
+    try { await browser.tabs.sendMessage(tabId, { action: 'hayami-site-mapper-permission-denied' }); } catch {}
+    return;
+  }
+  try {
+    await browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' });
+  } catch {
+    try { await browser.tabs.reload(tabId); } catch {}
+  }
+}
+
+function registerContextMenu(): void {
+  try { browser.contextMenus.remove(CONTEXT_MENU_ID); } catch {}
+  try {
+    browser.contextMenus.create({
+      id: CONTEXT_MENU_ID,
+      title: 'Configure site with Hayami',
+      contexts: ['page'],
+    });
+  } catch (e) {
+    console.warn('Failed to create context menu', e);
+  }
+}
+
 export default defineBackground(() => {
   console.log('Hayami - Background service started', { 
     id: browser.runtime.id 
   });
 
+  registerContextMenu();
+
+  browser.contextMenus.onClicked.addListener(async (info, tab) => {
+    if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id || !tab.url) return;
+    await openMapperForTab(tab.id, tab.url);
+  });
+
+  browser.commands.onCommand.addListener(async (command) => {
+    if (command !== 'open-site-mapper') return;
+    try {
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !tab.url) return;
+      await openMapperForTab(tab.id, tab.url);
+    } catch (e) {
+      console.warn('Site mapper command failed', e);
+    }
+  });
+
   // Listen for extension installation
   browser.runtime.onInstalled.addListener(async (details) => {
+    registerContextMenu();
     if (details.reason === 'install') {
       console.log('Extension installed - opening onboarding');
       await browser.tabs.create({

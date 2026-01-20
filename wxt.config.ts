@@ -11,8 +11,20 @@ export default defineConfig({
     permissions: [
       'identity',
       'storage',
-      'cookies'
+      'cookies',
+      'scripting',
+      'activeTab',
+      'contextMenus'
     ],
+    optional_host_permissions: ['<all_urls>'],
+    commands: {
+      'open-site-mapper': {
+        suggested_key: {
+          default: 'Ctrl+Shift+H'
+        },
+        description: 'Open Hayami site mapper'
+      }
+    },
     oauth2: {
       client_id: GOOGLE_CLIENT_ID,
       scopes: [GOOGLE_SCOPES],
@@ -45,7 +57,7 @@ export default defineConfig({
           'assets/*.svg',
           'disqus-loader.js'
         ],
-        matches: ['*://*.crunchyroll.com/*']
+        matches: ['<all_urls>']
       }
     ],
     scope_extensions: [

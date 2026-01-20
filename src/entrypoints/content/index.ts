@@ -445,7 +445,7 @@ async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
   debug.log('On watch page, extracting anime info...');
 
   // Try to get anime info immediately
-  let info = getAnimeInfo();
+  let info = getCustomAnimeInfo() || getAnimeInfo();
 
   if (info) {
     console.log('Anime Info:', info);
@@ -566,7 +566,7 @@ function observeAnimeInfoOnce(ctx: any): void {
 }
 
 export default defineContentScript({
-  matches: ['*://*.crunchyroll.com/*'],
+  matches: ['<all_urls>'],
   main(ctx) {
     bootstrapContent(ctx);
   },
@@ -1203,10 +1203,7 @@ function mountLoadingShell(): void {
     // Use WXT's integrated UI for inline positioning
     const loadingShellUi = createIntegratedUi(contentScriptContext, {
       position: 'inline',
-      anchor: () => {
-        // Use cached utility function for better performance
-        return getWatchPageWrapper();
-      },
+      anchor: () => getWatchPageWrapper() || document.body,
       append: 'last',
       tag: 'div',
       onMount: (wrapper) => {
@@ -1234,6 +1231,21 @@ function mountLoadingShell(): void {
     // Store reference and mount
     (window as any).__crLoadingShellUi = loadingShellUi;
     loadingShellUi.mount();
+
+    // After mount, if a custom anchor exists, move the wrapper under it
+    getCustomMountAnchor().then((anchor) => {
+      if (anchor && anchor !== wrapper) {
+        try {
+          if (customSiteMapping?.display === 'replace') {
+            anchor.replaceWith((loadingShellUi as any).root ?? (loadingShellUi as any).container ?? wrapper);
+          } else {
+            anchor.appendChild((loadingShellUi as any).root ?? (loadingShellUi as any).container ?? wrapper);
+          }
+        } catch (e) {
+          console.warn('Failed to move loading shell to custom anchor', e);
+        }
+      }
+    });
   } catch (e) {
     console.warn('mountLoadingShell failed:', e);
   }
@@ -1855,7 +1867,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         if (!wrapper) {
           console.warn('content-wrapper inside .erc-watch-episode-layout not found');
         }
-        return wrapper || null;
+        return wrapper || getWatchPageWrapper() || document.body;
       },
       append: 'last',
       tag: 'div',
@@ -1892,6 +1904,27 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     
     // Get the host element after mounting
     host = document.getElementById('ri-inline-vue-host');
+
+    // Hide host initially for popup/icon modes and expose launcher
+    if (customSiteMapping && (customSiteMapping.display === 'popup' || customSiteMapping.display === 'icon')) {
+      if (host) host.style.display = 'none';
+      ensureLaunchButton(host);
+    }
+
+    // Move host under custom anchor if available
+    getCustomMountAnchor().then((anchor) => {
+      if (anchor && host && anchor !== host) {
+        try {
+          if (customSiteMapping?.display === 'replace') {
+            anchor.replaceWith(host);
+          } else {
+            anchor.appendChild(host);
+          }
+        } catch (e) {
+          console.warn('Failed to move inline host to custom anchor', e);
+        }
+      }
+    });
     
     // Note: 'ri-manual-search-requested' event listener is handled by InlineDiscussion.vue component
     // No need to add it here to avoid duplicates
@@ -1988,10 +2021,554 @@ function ensureToaster(ctx: ContentScriptContext): void {
 // Store content script context globally for WXT UI helpers
 let contentScriptContext: ContentScriptContext | null = null;
 
+type DisplayPlacement = 'below' | 'insert' | 'replace';
+
+interface CustomSiteMapping {
+  origin: string;
+  display: DisplayPlacement;
+  anchorSelector: string;
+  mountSelector: string;
+  titleSelector: string;
+  episodeSelector: string;
+  anchorXPath?: string;
+  mountXPath?: string;
+  titleXPath?: string;
+  episodeXPath?: string;
+}
+
+const CUSTOM_SITE_MAPPINGS_KEY = 'custom_site_mappings';
+let customSiteMapping: CustomSiteMapping | null = null;
+let mapperHotkeyAttached = false;
+let launchButton: HTMLButtonElement | null = null;
+
+function setCustomSiteMapping(mapping: CustomSiteMapping | null): void {
+  customSiteMapping = mapping;
+}
+
+async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | null> {
+  try {
+    const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
+    const map = stored?.[CUSTOM_SITE_MAPPINGS_KEY] || {};
+    const entry = map[location.origin];
+    if (entry) {
+      customSiteMapping = entry as CustomSiteMapping;
+      return customSiteMapping;
+    }
+  } catch (e) {
+    console.warn('[site-mapper] Failed to load custom mappings', e);
+  }
+  customSiteMapping = null;
+  return null;
+}
+
+async function getCustomMountAnchor(retries = 6, delayMs = 250): Promise<HTMLElement | null> {
+  if (!customSiteMapping) return null;
+      const primary = (customSiteMapping.display === 'below' || customSiteMapping.display === 'replace') && customSiteMapping.anchorSelector
+        ? customSiteMapping.anchorSelector
+        : customSiteMapping.mountSelector;
+
+  if (!primary) return document.body;
+
+  const evalXPath = (xpath: string | undefined): HTMLElement | null => {
+    if (!xpath) return null;
+    try {
+      const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+      return (result.singleNodeValue as HTMLElement) || null;
+    } catch (e) {
+      console.warn('XPath evaluation failed', xpath, e);
+      return null;
+    }
+  };
+
+  const relaxedFind = (sel: string): HTMLElement | null => {
+    const direct = document.querySelector(sel) as HTMLElement | null;
+    if (direct) return direct;
+    const parts = sel.split('>').map((p) => p.trim()).filter(Boolean);
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const sub = parts.slice(i).join(' > ');
+      const candidate = document.querySelector(sub) as HTMLElement | null;
+      if (candidate) return candidate;
+    }
+    return null;
+  };
+
+  let found: HTMLElement | null = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    found = relaxedFind(primary);
+    if (!found && customSiteMapping) {
+      const xpathCandidate = (customSiteMapping.display === 'below' || customSiteMapping.display === 'replace') && customSiteMapping.anchorXPath
+        ? customSiteMapping.anchorXPath
+        : customSiteMapping.mountXPath;
+      found = evalXPath(xpathCandidate);
+    }
+    if (found) break;
+    if (attempt < retries - 1) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  if (!found) {
+    console.warn('[site-mapper] Anchor not found after retries; falling back to body:', primary);
+  }
+  return found || document.body;
+}
+
+function getCustomAnimeInfo(): { animeName: string; episodeName: string } | null {
+  if (!customSiteMapping) return null;
+  const titleEl = customSiteMapping.titleSelector ? document.querySelector(customSiteMapping.titleSelector) : null;
+  const episodeEl = customSiteMapping.episodeSelector ? document.querySelector(customSiteMapping.episodeSelector) : null;
+  const animeName = titleEl?.textContent?.trim();
+  const episodeName = episodeEl?.textContent?.trim();
+  if (animeName && episodeName) {
+    return { animeName, episodeName };
+  }
+  return null;
+}
+
+function getElementCssSelector(el: Element): string {
+  if (!el) return '';
+  if (el.id) return `#${el.id}`;
+  const parts: string[] = [];
+  let current: Element | null = el;
+  while (current && parts.length < 4) {
+    const name = current.nodeName.toLowerCase();
+    const cls = (current as HTMLElement).className
+      ?.split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((c) => `.${c}`)
+      .join('') || '';
+    const sibs = current.parentElement ? Array.from(current.parentElement.children).filter((c) => c.nodeName === current!.nodeName) : [];
+    const nth = sibs.length > 1 ? `:nth-of-type(${sibs.indexOf(current) + 1})` : '';
+    parts.unshift(`${name}${cls}${nth}`);
+    current = current.parentElement;
+  }
+  return parts.join(' > ');
+}
+
+function getAbsoluteXPathNoId(el: Element | null): string {
+  if (!el) return '';
+  const segments: string[] = [];
+  let current: Element | null = el;
+  while (current && current.nodeType === 1) {
+    const tag = current.nodeName.toLowerCase();
+    const siblings = current.parentElement ? Array.from(current.parentElement.children).filter((c) => c.nodeName === current.nodeName) : [];
+    const index = siblings.length > 1 ? `[${siblings.indexOf(current) + 1}]` : '[1]';
+    segments.unshift(`${tag}${index}`);
+    current = current.parentElement;
+  }
+  return `/${segments.join('/')}`;
+}
+
+function setupSiteMapperHotkey(ctx: ContentScriptContext): void {
+  if (mapperHotkeyAttached) return;
+  mapperHotkeyAttached = true;
+
+  const openOverlay = () => openSiteMapperOverlay(ctx);
+
+  ctx.addEventListener(
+    window,
+    'keydown',
+    (ev: KeyboardEvent) => {
+      const target = ev.target as HTMLElement | null;
+      const isTyping = target && (['input', 'textarea'].includes(target.tagName.toLowerCase()) || target.isContentEditable);
+      if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyH' && !isTyping) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openOverlay();
+      }
+    },
+    { capture: true }
+  );
+
+  // Listen for background command trigger
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.action === 'open-site-mapper') {
+      openOverlay();
+    }
+    if (msg?.action === 'hayami-site-mapper-permission-denied') {
+      toast.error('Hayami needs host permission for this site to continue.');
+    }
+  });
+}
+
+function ensurePermissionForCurrentSite(): Promise<boolean> {
+  // chrome.permissions is not exposed in all content-script contexts; fall back to true when unavailable
+  if (!chrome.permissions || !chrome.permissions.contains) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise((resolve) => {
+    const originPattern = `${location.origin}/*`;
+    chrome.permissions.contains({ origins: [originPattern] }, (already) => {
+      if (already) return resolve(true);
+      chrome.permissions.request({ origins: [originPattern] }, (granted) => {
+        resolve(Boolean(granted));
+      });
+    });
+  });
+}
+
+function ensureLaunchButton(host: HTMLElement | null): void {
+  if (!customSiteMapping) return;
+  const mode = customSiteMapping.display;
+  if (mode !== 'popup' && mode !== 'icon') {
+    if (launchButton) {
+      launchButton.remove();
+      launchButton = null;
+    }
+    return;
+  }
+
+  if (launchButton) return;
+
+  const btn = document.createElement('button');
+  btn.textContent = mode === 'popup' ? 'Open Hayami' : 'Show comments';
+  btn.style.position = 'fixed';
+  btn.style.bottom = '16px';
+  btn.style.right = '16px';
+  btn.style.zIndex = '2147483003';
+  btn.style.padding = '10px 14px';
+  btn.style.borderRadius = '999px';
+  btn.style.border = '1px solid rgba(255,255,255,0.2)';
+  btn.style.background = '#0d6efd';
+  btn.style.color = '#0b1220';
+  btn.style.fontWeight = '700';
+  btn.style.cursor = 'pointer';
+  btn.style.boxShadow = '0 10px 30px rgba(0,0,0,0.35)';
+
+  btn.addEventListener('click', () => {
+    if (mode === 'popup') {
+      const url = chrome.runtime.getURL('popup.html');
+      window.open(url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (!host) {
+      toast.error('Comments host not ready yet.');
+      return;
+    }
+    if (host.style.display === 'none') {
+      host.style.display = '';
+      btn.textContent = 'Hide comments';
+    } else {
+      host.style.display = 'none';
+      btn.textContent = 'Show comments';
+    }
+  });
+
+  document.body.appendChild(btn);
+  launchButton = btn;
+}
+
+function openSiteMapperOverlay(ctx: ContentScriptContext): void {
+  if (document.getElementById('hayami-site-mapper-overlay')) return;
+
+  ensurePermissionForCurrentSite().then((granted) => {
+    if (!granted) {
+      toast.error('Permission denied. Enable site access to continue.');
+      return;
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'hayami-site-mapper-overlay';
+    overlay.attachShadow({ mode: 'open' });
+    const shadow = overlay.shadowRoot!;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      :host, .overlay { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; }
+      .overlay { background: rgba(10,10,14,0.65); backdrop-filter: blur(6px); transition: background 120ms ease, backdrop-filter 120ms ease; }
+      .overlay.picking { background: transparent; backdrop-filter: none; pointer-events: none; }
+      .panel { width: min(900px, 94vw); background: #11131a; color: #f7f7fb; border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; box-shadow: 0 25px 60px rgba(0,0,0,0.45); padding: 18px 20px 16px; font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; display: flex; flex-direction: column; gap: 14px; }
+      .panel.hidden { display: none; }
+      h2 { margin: 0; font-size: 18px; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .field { display: flex; flex-direction: column; gap: 6px; }
+      .field label { font-weight: 600; font-size: 13px; }
+      input[type='text'] { background: #0c0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px 12px; color: #fff; }
+      input[type='text']:focus { outline: none; border-color: #5ba8ff; box-shadow: 0 0 0 2px rgba(91,168,255,0.25); }
+      .radio-row { display: flex; gap: 12px; align-items: center; }
+      .radio-row label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+      .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+      button { border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: #1a1e2a; color: #fff; padding: 10px 14px; cursor: pointer; font-weight: 600; }
+      button.primary { background: #5ba8ff; border-color: #5ba8ff; color: #0b1220; }
+      button:hover { opacity: 0.92; }
+      .pick { padding: 6px 10px; font-size: 12px; }
+      .blurred { filter: blur(2px); }
+      .hint { font-size: 12px; color: rgba(255,255,255,0.7); }
+      .pick-indicator { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #0d6efd; color: #0b1220; padding: 8px 14px; border-radius: 999px; font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,0.35); pointer-events: none; z-index: 2147483001; }
+    `;
+    shadow.appendChild(style);
+
+    const container = document.createElement('div');
+    container.className = 'overlay';
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    panel.innerHTML = `
+      <h2>Map this site to Hayami</h2>
+      <div class="radio-row">
+        <label><input type="radio" name="placement" value="below" checked /> Display below target element</label>
+        <label><input type="radio" name="placement" value="insert" /> Insert inline at a selector</label>
+        <label><input type="radio" name="placement" value="replace" /> Replace target element</label>
+        <label><input type="radio" name="placement" value="popup" /> Popup (open extension)</label>
+        <label><input type="radio" name="placement" value="icon" /> Icon insertion (toggle inline)</label>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Mount selector <span class="hint">Where comments should appear</span></label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="mountSelector" type="text" placeholder="CSS selector" />
+            <button class="pick" data-target="mount">Pick</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Display target selector <span class="hint">Element to anchor below (for 'below' mode)</span></label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="anchorSelector" type="text" placeholder="CSS selector" />
+            <button class="pick" data-target="anchor">Pick</button>
+          </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Anime title selector</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="titleSelector" type="text" placeholder="CSS selector" />
+            <button class="pick" data-target="title">Pick</button>
+          </div>
+        </div>
+        <div class="field">
+          <label>Episode selector</label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="episodeSelector" type="text" placeholder="CSS selector" />
+            <button class="pick" data-target="episode">Pick</button>
+          </div>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="cancelMapper">Cancel</button>
+        <button id="saveMapper" class="primary">Save & Embed</button>
+      </div>
+    `;
+    container.appendChild(panel);
+    shadow.appendChild(container);
+    document.body.appendChild(overlay);
+
+    const mountInput = shadow.getElementById('mountSelector') as HTMLInputElement;
+    const anchorInput = shadow.getElementById('anchorSelector') as HTMLInputElement;
+    const titleInput = shadow.getElementById('titleSelector') as HTMLInputElement;
+    const episodeInput = shadow.getElementById('episodeSelector') as HTMLInputElement;
+
+    if (customSiteMapping) {
+      mountInput.value = customSiteMapping.mountSelector || '';
+      anchorInput.value = customSiteMapping.anchorSelector || '';
+      titleInput.value = customSiteMapping.titleSelector || '';
+      episodeInput.value = customSiteMapping.episodeSelector || '';
+      (mountInput as any)._hayamiXPath = customSiteMapping.mountXPath || '';
+      (anchorInput as any)._hayamiXPath = customSiteMapping.anchorXPath || '';
+      (titleInput as any)._hayamiXPath = customSiteMapping.titleXPath || '';
+      (episodeInput as any)._hayamiXPath = customSiteMapping.episodeXPath || '';
+    }
+
+    const inputs: Record<string, HTMLInputElement> = {
+      mount: mountInput,
+      anchor: anchorInput,
+      title: titleInput,
+      episode: episodeInput,
+    };
+
+    let pickIndicator: HTMLElement | null = null;
+    let lastHighlight: HTMLElement | null = null;
+    let highlightBox: HTMLElement | null = null;
+    let hoverRaf: number | null = null;
+    let lastHoverEvent: MouseEvent | null = null;
+
+    const placements = Array.from(shadow.querySelectorAll<HTMLInputElement>('input[name="placement"]'));
+
+    // Preselect existing display mode if present
+    if (customSiteMapping) {
+      const existing = placements.find((p) => p.value === customSiteMapping!.display);
+      if (existing) {
+        placements.forEach((p) => (p.checked = false));
+        existing.checked = true;
+      }
+    }
+
+    function cleanupPickers() {
+      document.body.classList.remove('hayami-picking');
+      document.removeEventListener('mousemove', handleHover, true);
+      document.removeEventListener('click', handlePick, true);
+      container.classList.remove('picking');
+      panel.classList.remove('hidden');
+      overlay.style.pointerEvents = '';
+      lastHoverEvent = null;
+      if (hoverRaf) {
+        cancelAnimationFrame(hoverRaf);
+        hoverRaf = null;
+      }
+      if (pickIndicator) {
+        pickIndicator.remove();
+        pickIndicator = null;
+      }
+      if (highlightBox) {
+        highlightBox.remove();
+        highlightBox = null;
+      }
+      if (lastHighlight) {
+        lastHighlight.style.outline = '';
+        lastHighlight = null;
+      }
+    }
+
+    function ensureHighlightBox(): HTMLElement {
+      if (!highlightBox) {
+        highlightBox = document.createElement('div');
+        highlightBox.style.position = 'fixed';
+        highlightBox.style.zIndex = '2147483002';
+        highlightBox.style.border = '2px solid #5ba8ff';
+        highlightBox.style.borderRadius = '6px';
+        highlightBox.style.pointerEvents = 'none';
+        highlightBox.style.boxShadow = '0 0 0 4px rgba(91,168,255,0.25)';
+        highlightBox.style.display = 'none';
+        document.body.appendChild(highlightBox);
+      }
+      return highlightBox;
+    }
+
+    function resolveDeepTarget(x: number, y: number): HTMLElement | null {
+      let current: HTMLElement | null = document.elementFromPoint(x, y) as HTMLElement | null;
+      const isIgnored = (el: HTMLElement | null) => {
+        if (!el) return true;
+        if (el === document.body || el === document.documentElement) return true;
+        if (el.id === 'hayami-site-mapper-overlay') return true;
+        if (pickIndicator && (el === pickIndicator || pickIndicator.contains(el))) return true;
+        if (highlightBox && (el === highlightBox || highlightBox.contains(el))) return true;
+        return false;
+      };
+
+      while (current) {
+        if (isIgnored(current)) return null;
+        if (current.shadowRoot) {
+          const next = current.shadowRoot.elementFromPoint(x, y) as HTMLElement | null;
+          if (!next || next === current) break;
+          current = next;
+          continue;
+        }
+        break;
+      }
+      return isIgnored(current) ? null : current;
+    }
+
+    function paintHover() {
+      hoverRaf = null;
+      if (!lastHoverEvent) return;
+      const { clientX, clientY } = lastHoverEvent;
+      const target = resolveDeepTarget(clientX, clientY);
+      if (!target) {
+        if (highlightBox) highlightBox.style.display = 'none';
+        return;
+      }
+      const rect = target.getBoundingClientRect();
+      const box = ensureHighlightBox();
+      box.style.display = 'block';
+      box.style.top = `${rect.top}px`;
+      box.style.left = `${rect.left}px`;
+      box.style.width = `${rect.width}px`;
+      box.style.height = `${rect.height}px`;
+      lastHighlight = target;
+    }
+
+    function handleHover(ev: MouseEvent) {
+      lastHoverEvent = ev;
+      if (hoverRaf) return;
+      hoverRaf = requestAnimationFrame(paintHover);
+    }
+
+    function handlePick(ev: MouseEvent) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const target = ev.target as HTMLElement;
+      const picking = (document.body as any)._hayamiPickingTarget as string | undefined;
+      cleanupPickers();
+      delete (document.body as any)._hayamiPickingTarget;
+      if (!picking || !inputs[picking]) return;
+      inputs[picking].value = getElementCssSelector(target);
+      (inputs[picking] as any)._hayamiXPath = getAbsoluteXPathNoId(target);
+      if (highlightBox) {
+        highlightBox.remove();
+        highlightBox = null;
+      }
+      overlay.style.pointerEvents = '';
+    }
+
+    shadow.querySelectorAll('button.pick').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const target = (ev.currentTarget as HTMLElement).getAttribute('data-target') || '';
+        (document.body as any)._hayamiPickingTarget = target;
+        cleanupPickers();
+        container.classList.add('picking');
+        panel.classList.add('hidden');
+        overlay.style.pointerEvents = 'none';
+        pickIndicator = document.createElement('div');
+        pickIndicator.className = 'pick-indicator';
+        pickIndicator.textContent = `Click an element to set ${target} selector`;
+        document.body.appendChild(pickIndicator);
+        document.addEventListener('mousemove', handleHover, true);
+        document.addEventListener('click', handlePick, true);
+      });
+    });
+
+    shadow.getElementById('cancelMapper')?.addEventListener('click', () => {
+      cleanupPickers();
+      overlay.remove();
+    });
+
+    shadow.getElementById('saveMapper')?.addEventListener('click', async () => {
+      cleanupPickers();
+      const placement = placements.find((p) => p.checked)?.value as DisplayPlacement || 'below';
+      const mapping: CustomSiteMapping = {
+        origin: location.origin,
+        display: placement,
+        anchorSelector: anchorInput.value.trim(),
+        mountSelector: mountInput.value.trim() || anchorInput.value.trim() || 'body',
+        titleSelector: titleInput.value.trim(),
+        episodeSelector: episodeInput.value.trim(),
+        anchorXPath: (anchorInput as any)._hayamiXPath || customSiteMapping?.anchorXPath || '',
+        mountXPath: (mountInput as any)._hayamiXPath || customSiteMapping?.mountXPath || '',
+        titleXPath: (titleInput as any)._hayamiXPath || customSiteMapping?.titleXPath || '',
+        episodeXPath: (episodeInput as any)._hayamiXPath || customSiteMapping?.episodeXPath || '',
+      };
+
+      try {
+        const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
+        const map = stored?.[CUSTOM_SITE_MAPPINGS_KEY] || {};
+        map[location.origin] = mapping;
+        await chrome.storage.local.set({ [CUSTOM_SITE_MAPPINGS_KEY]: map });
+        setCustomSiteMapping(mapping);
+        toast.success('Site mapping saved');
+        overlay.remove();
+        queueHandleWatchPage(ctx);
+      } catch (e) {
+        console.warn('Failed to save mapping', e);
+        toast.error('Failed to save mapping');
+      }
+    });
+  });
+}
+
 function bootstrapContent(ctx: ContentScriptContext): void {
   contentScriptContext = ctx; // Store for use in other functions
   debug.log('Hayami extension loaded');
   ensureToaster(ctx);
+  setupSiteMapperHotkey(ctx);
+
+  // Load any custom mapping for this origin and trigger handling if present
+  loadCustomMappingForOrigin().then((cfg) => {
+    if (cfg) {
+      queueHandleWatchPage(ctx);
+    }
+  });
 
   const { isWatchPage } = useWatchPageDetection();
 
