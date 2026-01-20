@@ -1,5 +1,56 @@
 import { crProxyFetch } from '@/utils/redditApi';
 
+function parseEpisodeNumber(value?: string | null): number | null {
+  if (!value) return null;
+  const m = String(value).match(/(?:episode|ep|e)[\s._-]*(\d{1,3})/i) || String(value).match(/\b(\d{1,3})\b/);
+  if (m && m[1]) {
+    const n = Number(m[1]);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function normalizeTitle(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[:\-–—!?.,()\[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreThreadForAnime(animeInfo: { animeName: string; episodeName?: string }, thread: any): number {
+  const animeNameNorm = normalizeTitle(animeInfo.animeName || '');
+  const episodeNum = parseEpisodeNumber(animeInfo.episodeName || '');
+  const titleRaw = String(thread.title || '');
+  const cleanRaw = String(thread.clean_title || '');
+  const titleNorm = normalizeTitle(titleRaw);
+  const cleanNorm = normalizeTitle(cleanRaw);
+  const threadEpisode = parseEpisodeNumber(titleRaw) || parseEpisodeNumber(cleanRaw);
+  const threadHasDub = /\bdub\b/i.test(titleRaw) || /\bdub\b/i.test(cleanRaw);
+  const infoHasDub = /\bdub\b/i.test(animeInfo.episodeName || '') || /\bdub\b/i.test(animeInfo.animeName || '');
+
+  let score = 0;
+
+  if (titleNorm.includes(animeNameNorm) || cleanNorm.includes(animeNameNorm)) {
+    score += 5;
+  }
+
+  if (episodeNum !== null && threadEpisode !== null) {
+    if (episodeNum === threadEpisode) score += 8; // strong match
+    else score -= 3; // wrong episode
+  } else if (episodeNum !== null && threadEpisode === null) {
+    score -= 1; // missing episode on thread
+  }
+
+  if (threadHasDub && !infoHasDub) score -= 2;
+  if (threadHasDub && infoHasDub) score += 1;
+
+  // Prefer shorter, cleaner titles when scores tie
+  score -= Math.min(2, Math.max(0, titleNorm.length / 200));
+
+  return score;
+}
+
 /**
  * Fetches Disqus public API key by requesting the login page and extracting
  * the `context.apiPublicKey` value embedded in the page JS.
@@ -98,7 +149,9 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
     const hoursToNudge = 4;
     let matchedThread: any = null;
     
-    for (let attempt = 0; attempt <= 3 && !matchedThread; attempt++) {
+    let bestScore = -Infinity;
+
+    for (let attempt = 0; attempt <= 3; attempt++) {
       const adjustedTs = attempt === 0 ? sinceTs : sinceTs + (hoursToNudge * 3600 * attempt);
       if (attempt === 0) {
         console.log('[Disqus] Initial attempt with timestamp:', new Date(adjustedTs * 1000).toISOString());
@@ -120,18 +173,18 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
       for (const t of threads) {
         const title = String(t.title || '').toLowerCase();
         const cleanTitle = String(t.clean_title || '').toLowerCase();
-        
-        // Check if name appears in either title field
-        if (title.includes(name) || cleanTitle.includes(name)) {
-          console.log('[Disqus] ✓ Found exact match in thread:', cleanTitle || title);
+        if (!title.includes(name) && !cleanTitle.includes(name)) {
+          continue;
+        }
+        const score = scoreThreadForAnime(animeInfo, t);
+        if (score > bestScore) {
+          bestScore = score;
           matchedThread = t;
-          break;
         }
       }
-      
+
       if (matchedThread) {
-        console.log('[Disqus] Match found, stopping search');
-        break;
+        console.log('[Disqus] Best match so far:', matchedThread.clean_title || matchedThread.title, 'score:', bestScore);
       } else {
         console.log(`[Disqus] No match found in attempt ${attempt + 1}, will try next timestamp if available`);
       }

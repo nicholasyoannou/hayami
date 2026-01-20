@@ -207,14 +207,11 @@ export class DisqusProvider extends BaseProvider {
       let thread = discussionCache.disqus?.thread;
 
       if (!thread) {
-        const releaseToday = isReleaseDateToday(animeInfo.releaseDate);
-        if (!releaseToday) {
-          const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus');
-          if (mappedDisqusUrl) {
-            thread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
-            if (thread) {
-              console.log('[DisqusProvider] Using mapper Disqus match:', mappedDisqusUrl);
-            }
+        const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus');
+        if (mappedDisqusUrl) {
+          thread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
+          if (thread) {
+            console.log('[DisqusProvider] Using mapper Disqus match:', mappedDisqusUrl);
           }
         }
       }
