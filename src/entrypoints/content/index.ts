@@ -2023,7 +2023,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         if (!wrapper) {
           console.warn('content-wrapper inside .erc-watch-episode-layout not found');
         }
-        return wrapper || null;
+        return wrapper || getWatchPageWrapper() || document.body;
       },
       append: 'last',
       tag: 'div',
