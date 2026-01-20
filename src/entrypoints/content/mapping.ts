@@ -87,6 +87,7 @@ function refineMatchedIndexUsingCrunchyrollData(
   matchedIndex: number,
   episodeMetadata: any,
   seasonsData: any[],
+  seriesTitle?: string,
 ): number {
   if (!Array.isArray(results) || results.length === 0) {
     return matchedIndex;
@@ -124,13 +125,45 @@ function refineMatchedIndexUsingCrunchyrollData(
     }
   }
 
+  const tokenizeTitle = (name: string | undefined) => {
+    if (!name) return [] as string[];
+    const stop = new Set(['season', 'part', 'final', 'the', 'no', 'of', 'and', 'with', 'kanketsu', 'hen']);
+    return normalizeForMatch(name)
+      .split(' ')
+      .filter((t) => t.length >= 3 && !stop.has(t) && !/^[0-9]+$/.test(t));
+  };
+
   if (safeAirYear) {
     const sameYear = cleanedResults.filter((r) => r.hasEpisodes && r.year === safeAirYear && coversRequiredEpisode(r));
     if (sameYear.length) {
-      const chosenIdx = pickPreferredSameYear(
-        sameYear.map((r) => ({ idx: r.idx, name: (results as any)[r.idx]?.anime_name, episodeCount: r.episodeCount })),
-        seasonNum,
-      );
+      const seriesTokens = new Set(tokenizeTitle(seriesTitle));
+      const scoreName = (name: string | undefined) => {
+        if (!seriesTokens.size || !name) return 0;
+        let score = 0;
+        for (const t of tokenizeTitle(name)) {
+          if (seriesTokens.has(t)) score += 1;
+        }
+        return score;
+      };
+
+      let bestBySeries = sameYear[0].idx;
+      let bestSeriesScore = scoreName((results as any)[bestBySeries]?.anime_name);
+      for (const r of sameYear) {
+        const s = scoreName((results as any)[r.idx]?.anime_name);
+        if (s > bestSeriesScore) {
+          bestSeriesScore = s;
+          bestBySeries = r.idx;
+        }
+      }
+
+      // If we found a series-title aligned candidate, take it; otherwise fall back to previous preference logic.
+      const chosenIdx = bestSeriesScore > 0
+        ? bestBySeries
+        : pickPreferredSameYear(
+            sameYear.map((r) => ({ idx: r.idx, name: (results as any)[r.idx]?.anime_name, episodeCount: r.episodeCount })),
+            seasonNum,
+          );
+
       if (chosenIdx !== null) {
         console.log('[Mapper Failover] Refined matched index using air date year (preferred within year):', { airYear: safeAirYear, from: matchedIndex, to: chosenIdx });
         return chosenIdx;
@@ -1125,7 +1158,7 @@ export async function tryMapperFailover(
 
     // If the mapper gave us an exact match, keep it; otherwise refine using CR metadata.
     if (!(matchedResult?.is_exact_match === true)) {
-      matchedIndex = refineMatchedIndexUsingCrunchyrollData((mapperResult as any).results, matchedIndex, episodeMetadata, seasonsData);
+      matchedIndex = refineMatchedIndexUsingCrunchyrollData((mapperResult as any).results, matchedIndex, episodeMetadata, seasonsData, seriesTitle);
     }
 
     const initialMatchedResult = (mapperResult as any).results?.[matchedIndex];

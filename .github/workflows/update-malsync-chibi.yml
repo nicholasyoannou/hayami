@@ -36,8 +36,8 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           branch: automation/update-malsync-chibi
           delete-branch: true
-          commit-message: chore: refresh MALSync chibi data
-          title: chore: refresh MALSync chibi data
+          commit-message: "chore: refresh MALSync chibi data"
+          title: "chore: refresh MALSync chibi data"
           body: |
             Automated update of MALSync chibi pages (anime-only).
           add-paths: |
