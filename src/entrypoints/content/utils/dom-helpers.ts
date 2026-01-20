@@ -4,6 +4,21 @@
 
 import { SELECTORS } from '../constants';
 
+function querySelectorAllDeep(selector: string, root: ParentNode = document): Element[] {
+  const results: Element[] = Array.from((root as Document | Element | ShadowRoot).querySelectorAll?.(selector) || []);
+  const walker = (node: ParentNode) => {
+    const children = (node as Element | ShadowRoot).querySelectorAll?.('*') || [];
+    children.forEach((child) => {
+      const shadow = (child as Element & { shadowRoot?: ShadowRoot }).shadowRoot;
+      if (shadow) {
+        results.push(...querySelectorAllDeep(selector, shadow));
+      }
+    });
+  };
+  walker(root);
+  return results;
+}
+
 /**
  * Gets the external comments container from Vue component
  */
@@ -25,7 +40,12 @@ export function getExternalCommentsContainer(
     }
   }
 
-  // 2) Direct DOM queries (both scoped and global) as fallback
+  // 2) Search inside the Vue host's shadow root (InlineDiscussion now uses shadow DOM)
+  const host = document.querySelector(SELECTORS.VUE_HOST) as HTMLElement | null;
+  const shadowMatch = host?.shadowRoot?.querySelector(SELECTORS.EXTERNAL_COMMENTS) as HTMLElement | null;
+  if (shadowMatch) return shadowMatch;
+
+  // 3) Direct DOM queries (both scoped and global) as fallback
   const scoped = document.querySelector(
     `${SELECTORS.VUE_HOST} ${SELECTORS.EXTERNAL_COMMENTS}`
   ) as HTMLElement;
@@ -38,7 +58,16 @@ export function getExternalCommentsContainer(
     return global;
   }
 
-  return null;
+  // Fallback: if Vue host exists but the external container is missing, create one so providers can mount.
+  const parent = host || document.body;
+  const created = document.createElement('div');
+  created.className = 'ri-external-comments';
+  created.style.width = '100%';
+  created.style.minHeight = '120px';
+  created.style.display = 'block';
+  created.style.marginTop = '12px';
+  parent.appendChild(created);
+  return created;
 }
 
 /**
@@ -77,18 +106,14 @@ export function createSentinel(id: string, className?: string): HTMLElement {
  * Removes all scripts matching a pattern
  */
 export function removeScripts(pattern: string): void {
-  document
-    .querySelectorAll(`script[src*="${pattern}"]`)
-    .forEach((script) => script.remove());
+  querySelectorAllDeep(`script[src*="${pattern}"]`).forEach((script) => script.remove());
 }
 
 /**
  * Removes all iframes matching a pattern
  */
 export function removeIframes(pattern: string): void {
-  document
-    .querySelectorAll(`iframe[src*="${pattern}"]`)
-    .forEach((iframe) => iframe.remove());
+  querySelectorAllDeep(`iframe[src*="${pattern}"]`).forEach((iframe) => iframe.remove());
 }
 
 /**
