@@ -236,20 +236,6 @@ function applyStep(step: ChibiStep, current: any, ctx: EvalContext): StepOutcome
         }
         return { value: result };
       }
-      case 'regexAll': {
-        const pattern = String(args[0] || '');
-        const group = args.length > 1 ? Number(args[1]) : 0;
-        const flags = args.length > 2 && typeof args[2] === 'string' ? args[2] : 'gi';
-        const re = new RegExp(pattern, flags.includes('g') ? flags : flags + 'g');
-        const str = current != null ? String(current) : '';
-        const matches = Array.from(str.matchAll(re));
-        const results = matches.map(m => m[group] ?? m[0]).filter(v => v != null);
-        // Log for episode detection debugging
-        if (pattern === '[0-9.]+') {
-          console.log('[Episode Detection] Chibi regexAll [0-9.]+:', { input: str, matches, results });
-        }
-        return { value: results.length > 0 ? results : null };
-      }
       case 'replace': {
         const searchVal = evalValue(args[0], ctx, current);
         const replaceVal = evalValue(args[1], ctx, current);
