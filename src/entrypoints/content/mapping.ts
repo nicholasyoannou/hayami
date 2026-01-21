@@ -76,7 +76,7 @@ function stripSeasonSuffix(animeName: string): string {
 export async function fetchAnimeMapperDataBySeriesName(
   seriesName: string,
   platform: 'reddit' | 'disqus' = 'reddit',
-  options?: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean },
+  options?: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean; maxEpisodeCount?: number | null },
 ): Promise<any | null> {
   try {
     // Strip season suffix to get series title for broader search
@@ -95,7 +95,13 @@ export async function fetchAnimeMapperDataBySeriesName(
       }
     }
     
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}`;
+    // Include max episode count from Reddit selftext tables to inform Hayami
+    let episodeCountParam = '';
+    if (options?.maxEpisodeCount && options.maxEpisodeCount > 0) {
+      episodeCountParam = `&max_episode_count=${options.maxEpisodeCount}`;
+    }
+    
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}`;
     console.log('[Mapper] Querying mapper by series name:', { 
       url, 
       platform, 
@@ -104,6 +110,7 @@ export async function fetchAnimeMapperDataBySeriesName(
       malId: options?.malId,
       anilistId: options?.anilistId,
       isThirdPartySite: options?.isThirdPartySite,
+      maxEpisodeCount: options?.maxEpisodeCount,
     });
     const response = await fetch(url);
     if (!response.ok) {
@@ -120,15 +127,10 @@ export async function fetchAnimeMapperDataBySeriesName(
 
 const redditSelftextCache = new Map<string, any>();
 
-async function maybeCorrectRedditEpisodeViaSelftext(
+async function extractEpisodeTableFromRedditSelftext(
   mapperUrl: string,
-  desiredEpisode: number | null,
   seriesName?: string,
-): Promise<string | null> {
-  if (!mapperUrl || !Number.isFinite(desiredEpisode)) return null;
-
-  const normalize = (s: string) => s.toLowerCase().trim();
-  const desired = desiredEpisode as number;
+): Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> {
   const postIdMatch = mapperUrl.match(/comments\/([a-z0-9]+)\//i);
   const postId = postIdMatch?.[1] || mapperUrl;
 
@@ -143,16 +145,13 @@ async function maybeCorrectRedditEpisodeViaSelftext(
     if (!selftext) return null;
 
     if (seriesName) {
+      const normalize = (s: string) => s.toLowerCase().trim();
       const sn = normalize(seriesName);
       const body = normalize(selftext);
       if (sn && !body.includes(sn.split(' ')[0])) {
-        // If series token not found, bail to avoid cross-show hijack.
         return null;
       }
     }
-
-    const declaredMatch = selftext.match(/episode\s*(\d+)/i);
-    const declaredEpisode = declaredMatch ? Number.parseInt(declaredMatch[1], 10) : null;
 
     const tableRegex = /(?:^|\n)\s*(\d+)\s*\|\s*\[Link\]\((https?:\/\/www\.reddit\.com\/r\/anime\/comments\/[^\)]+)\)/gi;
     const tableMap = new Map<number, string>();
@@ -164,29 +163,36 @@ async function maybeCorrectRedditEpisodeViaSelftext(
       }
     }
 
-    if (declaredEpisode === desired) {
-      return null; // already on desired episode
-    }
-
-    if (tableMap.has(desired)) {
-      const target = tableMap.get(desired)!;
-      if (target && target !== mapperUrl) {
-        console.log('[Mapper Selftext] Corrected episode via selftext table', { from: mapperUrl, to: target, desired });
-        return target;
-      }
-    }
-
-    // If desired episode higher than any listed, keep current.
-    if (tableMap.size > 0) {
-      const maxEp = Math.max(...tableMap.keys());
-      if (desired > maxEp) return null;
-    }
-
-    return null;
+    const maxEpisode = tableMap.size > 0 ? Math.max(...tableMap.keys()) : null;
+    return { tableMap, maxEpisode };
   } catch (error) {
     console.log('[Mapper Selftext] Error while parsing selftext', error);
     return null;
   }
+}
+
+async function maybeCorrectRedditEpisodeViaSelftext(
+  mapperUrl: string,
+  desiredEpisode: number | null,
+  seriesName?: string,
+): Promise<string | null> {
+  if (!mapperUrl || !Number.isFinite(desiredEpisode)) return null;
+
+  const desired = desiredEpisode as number;
+  const tableData = await extractEpisodeTableFromRedditSelftext(mapperUrl, seriesName);
+  if (!tableData) return null;
+
+  const { tableMap } = tableData;
+  
+  if (tableMap.has(desired)) {
+    const target = tableMap.get(desired)!;
+    if (target && target !== mapperUrl) {
+      console.log('[Mapper Selftext] Corrected episode via selftext table', { from: mapperUrl, to: target, desired });
+      return target;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -1084,7 +1090,15 @@ export async function tryMapperFailover(
       const currentAdapter = resolveAdapter(window.location);
       const isThirdPartySite = !currentAdapter || currentAdapter.id !== 'crunchyroll';
       
-      let mapperOptions: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean } | undefined;
+      let mapperOptions: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean; maxEpisodeCount?: number | null } | undefined;
+      
+      // For Reddit, extract episode table in parallel to inform Hayami about episode count
+      let episodeTablePromise: Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> | null = null;
+      if (platform === 'reddit' && animeInfo?.animeName) {
+        // Start extraction early, but don't await yet
+        const firstRedditUrl = window.location.href;
+        episodeTablePromise = extractEpisodeTableFromRedditSelftext(firstRedditUrl, animeInfo.animeName);
+      }
       
       if (isThirdPartySite && animeInfo?.animeName) {
         console.log('[Mapper Failover] Third-party site detected, resolving anime IDs for better mapping');
@@ -1096,6 +1110,16 @@ export async function tryMapperFailover(
             isThirdPartySite: true,
           };
           console.log('[Mapper Failover] Resolved anime IDs:', animeIds);
+        }
+      }
+      
+      // Await episode table data if we started fetching it
+      if (episodeTablePromise) {
+        const tableData = await episodeTablePromise;
+        if (tableData?.maxEpisode) {
+          if (!mapperOptions) mapperOptions = {};
+          mapperOptions.maxEpisodeCount = tableData.maxEpisode;
+          console.log('[Mapper Failover] Extracted episode count from Reddit selftext:', tableData.maxEpisode);
         }
       }
       
