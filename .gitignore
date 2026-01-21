@@ -24,7 +24,9 @@ web-ext.config.ts
 *.njsproj
 *.sln
 *.sw?
-*.json
 _stashed_content.ts
 _stashed_reddit-inline.css
 /wxt-main
+
+# Exclude temp/build JSON files but keep config files
+stats-*.json
