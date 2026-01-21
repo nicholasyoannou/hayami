@@ -451,9 +451,13 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
           // No exact match found - offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
           const disqusResult = await showDisqusSearchUI(animeInfo);
-          if (disqusResult === 'embedded') {
-            // user embedded a thread; stop here
-            return;
+          if (disqusResult.status === 'embedded' && disqusResult.thread) {
+            const selectedThread = buildDisqusThreadFromUrl(disqusResult.thread.link || disqusResult.thread.url || '', animeInfo);
+            if (selectedThread) {
+              discussionCache.disqus = { thread: selectedThread };
+              await embedDisqusThreadDependingOnMode(selectedThread, animeInfo);
+              return;
+            }
           }
           // User dismissed or clicked fallback - continue with Reddit search
           // Skeleton will be removed when Reddit discussion is shown or no discussion found

@@ -224,4 +224,47 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
   }
 }
 
+/**
+ * List candidate Disqus threads for an anime and return them sorted by relevance score.
+ */
+export async function searchThreadsForAnime(
+  animeInfo: { animeName: string; episodeName?: string; releaseDate?: string },
+  forum = 'channel-discussanime'
+): Promise<any[]> {
+  try {
+    // Compute since timestamp like findThreadForAnime, defaulting to 7 days back
+    let sinceTs = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
+    if (animeInfo.releaseDate) {
+      const parsed = Date.parse(animeInfo.releaseDate);
+      if (!Number.isNaN(parsed)) {
+        const releaseDate = new Date(parsed);
+        releaseDate.setDate(releaseDate.getDate() - 1);
+        releaseDate.setHours(0, 0, 0, 0);
+        sinceTs = Math.floor(releaseDate.getTime() / 1000);
+      }
+    }
+
+    const threads = await listThreadsForForumSince(forum, sinceTs);
+    if (!threads || threads.length === 0) return [];
+
+    const scored = threads.map((t) => ({ thread: t, score: scoreThreadForAnime(animeInfo, t) }));
+    scored.sort((a, b) => b.score - a.score);
+
+    // Deduplicate by thread id
+    const seen = new Set<string>();
+    const unique: any[] = [];
+    for (const { thread } of scored) {
+      const id = String(thread?.id || thread?.identifier || '');
+      if (id && seen.has(id)) continue;
+      if (id) seen.add(id);
+      unique.push(thread);
+    }
+
+    return unique;
+  } catch (e) {
+    console.warn('Error searching Disqus threads', e);
+    return [];
+  }
+}
+
 export default { getDisqusPublicApiKey, listThreadsForForumSince, findThreadForAnime };

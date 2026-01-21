@@ -136,16 +136,59 @@ async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
 /**
  * Shows Disqus search UI (delegates to Vue component)
  */
-async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'dismissed' | 'embedded'> {
-  try {
-    const event = new CustomEvent('ri-disqus-search-requested', { detail: { animeInfo } });
-    window.dispatchEvent(event);
-    console.log('[DisqusSearch] Routed manual Disqus search to Vue event');
-    return 'dismissed';
-  } catch (e) {
-    console.warn('[DisqusSearch] Failed to dispatch Disqus search event', e);
-    return 'dismissed';
-  }
+type DisqusSearchResult =
+  | { status: 'embedded'; thread: any }
+  | { status: 'fallback' | 'dismissed' };
+
+async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<DisqusSearchResult> {
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const cleanup = () => {
+      window.removeEventListener('ri-disqus-thread-selected', onSelect as EventListener);
+      window.removeEventListener('ri-disqus-search-cancelled', onCancel as EventListener);
+      clearTimeout(timer);
+    };
+
+    const onSelect = (ev: CustomEvent) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      const thread = ev?.detail?.thread;
+      if (thread) {
+        resolve({ status: 'embedded', thread });
+      } else {
+        resolve({ status: 'dismissed' });
+      }
+    };
+
+    const onCancel = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ status: 'dismissed' });
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve({ status: 'dismissed' });
+    }, 15000);
+
+    window.addEventListener('ri-disqus-thread-selected', onSelect as EventListener, { once: true });
+    window.addEventListener('ri-disqus-search-cancelled', onCancel as EventListener, { once: true });
+
+    try {
+      const event = new CustomEvent('ri-disqus-search-requested', { detail: { animeInfo } });
+      window.dispatchEvent(event);
+      console.log('[DisqusSearch] Routed manual Disqus search to Vue event');
+    } catch (e) {
+      console.warn('[DisqusSearch] Failed to dispatch Disqus search event', e);
+      cleanup();
+      resolve({ status: 'dismissed' });
+    }
+  });
 }
 
 /**
@@ -284,15 +327,30 @@ export class DisqusProvider extends BaseProvider {
         fallbackContainer.innerHTML = `
           <div style="padding:12px 0;color:#c9c9c9;font-size:13px;line-height:1.4;text-align:left;">
             No Disqus thread found for this episode.
+            <button id="ri-disqus-search-btn" style="margin-top:8px;display:inline-block;padding:6px 10px;background:#2f6feb;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">
+              Browse Disqus threads
+            </button>
           </div>
         `;
 
-        const result = await showDisqusSearchUI(animeInfo);
-        if (result === 'fallback' || result === 'dismissed') {
-          clearLoadingState('Disqus fallback');
-        } else {
-          clearLoadingState('Disqus embedded');
+        // Wire the button to trigger the Vue modal search
+        const btn = fallbackContainer.querySelector('#ri-disqus-search-btn') as HTMLButtonElement | null;
+        if (btn) {
+          btn.addEventListener('click', () => {
+            showDisqusSearchUI(animeInfo);
+          });
         }
+
+        const result = await showDisqusSearchUI(animeInfo);
+        if (result.status === 'embedded' && result.thread) {
+          const selectedThread = buildDisqusThreadFromUrl(result.thread.link || result.thread.url || '', animeInfo);
+          if (selectedThread) {
+            discussionCache.disqus = { thread: selectedThread };
+            await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
+            return;
+          }
+        }
+        clearLoadingState('Disqus fallback');
       }
     } catch (error) {
       handleProviderError(error, 'Disqus', 'switchTo');

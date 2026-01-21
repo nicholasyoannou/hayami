@@ -4,6 +4,7 @@ import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import { voteThing } from '../utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
+import { searchThreadsForAnime } from '@/utils/disqusApi';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal';
 
@@ -58,6 +59,23 @@ const manualSearchResults = ref<any[]>([]);
 const manualSearchLoading = ref(false);
 const manualSearchError = ref<string | null>(null);
 
+// Disqus search modal state
+const disqusSearchOpen = ref(false);
+const disqusSearchResults = ref<any[]>([]);
+const disqusSearchLoading = ref(false);
+const disqusSearchError = ref<string | null>(null);
+const disqusSearchAnimeInfo = ref<any | null>(null);
+const disqusSearchFilter = ref('');
+const filteredDisqusSearchResults = computed(() => {
+  const q = disqusSearchFilter.value.trim().toLowerCase();
+  if (!q) return disqusSearchResults.value;
+  return disqusSearchResults.value.filter((item) => {
+    const title = String(item?.title || '').toLowerCase();
+    const clean = String(item?.clean_title || '').toLowerCase();
+    return title.includes(q) || clean.includes(q);
+  });
+});
+
 function openManualSearchModal(initialQuery?: string) {
   manualSearchOpen.value = true;
   manualSearchQuery.value = initialQuery || props.discussion.title || '';
@@ -80,6 +98,49 @@ async function runManualSearch() {
     manualSearchError.value = e?.message || 'Search failed.';
   } finally {
     manualSearchLoading.value = false;
+  }
+}
+
+async function runDisqusSearch() {
+  if (!disqusSearchAnimeInfo.value) return;
+  disqusSearchLoading.value = true;
+  disqusSearchError.value = null;
+  try {
+    const results = await searchThreadsForAnime(disqusSearchAnimeInfo.value);
+    disqusSearchResults.value = Array.isArray(results) ? results : [];
+    if (disqusSearchResults.value.length === 0) {
+      disqusSearchError.value = 'No Disqus threads found. Try again later or pick Reddit/YouTube.';
+    }
+  } catch (e: any) {
+    disqusSearchError.value = e?.message || 'Failed to load Disqus threads.';
+  } finally {
+    disqusSearchLoading.value = false;
+  }
+}
+
+function openDisqusSearchModal(animeInfoDetail: any) {
+  disqusSearchAnimeInfo.value = animeInfoDetail;
+  disqusSearchOpen.value = true;
+  disqusSearchResults.value = [];
+  disqusSearchError.value = null;
+  disqusSearchFilter.value = '';
+  runDisqusSearch();
+}
+
+function closeDisqusSearchModal() {
+  disqusSearchOpen.value = false;
+  disqusSearchAnimeInfo.value = null;
+  window.dispatchEvent(new CustomEvent('ri-disqus-search-cancelled'));
+}
+
+function selectDisqusThread(thread: any) {
+  if (!thread) return;
+  try {
+    window.dispatchEvent(new CustomEvent('ri-disqus-thread-selected', { detail: { thread } }));
+  } catch (e) {
+    console.warn('[DisqusSearch] Failed to dispatch selection', e);
+  } finally {
+    disqusSearchOpen.value = false;
   }
 }
 
@@ -327,12 +388,21 @@ onMounted(() => {
     if (ev.key === 'Escape' && manualSearchOpen.value) {
       manualSearchOpen.value = false;
     }
+    if (ev.key === 'Escape' && disqusSearchOpen.value) {
+      closeDisqusSearchModal();
+    }
+  };
+  const disqusSearchHandler = (ev: Event) => {
+    const detail = (ev as CustomEvent)?.detail?.animeInfo || null;
+    openDisqusSearchModal(detail);
   };
   window.addEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
+  window.addEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
   window.addEventListener('keydown', escHandler);
 
   onUnmounted(() => {
     window.removeEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
+    window.removeEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
     window.removeEventListener('keydown', escHandler);
   });
 });
@@ -690,6 +760,87 @@ defineExpose({
             class="text-sm text-[#999]"
           >
             No matches found. Try a different query.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Disqus Search Modal -->
+    <div
+      v-if="disqusSearchOpen"
+      class="fixed inset-0 z-[10000] bg-black/70 flex items-center justify-center p-4"
+      @click.self="closeDisqusSearchModal"
+    >
+      <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
+          <h3 class="text-lg font-semibold text-white">Select Disqus thread</h3>
+          <button
+            class="text-[#aaa] hover:text-white"
+            @click="closeDisqusSearchModal"
+            aria-label="Close"
+          >✕</button>
+        </div>
+        <div class="p-4 space-y-3">
+          <div class="text-sm text-[#ccc]">
+            Choose a Disqus thread for this episode. Results come from the DiscussAnime channel.
+          </div>
+          <div class="flex gap-2 items-center">
+            <input
+              v-model="disqusSearchFilter"
+              class="flex-1 bg-[#0f0f0f] border border-[#2f2f2f] rounded-lg px-3 py-2 text-sm text-white outline-none"
+              type="text"
+              placeholder="Filter threads by title"
+            />
+            <button
+              class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm"
+              @click="runDisqusSearch"
+              :disabled="disqusSearchLoading"
+            >
+              Refresh
+            </button>
+          </div>
+          <div v-if="disqusSearchError" class="text-sm text-red-400">
+            {{ disqusSearchError }}
+          </div>
+          <div v-if="disqusSearchLoading" class="text-sm text-[#ccc]">Loading threads...</div>
+          <ul v-else-if="filteredDisqusSearchResults.length > 0" class="space-y-2 max-h-[320px] overflow-y-auto styled-scroll">
+            <li
+              v-for="(item, idx) in filteredDisqusSearchResults"
+              :key="idx"
+              class="p-3 border border-[#262626] rounded-lg bg-[#0f0f0f]"
+            >
+              <div class="text-sm font-semibold text-white whitespace-normal break-words">
+                {{ item.clean_title || item.title }}
+              </div>
+              <div class="text-xs text-[#aaa] flex items-center gap-2 mt-1">
+                <span>{{ item.posts ?? item.num_posts ?? item.comments ?? 0 }} posts</span>
+                <span>•</span>
+                <span>Thread ID: {{ item.id }}</span>
+              </div>
+              <div class="mt-2 flex gap-2">
+                <button
+                  class="px-3 py-1 text-xs bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded"
+                  @click="selectDisqusThread(item)"
+                >
+                  Select
+                </button>
+                <a
+                  v-if="item.link || item.url"
+                  class="px-3 py-1 text-xs bg-[#333] hover:bg-[#444] text-white rounded"
+                  :href="item.link || item.url"
+                  target="_blank"
+                  rel="noopener"
+                >
+                  Open
+                </a>
+              </div>
+            </li>
+          </ul>
+          <div
+            v-else
+            class="text-sm text-[#999]"
+          >
+            No Disqus threads available right now.
           </div>
         </div>
       </div>
