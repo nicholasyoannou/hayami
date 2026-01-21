@@ -71,15 +71,16 @@ export async function getDisqusPublicApiKey(): Promise<string | null> {
 }
 
 /**
- * Call Disqus categories/listThreads.json endpoint for category 9789384 (anime discussions) with since timestamp.
+ * Call Disqus timelines/ranked endpoint for channel-discussanime with episode-discussion topic.
  * Returns the `response` array from Disqus API or empty array.
  */
 export async function listThreadsForForumSince(forum: string, sinceTs: number, apiKey?: string): Promise<any[]> {
   try {
     const key = apiKey || await getDisqusPublicApiKey();
     if (!key) throw new Error('No Disqus public API key available');
-    // Changed to categories/listThreads with category=9789384, order=asc, limit=100
-    const url = `https://disqus.com/api/3.0/categories/listThreads.json?category=9789384&since=${encodeURIComponent(String(sinceTs))}&limit=100&order=asc&api_key=${encodeURIComponent(key)}`;
+    // Using timelines/ranked endpoint for better thread discovery
+    const cursor = ''; // Start with empty cursor for initial pagination
+    const url = `https://disqus.com/api/3.0/timelines/ranked?type=default&target=channel%3Adiscussanime&topic=episode-discussion&cursor=${encodeURIComponent(cursor)}&limit=100&api_key=${encodeURIComponent(key)}`;
     // Use extension proxy and allow credentials so the background can include cookies
     const r = await crProxyFetch(url, { credentials: 'include' } as any);
     if (!r) {
