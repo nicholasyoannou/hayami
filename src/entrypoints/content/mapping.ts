@@ -902,7 +902,7 @@ function mapEpisodeWithSeasonsData(
   return null;
 }
 
-async function fetchAnimeMapperDataBySeriesAndSeason(
+export async function fetchAnimeMapperDataBySeriesAndSeason(
   seriesName: string,
   seasonTitle: string,
   platform: 'reddit' | 'disqus' = 'reddit',

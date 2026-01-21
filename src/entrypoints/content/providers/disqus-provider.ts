@@ -275,9 +275,20 @@ export class DisqusProvider extends BaseProvider {
         await renderDisqusThread(thread, container, animeInfo, clearLoadingState);
       } else {
         // No Disqus thread found, show search UI
+        const fallbackContainer = await this.getContainerWithRetry(
+          getExternalCommentsContainer,
+          DISQUS_CONTAINER_RETRY_ATTEMPTS,
+          DISQUS_CONTAINER_RETRY_DELAY_MS
+        );
+        // Render a simple empty state so the area is not blank
+        fallbackContainer.innerHTML = `
+          <div style="padding:12px 0;color:#c9c9c9;font-size:13px;line-height:1.4;text-align:left;">
+            No Disqus thread found for this episode.
+          </div>
+        `;
+
         const result = await showDisqusSearchUI(animeInfo);
         if (result === 'fallback' || result === 'dismissed') {
-          // User wants to fallback - this should be handled by the provider manager
           clearLoadingState('Disqus fallback');
         } else {
           clearLoadingState('Disqus embedded');

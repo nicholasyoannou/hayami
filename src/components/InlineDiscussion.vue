@@ -663,7 +663,7 @@ defineExpose({
             {{ manualSearchError }}
           </div>
           <div v-if="manualSearchLoading" class="text-sm text-[#ccc]">Searching...</div>
-          <ul v-else class="space-y-2 max-h-[320px] overflow-y-auto styled-scroll">
+          <ul v-else-if="manualSearchResults.length > 0" class="space-y-2 max-h-[320px] overflow-y-auto styled-scroll">
             <li
               v-for="(item, idx) in manualSearchResults"
               :key="idx"
@@ -684,10 +684,13 @@ defineExpose({
                 </button>
               </div>
             </li>
-            <li v-if="manualSearchResults.length === 0 && !manualSearchError" class="text-sm text-[#999]">
-              No results yet. Try searching above.
-            </li>
           </ul>
+          <div
+            v-else
+            class="text-sm text-[#999]"
+          >
+            No matches found. Try a different query.
+          </div>
         </div>
       </div>
     </div>

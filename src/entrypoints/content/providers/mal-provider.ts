@@ -18,6 +18,9 @@ import {
   DISQUS_CONTAINER_RETRY_DELAY_MS 
 } from '../constants';
 import { getContainerWithRetry } from '../utils/dom-helpers';
+import { fetchAnimeMapperDataBySeriesName, resolveAdapter, fetchAnimeMapperDataBySeriesAndSeason } from '../mapping';
+import { getCachedAnimeIds } from '@/utils/animeIdResolver';
+import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
 
 export class MalProvider extends BaseProvider {
   readonly name: CommentProvider = 'mal';
@@ -27,17 +30,93 @@ export class MalProvider extends BaseProvider {
     
     this.validateAnimeInfo(animeInfo);
 
-    // Get or search for MAL ID
+    // Resolve MAL ID with site-aware strategy
+    const normalizeMalId = (val: unknown): number | null => {
+      if (typeof val === 'number' && Number.isFinite(val)) return val;
+      if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
+      return null;
+    };
+
+    const extractMalIdFromMapper = (mapper: any): number | null => {
+      if (!mapper) return null;
+      const fromMatched = normalizeMalId(
+        mapper?.matched_result?.mal_id ?? mapper?.matched_result?.malId ?? mapper?.matched_result?.external_sites?.mal_id,
+      );
+      if (fromMatched) return fromMatched;
+
+      if (Array.isArray(mapper?.results) && mapper.results.length > 0) {
+        const preferredIdx = typeof mapper?.matched_result?.index === 'number' ? mapper.matched_result.index : 0;
+        const order = Array.from(new Set([preferredIdx, ...mapper.results.map((_: unknown, i: number) => i)]));
+        for (const idx of order) {
+          const entry = mapper.results[idx];
+          const candidate = normalizeMalId(
+            entry?.mal_id ?? entry?.malId ?? entry?.external_sites?.mal_id,
+          );
+          if (candidate) return candidate;
+        }
+      }
+      return null;
+    };
+
     let malId = animeInfo.malId;
     if (!malId) {
-      console.warn('[MAL] No malId available; attempting search by anime name');
-      malId = await searchMalAnimeId(animeInfo.animeName);
-      if (malId) {
-        // Update animeInfo with found malId
-        animeInfo.malId = malId;
-        console.log('[MAL] Resolved malId via search:', malId);
+      const adapter = resolveAdapter();
+      const isCrunchyroll = adapter?.id === 'crunchyroll';
+
+      if (isCrunchyroll) {
+        console.log('[MAL] Resolving malId via Hayami mapper with season_title (Crunchyroll context)');
+
+        // Try to obtain Crunchyroll episode metadata to include season_title in mapper query
+        const episodeIdMatch = window.location.pathname.match(/\/watch\/([^/]+)/i);
+        const episodeId = episodeIdMatch?.[1];
+        let mapperData: any | null = null;
+
+        if (episodeId) {
+          try {
+            const metaResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
+            const episodeMeta = metaResult.ok ? (metaResult.data as any)?.data?.[0]?.episode_metadata : null;
+            const seriesTitle = episodeMeta?.series_title;
+            const seasonTitle = episodeMeta?.season_title;
+
+            if (seriesTitle && seasonTitle) {
+              console.log('[MAL] Using series + season title mapper lookup', { seriesTitle, seasonTitle });
+              mapperData = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, 'reddit');
+            }
+          } catch (err) {
+            console.warn('[MAL] Crunchyroll metadata lookup failed; falling back to series-only mapper', err);
+          }
+        }
+
+        if (!mapperData) {
+          console.log('[MAL] Falling back to series-only mapper lookup');
+          mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'reddit');
+        }
+
+        malId = extractMalIdFromMapper(mapperData);
+        if (malId) {
+          animeInfo.malId = malId;
+          console.log('[MAL] Resolved malId from Hayami external_sites:', malId);
+        }
       } else {
-        console.warn('[MAL] MAL search by name returned no ID');
+        console.log('[MAL] Resolving malId via AniList (non-Crunchyroll context)');
+        const ids = await getCachedAnimeIds(animeInfo.animeName);
+        malId = normalizeMalId(ids?.malId);
+        if (malId) {
+          animeInfo.malId = malId;
+          console.log('[MAL] Resolved malId from AniList:', malId);
+        }
+      }
+
+      // Final fallback: direct MAL search by name
+      if (!malId) {
+        console.warn('[MAL] No malId from mapper/AniList; attempting MAL name search');
+        malId = await searchMalAnimeId(animeInfo.animeName);
+        if (malId) {
+          animeInfo.malId = malId;
+          console.log('[MAL] Resolved malId via MAL search:', malId);
+        } else {
+          console.warn('[MAL] MAL search by name returned no ID');
+        }
       }
     }
 
