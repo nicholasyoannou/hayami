@@ -17,6 +17,8 @@ import {
   getCrunchyrollAccessToken,
 } from './net/crunchyroll-client';
 import { isReleaseDateToday } from './utils/date-utils';
+import { getCachedAnimeIds } from '@/utils/animeIdResolver';
+import { resolveAdapter } from './adapters/site-registry';
 
 export { SERIES_MAPPING_KEY } from './mapping-keys';
 export { getSeriesMapping, saveSeriesMapping } from './storage/series-mapping';
@@ -69,18 +71,40 @@ function stripSeasonSuffix(animeName: string): string {
  * Lightweight mapper lookup by series name only (no Crunchyroll metadata).
  * Supports platform hint (reddit|disqus) by forwarding to the search endpoint.
  * Automatically strips season suffixes to search for the series title.
+ * For third-party sites, includes MAL/AniList IDs to improve matching accuracy.
  */
 export async function fetchAnimeMapperDataBySeriesName(
   seriesName: string,
   platform: 'reddit' | 'disqus' = 'reddit',
+  options?: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean },
 ): Promise<any | null> {
   try {
     // Strip season suffix to get series title for broader search
     const searchName = stripSeasonSuffix(seriesName);
     const encodedSeries = encodeURIComponent(searchName);
     const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}`;
-    console.log('[Mapper] Querying mapper by series name:', { url, platform, original: seriesName, searchName });
+    
+    // For third-party sites, try to include MAL/AniList IDs for better matching
+    let idParams = '';
+    if (options?.isThirdPartySite) {
+      if (options?.malId) {
+        idParams += `&mal_id=${options.malId}`;
+      }
+      if (options?.anilistId) {
+        idParams += `&anilist_id=${options.anilistId}`;
+      }
+    }
+    
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}`;
+    console.log('[Mapper] Querying mapper by series name:', { 
+      url, 
+      platform, 
+      original: seriesName, 
+      searchName,
+      malId: options?.malId,
+      anilistId: options?.anilistId,
+      isThirdPartySite: options?.isThirdPartySite,
+    });
     const response = await fetch(url);
     if (!response.ok) {
       console.log('[Mapper] Series-name mapper returned non-OK status:', response.status, response.statusText);
@@ -1055,7 +1079,27 @@ export async function tryMapperFailover(
       console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
       const episodeFromInfo = extractEpisodeFromInfo();
       console.log('[Episode Detection] Episode extracted from info for mapping:', episodeFromInfo);
-      const mapperResult = animeInfo?.animeName ? await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, platform) : null;
+      
+      // For third-party sites, try to resolve MAL/AniList IDs for better matching
+      const currentAdapter = resolveAdapter(window.location);
+      const isThirdPartySite = !currentAdapter || currentAdapter.id !== 'crunchyroll';
+      
+      let mapperOptions: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean } | undefined;
+      
+      if (isThirdPartySite && animeInfo?.animeName) {
+        console.log('[Mapper Failover] Third-party site detected, resolving anime IDs for better mapping');
+        const animeIds = await getCachedAnimeIds(animeInfo.animeName);
+        if (animeIds) {
+          mapperOptions = {
+            malId: animeIds.malId,
+            anilistId: animeIds.anilistId,
+            isThirdPartySite: true,
+          };
+          console.log('[Mapper Failover] Resolved anime IDs:', animeIds);
+        }
+      }
+      
+      const mapperResult = animeInfo?.animeName ? await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, platform, mapperOptions) : null;
       if (!mapperResult || !Array.isArray((mapperResult as any).results) || !(mapperResult as any).results.length) {
         return null;
       }
