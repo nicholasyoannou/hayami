@@ -1047,7 +1047,7 @@ export async function tryMapperFailover(
 
       // For non-Crunchyroll sites, attempt to convert continuous episode numbering to season-based
       // (e.g., episode 16 → Season 2, Episode 3 if Season 1 had 13 episodes)
-      if (episodeFromInfo !== null && episodeFromInfo > 0 && results.length > 1) {
+      if (episodeFromInfo !== null && episodeFromInfo > 0 && results.length >= 1) {
         // Sort results by year to establish chronological order
         const orderedResults = results
           .map((r, idx) => ({
@@ -1059,36 +1059,52 @@ export async function tryMapperFailover(
           .filter(r => r.hasEpisodes && r.year !== null)
           .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
 
-        // Try to find which season the continuous episode number falls into
-        let cumulative = 0;
-        for (const entry of orderedResults) {
-          const start = cumulative + 1;
-          const end = cumulative + entry.episodeCount;
-          
-          if (episodeFromInfo >= start && episodeFromInfo <= end) {
-            const seasonEpisode = episodeFromInfo - cumulative;
-            console.log('[Episode Detection] Converted continuous episode to season-based:', {
-              continuous: episodeFromInfo,
-              seasonIdx: entry.idx,
-              seasonYear: entry.year,
-              seasonEpisode,
-              cumulativeBeforeSeason: cumulative,
-              seasonEpisodeCount: entry.episodeCount,
-            });
+        // Check if episode number exceeds available episodes (continuous numbering indicator)
+        const totalEpisodes = orderedResults.reduce((sum, r) => sum + r.episodeCount, 0);
+        const needsConversion = episodeFromInfo > totalEpisodes || orderedResults.length > 1;
+
+        if (needsConversion) {
+          // Try to find which season the continuous episode number falls into
+          let cumulative = 0;
+          for (const entry of orderedResults) {
+            const start = cumulative + 1;
+            const end = cumulative + entry.episodeCount;
             
-            // Update desired keys to include the season-based episode number
-            desiredKeys.clear();
-            desiredKeys.add(String(seasonEpisode));
-            desiredKeys.add(seasonEpisode);
-            if (seasonEpisode < 10) desiredKeys.add(`0${seasonEpisode}`);
-            
-            // Reorder to prioritize this season
-            const newOrder = [entry.idx, ...order.filter(i => i !== entry.idx)];
-            order.length = 0;
-            order.push(...newOrder);
-            break;
+            if (episodeFromInfo >= start && episodeFromInfo <= end) {
+              const seasonEpisode = episodeFromInfo - cumulative;
+              console.log('[Episode Detection] Converted continuous episode to season-based:', {
+                continuous: episodeFromInfo,
+                seasonIdx: entry.idx,
+                seasonYear: entry.year,
+                seasonEpisode,
+                cumulativeBeforeSeason: cumulative,
+                seasonEpisodeCount: entry.episodeCount,
+                totalEpisodesInMapper: totalEpisodes,
+              });
+              
+              // Update desired keys to include the season-based episode number
+              desiredKeys.clear();
+              desiredKeys.add(String(seasonEpisode));
+              desiredKeys.add(seasonEpisode);
+              if (seasonEpisode < 10) desiredKeys.add(`0${seasonEpisode}`);
+              
+              // Reorder to prioritize this season
+              const newOrder = [entry.idx, ...order.filter(i => i !== entry.idx)];
+              order.length = 0;
+              order.push(...newOrder);
+              break;
+            }
+            cumulative += entry.episodeCount;
           }
-          cumulative += entry.episodeCount;
+
+          // If episode number is beyond all known seasons, no match possible
+          if (episodeFromInfo > cumulative) {
+            console.log('[Episode Detection] Episode number exceeds all available seasons:', {
+              episodeFromInfo,
+              totalEpisodesAcrossAllSeasons: cumulative,
+              availableSeasons: orderedResults.length,
+            });
+          }
         }
       }
       console.log('[Episode Detection] Final desired mapper keys after conversion:', Array.from(desiredKeys));

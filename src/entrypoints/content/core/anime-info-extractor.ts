@@ -27,8 +27,32 @@ export async function getChibiAnimeInfo(): Promise<{ animeName: string; episodeN
     const title = typeof detected.title === 'string' ? detected.title.trim() : String(detected.title ?? '').trim();
     if (!title) return null;
 
-    const episodeRaw = detected.episode;
+    let episodeRaw = detected.episode;
     console.log('[Episode Detection] Chibi episode raw value:', { episodeRaw, type: typeof episodeRaw });
+    
+    // Smart fallback: If chibi extracted a low number but the page shows " - {larger_number}",
+    // prefer the larger number (likely the actual episode, not the season number)
+    if (typeof episodeRaw === 'number' && episodeRaw < 20) {
+      const h1Element = document.querySelector('.theatre-info h1');
+      if (h1Element) {
+        const fullText = h1Element.textContent?.trim() || '';
+        // Look for pattern like " - 16" after season info
+        const episodeMatch = fullText.match(/\s-\s(\d+)/);
+        if (episodeMatch && episodeMatch[1]) {
+          const betterEpisode = Number(episodeMatch[1]);
+          // If we found a larger number via the " - " pattern, use it
+          if (!isNaN(betterEpisode) && betterEpisode > episodeRaw) {
+            console.log('[Episode Detection] Corrected episode number via " - " pattern:', {
+              chibiExtracted: episodeRaw,
+              corrected: betterEpisode,
+              fullText
+            });
+            episodeRaw = betterEpisode;
+          }
+        }
+      }
+    }
+    
     let episodeName = '';
     if (typeof episodeRaw === 'number') {
       episodeName = `Episode ${episodeRaw}`;
