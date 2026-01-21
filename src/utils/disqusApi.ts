@@ -57,13 +57,54 @@ function scoreThreadForAnime(animeInfo: { animeName: string; episodeName?: strin
  */
 export async function getDisqusPublicApiKey(): Promise<string | null> {
   try {
-    // Use extension proxy and allow credentials so the background can include
-    // Disqus cookies when available (some Disqus endpoints rely on session cookies).
+    // Try fetching from Disqus bundles which contain the API key
+    const urls = [
+      'https://disqus.disqus.com/polls.js',
+      'https://c.disquscdn.com/polls/latest/assets/polls.bundle.js',
+      'https://c.disquscdn.com/next/current/home/js/main.js',
+    ];
+
+    for (const url of urls) {
+      try {
+        const res = await crProxyFetch(url, { credentials: 'include' } as any);
+        if (!res || !res.ok) continue;
+        const text = await res.text();
+
+        // Try multiple patterns to find the API key
+        const patterns = [
+          // VITE_API_KEY:"..." or VITE_API_KEY:'...'
+          /VITE_API_KEY\s*:\s*["']([a-zA-Z0-9]{40,})["']/,
+          // api:"..." or api:'...'
+          /\bapi\s*:\s*["']([a-zA-Z0-9]{40,})["']/,
+          // Direct variable assignment: po="..." or similar
+          /(?:const|let|var)\s+\w+\s*=\s*["']([a-zA-Z0-9]{40,})["']/,
+          // api_key parameter value
+          /api_key\s*:\s*["']?([a-zA-Z0-9]{40,})["']?/,
+        ];
+
+        for (const pattern of patterns) {
+          const match = text.match(pattern);
+          if (match && match[1]) {
+            console.log(`[DisqusAPI] Found API key from ${url.split('/').pop()}`);
+            return match[1];
+          }
+        }
+      } catch (e) {
+        // Try next URL
+        continue;
+      }
+    }
+
+    // Fallback: try fetching from profile login page if bundle extraction failed
     const res = await crProxyFetch('https://disqus.com/profile/login/?next=https://disqus.com/home/notifications/', { credentials: 'include' } as any);
-    if (!res || !res.ok) return null;
-    const text = await res.text();
-    const m = text.match(/context\.apiPublicKey\s*=\s*['"]([^'"]+)['"]/i);
-    if (m && m[1]) return m[1];
+    if (res && res.ok) {
+      const text = await res.text();
+      const m = text.match(/context\.apiPublicKey\s*=\s*['"]([^'"]+)['"]/i);
+      if (m && m[1]) {
+        console.log('[DisqusAPI] Found API key from login page');
+        return m[1];
+      }
+    }
   } catch (e) {
     console.warn('Failed to fetch Disqus public API key', e);
   }
