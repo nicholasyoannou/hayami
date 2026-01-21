@@ -10,7 +10,7 @@ import { getMALAccessToken } from '@/utils/malAuth';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { createApp } from 'vue';
 import MALForumView from '@/components/providers/MALForumView.vue';
-import { bbcodeToHtml } from '../index';
+import { bbcodeToHtml } from '../parsers/bbcode';
 import { handleProviderError, handleAuthError, handleApiError } from '../utils/error-handler';
 import { toast } from 'vue-sonner';
 import { 
