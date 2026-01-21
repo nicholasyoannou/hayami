@@ -1,14 +1,14 @@
 /**
  * Skeleton loading utilities
+ * Provides loading state UI for comments sections
  */
 
 /**
  * Generates HTML for skeleton comment loaders
  */
 export function generateSkeletonHtml(count: number = 6): string {
-  return Array.from({ length: count }).map(() => (
-    `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`
-  )).join('');
+  const skeletonItem = `<div class="ri-skel"><div class="sk-ava"></div><div class="sk-lines"><div class="sk-line w60"></div><div class="sk-line w80"></div><div class="sk-line w40"></div></div></div>`;
+  return Array.from({ length: count }, () => skeletonItem).join('');
 }
 
 /**

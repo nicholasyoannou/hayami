@@ -103,6 +103,9 @@ import {
   getCustomSiteMapping,
 } from '../ui/site-mapper';
 
+// MAL utilities
+import { extractMalIdFromMapperResult, extractSeasonNumber } from '../utils/mal-utils';
+
 // Styles
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
@@ -140,48 +143,6 @@ function setMalIdOnLastAnimeInfo(malId?: number | null): void {
   if (lastAnimeInfo) {
     setLastAnimeInfo(lastAnimeInfo ? { ...lastAnimeInfo, malId } : null);
   }
-}
-
-function extractMalIdFromMapperResult(mapperResult: MapperResult | null | undefined, matchedIndex?: number | null): number | null {
-  if (!mapperResult) return null;
-  const normalize = (val: unknown): number | null => {
-    if (typeof val === 'number') return val;
-    if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
-    return null;
-  };
-
-  const fromMatched = normalize(mapperResult?.matched_result?.mal_id ?? mapperResult?.matched_result?.malId);
-  if (fromMatched !== null) return fromMatched;
-
-  if (Array.isArray(mapperResult?.matched_results)) {
-    const firstAlt = mapperResult.matched_results.find(
-      (m: MapperMatchedResult) => normalize(m?.mal_id ?? m?.malId) !== null
-    );
-    if (firstAlt) {
-      const id = normalize(firstAlt.mal_id ?? firstAlt.malId);
-      if (id !== null) return id;
-    }
-  }
-
-  const idx = matchedIndex ?? mapperResult?.matched_result?.index ?? 0;
-  const candidate = normalize(
-    mapperResult?.results?.[idx]?.mal_id ??
-      mapperResult?.results?.[idx]?.malId ??
-      mapperResult?.results?.[0]?.mal_id ??
-      mapperResult?.results?.[0]?.malId
-  );
-  return candidate;
-}
-
-function extractSeasonNumber(title?: string | null): number | null {
-  if (!title) return null;
-  const m1 = title.match(/season\s*(\d+)/i);
-  if (m1) return Number(m1[1]);
-  const m2 = title.match(/\bS(\d{1,2})\b/i);
-  if (m2) return Number(m2[1]);
-  const m3 = title.match(/(\d)(?:st|nd|rd|th)\s+season/i);
-  if (m3) return Number(m3[1]);
-  return null;
 }
 
 // =============================================================================
