@@ -17,6 +17,10 @@ export default defineConfig({
       'contextMenus'
     ],
     optional_host_permissions: ['<all_urls>'],
+    // SECURITY: Content Security Policy for extension pages
+    content_security_policy: {
+      extension_pages: "script-src 'self'; object-src 'self'"
+    },
     commands: {
       'open-site-mapper': {
         suggested_key: {
@@ -46,9 +50,10 @@ export default defineConfig({
     ],
     version: '0.0.3',
     /**
-     * Needed so SVG icon assets can be loaded into the Crunchyroll page DOM from the content script.
+     * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
      * and the <img> tags show broken placeholders.
+     * NOTE: Using <all_urls> because the site mapper allows the extension to work on any anime streaming site
      */
     web_accessible_resources: [
       {

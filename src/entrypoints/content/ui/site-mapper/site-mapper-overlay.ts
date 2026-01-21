@@ -37,7 +37,14 @@ export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, que
   );
 
   // Listen for background command trigger
-  chrome.runtime.onMessage.addListener((msg) => {
+  // SECURITY: Validate sender to prevent message spoofing from other extensions
+  chrome.runtime.onMessage.addListener((msg, sender) => {
+    // Only accept messages from this extension's background script
+    if (sender.id !== chrome.runtime.id) {
+      console.warn('[site-mapper] Rejected message from unauthorized sender:', sender.id);
+      return;
+    }
+    
     if (msg?.action === 'open-site-mapper') {
       openOverlay();
     }

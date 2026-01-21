@@ -48,11 +48,25 @@
 
   // Get config from data attributes on the script tag
   const scriptTag = document.currentScript;
-  const threadUrl = scriptTag?.getAttribute('data-thread-url') || '';
-  const identifier = scriptTag?.getAttribute('data-identifier') || '';
-  const forumShortname = scriptTag?.getAttribute('data-forum') || 'channel-discussanime';
-  const threadTitle = scriptTag?.getAttribute('data-title') || '';
-  const threadSlug = scriptTag?.getAttribute('data-slug') || '';
+  
+  // SECURITY: Validate inputs to prevent injection attacks
+  const threadUrl = (scriptTag?.getAttribute('data-thread-url') || '').trim();
+  const identifier = (scriptTag?.getAttribute('data-identifier') || '').trim();
+  const forumShortname = (scriptTag?.getAttribute('data-forum') || 'channel-discussanime').trim();
+  const threadTitle = (scriptTag?.getAttribute('data-title') || '').trim();
+  const threadSlug = (scriptTag?.getAttribute('data-slug') || '').trim();
+  
+  // SECURITY: Validate forum shortname (alphanumeric and hyphens only)
+  if (!/^[a-zA-Z0-9-]+$/.test(forumShortname)) {
+    console.error('[Disqus] Invalid forum shortname:', forumShortname);
+    return;
+  }
+  
+  // SECURITY: Validate URL format if provided
+  if (threadUrl && !/^https?:\/\/.+/.test(threadUrl)) {
+    console.error('[Disqus] Invalid thread URL format:', threadUrl);
+    return;
+  }
 
   // Set up Disqus config
   window.disqus_config = function () {
