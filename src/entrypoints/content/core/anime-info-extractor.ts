@@ -19,13 +19,16 @@ import {
  */
 export async function getChibiAnimeInfo(): Promise<{ animeName: string; episodeName: string; releaseDate?: string } | null> {
   try {
+    console.log('[Episode Detection] Attempting Chibi detection on URL:', window.location.href);
     const detected = await detectChibi(document, window.location);
+    console.log('[Episode Detection] Chibi raw detection:', detected);
     if (!detected || !detected.title) return null;
 
     const title = typeof detected.title === 'string' ? detected.title.trim() : String(detected.title ?? '').trim();
     if (!title) return null;
 
     const episodeRaw = detected.episode;
+    console.log('[Episode Detection] Chibi episode raw value:', { episodeRaw, type: typeof episodeRaw });
     let episodeName = '';
     if (typeof episodeRaw === 'number') {
       episodeName = `Episode ${episodeRaw}`;
@@ -34,6 +37,7 @@ export async function getChibiAnimeInfo(): Promise<{ animeName: string; episodeN
       episodeName = /^episode/i.test(trimmed) ? trimmed : `Episode ${trimmed}`;
     }
 
+    console.log('[Episode Detection] Chibi final episodeName:', episodeName);
     if (!episodeName) return null;
 
     return {
@@ -78,6 +82,7 @@ export function getAnimeInfo(): { animeName: string; episodeName: string; releas
       return null;
     }
 
+    console.log('[Episode Detection] Crunchyroll page extraction:', { animeName, episodeName, releaseDate });
     return {
       animeName,
       episodeName,

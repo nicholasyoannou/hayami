@@ -136,7 +136,17 @@ function applyStep(step: ChibiStep, current: any, ctx: EvalContext): StepOutcome
       case 'querySelector': {
         const selector = String(args[0] || '');
         const base = toElement(current) || ctx.document;
-        return { value: selector ? base.querySelector(selector) : null };
+        const result = selector ? base.querySelector(selector) : null;
+        // Log for episode detection debugging
+        if (selector === '.theatre-info h1') {
+          console.log('[Episode Detection] Chibi querySelector for episode:', { 
+            selector, 
+            found: !!result,
+            textContent: result?.textContent,
+            innerHTML: (result as Element)?.innerHTML 
+          });
+        }
+        return { value: result };
       }
       case 'querySelectorAll': {
         const selector = String(args[0] || '');
@@ -181,7 +191,12 @@ function applyStep(step: ChibiStep, current: any, ctx: EvalContext): StepOutcome
       }
       case 'getBaseText': {
         const el = toElement(current);
-        return { value: el?.textContent?.trim() || '' };
+        const text = el?.textContent?.trim() || '';
+        // Log for episode detection debugging
+        if (el?.matches?.('.theatre-info h1')) {
+          console.log('[Episode Detection] Chibi getBaseText from .theatre-info h1:', { text });
+        }
+        return { value: text };
       }
       case 'trim':
         return { value: typeof current === 'string' ? current.trim() : current };
@@ -214,7 +229,12 @@ function applyStep(step: ChibiStep, current: any, ctx: EvalContext): StepOutcome
         const re = new RegExp(pattern, flags);
         const str = current != null ? String(current) : '';
         const m = str.match(re);
-        return { value: m ? (m[group] ?? m[0] ?? null) : null };
+        const result = m ? (m[group] ?? m[0] ?? null) : null;
+        // Log for episode detection debugging when extracting numbers
+        if (pattern === '[0-9.]+') {
+          console.log('[Episode Detection] Chibi regex [0-9.]+:', { input: str, match: m, result });
+        }
+        return { value: result };
       }
       case 'replace': {
         const searchVal = evalValue(args[0], ctx, current);
@@ -382,7 +402,14 @@ export async function detectChibi(documentRef: Document = document, locationRef:
     try { return runPipeline(sync.getIdentifier, ctx); } catch (e) { errors.push(String(e)); return null; }
   })();
   const episode = (() => {
-    try { return runPipeline(sync.getEpisode, ctx); } catch (e) { errors.push(String(e)); return null; }
+    try { 
+      const result = runPipeline(sync.getEpisode, ctx);
+      console.log('[Episode Detection] Chibi getEpisode pipeline result:', { result, pipeline: sync.getEpisode });
+      return result;
+    } catch (e) { 
+      errors.push(String(e)); 
+      return null; 
+    }
   })();
 
   const hasUseful = hasValue(title) || hasValue(identifier) || hasValue(episode);

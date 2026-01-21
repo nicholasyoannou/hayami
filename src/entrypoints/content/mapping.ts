@@ -1,4 +1,5 @@
 import { AnimeInfo } from './types';
+import { findThreadForAnime } from '@/utils/disqusApi';
 import {
   parseMapperYear,
   getEpisodeAirYear,
@@ -63,6 +64,77 @@ export async function fetchAnimeMapperDataBySeriesName(
     return data;
   } catch (error) {
     console.error('[Mapper] Error fetching by series name:', error);
+    return null;
+  }
+}
+
+const redditSelftextCache = new Map<string, any>();
+
+async function maybeCorrectRedditEpisodeViaSelftext(
+  mapperUrl: string,
+  desiredEpisode: number | null,
+  seriesName?: string,
+): Promise<string | null> {
+  if (!mapperUrl || !Number.isFinite(desiredEpisode)) return null;
+
+  const normalize = (s: string) => s.toLowerCase().trim();
+  const desired = desiredEpisode as number;
+  const postIdMatch = mapperUrl.match(/comments\/([a-z0-9]+)\//i);
+  const postId = postIdMatch?.[1] || mapperUrl;
+
+  try {
+    const cached = redditSelftextCache.get(postId);
+    const fetchUrl = mapperUrl.endsWith('.json') ? mapperUrl : `${mapperUrl.replace(/\/?$/, '')}.json`;
+    const data = cached || (await (await fetch(fetchUrl)).json());
+    redditSelftextCache.set(postId, data);
+
+    const post = Array.isArray(data) ? data[0]?.data?.children?.[0]?.data : data?.data?.children?.[0]?.data;
+    const selftext: string | undefined = post?.selftext;
+    if (!selftext) return null;
+
+    if (seriesName) {
+      const sn = normalize(seriesName);
+      const body = normalize(selftext);
+      if (sn && !body.includes(sn.split(' ')[0])) {
+        // If series token not found, bail to avoid cross-show hijack.
+        return null;
+      }
+    }
+
+    const declaredMatch = selftext.match(/episode\s*(\d+)/i);
+    const declaredEpisode = declaredMatch ? Number.parseInt(declaredMatch[1], 10) : null;
+
+    const tableRegex = /(?:^|\n)\s*(\d+)\s*\|\s*\[Link\]\((https?:\/\/www\.reddit\.com\/r\/anime\/comments\/[^\)]+)\)/gi;
+    const tableMap = new Map<number, string>();
+    let m: RegExpExecArray | null;
+    while ((m = tableRegex.exec(selftext)) !== null) {
+      const ep = Number.parseInt(m[1], 10);
+      if (Number.isFinite(ep)) {
+        tableMap.set(ep, m[2]);
+      }
+    }
+
+    if (declaredEpisode === desired) {
+      return null; // already on desired episode
+    }
+
+    if (tableMap.has(desired)) {
+      const target = tableMap.get(desired)!;
+      if (target && target !== mapperUrl) {
+        console.log('[Mapper Selftext] Corrected episode via selftext table', { from: mapperUrl, to: target, desired });
+        return target;
+      }
+    }
+
+    // If desired episode higher than any listed, keep current.
+    if (tableMap.size > 0) {
+      const maxEp = Math.max(...tableMap.keys());
+      if (desired > maxEp) return null;
+    }
+
+    return null;
+  } catch (error) {
+    console.log('[Mapper Selftext] Error while parsing selftext', error);
     return null;
   }
 }
@@ -876,6 +948,11 @@ export async function tryMapperFailover(
 ): Promise<string | null> {
   try {
     console.log('[Mapper Failover] Starting failover process', { platform });
+    console.log('[Episode Detection] Mapper failover inputs:', {
+      animeName: animeInfo?.animeName,
+      episodeName: animeInfo?.episodeName,
+      releaseDate: animeInfo?.releaseDate,
+    });
 
     // For Disqus, bypass Hayami mapper on same-day airings and let native Disqus lookup run instead.
     if (platform === 'disqus' && isReleaseDateToday(animeInfo?.releaseDate)) {
@@ -886,28 +963,72 @@ export async function tryMapperFailover(
     // If we are not on a Crunchyroll watch URL (e.g., animepahe), skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.
     const extractEpisodeFromInfo = (): number | null => {
-      const raw = animeInfo?.episodeName || '';
+      const candidates: string[] = [];
+      if (animeInfo?.episodeName) candidates.push(animeInfo.episodeName);
+      if (animeInfo?.animeName) candidates.push(animeInfo.animeName);
+      if (typeof document !== 'undefined') {
+        if (document.title) candidates.push(document.title);
+        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
+        if (ogTitle) candidates.push(ogTitle);
+        const metaTitle = document.querySelector('meta[name="title"]')?.getAttribute('content');
+        if (metaTitle) candidates.push(metaTitle);
+        const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content');
+        if (metaDesc) candidates.push(metaDesc);
+        const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content');
+        if (ogDesc) candidates.push(ogDesc);
+        const h1 = document.querySelector('h1')?.textContent?.trim();
+        if (h1) candidates.push(h1);
+        const h2 = document.querySelector('h2')?.textContent?.trim();
+        if (h2) candidates.push(h2);
+        const dataEpisode = (document.querySelector('[data-episode]') as HTMLElement | null)?.getAttribute('data-episode');
+        if (dataEpisode) candidates.push(dataEpisode);
+        const dataEpisodeNumber = (document.querySelector('[data-episode-number]') as HTMLElement | null)?.getAttribute('data-episode-number');
+        if (dataEpisodeNumber) candidates.push(dataEpisodeNumber);
+        const itempropEpisode = document.querySelector('[itemprop="episodeNumber"]')?.getAttribute('content')
+          || document.querySelector('[itemprop="episodeNumber"]')?.textContent?.trim();
+        if (itempropEpisode) candidates.push(itempropEpisode);
+      }
+
       const patterns = [
         /Episode\s*(\d+)/i,
-        /Ep\.?(\d+)/i,
+        /Ep\.?\s*(\d+)/i,
         /E\s*(\d+)/i,
         /#(\d+)/,
         /(\d+)/,
       ];
-      for (const p of patterns) {
-        const m = raw.match(p);
-        if (m && m[1]) {
-          const n = Number.parseInt(m[1], 10);
-          if (Number.isFinite(n)) return n;
+
+      const hits: number[] = [];
+      for (const source of candidates) {
+        if (!source) continue;
+        for (const p of patterns) {
+          const m = source.match(p);
+          if (m && m[1]) {
+            const n = Number.parseInt(m[1], 10);
+            if (Number.isFinite(n)) hits.push(n);
+          }
         }
       }
-      return null;
+
+      if (hits.length === 0) return null;
+      const freq = new Map<number, number>();
+      for (const n of hits) freq.set(n, (freq.get(n) || 0) + 1);
+      let best = hits[0];
+      let bestCount = freq.get(best) || 0;
+      for (const [num, count] of freq.entries()) {
+        if (count > bestCount || (count === bestCount && num > best)) {
+          best = num;
+          bestCount = count;
+        }
+      }
+      console.log('[Episode Detection] extractEpisodeFromInfo result:', { candidates, hits, best });
+      return best;
     };
 
     const episodeId = extractEpisodeIdFromUrl();
     if (!episodeId) {
       console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
       const episodeFromInfo = extractEpisodeFromInfo();
+      console.log('[Episode Detection] Episode extracted from info for mapping:', episodeFromInfo);
       const mapperResult = animeInfo?.animeName ? await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, platform) : null;
       if (!mapperResult || !Array.isArray((mapperResult as any).results) || !(mapperResult as any).results.length) {
         return null;
@@ -922,6 +1043,11 @@ export async function tryMapperFailover(
         desiredKeys.add(episodeFromInfo);
         if (episodeFromInfo < 10) desiredKeys.add(`0${episodeFromInfo}`);
       }
+      console.log('[Episode Detection] Desired mapper keys:', Array.from(desiredKeys));
+
+      let mapperUrl: string | null = null;
+      const isDisqus = platform === 'disqus';
+      const keyedCandidates: Array<{ idx: number; url: string; year: number | null }> = [];
 
       for (const idx of order) {
         const res = results[idx];
@@ -931,23 +1057,60 @@ export async function tryMapperFailover(
         }
         const eps = res.episodes;
         if (eps && typeof eps === 'object' && Object.keys(eps).length > 0) {
+          console.log(`[Episode Detection] Checking mapper result idx=${idx}, available episodes:`, Object.keys(eps));
           if (desiredKeys.size > 0) {
             for (const key of Object.keys(eps)) {
               const num = Number.parseInt(key, 10);
               if (desiredKeys.has(key) || desiredKeys.has(num)) {
                 console.log(`[Mapper Failover] Lightweight match via series lookup (idx=${idx}, key=${key})`);
-                return eps[key];
+                console.log(`[Episode Detection] Matched episode key=${key} to URL:`, eps[key]);
+                keyedCandidates.push({ idx, url: eps[key], year: res.year === 'movies' ? null : Number.parseInt(res.year, 10) || null });
               }
             }
           }
           // No specific episode parsed; fall back to first available episode URL.
-          const firstKey = Object.keys(eps)[0];
-          if (firstKey && eps[firstKey]) {
-            console.log(`[Mapper Failover] Lightweight match via first episode (idx=${idx}, key=${firstKey})`);
-            return eps[firstKey];
+          if (!mapperUrl && !(isDisqus && desiredKeys.size > 0)) {
+            const firstKey = Object.keys(eps)[0];
+            if (firstKey && eps[firstKey]) {
+              console.log(`[Mapper Failover] Lightweight match via first episode (idx=${idx}, key=${firstKey})`);
+              mapperUrl = eps[firstKey];
+            }
           }
         }
       }
+
+      if (keyedCandidates.length) {
+        keyedCandidates.sort((a, b) => {
+          const ya = a.year ?? -Infinity;
+          const yb = b.year ?? -Infinity;
+          if (ya !== yb) return yb - ya; // prefer newest year
+          return a.idx - b.idx; // otherwise prefer lower idx (mapper preference)
+        });
+        mapperUrl = keyedCandidates[0].url;
+      }
+
+      // For Disqus, if mapper episodes are incomplete, fall back to a live Disqus search before returning a stale episode.
+      if (!mapperUrl && isDisqus && animeInfo?.animeName) {
+        const thread = await findThreadForAnime({
+          animeName: animeInfo.animeName,
+          episodeName: animeInfo.episodeName,
+          releaseDate: animeInfo.releaseDate,
+        });
+        const threadLink = thread?.link;
+        if (threadLink) {
+          console.log('[Mapper Failover] Disqus search override used in place of incomplete mapper episodes');
+          return threadLink;
+        }
+      }
+
+      if (platform === 'reddit' && mapperUrl && episodeFromInfo !== null) {
+        const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeFromInfo, animeInfo?.animeName);
+        if (corrected && corrected !== mapperUrl) {
+          return corrected;
+        }
+      }
+
+      if (mapperUrl) return mapperUrl;
 
       console.log('[Mapper Failover] Lightweight mapper lookup found no episode match');
       return null;

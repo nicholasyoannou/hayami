@@ -589,6 +589,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     }
 
     const episodeFromInfo = extractEpisodeNumber(animeInfo.episodeName || '');
+    console.log('[Episode Detection] Extracted episode number from animeInfo:', { episodeName: animeInfo.episodeName, episodeFromInfo });
     if (typeof episodeFromInfo === 'number') {
       const epMatches = results.filter((r) => parseEpisodeFromTitle(r.title) === episodeFromInfo);
       if (epMatches.length === 1) {

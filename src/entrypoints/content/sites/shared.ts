@@ -11,7 +11,9 @@ export interface OrderedMapperEntry {
 
 export function parseEpisodeFromTitle(title: string): number | null {
   const m = title.match(/Episode\s*(\d+)/i);
-  return m ? parseInt(m[1], 10) : null;
+  const result = m ? parseInt(m[1], 10) : null;
+  console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: result });
+  return result;
 }
 
 export function parseMapperYear(year: any): number | null {
