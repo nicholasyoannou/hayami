@@ -1,3 +1,17 @@
+/**
+ * Anime Mapping Module
+ * 
+ * Handles mapping between different anime databases and services:
+ * - Crunchyroll episode/series metadata
+ * - Reddit/Disqus discussion thread mapping
+ * - MAL/AniList ID resolution
+ * - Episode number parsing and season detection
+ * - Fallback strategies for mapping failures
+ * 
+ * This is a large module that coordinates multiple data sources to accurately
+ * match anime series and episodes across platforms.
+ */
+
 import { AnimeInfo } from './types';
 import { findThreadForAnime } from '@/utils/disqusApi';
 import { extensionFetch } from '@/utils/redditApi';
@@ -67,6 +81,11 @@ function stripSeasonSuffix(animeName: string): string {
   return stripped || animeName; // Return original if nothing matched
 }
 
+// =============================================================================
+// MAPPER SERVICE API FUNCTIONS
+// Functions for fetching anime mapping data from the Hayami API service
+// =============================================================================
+
 /**
  * Lightweight mapper lookup by series name only (no Crunchyroll metadata).
  * Supports platform hint (reddit|disqus) by forwarding to the search endpoint.
@@ -124,6 +143,11 @@ export async function fetchAnimeMapperDataBySeriesName(
     return null;
   }
 }
+
+// =============================================================================
+// REDDIT SELFTEXT EPISODE TABLE EXTRACTION
+// Functions for parsing episode tables from Reddit discussion posts
+// =============================================================================
 
 const redditSelftextCache = new Map<string, any>();
 
@@ -210,6 +234,10 @@ export function extractEpisodeIdFromUrl(): string | null {
   }
 }
 
+// =============================================================================
+// CRUNCHYROLL METADATA REFINEMENT
+// Functions for refining mapper results using Crunchyroll's own metadata
+// =============================================================================
 
 function refineMatchedIndexUsingCrunchyrollData(
   results: any[] | undefined,
@@ -422,6 +450,11 @@ function refineMatchedIndexUsingCrunchyrollData(
 
   return matchedIndex;
 }
+
+// =============================================================================
+// EPISODE TO SEASON MAPPING
+// Functions for mapping episode numbers to season/episode pairs
+// =============================================================================
 
 // Map CR episode number to mapper season episode using Crunchyroll seasons data and mapper results.
 function mapEpisodeWithSeasonsData(
@@ -902,6 +935,11 @@ function mapEpisodeWithSeasonsData(
   return null;
 }
 
+// =============================================================================
+// SEASON-SPECIFIC MAPPER FUNCTIONS
+// Functions for fetching and processing season-specific mapping data
+// =============================================================================
+
 export async function fetchAnimeMapperDataBySeriesAndSeason(
   seriesName: string,
   seasonTitle: string,
@@ -997,6 +1035,11 @@ function mapEpisodeToSeasonEpisode(
 
   return null;
 }
+
+// =============================================================================
+// MAPPER FAILOVER STRATEGIES
+// Functions for handling mapper failures and trying alternative mapping approaches
+// =============================================================================
 
 export async function tryMapperFailover(
   animeInfo: AnimeInfo,
