@@ -97,8 +97,6 @@ export function ensureToaster(ctx: ContentScriptContext): void {
  * Main bootstrap function for content script initialization
  */
 export function bootstrapContent(ctx: ContentScriptContext): void {
-  // Store content script context for WXT UI helpers
-  let contentScriptContext: ContentScriptContext | null = ctx;
   setContentScriptContext(ctx);
   
   debug.log('Hayami extension loaded');

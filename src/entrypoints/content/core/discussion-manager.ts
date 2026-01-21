@@ -417,7 +417,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     // the auth prompt available for actions that require OAuth (posting/voting).
     const authenticated = await isAuthenticated();
     if (!authenticated) {
-      console.log('User not authenticated with Reddit ΓÇö proceeding with public/browser-session fallback');
+      console.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
       // do not show auth prompt here; allow unauthenticated browsing
     }
 
@@ -448,7 +448,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
           await embedDisqusThreadDependingOnMode(thread, animeInfo);
           return;
           }
-          // No exact match found ΓÇö offer manual Disqus search UI. If the user
+          // No exact match found - offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
           const disqusResult = await showDisqusSearchUI(animeInfo);
           if (disqusResult === 'embedded') {
@@ -914,7 +914,7 @@ function mountLoadingShell(): void {
 
     const placeholderDiscussion = {
       id: '',
-      title: 'Loading commentsΓÇª',
+      title: 'Loading comments...',
       author: '',
       permalink: '',
       score: 0,
@@ -1470,7 +1470,7 @@ export function renderMalForumResult(result: MalForumResult, animeTitle: string,
   }
 
   const url = selectedTopic.url || `https://myanimelist.net/forum/?topicid=${selectedTopic.id || ''}`;
-  const comments = typeof selectedTopic.comments === 'number' ? selectedTopic.comments.toLocaleString() : 'ΓÇö';
+  const comments = typeof selectedTopic.comments === 'number' ? selectedTopic.comments.toLocaleString() : '-';
   const author = selectedTopic.author?.name ? `by ${escapeHtml(selectedTopic.author.name)}` : '';
 
   const listHtml = renderMalTopicList(topicList);

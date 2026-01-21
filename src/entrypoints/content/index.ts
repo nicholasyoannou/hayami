@@ -253,7 +253,7 @@ export async function renderYouTubeComments(
           const isCollapsed = commentEl.classList.contains('ri-collapsed');
           if (isCollapsed) {
             commentEl.classList.remove('ri-collapsed');
-            (this as HTMLElement).textContent = 'ΓÇô';
+            (this as HTMLElement).textContent = '-';
             (this as HTMLElement).setAttribute('aria-expanded', 'true');
           } else {
             commentEl.classList.add('ri-collapsed');
