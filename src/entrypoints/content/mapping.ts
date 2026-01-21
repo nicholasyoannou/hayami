@@ -43,18 +43,43 @@ export function resolveCurrentAdapter(location: Location = window.location) {
 }
 
 /**
+ * Strips season suffixes from anime names to get the series title.
+ * Examples:
+ *   "Hell's Paradise Season 2" → "Hell's Paradise"
+ *   "My Hero Academia Season 3" → "My Hero Academia"
+ *   "Attack on Titan S4" → "Attack on Titan"
+ */
+function stripSeasonSuffix(animeName: string): string {
+  // Match patterns like "Season X", "Season X Part Y", "S2", "S3 Part 2", etc.
+  const stripped = animeName
+    .replace(/\s+Season\s+\d+(\s+Part\s+\d+)?/i, '')
+    .replace(/\s+S\d+(\s+Part\s+\d+)?/i, '')
+    .replace(/\s+Part\s+\d+/i, '')
+    .trim();
+  
+  if (stripped && stripped !== animeName) {
+    console.log('[Mapper] Stripped season suffix:', { original: animeName, stripped });
+  }
+  
+  return stripped || animeName; // Return original if nothing matched
+}
+
+/**
  * Lightweight mapper lookup by series name only (no Crunchyroll metadata).
  * Supports platform hint (reddit|disqus) by forwarding to the search endpoint.
+ * Automatically strips season suffixes to search for the series title.
  */
 export async function fetchAnimeMapperDataBySeriesName(
   seriesName: string,
   platform: 'reddit' | 'disqus' = 'reddit',
 ): Promise<any | null> {
   try {
-    const encodedSeries = encodeURIComponent(seriesName);
+    // Strip season suffix to get series title for broader search
+    const searchName = stripSeasonSuffix(seriesName);
+    const encodedSeries = encodeURIComponent(searchName);
     const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
     const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}`;
-    console.log('[Mapper] Querying mapper by series name:', { url, platform });
+    console.log('[Mapper] Querying mapper by series name:', { url, platform, original: seriesName, searchName });
     const response = await fetch(url);
     if (!response.ok) {
       console.log('[Mapper] Series-name mapper returned non-OK status:', response.status, response.statusText);
