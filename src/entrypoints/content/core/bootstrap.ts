@@ -17,6 +17,7 @@ import { getChibiAnimeInfo, getAnimeInfo, observeAnimeInfoOnce } from './anime-i
 import { getCustomAnimeInfo } from '../ui/site-mapper';
 import { setupSiteMapperHotkey, loadCustomMappingForOrigin } from '../ui/site-mapper';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
+import { matchChibiPage } from '../chibi';
 import {
   debounceTimer,
   lastAnimeInfo,
@@ -96,23 +97,35 @@ export function ensureToaster(ctx: ContentScriptContext): void {
 /**
  * Main bootstrap function for content script initialization
  */
-export function bootstrapContent(ctx: ContentScriptContext): void {
+export async function bootstrapContent(ctx: ContentScriptContext): Promise<void> {
+  // Early bailout: Check if this site is potentially supported
+  // This prevents the extension from running on unrelated sites
+  const currentUrl = window.location.href;
+  const { isWatchPage } = useWatchPageDetection();
+  const hasWatchUrl = isWatchPage(currentUrl);
+  const hasChibiMatch = matchChibiPage(currentUrl) !== null;
+  
+  // Check if there's a custom mapping (this is async, so we'll allow it to load)
+  const customMapping = await loadCustomMappingForOrigin();
+  
+  // If none of these conditions are true, bail out early
+  if (!hasWatchUrl && !hasChibiMatch && !customMapping) {
+    debug.log('Hayami: Site not supported, skipping initialization');
+    return;
+  }
+  
   setContentScriptContext(ctx);
   
   debug.log('Hayami extension loaded');
   ensureToaster(ctx);
   setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
 
-  // Load any custom mapping for this origin and trigger handling if present
-  loadCustomMappingForOrigin().then((cfg) => {
-    if (cfg) {
-      queueHandleWatchPage(ctx);
-    }
-  });
+  // If we have a custom mapping, trigger handling
+  if (customMapping) {
+    queueHandleWatchPage(ctx);
+  }
 
-  const { isWatchPage } = useWatchPageDetection();
-
-  if (isWatchPage(window.location.href)) {
+  if (hasWatchUrl) {
     queueHandleWatchPage(ctx);
   }
 
