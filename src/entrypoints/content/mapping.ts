@@ -1,5 +1,6 @@
 import { AnimeInfo } from './types';
 import { findThreadForAnime } from '@/utils/disqusApi';
+import { extensionFetch } from '@/utils/redditApi';
 import {
   parseMapperYear,
   getEpisodeAirYear,
@@ -110,7 +111,7 @@ async function maybeCorrectRedditEpisodeViaSelftext(
   try {
     const cached = redditSelftextCache.get(postId);
     const fetchUrl = mapperUrl.endsWith('.json') ? mapperUrl : `${mapperUrl.replace(/\/?$/, '')}.json`;
-    const data = cached || (await (await fetch(fetchUrl)).json());
+    const data = cached || (await (await extensionFetch(fetchUrl)).json());
     redditSelftextCache.set(postId, data);
 
     const post = Array.isArray(data) ? data[0]?.data?.children?.[0]?.data : data?.data?.children?.[0]?.data;
