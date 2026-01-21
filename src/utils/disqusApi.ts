@@ -52,12 +52,11 @@ function scoreThreadForAnime(animeInfo: { animeName: string; episodeName?: strin
 }
 
 /**
- * Fetches Disqus public API key by requesting the login page and extracting
- * the `context.apiPublicKey` value embedded in the page JS.
+ * Fetches Disqus public API key by requesting known Disqus bundles or login page
+ * and extracting the public key.
  */
 export async function getDisqusPublicApiKey(): Promise<string | null> {
   try {
-    // Try fetching from Disqus bundles which contain the API key
     const urls = [
       'https://disqus.disqus.com/polls.js',
       'https://c.disquscdn.com/polls/latest/assets/polls.bundle.js',
@@ -69,41 +68,24 @@ export async function getDisqusPublicApiKey(): Promise<string | null> {
         const res = await crProxyFetch(url, { credentials: 'include' } as any);
         if (!res || !res.ok) continue;
         const text = await res.text();
-
-        // Try multiple patterns to find the API key
         const patterns = [
-          // VITE_API_KEY:"..." or VITE_API_KEY:'...'
-          /VITE_API_KEY\s*:\s*["']([a-zA-Z0-9]{40,})["']/,
-          // api:"..." or api:'...'
-          /\bapi\s*:\s*["']([a-zA-Z0-9]{40,})["']/,
-          // Direct variable assignment: po="..." or similar
-          /(?:const|let|var)\s+\w+\s*=\s*["']([a-zA-Z0-9]{40,})["']/,
-          // api_key parameter value
-          /api_key\s*:\s*["']?([a-zA-Z0-9]{40,})["']?/,
+          /VITE_API_KEY\s*:\s*["']([a-zA-Z0-9]{40,})["']/, // config-style
+          /\bapi\s*:\s*["']([a-zA-Z0-9]{40,})["']/,         // property-style
+          /(?:const|let|var)\s+\w+\s*=\s*["']([a-zA-Z0-9]{40,})["']/, // var assignment
+          /api_key\s*:\s*["']?([a-zA-Z0-9]{40,})["']?/,   // param-style
         ];
-
         for (const pattern of patterns) {
-          const match = text.match(pattern);
-          if (match && match[1]) {
-            console.log(`[DisqusAPI] Found API key from ${url.split('/').pop()}`);
-            return match[1];
-          }
+          const m = text.match(pattern);
+          if (m && m[1]) return m[1];
         }
-      } catch (e) {
-        // Try next URL
-        continue;
-      }
+      } catch {}
     }
 
-    // Fallback: try fetching from profile login page if bundle extraction failed
     const res = await crProxyFetch('https://disqus.com/profile/login/?next=https://disqus.com/home/notifications/', { credentials: 'include' } as any);
     if (res && res.ok) {
       const text = await res.text();
       const m = text.match(/context\.apiPublicKey\s*=\s*['"]([^'"]+)['"]/i);
-      if (m && m[1]) {
-        console.log('[DisqusAPI] Found API key from login page');
-        return m[1];
-      }
+      if (m && m[1]) return m[1];
     }
   } catch (e) {
     console.warn('Failed to fetch Disqus public API key', e);
@@ -112,33 +94,42 @@ export async function getDisqusPublicApiKey(): Promise<string | null> {
 }
 
 /**
- * Call Disqus timelines/ranked endpoint for channel-discussanime with episode-discussion topic.
- * Returns the `response` array from Disqus API or empty array.
+ * Fetch recent Disqus threads for the DiscussAnime channel using the timelines API.
+ * Maps activities to thread objects and aggregates first 1-2 pages for recall.
  */
 export async function listThreadsForForumSince(forum: string, sinceTs: number, apiKey?: string): Promise<any[]> {
   try {
     const key = apiKey || await getDisqusPublicApiKey();
     if (!key) throw new Error('No Disqus public API key available');
-    // Using timelines/ranked endpoint for better thread discovery
-    const cursor = ''; // Start with empty cursor for initial pagination
-    const url = `https://disqus.com/api/3.0/timelines/ranked?type=default&target=channel%3Adiscussanime&topic=episode-discussion&cursor=${encodeURIComponent(cursor)}&limit=100&api_key=${encodeURIComponent(key)}`;
-    // Use extension proxy and allow credentials so the background can include cookies
-    const r = await crProxyFetch(url, { credentials: 'include' } as any);
-    if (!r) {
-      console.warn('Disqus listThreads request returned no response');
-      return [];
-    }
-    if (!r.ok) {
-      try {
-        const txt = await r.text();
-        console.warn('Disqus listThreads request failed', r.status, String(txt).slice(0,200));
-      } catch (e) {
-        console.warn('Disqus listThreads request failed and body could not be read', r.status);
+
+    let cursor = '';
+    const allThreads: any[] = [];
+
+    for (let page = 0; page < 2; page++) {
+      const url = `https://disqus.com/api/3.0/timelines/ranked?type=default&target=${encodeURIComponent('channel:discussanime')}&topic=episode-discussion&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}&api_key=${encodeURIComponent(key)}`;
+      const r = await crProxyFetch(url, { credentials: 'include' } as any);
+      if (!r) break;
+      if (!r.ok) break;
+
+      const j = await r.json();
+      const resp = j && j.response ? j.response : null;
+      const activities: any[] = Array.isArray(resp?.activities) ? resp.activities : [];
+      const objects: Record<string, any> = resp?.objects || {};
+
+      for (const act of activities) {
+        const id: string | undefined = act?.id; // 'thread_activity:forums.Thread?id=...'
+        if (!id) continue;
+        const objKey = id.split(':')[1];
+        const thread = objKey ? objects[objKey] : undefined;
+        if (thread && thread.title) allThreads.push(thread);
       }
-      return [];
+
+      const hasNext = !!resp?.cursor?.hasNext;
+      const nextCursor: string | undefined = resp?.cursor?.next;
+      if (hasNext && nextCursor) cursor = nextCursor; else break;
     }
-    const j = await r.json();
-    return Array.isArray(j && j.response) ? j.response : [];
+
+    return allThreads;
   } catch (e) {
     console.warn('Error listing Disqus threads', e);
     return [];
@@ -156,142 +147,76 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
     if (animeInfo.releaseDate) {
       const parsed = Date.parse(animeInfo.releaseDate);
       if (!Number.isNaN(parsed)) {
-        // Get the date object for the release date
         const releaseDate = new Date(parsed);
-        // Set to one day before
         releaseDate.setDate(releaseDate.getDate() - 1);
-        // Set to start of day (00:00:00.000)
         releaseDate.setHours(0, 0, 0, 0);
         sinceTs = Math.floor(releaseDate.getTime() / 1000);
-        console.log('[Disqus] Release date:', animeInfo.releaseDate);
-        console.log('[Disqus] Since timestamp (1 day before at 00:00:00):', sinceTs, new Date(sinceTs * 1000).toISOString());
       } else {
         try {
           const d = new Date(animeInfo.releaseDate);
           if (!Number.isNaN(d.valueOf())) {
-            // Set to one day before
             d.setDate(d.getDate() - 1);
-            // Set to start of day (00:00:00.000)
             d.setHours(0, 0, 0, 0);
             sinceTs = Math.floor(d.getTime() / 1000);
-            console.log('[Disqus] Release date:', animeInfo.releaseDate);
-            console.log('[Disqus] Since timestamp (1 day before at 00:00:00):', sinceTs, new Date(sinceTs * 1000).toISOString());
           }
         } catch {}
       }
     }
 
     const name = (animeInfo.animeName || '').toLowerCase().trim();
-    if (!name) {
-      console.log('[Disqus] No anime name provided');
-      return null;
-    }
+    if (!name) return null;
 
-    // Try up to 4 times with different timestamps (initial + 3 retries with adjusted times)
+    // Try up to 4 times with different timestamps (kept for compatibility)
     const hoursToNudge = 4;
     let matchedThread: any = null;
-    
     let bestScore = -Infinity;
 
     for (let attempt = 0; attempt <= 3; attempt++) {
       const adjustedTs = attempt === 0 ? sinceTs : sinceTs + (hoursToNudge * 3600 * attempt);
-      if (attempt === 0) {
-        console.log('[Disqus] Initial attempt with timestamp:', new Date(adjustedTs * 1000).toISOString());
-      } else {
-        console.log(`[Disqus] Retry ${attempt}: Nudging timestamp forward by ${hoursToNudge * attempt} hours to`, new Date(adjustedTs * 1000).toISOString());
-      }
-      
       const threads = await listThreadsForForumSince(forum, adjustedTs);
-      console.log(`[Disqus] API returned ${threads ? threads.length : 0} threads`);
-      
-      if (!threads || threads.length === 0) {
-        console.log('[Disqus] No threads returned, trying next timestamp...');
-        continue;
-      }
+      if (!threads || threads.length === 0) continue;
 
-      console.log('[Disqus] Searching for anime:', JSON.stringify(name));
-      
-      // Try multiple fields (title, clean_title, etc.) and normalize everything to lowercase
       for (const t of threads) {
         const title = String(t.title || '').toLowerCase();
         const cleanTitle = String(t.clean_title || '').toLowerCase();
-        if (!title.includes(name) && !cleanTitle.includes(name)) {
-          continue;
-        }
+        if (!title.includes(name) && !cleanTitle.includes(name)) continue;
         const score = scoreThreadForAnime(animeInfo, t);
-        if (score > bestScore) {
-          bestScore = score;
-          matchedThread = t;
-        }
+        if (score > bestScore) { bestScore = score; matchedThread = t; }
       }
-
-      if (matchedThread) {
-        console.log('[Disqus] Best match so far:', matchedThread.clean_title || matchedThread.title, 'score:', bestScore);
-      } else {
-        console.log(`[Disqus] No match found in attempt ${attempt + 1}, will try next timestamp if available`);
-      }
+      if (matchedThread) break;
     }
 
-    if (matchedThread) {
-      return matchedThread;
-    }
-    
-    // If still no match after all attempts, try with the last set of threads for normalized/word matching
-    console.log('[Disqus] No exact match found after all attempts, trying normalized matching with last result set...');
+    if (matchedThread) return matchedThread;
+
+    // Fallback normalized/word matching
     const threads = await listThreadsForForumSince(forum, sinceTs);
-    if (!threads || threads.length === 0) {
-      console.log('[Disqus] No threads available for normalized matching');
-      return null;
-    }
+    if (!threads || threads.length === 0) return null;
 
-    // Try with normalized text (remove punctuation, parentheses, etc.)
-    const normalizedName = name.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-    
+    const normalizedName = name.replace(/[:\-–—!?.,()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
     for (const t of threads) {
       const title = String(t.title || '').toLowerCase();
       const cleanTitle = String(t.clean_title || '').toLowerCase();
-      const normalizedTitle = title.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-      const normalizedCleanTitle = cleanTitle.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-      
-      if (normalizedTitle.includes(normalizedName) || normalizedCleanTitle.includes(normalizedName)) {
-        console.log('[Disqus] Found normalized match in thread:', cleanTitle || title);
-        return t;
-      }
+      const normalizedTitle = title.replace(/[:\-–—!?.,()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+      const normalizedCleanTitle = cleanTitle.replace(/[:\-–—!?.,()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (normalizedTitle.includes(normalizedName) || normalizedCleanTitle.includes(normalizedName)) return t;
     }
 
-    // Word-by-word matching with scoring (filter words 3+ chars)
     const words = normalizedName.split(/\s+/).filter(w => w.length >= 3);
     if (words.length > 0) {
       let bestMatch: any = null;
-      let bestScore = 0;
-      
+      let best = 0;
       for (const t of threads) {
         const title = String(t.title || '').toLowerCase();
         const cleanTitle = String(t.clean_title || '').toLowerCase();
-        const searchText = `${title} ${cleanTitle}`.replace(/[:\-–—!?.,()[\]]/g, ' ').replace(/\s+/g, ' ').trim();
-        
+        const searchText = `${title} ${cleanTitle}`.replace(/[:\-–—!?.,()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
         let matchedWords = 0;
-        for (const w of words) {
-          if (searchText.includes(w)) matchedWords++;
-        }
-        
+        for (const w of words) { if (searchText.includes(w)) matchedWords++; }
         const score = matchedWords / words.length;
-        
-        // Require all words to match for multi-word titles, 100% for single word
-        const threshold = 1.0;
-        if (score >= threshold && score > bestScore) {
-          bestScore = score;
-          bestMatch = t;
-        }
+        if (score >= 1.0 && score > best) { best = score; bestMatch = t; }
       }
-      
-      if (bestMatch) {
-        console.log('[Disqus] Found word-match:', String(bestMatch.clean_title || bestMatch.title).toLowerCase());
-        return bestMatch;
-      }
+      if (bestMatch) return bestMatch;
     }
 
-    console.log('[Disqus] No match found for:', name);
     return null;
   } catch (e) {
     console.warn('Error finding Disqus thread', e);
