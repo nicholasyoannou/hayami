@@ -14,7 +14,7 @@ import {
   ASSETS,
   SELECTORS
 } from '../constants';
-import { getContainerWithRetry, removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
+import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { handleProviderError } from '../utils/error-handler';
 import { parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName, resolveAdapter } from '../mapping';
 import { isReleaseDateToday } from '../utils/date-utils';
@@ -152,7 +152,11 @@ async function renderDisqusThread(
   const title = thread.clean_title || thread.title || `${animeInfo.animeName || 'Anime'} discussion`;
   const threadUrl = thread.link || '';
   const identifier = String(thread.id || thread.identifier || '');
-  const forumShortname = thread.forum || DISQUS_FORUM_SHORTNAME;
+  // Disqus API returns forum as an object ref (e.g., "forums.Forum?id=7544809"), not the shortname host.
+  // Force the known channel shortname unless the value already looks like a host.
+  const forumShortname = (typeof thread.forum === 'string' && !thread.forum.startsWith('forums.Forum'))
+    ? thread.forum
+    : DISQUS_FORUM_SHORTNAME;
   const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
 
   // Clear Vue loading before rendering header/content
@@ -223,47 +227,17 @@ export class DisqusProvider extends BaseProvider {
       }
 
       // Fallback for non-Crunchyroll pages (e.g., animepahe) without episode IDs
-      // For third-party sites, use MAL/AniList IDs to improve Hayami API matching
       if (!thread && !releaseToday && animeInfo.animeName) {
-        const currentAdapter = resolveAdapter(window.location);
-        const isThirdPartySite = !currentAdapter || currentAdapter.id !== 'crunchyroll';
-        
-        let mapperOptions: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean } | undefined;
-        let skipMapper = false;
-        
-        // For third-party sites, try to resolve MAL/AniList IDs first
-        if (isThirdPartySite) {
-          console.log('[DisqusProvider] Third-party site detected, resolving anime IDs for better mapping');
-          const animeIds = await getCachedAnimeIds(animeInfo.animeName);
-          if (animeIds) {
-            // If the latest episode is airing today, skip Hayami mapper and use direct Disqus lookup
-            if (animeIds.isAiringToday) {
-              console.log('[DisqusProvider] Latest episode is airing today, skipping Hayami mapper for direct Disqus lookup');
-              skipMapper = true;
-            } else {
-              mapperOptions = {
-                malId: animeIds.malId,
-                anilistId: animeIds.anilistId,
-                isThirdPartySite: true,
-              };
-              console.log('[DisqusProvider] Resolved anime IDs:', animeIds);
-            }
-          }
-        }
-        
-        // Only query Hayami mapper if not skipping
-        if (!skipMapper) {
-          const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'disqus', mapperOptions);
-          if (mapperData?.results?.length) {
-            const epNum = parseEpisodeFromTitle(animeInfo.episodeName || '') || 1;
-            for (const entry of mapperData.results) {
-              const maybeUrl = entry?.episodes?.[epNum] || entry?.episodes?.[String(epNum)];
-              if (maybeUrl) {
-                thread = buildDisqusThreadFromUrl(maybeUrl, animeInfo);
-                if (thread) {
-                  console.log('[DisqusProvider] Using series-name mapper Disqus match:', maybeUrl);
-                  break;
-                }
+        const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'disqus');
+        if (mapperData?.results?.length) {
+          const epNum = parseEpisodeFromTitle(animeInfo.episodeName || '') || 1;
+          for (const entry of mapperData.results) {
+            const maybeUrl = entry?.episodes?.[epNum] || entry?.episodes?.[String(epNum)];
+            if (maybeUrl) {
+              thread = buildDisqusThreadFromUrl(maybeUrl, animeInfo);
+              if (thread) {
+                console.log('[DisqusProvider] Using series-name mapper Disqus match:', maybeUrl);
+                break;
               }
             }
           }

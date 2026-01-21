@@ -17,10 +17,6 @@ export default defineConfig({
       'contextMenus'
     ],
     optional_host_permissions: ['<all_urls>'],
-    // SECURITY: Content Security Policy for extension pages
-    content_security_policy: {
-      extension_pages: "script-src 'self'; object-src 'self'"
-    },
     commands: {
       'open-site-mapper': {
         suggested_key: {
@@ -53,7 +49,6 @@ export default defineConfig({
      * Needed so SVG icon assets can be loaded into the Crunchyroll page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
      * and the <img> tags show broken placeholders.
-     * SECURITY: Restricted to specific domains to prevent abuse
      */
     web_accessible_resources: [
       {
@@ -62,12 +57,7 @@ export default defineConfig({
           'assets/*.svg',
           'disqus-loader.js'
         ],
-        matches: [
-          '*://*.crunchyroll.com/*',
-          'https://www.reddit.com/*',
-          'https://disqus.com/*',
-          'https://*.disqus.com/*'
-        ]
+        matches: ['<all_urls>']
       }
     ],
     scope_extensions: [

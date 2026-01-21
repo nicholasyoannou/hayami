@@ -41,7 +41,7 @@ function hasIdentityAccess(): boolean {
  */
 async function getTokenViaMessage(): Promise<string | null> {
   try {
-    const response = await chrome.runtime.sendMessage({ action: 'hayami_getYouTubeToken' });
+    const response = await chrome.runtime.sendMessage({ action: 'getYouTubeToken' });
     return response?.token || null;
   } catch (error) {
     console.error('Error getting token via message:', error);
@@ -216,7 +216,7 @@ export async function isYouTubeAuthenticated(): Promise<boolean> {
   // If we're in a content script, use message passing
   if (!hasIdentityAccess()) {
     try {
-      const response = await chrome.runtime.sendMessage({ action: 'hayami_checkYouTubeAuth' });
+      const response = await chrome.runtime.sendMessage({ action: 'checkYouTubeAuth' });
       return response?.authenticated === true;
     } catch (error) {
       console.error('Error checking YouTube auth via message:', error);
