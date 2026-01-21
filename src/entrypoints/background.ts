@@ -2,6 +2,9 @@ import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 
+const POLL_RULE_ID = 99001;
+const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
+
 const CONTEXT_MENU_ID = 'hayami-configure-site';
 
 async function requestSitePermission(url: string): Promise<boolean> {
@@ -75,6 +78,35 @@ export default defineBackground(() => {
 
   // Single listener for all messages to avoid conflicts
   // When multiple listeners exist, Chrome calls all of them, which can cause port closure issues
+  const setPollBlockForTab = async (tabId: number, enable: boolean) => {
+    const dnr = chrome?.declarativeNetRequest;
+    if (!dnr) return;
+    const removeRuleIds = [POLL_RULE_ID];
+    const addRules = enable
+      ? [{
+          id: POLL_RULE_ID,
+          priority: 1,
+          action: { type: 'block' },
+          condition: {
+            urlFilter: POLL_URL_FILTER,
+            tabIds: [tabId],
+            resourceTypes: [
+              'main_frame',
+              'sub_frame',
+              'xmlhttprequest',
+              'script',
+              'image',
+              'media',
+              'object',
+              'ping',
+              'other'
+            ]
+          }
+        }]
+      : [];
+    await dnr.updateSessionRules({ removeRuleIds, addRules });
+  };
+
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // SECURITY: Validate that messages come from this extension only
     if (sender.id !== browser.runtime.id) {
@@ -117,6 +149,24 @@ export default defineBackground(() => {
         }
       })();
       return true; // keep message channel open for async response
+    }
+
+    if (message.action === 'hayami_blockDisqusPoll') {
+      (async () => {
+        try {
+          const tabId = sender.tab?.id;
+          if (!tabId) {
+            sendResponse({ ok: false, error: 'no-tab' });
+            return;
+          }
+          await setPollBlockForTab(tabId, !!message.enable);
+          sendResponse({ ok: true });
+        } catch (error) {
+          console.warn('[background] Failed to toggle poll block', error);
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
     }
 
     // Handle other async messages

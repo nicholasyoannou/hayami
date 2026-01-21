@@ -1,1 +1,3007 @@
-{"pages":{}}
+{
+  "source": "https://chibi.malsync.moe/config",
+  "fetchedAt": "2026-01-21T17:26:50.786Z",
+  "pages": {
+    "anicrush": {
+      "key": "anicrush",
+      "name": "Anicrush",
+      "type": "anime",
+      "domain": "https://anicrush.to",
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://anicrush.to/*"
+        ]
+      },
+      "search": "https://anicrush.to/search?keyword={searchtermPlus}",
+      "version": {
+        "hash": "76a64003",
+        "timestamp": "1768917712430"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "div.main h2"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            4
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "split",
+            "."
+          ],
+          [
+            "last"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlParam",
+            "ep"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            "div.other-items a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "getImage": [
+          [
+            "this",
+            "overview.getImage"
+          ]
+        ]
+      }
+    },
+    "AniGo": {
+      "key": "AniGo",
+      "name": "AniGo",
+      "type": "anime",
+      "domain": "https://anigo.to",
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://anigo.to/*"
+        ]
+      },
+      "search": "https://anigo.to/browser?keyword={searchtermPlus}",
+      "version": {
+        "hash": "e7618b20",
+        "timestamp": "1768917712425"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "anime_id"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "episode"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "series_url"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "string"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            ".poster img"
+          ],
+          [
+            "getAttribute",
+            "src"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".eplist .active"
+          ],
+          [
+            "parent"
+          ],
+          [
+            "next"
+          ],
+          [
+            "find",
+            "a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "animeav1": {
+      "key": "animeav1",
+      "name": "Animeav1",
+      "type": "anime",
+      "domain": "https://animeav1.com",
+      "languages": [
+        "Spanish"
+      ],
+      "urls": {
+        "match": [
+          "*://animeav1.com/*"
+        ]
+      },
+      "search": "https://animeav1.com/catalogo?search={searchtermPlus}",
+      "version": {
+        "hash": "4a0c0aa4",
+        "timestamp": "1768917712430"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "div.text-main a"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            4
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            5
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            "div.text-main a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "if",
+            [
+              [
+                "querySelector",
+                ".ic-chevron-right"
+              ],
+              [
+                "parent"
+              ],
+              [
+                "getAttribute",
+                "href"
+              ],
+              [
+                "boolean"
+              ]
+            ],
+            [
+              [
+                "querySelector",
+                ".ic-chevron-right"
+              ],
+              [
+                "parent"
+              ],
+              [
+                "getAttribute",
+                "href"
+              ],
+              [
+                "urlAbsolute"
+              ]
+            ],
+            [
+              [
+                "string",
+                ""
+              ]
+            ]
+          ]
+        ]
+      }
+    },
+    "AnimeHeaven": {
+      "key": "AnimeHeaven",
+      "name": "AnimeHeaven",
+      "type": "anime",
+      "domain": "https://animeheaven.me",
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://animeheaven.me/*"
+        ]
+      },
+      "search": "https://animeheaven.me/search.php?s={searchtermPlus}",
+      "version": {
+        "hash": "55487c52",
+        "timestamp": "1768917712425"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".c2.ac2"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "this",
+            "sync.getOverviewUrl"
+          ],
+          [
+            "this",
+            "overview.getIdentifier"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            ".linetitle3.c"
+          ],
+          [
+            "text"
+          ],
+          [
+            "split",
+            "Episode "
+          ],
+          [
+            "at",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            ".c2.ac2"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "AnimeKAI": {
+      "key": "AnimeKAI",
+      "name": "AnimeKAI",
+      "type": "anime",
+      "domain": "https://animekai.to",
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://animekai.to/*",
+          "*://animekai.cc/*",
+          "*://animekai.ac/*",
+          "*://anikai.to/*",
+          "*://animekai.im/*",
+          "*://animekai.la/*",
+          "*://animekai.nl/*",
+          "*://animekai.vc/*"
+        ]
+      },
+      "search": "https://animekai.to/browser?keyword={searchtermPlus}",
+      "version": {
+        "hash": "bc4abcb2",
+        "timestamp": "1768917712426"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "name"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "anime_id"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "episode"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            "#syncData"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "series_url"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "string"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            "[itemprop=\"image\"]"
+          ],
+          [
+            "getAttribute",
+            "src"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".eplist .active"
+          ],
+          [
+            "parent"
+          ],
+          [
+            "next"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "find",
+            "a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "AnimeKhor": {
+      "key": "AnimeKhor",
+      "name": "AnimeKhor",
+      "type": "anime",
+      "domain": "https://animekhor.org",
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://animekhor.org/*"
+        ]
+      },
+      "search": "https://animekhor.org/?s={searchtermPlus}",
+      "version": {
+        "hash": "be677ad9",
+        "timestamp": "1768917712426"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".lm .year a"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "this",
+            "sync.getOverviewUrl"
+          ],
+          [
+            "this",
+            "overview.getIdentifier"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            3
+          ],
+          [
+            "regex",
+            "-episode-(\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            ".lm .year a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".naveps [aria-label=\"next\"]"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ]
+      }
+    },
+    "animeLib": {
+      "key": "animeLib",
+      "name": "AnimeLib",
+      "type": "anime",
+      "domain": [
+        "https://v3.animelib.org"
+      ],
+      "languages": [
+        "Russian"
+      ],
+      "urls": {
+        "match": [
+          "*://*.animelib.org/*"
+        ]
+      },
+      "search": "https://v3.animelib.org/ru/catalog?q={searchterm}",
+      "version": {
+        "hash": "ef0ca154",
+        "timestamp": "1768917712430"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".page h1"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            5
+          ],
+          [
+            "string"
+          ],
+          [
+            "regex",
+            "(\\d+)",
+            1
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            [
+              [
+                "string",
+                "[data-scroll-id=\"_EP_ID_\"]"
+              ],
+              [
+                "replace",
+                "_EP_ID_",
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlParam",
+                    "episode"
+                  ],
+                  [
+                    "string"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "split",
+            " "
+          ],
+          [
+            "at",
+            0
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "string",
+            "ru/anime/_URL_SLUG_"
+          ],
+          [
+            "replace",
+            "_URL_SLUG_",
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                5
+              ]
+            ]
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            "._container .cover img"
+          ],
+          [
+            "getAttribute",
+            "src"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            [
+              [
+                "string",
+                "[data-scroll-id=\"_EP_ID_\"]"
+              ],
+              [
+                "replace",
+                "_EP_ID_",
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlParam",
+                    "episode"
+                  ],
+                  [
+                    "string"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "next"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "getAttribute",
+            "data-scroll-id"
+          ],
+          [
+            "setVariable",
+            "nextEp"
+          ],
+          [
+            "string",
+            "ru/anime/_URL_SLUG_/watch?episode=_EP_ID_"
+          ],
+          [
+            "replace",
+            "_EP_ID_",
+            [
+              [
+                "getVariable",
+                "nextEp"
+              ]
+            ]
+          ],
+          [
+            "replace",
+            "_URL_SLUG_",
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                5
+              ]
+            ]
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "AnimeNoSub": {
+      "key": "AnimeNoSub",
+      "name": "AnimeNoSub",
+      "type": "anime",
+      "domain": "https://animenosub.to",
+      "languages": [
+        "English",
+        "Japanese"
+      ],
+      "urls": {
+        "match": [
+          "*://animenosub.to/*"
+        ]
+      },
+      "search": "https://animenosub.to/?s={searchtermPlus}",
+      "version": {
+        "hash": "74086d5f",
+        "timestamp": "1768917712426"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "meta[property=\"article:section\"]"
+          ],
+          [
+            "getAttribute",
+            "content"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "this",
+            "sync.getOverviewUrl"
+          ],
+          [
+            "this",
+            "overview.getIdentifier"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            3
+          ],
+          [
+            "regex",
+            "-episode-(\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            ".item.meta a[href*=\"/anime/\"]"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".naveps [aria-label=\"next\"]"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ]
+      }
+    },
+    "animepahe": {
+      "key": "animepahe",
+      "name": "animepahe",
+      "type": "anime",
+      "domain": "https://animepahe.com",
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://animepahe.com/play/*",
+          "*://animepahe.com/anime/*",
+          "*://animepahe.org/play/*",
+          "*://animepahe.org/anime/*",
+          "*://animepahe.si/play/*",
+          "*://animepahe.si/anime/*"
+        ]
+      },
+      "search": "https://animepahe.si/",
+      "database": "animepahe",
+      "version": {
+        "hash": "8e74ebf6",
+        "timestamp": "1768917712430"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".theatre-info h1 a"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "querySelector",
+            "meta[name=id]"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "getAttribute",
+            "content"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            ".theatre-info h1"
+          ],
+          [
+            "getBaseText"
+          ],
+          [
+            "regex",
+            "[0-9.]+"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "string",
+            "/a/"
+          ],
+          [
+            "concat",
+            [
+              [
+                "this",
+                "sync.getIdentifier"
+              ]
+            ]
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".sequel a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "animevost": {
+      "key": "animevost",
+      "name": "AnimeVost",
+      "type": "anime",
+      "domain": [
+        "https://animevost.org",
+        "https://v7.vost.pw"
+      ],
+      "languages": [
+        "Russian"
+      ],
+      "urls": {
+        "match": [
+          "*://animevost.org/tip/*",
+          "*://v7.vost.pw/tip/*"
+        ]
+      },
+      "version": {
+        "hash": "f72807c9",
+        "timestamp": "1768917712430"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "title"
+          ],
+          [
+            "text"
+          ],
+          [
+            "regex",
+            "\\/\\s*(.*?)\\s*\\[",
+            1
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "regex",
+            "tip\\/[a-z0-9-]+\\/(\\d+)-",
+            1
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            "#items .epizode.active"
+          ],
+          [
+            "text"
+          ],
+          [
+            "regex",
+            "(\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "url"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            ".shortstoryContent img.imgRadius"
+          ],
+          [
+            "getAttribute",
+            "src"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "AniXL": {
+      "key": "AniXL",
+      "name": "AniXL",
+      "type": "anime",
+      "domain": [
+        "https://anixl.to"
+      ],
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://anixl.to/*"
+        ]
+      },
+      "search": "https://anixl.to/search?word={searchterm}",
+      "database": "AniXL",
+      "version": {
+        "hash": "d3603397",
+        "timestamp": "1768917712425"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "main div div a[href^=\"/title/\"]"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "this",
+            "sync.getOverviewUrl"
+          ],
+          [
+            "urlPart",
+            4
+          ],
+          [
+            "regex",
+            "^(\\d+)-?",
+            1
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            "main div div:nth-child(2) a[href^=\"/title/\"]"
+          ],
+          [
+            "text"
+          ],
+          [
+            "regex",
+            "Ep (\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            "main div div a[href^=\"/title/\"]"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "Anizium": {
+      "key": "Anizium",
+      "name": "Anizium",
+      "type": "anime",
+      "domain": "https://anizium.co",
+      "languages": [
+        "Turkish"
+      ],
+      "urls": {
+        "match": [
+          "*://*.anizium.co/*"
+        ]
+      },
+      "search": "https://anizium.co/search?value={searchtermPlus}",
+      "version": {
+        "hash": "a45088a7",
+        "timestamp": "1768917712426"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".trending-text"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ],
+          [
+            "replaceRegex",
+            "\\s+S\\d+\\s+B\\d+.*",
+            ""
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "if",
+            [
+              [
+                "and",
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlPart",
+                    4
+                  ],
+                  [
+                    "boolean"
+                  ]
+                ],
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlParam",
+                    "season"
+                  ],
+                  [
+                    "boolean"
+                  ]
+                ]
+              ]
+            ],
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                4
+              ],
+              [
+                "concat",
+                "?s="
+              ],
+              [
+                "concat",
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlParam",
+                    "season"
+                  ],
+                  [
+                    "string"
+                  ]
+                ]
+              ]
+            ],
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                4
+              ]
+            ]
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlParam",
+            "episode"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "string",
+            "/anime/"
+          ],
+          [
+            "concat",
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                4
+              ]
+            ]
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "if",
+            [
+              [
+                "querySelector",
+                "#next_link"
+              ],
+              [
+                "getAttribute",
+                "href"
+              ],
+              [
+                "boolean"
+              ]
+            ],
+            [
+              [
+                "querySelector",
+                "#next_link"
+              ],
+              [
+                "getAttribute",
+                "href"
+              ],
+              [
+                "urlAbsolute"
+              ]
+            ],
+            [
+              [
+                "string",
+                ""
+              ]
+            ]
+          ]
+        ]
+      }
+    },
+    "anizm": {
+      "key": "anizm",
+      "name": "Anizm",
+      "type": "anime",
+      "domain": "https://anizm.net",
+      "languages": [
+        "Turkish"
+      ],
+      "urls": {
+        "match": [
+          "*://anizm.net/*"
+        ]
+      },
+      "version": {
+        "hash": "46d069a2",
+        "timestamp": "1768917712430"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".episodeContainer .info_otherTitle, .anizm_pageTitle a"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "this",
+            "sync.getOverviewUrl"
+          ],
+          [
+            "this",
+            "overview.getIdentifier"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "regex",
+            ".*-(\\d{1,})-.*",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            ".animeIzleBolumListesi a.animeDetayKutuLink"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".anizm_alignRight a.anizm_button.default"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "Anoboye": {
+      "key": "Anoboye",
+      "name": "Anoboye",
+      "type": "anime",
+      "domain": "https://anoboye.com",
+      "languages": [
+        "English",
+        "Indonesian"
+      ],
+      "urls": {
+        "match": [
+          "*://anoboye.com/*"
+        ]
+      },
+      "search": "https://anoboye.com/?s={searchtermPlus}",
+      "version": {
+        "hash": "6b91c6a6",
+        "timestamp": "1768917712426"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".anime-title a"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "this",
+            "sync.getOverviewUrl"
+          ],
+          [
+            "this",
+            "overview.getIdentifier"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            3
+          ],
+          [
+            "regex",
+            "-episode-(\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            ".anime-title a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".naveps [aria-label=\"next\"]"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ]
+      }
+    },
+    "BStation": {
+      "key": "BStation",
+      "name": "BStation",
+      "type": "anime",
+      "domain": "https://www.bilibili.tv",
+      "languages": [
+        "Indonesian",
+        "English",
+        "Thai",
+        "Vietnamese",
+        "Malay",
+        "Arabic"
+      ],
+      "urls": {
+        "match": [
+          "*://www.bilibili.tv/*"
+        ]
+      },
+      "search": "https://www.bilibili.tv/search-result?q={searchterm}",
+      "version": {
+        "hash": "ef612df7",
+        "timestamp": "1768917712427"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "coalesce",
+            [
+              [
+                "fn",
+                [
+                  [
+                    "querySelector",
+                    ".bstar-meta__title"
+                  ],
+                  [
+                    "ifNotReturn"
+                  ],
+                  [
+                    "text"
+                  ],
+                  [
+                    "trim"
+                  ]
+                ]
+              ]
+            ],
+            [
+              [
+                "fn",
+                [
+                  [
+                    "querySelector",
+                    ".bstar-meta__ogv-title"
+                  ],
+                  [
+                    "ifNotReturn"
+                  ],
+                  [
+                    "text"
+                  ],
+                  [
+                    "trim"
+                  ]
+                ]
+              ]
+            ],
+            [
+              [
+                "fn",
+                [
+                  [
+                    "querySelector",
+                    ".detail-header__title"
+                  ],
+                  [
+                    "ifNotReturn"
+                  ],
+                  [
+                    "text"
+                  ],
+                  [
+                    "trim"
+                  ]
+                ]
+              ]
+            ],
+            [
+              [
+                "fn",
+                [
+                  [
+                    "querySelector",
+                    "[data-e2e=\"media-title\"]"
+                  ],
+                  [
+                    "ifNotReturn"
+                  ],
+                  [
+                    "text"
+                  ],
+                  [
+                    "trim"
+                  ]
+                ]
+              ]
+            ],
+            [
+              [
+                "fn",
+                [
+                  [
+                    "querySelector",
+                    "meta[property=\"og:title\"]"
+                  ],
+                  [
+                    "ifNotReturn"
+                  ],
+                  [
+                    "getAttribute",
+                    "content"
+                  ],
+                  [
+                    "trim"
+                  ]
+                ]
+              ]
+            ]
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "if",
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                4
+              ],
+              [
+                "equals",
+                "play"
+              ]
+            ],
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                5
+              ]
+            ],
+            [
+              [
+                "if",
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlPart",
+                    3
+                  ],
+                  [
+                    "equals",
+                    "play"
+                  ]
+                ],
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlPart",
+                    4
+                  ]
+                ],
+                [
+                  [
+                    "if",
+                    [
+                      [
+                        "url"
+                      ],
+                      [
+                        "urlPart",
+                        4
+                      ],
+                      [
+                        "equals",
+                        "media"
+                      ]
+                    ],
+                    [
+                      [
+                        "url"
+                      ],
+                      [
+                        "urlPart",
+                        5
+                      ]
+                    ],
+                    [
+                      [
+                        "url"
+                      ],
+                      [
+                        "urlPart",
+                        4
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            ".ep-item.ep-item--active"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "regex",
+            "\\d+",
+            0
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "string",
+            "/media/<id>"
+          ],
+          [
+            "replace",
+            "<id>",
+            [
+              [
+                "this",
+                "sync.getIdentifier"
+              ]
+            ]
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            "meta[property=\"og:image\"]"
+          ],
+          [
+            "getAttribute",
+            "content"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ]
+      }
+    },
+    "Crunchyroll": {
+      "key": "Crunchyroll",
+      "name": "Crunchyroll",
+      "type": "anime",
+      "domain": [
+        "https://www.crunchyroll.com"
+      ],
+      "languages": [
+        "English",
+        "Spanish",
+        "Portuguese",
+        "French",
+        "German",
+        "Arabic",
+        "Italian",
+        "Russian"
+      ],
+      "urls": {
+        "match": [
+          "*://*.crunchyroll.com/*"
+        ]
+      },
+      "search": "https://www.crunchyroll.com/search?q={searchtermPlus}",
+      "version": {
+        "hash": "743cbd29",
+        "timestamp": "1768917712427"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelectorAll",
+            "[type=\"application/ld+json\"]"
+          ],
+          [
+            "arrayFind",
+            [
+              [
+                "text"
+              ],
+              [
+                "includes",
+                "episodeNumber"
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "partOfSeries"
+          ],
+          [
+            "get",
+            "name"
+          ],
+          [
+            "string"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "string"
+          ],
+          [
+            "replaceRegex",
+            "\\([^\\)]+\\)",
+            ""
+          ],
+          [
+            "trim"
+          ],
+          [
+            "concat",
+            [
+              [
+                "if",
+                [
+                  [
+                    "querySelectorAll",
+                    "[type=\"application/ld+json\"]"
+                  ],
+                  [
+                    "arrayFind",
+                    [
+                      [
+                        "text"
+                      ],
+                      [
+                        "includes",
+                        "episodeNumber"
+                      ]
+                    ]
+                  ],
+                  [
+                    "ifNotReturn"
+                  ],
+                  [
+                    "text"
+                  ],
+                  [
+                    "jsonParse"
+                  ],
+                  [
+                    "get",
+                    "partOfSeason"
+                  ],
+                  [
+                    "get",
+                    "seasonNumber"
+                  ],
+                  [
+                    "number"
+                  ],
+                  [
+                    "greaterThan",
+                    1
+                  ]
+                ],
+                [
+                  [
+                    "string",
+                    " Season "
+                  ],
+                  [
+                    "concat",
+                    [
+                      [
+                        "querySelectorAll",
+                        "[type=\"application/ld+json\"]"
+                      ],
+                      [
+                        "arrayFind",
+                        [
+                          [
+                            "text"
+                          ],
+                          [
+                            "includes",
+                            "episodeNumber"
+                          ]
+                        ]
+                      ],
+                      [
+                        "ifNotReturn"
+                      ],
+                      [
+                        "text"
+                      ],
+                      [
+                        "jsonParse"
+                      ],
+                      [
+                        "get",
+                        "partOfSeason"
+                      ],
+                      [
+                        "get",
+                        "seasonNumber"
+                      ],
+                      [
+                        "string"
+                      ]
+                    ]
+                  ]
+                ],
+                [
+                  [
+                    "string",
+                    ""
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "querySelectorAll",
+            "[type=\"application/ld+json\"]"
+          ],
+          [
+            "arrayFind",
+            [
+              [
+                "text"
+              ],
+              [
+                "includes",
+                "episodeNumber"
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "partOfSeries"
+          ],
+          [
+            "get",
+            "name"
+          ],
+          [
+            "string"
+          ],
+          [
+            "concat",
+            [
+              [
+                "querySelectorAll",
+                "[type=\"application/ld+json\"]"
+              ],
+              [
+                "arrayFind",
+                [
+                  [
+                    "text"
+                  ],
+                  [
+                    "includes",
+                    "episodeNumber"
+                  ]
+                ]
+              ],
+              [
+                "ifNotReturn"
+              ],
+              [
+                "text"
+              ],
+              [
+                "jsonParse"
+              ],
+              [
+                "get",
+                "partOfSeason"
+              ],
+              [
+                "get",
+                "name"
+              ],
+              [
+                "string"
+              ]
+            ]
+          ],
+          [
+            "concat",
+            [
+              [
+                "querySelectorAll",
+                "[type=\"application/ld+json\"]"
+              ],
+              [
+                "arrayFind",
+                [
+                  [
+                    "text"
+                  ],
+                  [
+                    "includes",
+                    "episodeNumber"
+                  ]
+                ]
+              ],
+              [
+                "ifNotReturn"
+              ],
+              [
+                "text"
+              ],
+              [
+                "jsonParse"
+              ],
+              [
+                "get",
+                "partOfSeason"
+              ],
+              [
+                "get",
+                "seasonNumber"
+              ]
+            ]
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelectorAll",
+            "[type=\"application/ld+json\"]"
+          ],
+          [
+            "arrayFind",
+            [
+              [
+                "text"
+              ],
+              [
+                "includes",
+                "episodeNumber"
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "episodeNumber"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelectorAll",
+            "[type=\"application/ld+json\"]"
+          ],
+          [
+            "arrayFind",
+            [
+              [
+                "text"
+              ],
+              [
+                "includes",
+                "episodeNumber"
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "partOfSeason"
+          ],
+          [
+            "get",
+            "@id"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            "[data-t=\"next-episode\"] a"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "FRAnime": {
+      "key": "FRAnime",
+      "name": "FRAnime",
+      "type": "anime",
+      "domain": "https://franime.fr",
+      "languages": [
+        "French"
+      ],
+      "urls": {
+        "match": [
+          "*://franime.fr/*"
+        ]
+      },
+      "search": "https://franime.fr/recherche?search={searchtermPlus}",
+      "version": {
+        "hash": "0ed321c4",
+        "timestamp": "1768917712428"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelectorAll",
+            "[type=\"application/ld+json\"]"
+          ],
+          [
+            "arrayFind",
+            [
+              [
+                "text"
+              ],
+              [
+                "includes",
+                "VideoObject"
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "name"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "string"
+          ],
+          [
+            "trim"
+          ],
+          [
+            "concat",
+            [
+              [
+                "if",
+                [
+                  [
+                    "url"
+                  ],
+                  [
+                    "urlParam",
+                    "s"
+                  ],
+                  [
+                    "number"
+                  ],
+                  [
+                    "ifNotReturn"
+                  ],
+                  [
+                    "greaterThanOrEqual",
+                    2
+                  ]
+                ],
+                [
+                  [
+                    "string",
+                    " Season "
+                  ],
+                  [
+                    "concat",
+                    [
+                      [
+                        "url"
+                      ],
+                      [
+                        "urlParam",
+                        "s"
+                      ],
+                      [
+                        "number"
+                      ],
+                      [
+                        "ifNotReturn"
+                      ],
+                      [
+                        "string"
+                      ]
+                    ]
+                  ]
+                ],
+                [
+                  [
+                    "string",
+                    ""
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "this",
+            "sync.getTitle"
+          ],
+          [
+            "replaceRegex",
+            "[^A-Za-z0-9]+",
+            "-"
+          ],
+          [
+            "replaceRegex",
+            "^-+|-+$",
+            ""
+          ],
+          [
+            "toLowerCase"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlParam",
+            "ep"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "url"
+          ],
+          [
+            "replaceRegex",
+            "([?&])ep=[^&#]*",
+            ""
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelectorAll",
+            "[type=\"application/ld+json\"]"
+          ],
+          [
+            "arrayFind",
+            [
+              [
+                "text"
+              ],
+              [
+                "includes",
+                "VideoObject"
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "text"
+          ],
+          [
+            "jsonParse"
+          ],
+          [
+            "get",
+            "thumbnailUrl"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ]
+      }
+    },
+    "FrenchAnime": {
+      "key": "FrenchAnime",
+      "name": "French Anime",
+      "type": "anime",
+      "domain": "https://french-anime.com",
+      "languages": [
+        "French"
+      ],
+      "urls": {
+        "match": [
+          "*://*.french-anime.com/*"
+        ]
+      },
+      "search": "https://french-anime.com/index.php?do=search&subaction=search&story={searchterm}",
+      "version": {
+        "hash": "f796afdd",
+        "timestamp": "1768917712428"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "h1[itemprop=\"name\"]"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "querySelector",
+            "input[name=\"post_id\"]"
+          ],
+          [
+            "getAttribute",
+            "value"
+          ],
+          [
+            "ifNotReturn",
+            [
+              [
+                "url"
+              ],
+              [
+                "urlPart",
+                4
+              ],
+              [
+                "regex",
+                "^(\\d+)",
+                1
+              ]
+            ]
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            ".new_player_bottom div.button_box:not([style*=\"display: none\"])"
+          ],
+          [
+            "getAttribute",
+            "id"
+          ],
+          [
+            "regex",
+            "button_(\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "url"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            ".mov-img img[itemprop=\"thumbnailUrl\"]"
+          ],
+          [
+            "getAttribute",
+            "src"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "gojo": {
+      "key": "gojo",
+      "name": "Gojo",
+      "type": "anime",
+      "domain": [
+        "https://animetsu.net"
+      ],
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://animetsu.cc/*",
+          "*://animetsu.bz/*",
+          "*://animetsu.net/*"
+        ]
+      },
+      "search": "https://animetsu.net/search?query={searchtermPlus}",
+      "version": {
+        "hash": "57b97c1a",
+        "timestamp": "1768917712430"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".INFO a[href^=\"/anime/\"] > span"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            4
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlParam",
+            "ep"
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "string",
+            "/anime/<identifier>"
+          ],
+          [
+            "replace",
+            "<identifier>",
+            [
+              [
+                "url"
+              ],
+              [
+                "this",
+                "sync.getIdentifier"
+              ]
+            ]
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            ".INFO img.object-cover"
+          ],
+          [
+            "getAttribute",
+            "src"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".Episode > div > button.order-\\[-999999\\]"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "this",
+            "list.elementUrl"
+          ]
+        ]
+      }
+    },
+    "Kuudere": {
+      "key": "Kuudere",
+      "name": "Kuudere",
+      "type": "anime",
+      "domain": "https://Kuudere.to",
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://kuudere.to/*",
+          "*://kuudere.lol/*",
+          "*://kuudere.ru/*"
+        ]
+      },
+      "search": "https://kuudere.to/search?keyword={searchtermRaw}",
+      "version": {
+        "hash": "125307b5",
+        "timestamp": "1768917712428"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            "[property=\"video:series\"]"
+          ],
+          [
+            "getAttribute",
+            "content"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            4
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            5
+          ],
+          [
+            "regex",
+            "(\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "url"
+          ],
+          [
+            "replace",
+            "watch",
+            "anime"
+          ],
+          [
+            "replaceRegex",
+            "/([^/]+)$",
+            ""
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "coalesce",
+            [
+              [
+                "querySelector",
+                ".shadow-lg[data-episode]"
+              ]
+            ],
+            [
+              [
+                "querySelector",
+                ".ring-white[data-episode]"
+              ]
+            ]
+          ],
+          [
+            "next"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    },
+    "Miruro": {
+      "key": "Miruro",
+      "name": "Miruro",
+      "type": "anime",
+      "domain": [
+        "https://www.miruro.to",
+        "https://www.miruro.tv",
+        "https://www.miruro.online"
+      ],
+      "languages": [
+        "English"
+      ],
+      "urls": {
+        "match": [
+          "*://*.miruro.to/*",
+          "*://*.miruro.tv/*",
+          "*://*.miruro.online/*"
+        ]
+      },
+      "search": "https://www.miruro.to/search?query={searchtermPlus}",
+      "version": {
+        "hash": "8adfddd7",
+        "timestamp": "1768917712429"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "querySelector",
+            ".title a"
+          ],
+          [
+            "text"
+          ],
+          [
+            "trim"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "urlPart",
+            4
+          ]
+        ],
+        "getEpisode": [
+          [
+            "url"
+          ],
+          [
+            "regex",
+            "/episode-(\\d+)",
+            1
+          ],
+          [
+            "number"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            "#root a[href*=\"info/\"]"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "getImage": [
+          [
+            "querySelector",
+            "#root a[href*=\"info/\"] img"
+          ],
+          [
+            "getAttribute",
+            "src"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ]
+      }
+    },
+    "Q1N": {
+      "key": "Q1N",
+      "name": "Topanimes",
+      "type": "anime",
+      "domain": [
+        "https://topanimes.net"
+      ],
+      "languages": [
+        "Portuguese"
+      ],
+      "urls": {
+        "match": [
+          "*://topanimes.net/*"
+        ]
+      },
+      "search": "https://topanimes.net/?s={searchtermPlus}",
+      "version": {
+        "hash": "d84e6f18",
+        "timestamp": "1768917712429"
+      },
+      "sync": {
+        "getTitle": [
+          [
+            "coalesce",
+            [
+              [
+                "querySelector",
+                "#titleHis"
+              ],
+              [
+                "text"
+              ],
+              [
+                "split",
+                "- EP"
+              ],
+              [
+                "at",
+                0
+              ],
+              [
+                "trim"
+              ]
+            ],
+            [
+              [
+                "querySelector",
+                ".data h1"
+              ],
+              [
+                "text"
+              ],
+              [
+                "trim"
+              ]
+            ]
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ],
+        "getIdentifier": [
+          [
+            "url"
+          ],
+          [
+            "this",
+            "sync.getOverviewUrl"
+          ],
+          [
+            "this",
+            "overview.getIdentifier"
+          ]
+        ],
+        "getEpisode": [
+          [
+            "querySelector",
+            "#titleHis"
+          ],
+          [
+            "text"
+          ],
+          [
+            "split",
+            "- EP"
+          ],
+          [
+            "at",
+            1
+          ],
+          [
+            "trim"
+          ],
+          [
+            "number"
+          ],
+          [
+            "ifNotReturn"
+          ]
+        ],
+        "getOverviewUrl": [
+          [
+            "querySelector",
+            ".poster a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn",
+            [
+              [
+                "url"
+              ]
+            ]
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ],
+        "nextEpUrl": [
+          [
+            "querySelector",
+            ".pag_episodes .item:nth-child(3) a"
+          ],
+          [
+            "getAttribute",
+            "href"
+          ],
+          [
+            "ifNotReturn"
+          ],
+          [
+            "urlAbsolute"
+          ]
+        ]
+      }
+    }
+  }
+}

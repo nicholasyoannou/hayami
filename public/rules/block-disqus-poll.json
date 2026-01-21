@@ -1,0 +1,25 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": { "type": "block" },
+    "condition": {
+      "urlFilter": "||polls.services.disqus.com/poll",
+      "initiatorDomains": [
+        "www.crunchyroll.com",
+        "beta.crunchyroll.com",
+        "crunchyroll.com"
+      ],
+      "resourceTypes": [
+        "sub_frame",
+        "xmlhttprequest",
+        "script",
+        "image",
+        "media",
+        "object",
+        "ping",
+        "other"
+      ]
+    }
+  }
+]

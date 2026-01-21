@@ -81,30 +81,37 @@
   (d.head || d.body).appendChild(s);
 
   // Watch for iframe creation and fix the URL
+  const POLL_STYLE_OVERRIDE = 'width: 100% !important; border: none !important; overflow: hidden !important; height: 0px !important; transition: height 0.3s !important; min-width: 320px !important; max-width: 620px !important; flex: 1 1 0% !important;';
+  let embedFixed = false;
+
   const observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
       mutation.addedNodes.forEach(function(node) {
-        if (node.tagName === 'IFRAME' && node.src && node.src.includes('disqus.com/embed/comments/')) {
+        if (node.tagName === 'IFRAME') {
           try {
-            const url = new URL(node.src);
-            
-            // Remove t_i parameter (identifier)
-            url.searchParams.delete('t_i');
-            
-            // Add/update parameters with correct values
-            url.searchParams.set('t_s', threadSlug); // slug
-            url.searchParams.set('t_e', threadTitle); // title with period
-            url.searchParams.set('t_d', threadTitle + ' · Discuss Anime · Disqus'); // full page title
-            url.searchParams.set('t_t', threadTitle); // thread title
-            url.searchParams.set('s_o', 'popular'); // sort order
-            
-            // Update iframe src
-            node.src = url.toString();
-            console.log('[Disqus] Fixed iframe URL:', url.toString());
-            
-            // Stop observing after we've fixed the iframe
-            observer.disconnect();
-            if (proxyMoveObserver) proxyMoveObserver.disconnect();
+            if (node.src && node.src.includes('disqus.com/embed/comments/')) {
+              const url = new URL(node.src);
+              // Remove t_i parameter (identifier)
+              url.searchParams.delete('t_i');
+              // Add/update parameters with correct values
+              url.searchParams.set('t_s', threadSlug); // slug
+              url.searchParams.set('t_e', threadTitle); // title with period
+              url.searchParams.set('t_d', threadTitle + ' · Discuss Anime · Disqus'); // full page title
+              url.searchParams.set('t_t', threadTitle); // thread title
+              url.searchParams.set('s_o', 'popular'); // sort order
+              node.src = url.toString();
+              embedFixed = true;
+              console.log('[Disqus] Fixed iframe URL:', url.toString());
+            }
+
+            if (node.src && node.src.includes('polls.services.disqus.com/poll')) {
+              node.style.cssText = POLL_STYLE_OVERRIDE + ' display: none !important;';
+            }
+
+            if (embedFixed) {
+              observer.disconnect();
+              if (proxyMoveObserver) proxyMoveObserver.disconnect();
+            }
           } catch (e) {
             console.error('[Disqus] Error fixing iframe URL:', e);
           }

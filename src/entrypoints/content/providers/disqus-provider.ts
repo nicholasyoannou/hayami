@@ -125,6 +125,14 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): Dis
   };
 }
 
+async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({ action: 'hayami_blockDisqusPoll', enable });
+  } catch (e) {
+    console.warn('[DisqusProvider] Failed to toggle poll block', e);
+  }
+}
+
 /**
  * Shows Disqus search UI (delegates to Vue component)
  */
@@ -161,6 +169,9 @@ async function renderDisqusThread(
 
   // Clear Vue loading before rendering header/content
   clearLoadingState('Disqus render start');
+
+  // Block Disqus poll endpoint while rendering
+  toggleDisqusPollBlock(true);
 
   // Render Disqus content into the external container
   container.innerHTML = renderDisqusContainer(identifier, threadUrl, title, forumShortname);
@@ -280,6 +291,7 @@ export class DisqusProvider extends BaseProvider {
   }
 
   cleanup(): void {
+    toggleDisqusPollBlock(false);
     removeScripts(ASSETS.DISQUS_LOADER);
     removeIframes('disqus.com');
     const container = document.querySelector(SELECTORS.EXTERNAL_COMMENTS) as HTMLElement | null;

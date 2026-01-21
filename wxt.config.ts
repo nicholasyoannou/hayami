@@ -14,7 +14,8 @@ export default defineConfig({
       'cookies',
       'scripting',
       'activeTab',
-      'contextMenus'
+      'contextMenus',
+      'declarativeNetRequest'
     ],
     optional_host_permissions: ['<all_urls>'],
     // SECURITY: Content Security Policy for extension pages
