@@ -14,11 +14,9 @@ import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
 import { createApp, h, type App as VueApp } from 'vue';
 import MarkdownReplyEditor from '@/components/MarkdownReplyEditor.vue';
-import { Toaster, toast } from 'vue-sonner';
-import 'vue-sonner/style.css';
+import { toast } from 'vue-sonner';
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
 import YouTubeCommentList from '@/components/comments/YouTubeCommentList.vue';
-import { wirePreviewHandlers } from '@/utils/previewHandlers';
 import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo';
 import { displayModeStorage, useDisplayMode } from '@/composables/useDisplayMode';
 import { isImageLink, isYouTubeLink, extractYouTubeId, proxifyImageUrl } from '@/composables/useImagePreview';
@@ -122,6 +120,9 @@ import {
   displayModeManager,
 } from './state';
 
+// Import bootstrap
+import { bootstrapContent } from './core/bootstrap';
+
 // Import provider manager
 import { switchProvider, cleanupProvider } from './providers';
 import { setCurrentYouTubeVideo, setCurrentYouTubeOrder, getCurrentYouTubeOrder, getCurrentYouTubeVideo } from './providers/youtube-provider';
@@ -130,8 +131,6 @@ import type { CommentProvider, ProviderContext } from './types/data';
 // Import utilities
 import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageWrapper } from './utils/dom-helpers';
 import { handleError } from './utils/error-handler';
-import { debug } from '@/utils/debug';
-import { cancellableDebounce } from '@/utils/debounce';
 
 // Track mounted Vue app instances for proper cleanup
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
@@ -147,46 +146,6 @@ try {
     console.info('[ri-markdown] Debug logging enabled');
   }
 } catch {}
-
-function queueHandleWatchPage(ctx: ContentScriptContext): void {
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
-  }
-  setDebounceTimer(window.setTimeout(() => handleWatchPage(ctx), DEBOUNCE_DELAY_MS));
-}
-
-/**
- * Handles logic for watch pages - extracts and processes anime info
- */
-async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
-  debug.log('On watch page, extracting anime info...');
-
-  // Try to get anime info immediately
-  let info = getCustomAnimeInfo();
-  if (!info) {
-    info = await getChibiAnimeInfo();
-  }
-  if (!info) {
-    info = getAnimeInfo();
-  }
-
-  if (info) {
-    console.log('Anime Info:', info);
-    setLastAnimeInfo(info);
-    const key = `${info.animeName}|${info.episodeName}`;
-    if (key === lastProcessedKey) {
-      console.log('Already processed this episode, skipping duplicate search');
-      return;
-    }
-    setLastProcessedKey(key);
-    window.dispatchEvent(new CustomEvent('animeInfoLoaded', { detail: info }));
-    await searchAndDisplayDiscussion(info);
-  } else {
-    // If not found, wait for the content to load
-    console.log('Anime info not found yet, waiting for content to load...');
-    observeAnimeInfoOnce(ctx, searchAndDisplayDiscussion);
-  }
-}
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -492,85 +451,4 @@ export async function renderYouTubeComments(
   }
 }
 
-function ensureToaster(ctx: ContentScriptContext): void {
-  const existing = document.getElementById('cr-comments-toaster');
-  if (existing) return;
 
-  const toastHost = document.createElement('div');
-  toastHost.id = 'cr-comments-toaster';
-  document.body.appendChild(toastHost);
-  const toastApp = createApp({ render: () => h(Toaster, { position: 'top-right', theme: 'dark', richColors: true }) });
-  toastApp.mount(toastHost);
-
-  ctx.onInvalidated(() => {
-    try { toastApp.unmount(); } catch {}
-  });
-}
-
-function bootstrapContent(ctx: ContentScriptContext): void {
-  // Store content script context for WXT UI helpers
-  let contentScriptContext: ContentScriptContext | null = ctx;
-  setContentScriptContext(ctx);
-  
-  debug.log('Hayami extension loaded');
-  ensureToaster(ctx);
-  setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
-
-  // Load any custom mapping for this origin and trigger handling if present
-  loadCustomMappingForOrigin().then((cfg) => {
-    if (cfg) {
-      queueHandleWatchPage(ctx);
-    }
-  });
-
-  const { isWatchPage } = useWatchPageDetection();
-
-  if (isWatchPage(window.location.href)) {
-    queueHandleWatchPage(ctx);
-  }
-
-  // Handle manual search result from Vue modal
-  // Use WXT's ctx.addEventListener for automatic cleanup
-  ctx.addEventListener(window, 'ri-manual-search-result', async (ev: any) => {
-    try {
-      const permalink = ev?.detail?.permalink || '';
-      if (!permalink) return;
-      const normalized = permalink.startsWith('http') ? permalink : `https://www.reddit.com${permalink}`;
-      const postData = await fetchRedditPostFromUrl(normalized);
-      if (postData) {
-        await displayDiscussionDependingOnMode(postData);
-      }
-    } catch (e) {
-      console.warn('[ManualSearch] Failed to handle manual search result', e);
-    }
-  });
-
-  ctx.addEventListener(window, 'wxt:locationchange', (event: { newUrl: URL }) => {
-    const newUrl = event.newUrl?.href;
-    debug.log('URL changed to:', newUrl);
-    if (isWatchPage(newUrl)) {
-      queueHandleWatchPage(ctx);
-    }
-  });
-
-  wirePreviewHandlers(ctx);
-  setupYouTubeModalListener();
-  setupGalleryModalListener();
-
-  ctx.onInvalidated(() => {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      setDebounceTimer(undefined);
-    }
-    if (activeObserver) {
-      try { activeObserver.disconnect(); } catch {}
-      setActiveObserver(null);
-    }
-    if (redditCommentsCleanup) {
-      try { redditCommentsCleanup(); } catch {}
-      setRedditCommentsCleanup(null);
-    }
-    teardownYouTubeInfiniteScroll();
-    animeInfo.clearCache();
-  });
-}
