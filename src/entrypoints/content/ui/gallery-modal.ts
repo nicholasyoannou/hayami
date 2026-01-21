@@ -13,6 +13,7 @@ export function openImageGalleryModal(images: string[]): void {
   // Create modal container
   const modal = document.createElement('div');
   modal.className = 'ri-fullscreen-modal';
+  modal.style.zIndex = '2147483606';
 
   // Close button
   const closeBtn = document.createElement('button');

@@ -20,7 +20,7 @@ function normalizeMalId(val: unknown): number | null {
  * @returns The extracted MAL ID or null if not found
  */
 export function extractMalIdFromMapperResult(
-  mapperResult: MapperResult | null | undefined, 
+  mapperResult: MapperResult | null | undefined,
   matchedIndex?: number | null
 ): number | null {
   if (!mapperResult) return null;

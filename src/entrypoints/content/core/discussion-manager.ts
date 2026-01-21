@@ -60,7 +60,6 @@ import {
   renderMalPostSkeleton,
   renderMalForumContainer,
   renderNoDiscussionPanel,
-  renderDiscussionInfoPanel,
 } from '../templates';
 
 // BBCode parser
@@ -132,6 +131,160 @@ export function setContentScriptContext(ctx: ContentScriptContext | null): void 
  */
 function getExternalCommentsContainer(): HTMLElement | null {
   return getExternalContainerUtil(inlineDiscussionApp);
+}
+
+// =============================================================================
+// POPUP OVERLAY SHELL
+// =============================================================================
+
+type PopupShell = {
+  root: HTMLElement;
+  overlay: HTMLElement;
+  panel: HTMLElement;
+  mount: HTMLElement;
+  placeholder: HTMLElement;
+  launcher: HTMLButtonElement;
+  setOpen: (open: boolean) => void;
+};
+
+let popupShell: PopupShell | null = null;
+let popupShellCleanupRegistered = false;
+
+function ensurePopupShell(): PopupShell {
+  if (popupShell) return popupShell;
+
+  const root = document.createElement('div');
+  root.id = 'hayami-popup-shell';
+  root.dataset.open = 'false';
+  root.style.position = 'fixed';
+  root.style.inset = '0';
+  root.style.pointerEvents = 'none';
+  root.style.zIndex = '2147483004';
+
+  const style = document.createElement('style');
+  style.textContent = `
+    #hayami-popup-shell { --hayami-launcher-side: right; --hayami-launcher-offset: 18px; --hayami-launcher-top: 50%; }
+    #hayami-popup-shell .hayami-launcher { position: fixed; top: var(--hayami-launcher-top); right: var(--hayami-launcher-offset); left: auto; z-index: 2147483005; pointer-events: auto; width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.16); background: rgba(11,15,25,0.9); box-shadow: 0 14px 34px rgba(0,0,0,0.4); display: grid; place-items: center; cursor: pointer; transform: translateY(-50%); transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; }
+    #hayami-popup-shell .hayami-launcher:hover { transform: translateY(-50%) scale(1.03); box-shadow: 0 16px 38px rgba(0,0,0,0.48); background: rgba(18,22,34,0.95); }
+    #hayami-popup-shell .hayami-launcher:active { transform: translateY(-50%) scale(0.98); }
+    #hayami-popup-shell .hayami-launcher img { width: 26px; height: 26px; }
+    #hayami-popup-shell .hayami-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 140ms ease; }
+    #hayami-popup-shell .hayami-overlay.open { opacity: 1; pointer-events: auto; }
+    #hayami-popup-shell .hayami-backdrop { position: absolute; inset: 0; background: rgba(6,8,14,0.55); backdrop-filter: blur(4px); }
+    #hayami-popup-shell .hayami-panel { position: relative; z-index: 1; background: #0f121c; border: 1px solid rgba(255,255,255,0.14); border-radius: 14px; width: min(1120px, 94vw); height: min(90vh, 960px); box-shadow: 0 32px 70px rgba(0,0,0,0.48); overflow: hidden; display: flex; flex-direction: column; transform: translateY(10px) scale(0.985); opacity: 0.96; transition: transform 160ms ease, opacity 160ms ease; outline: none; }
+    #hayami-popup-shell .hayami-overlay.open .hayami-panel { transform: translateY(0) scale(1); opacity: 1; }
+    #hayami-popup-shell .hayami-body { position: relative; flex: 1; display: flex; background: #0a0d14; color: #f5f6fb; overflow: auto; }
+    #hayami-popup-shell .hayami-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; letter-spacing: 0.01em; background: repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0, rgba(255,255,255,0.02) 14px, rgba(255,255,255,0.04) 14px, rgba(255,255,255,0.04) 28px); }
+    #hayami-popup-shell .hayami-mount { flex: 1; display: none; }
+    #hayami-popup-shell .hayami-close-hit { position: absolute; inset: 0; }
+  `;
+  root.appendChild(style);
+
+  const launcher = document.createElement('button');
+  launcher.type = 'button';
+  launcher.className = 'hayami-launcher';
+  launcher.title = 'Open Hayami comments';
+  launcher.setAttribute('aria-label', 'Open Hayami comments');
+  const icon = document.createElement('img');
+  icon.src = chrome.runtime.getURL('icon/48.png');
+  icon.alt = 'Hayami comments';
+  launcher.appendChild(icon);
+  root.appendChild(launcher);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'hayami-overlay';
+  overlay.dataset.open = 'false';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.style.pointerEvents = 'none';
+
+  const backdrop = document.createElement('div');
+  backdrop.className = 'hayami-backdrop';
+  overlay.appendChild(backdrop);
+
+  const panel = document.createElement('div');
+  panel.className = 'hayami-panel';
+  panel.tabIndex = -1;
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+
+  const body = document.createElement('div');
+  body.className = 'hayami-body';
+
+  const placeholder = document.createElement('div');
+  placeholder.className = 'hayami-placeholder';
+  placeholder.textContent = 'Loading comments…';
+
+  const mount = document.createElement('div');
+  mount.className = 'hayami-mount';
+
+  body.appendChild(placeholder);
+  body.appendChild(mount);
+  panel.appendChild(body);
+  overlay.appendChild(panel);
+  root.appendChild(overlay);
+  document.body.appendChild(root);
+
+  let isOpen = false;
+  const setOpen = (open: boolean) => {
+    isOpen = open;
+    root.dataset.open = open ? 'true' : 'false';
+    overlay.dataset.open = open ? 'true' : 'false';
+    overlay.classList.toggle('open', open);
+    overlay.setAttribute('aria-hidden', open ? 'false' : 'true');
+    overlay.style.pointerEvents = open ? 'auto' : 'none';
+    root.style.pointerEvents = open ? 'auto' : 'none';
+    if (open) {
+      setTimeout(() => panel.focus(), 0);
+    } else {
+      launcher.focus({ preventScroll: true });
+    }
+  };
+
+  launcher.addEventListener('click', () => setOpen(!isOpen));
+  overlay.addEventListener('click', (ev) => {
+    const target = ev.target as HTMLElement | null;
+    if (!target) return;
+    if (target === overlay || target.classList.contains('hayami-backdrop')) {
+      setOpen(false);
+    }
+  });
+
+  const onKeyDown = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape' && isOpen) {
+      setOpen(false);
+    }
+  };
+  window.addEventListener('keydown', onKeyDown, true);
+
+  if (contentScriptContext && !popupShellCleanupRegistered) {
+    popupShellCleanupRegistered = true;
+    contentScriptContext.onInvalidated(() => {
+      window.removeEventListener('keydown', onKeyDown, true);
+      try { root.remove(); } catch {}
+      popupShell = null;
+      popupShellCleanupRegistered = false;
+    });
+  }
+
+  popupShell = { root, overlay, panel, mount, placeholder, launcher, setOpen };
+  // Ensure display mode is set to popup for this session
+  try {
+    void displayModeStorage.setValue('popup');
+  } catch {}
+  return popupShell;
+}
+
+function showPopupPlaceholder(message: string): void {
+  const shell = ensurePopupShell();
+  shell.placeholder.textContent = message;
+  shell.placeholder.style.display = 'flex';
+  shell.mount.style.display = 'none';
+}
+
+function showPopupContent(): void {
+  const shell = ensurePopupShell();
+  shell.placeholder.style.display = 'none';
+  shell.mount.style.display = 'block';
 }
 
 // =============================================================================
@@ -330,6 +483,10 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
       return;
     }
     setSearchInProgress(true);
+
+    // Force popup mode (disable inline temporarily)
+    void displayModeStorage.setValue('popup');
+    const isInlineMode = false;
     
     // Clear discussion cache for new episode search
     discussionCache.reddit = undefined;
@@ -370,8 +527,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
       setInlineDiscussionApp(null);
     }
     
-    // Mount an initial Vue loading shell so users see skeletons immediately
-    mountLoadingShell();
+    // Mount an initial UI shell so users see skeletons immediately
+    showPopupPlaceholder('Loading comments…');
     
     // Check if user is authenticated. If not, continue using the public
     // fallback paths (we added unauthenticated search/comments/morechildren)
@@ -767,20 +924,109 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
   });
 }
 
-function displayDiscussion(discussion: any): void {
-  const overlay = createOverlay();
-  const redditUrl = `https://www.reddit.com${discussion.permalink}`;
-  
-  overlay.innerHTML = renderDiscussionInfoPanel(discussion, redditUrl);
-  
-  const closeBtn = overlay.querySelector('#reddit-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-  const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
-  wrongBtn?.addEventListener('click', () => {
-    const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
-    showManualSearchUI(lastAnimeInfo || { animeName: '', episodeName: '' }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
-    overlay.remove();
+async function displayDiscussion(discussion: any): Promise<void> {
+  // Cache the discussion data (not comments)
+  discussionCache.reddit = { ...discussion };
+
+  // Fetch subreddit icon and primary color if missing
+  if (discussion.subreddit && (!discussion.subreddit_icon_url || !discussion.subreddit_primary_color)) {
+    const { iconUrl, primaryColor } = await fetchSubredditInfo(discussion.subreddit);
+    if (iconUrl && !discussion.subreddit_icon_url) {
+      discussion.subreddit_icon_url = iconUrl;
+    }
+    if (primaryColor && !discussion.subreddit_primary_color) {
+      discussion.subreddit_primary_color = primaryColor;
+    }
+  }
+
+  const shell = ensurePopupShell();
+  showPopupPlaceholder('Loading comments…');
+
+  // Clear previous mount content but keep the shell alive to preserve state between opens
+  shell.mount.innerHTML = '';
+
+  // Inject component styles once
+  if (!shell.panel.querySelector('style[data-hayami-inline-styles]')) {
+    const styleEl = document.createElement('style');
+    styleEl.dataset.hayamiInlineStyles = 'true';
+    styleEl.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
+    shell.panel.appendChild(styleEl);
+  }
+
+  // Mount Vue discussion shell inside popup
+  const mountPoint = document.createElement('div');
+  shell.mount.appendChild(mountPoint);
+
+  let activeProvider: CommentProvider = 'reddit';
+
+  const clearLoadingState = (context: string = 'popup') => {
+    try {
+      const vueApp = inlineDiscussionApp as any;
+      const instance = vueApp?._instance || vueApp?._container?._vnode?.component;
+      if (instance?.exposed?.clearLoading) {
+        instance.exposed.clearLoading();
+      }
+    } catch (e) {
+      console.warn(`[Popup] Failed to clear loading state (${context})`, e);
+    }
+  };
+
+  const buildProviderContext = (): ProviderContext => ({
+    animeInfo: lastAnimeInfo,
+    discussionCache,
+    clearLoadingState,
+    getExternalCommentsContainer,
+    toast,
   });
+
+  const providerChangeCallback = async (provider: CommentProvider) => {
+    activeProvider = provider;
+    teardownYouTubeInfiniteScroll();
+
+    if (provider !== 'reddit' && discussionCache.reddit) {
+      discussionCache.reddit = { ...discussion };
+    }
+
+    try {
+      const context = buildProviderContext();
+      if (provider === 'reddit') {
+        cleanupProvider('disqus');
+        cleanupProvider('youtube');
+        cleanupProvider('mal');
+        teardownRedditInfiniteScroll();
+        clearLoadingState('Switch back to Reddit');
+        return;
+      }
+
+      await switchProvider(provider, context);
+    } catch (error) {
+      handleError(error, {
+        operation: 'Provider switch',
+        provider,
+      });
+      clearLoadingState(`${provider} error`);
+    }
+  };
+
+  if (inlineDiscussionApp) {
+    try {
+      inlineDiscussionApp.unmount();
+    } catch {}
+    setInlineDiscussionApp(null);
+  }
+
+  const app2 = createApp(InlineDiscussion, {
+    discussion,
+    provider: activeProvider,
+    onProviderChange: providerChangeCallback,
+  });
+  app2.mount(mountPoint);
+  setInlineDiscussionApp(app2);
+  setRedditCommentsCleanup(() => {
+    // Keep Vue app alive; provider switching handled via exposed callbacks
+  });
+
+  showPopupContent();
 }
 
 // =============================================================================
@@ -1031,12 +1277,8 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'd
 }
 
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
-  const displayMode = await displayModeStorage.getValue();
-  if (displayMode === 'inline') {
-    await displayInlineDiscussion(discussion);
-  } else {
-    displayDiscussion(discussion);
-  }
+  // Force popup mode (disable inline temporarily)
+  await displayDiscussion(discussion);
 }
 
 // =============================================================================
@@ -1074,7 +1316,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     if (!contentScriptContext) {
       console.warn('displayInlineDiscussion: content script context not available');
-      displayDiscussion(discussion);
+      await displayDiscussion(discussion);
       return;
     }
 
@@ -1361,7 +1603,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
   } catch (e) {
     console.error('Inline display error:', e);
     // Fallback to popup
-    displayDiscussion(discussion);
+    await displayDiscussion(discussion);
   }
 }
 

@@ -960,7 +960,7 @@
   /* Make width calculations include padding so JS-set width equals visible image width */
   box-sizing: border-box;
   box-shadow: 0 6px 20px rgba(0,0,0,0.5);
-  z-index: 9999;
+  z-index: 2147483606;
   display: none;
   /* Tighter viewport caps so previews don't overwhelm the page */
   max-width: 40vw;
@@ -1046,6 +1046,51 @@
   border: 2px solid rgba(255,255,255,0.12);
   border-top-color: rgba(255,255,255,0.95);
   animation: ri-spin 1s linear infinite;
+}
+
+/* Themed scrollbars for popup body and inner content */
+.hayami-panel, .hayami-body, .ri-inline, .ri-text {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) rgba(255,255,255,0.06);
+}
+
+.hayami-panel::-webkit-scrollbar,
+.hayami-body::-webkit-scrollbar,
+.ri-inline::-webkit-scrollbar,
+.ri-text::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.hayami-panel::-webkit-scrollbar-track,
+.hayami-body::-webkit-scrollbar-track,
+.ri-inline::-webkit-scrollbar-track,
+.ri-text::-webkit-scrollbar-track {
+  background: rgba(255,255,255,0.04);
+  border-radius: 8px;
+}
+
+.hayami-panel::-webkit-scrollbar-thumb,
+.hayami-body::-webkit-scrollbar-thumb,
+.ri-inline::-webkit-scrollbar-thumb,
+.ri-text::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.12));
+  border-radius: 8px;
+  border: 2px solid rgba(15,18,28,0.9);
+}
+
+.hayami-panel::-webkit-scrollbar-thumb:hover,
+.hayami-body::-webkit-scrollbar-thumb:hover,
+.ri-inline::-webkit-scrollbar-thumb:hover,
+.ri-text::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(255,255,255,0.3), rgba(255,255,255,0.18));
+}
+
+.hayami-panel::-webkit-scrollbar-corner,
+.hayami-body::-webkit-scrollbar-corner,
+.ri-inline::-webkit-scrollbar-corner,
+.ri-text::-webkit-scrollbar-corner {
+  background: rgba(255,255,255,0.04);
 }
 @keyframes ri-spin { to { transform: rotate(360deg); } }
 
