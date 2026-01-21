@@ -1,15 +1,13 @@
-# 🍥 Crunchyroll Comments Revive Extension
+# Hayami Extension
 
-A Chrome extension that brings back episode discussions from r/anime to Crunchyroll! Watch anime and see what the Reddit community is saying about each episode, right on the Crunchyroll player page.
+A Chrome extension that brings episode discussions from r/anime to Crunchyroll (and now any + MALSync-supported anime websites)! Watch anime and discover under-episode comments.
 
-## ✨ Features
+## Features
 
 - 🔍 Automatically detects anime and episode information on Crunchyroll
 - 💬 Fetches episode discussion threads from r/anime
-- 🔐 Secure Reddit OAuth2 authentication
 - 📖 Read comments and discussions
-- ✍️ Post your own comments (coming soon)
-- 🎯 Seamless integration with Crunchyroll's UI
+- 🎯 Support for Crunchyroll, ontop of user-added third-party websites
 
 ## 🚀 Setup Instructions
 
@@ -20,6 +18,8 @@ A Chrome extension that brings back episode discussions from r/anime to Crunchyr
 - Node.js or Bun installed (for development)
 
 ### Step 1: Create a Reddit App
+
+### Note: This will be refactored. Hayami may not have a Reddit API key due to the Reddit API changes
 
 1. Go to [Reddit Apps Preferences](https://www.reddit.com/prefs/apps)
 2. Scroll down and click **"are you a developer? create an app..."**
@@ -62,19 +62,6 @@ bun run build
 bun run dev
 ```
 
-#### Using npm:
-
-```bash
-# Install dependencies
-npm install
-
-# Build for production
-npm run build
-
-# Or run in development mode
-npm run dev
-```
-
 #### Load in Chrome:
 
 1. Open Chrome and navigate to `chrome://extensions/`
@@ -109,25 +96,6 @@ npm run dev
    - Detect the anime name and episode number
    - Search r/anime for discussion threads
    - Display comments and discussions
-
-## 🔧 Development
-
-### Project Structure
-
-```
-.
-├── entrypoints/
-│   ├── background.ts       # Background service worker
-│   ├── content.ts          # Content script for Crunchyroll pages
-│   └── popup/              # Extension popup UI
-│       └── App.vue         # Vue component for popup
-├── utils/
-│   ├── redditAuth.ts       # Reddit OAuth2 authentication
-│   └── redditApi.ts        # Reddit API utilities for r/anime
-├── components/             # Vue components
-├── assets/                 # Images and static assets
-└── wxt.config.ts          # WXT framework configuration
-```
 
 ### Key Technologies
 
@@ -181,24 +149,6 @@ The extension requests the following scopes:
 
 ## 🐛 Troubleshooting
 
-### "Failed to authenticate"
-
-- Make sure your Reddit app redirect URI matches your extension ID exactly
-- Verify the client ID in `utils/redditAuth.ts` is correct
-- Check that your Reddit app type is set to "installed app"
-
-### "No access token available"
-
-- Try logging out and logging in again
-- Check the browser console for detailed error messages
-- Verify your Reddit app is not suspended or deleted
-
-### Extension not detecting anime info
-
-- Make sure you're on a Crunchyroll watch page (`/watch/*` URL)
-- Check that the page has fully loaded
-- Open the browser console and look for any errors
-
 ### Build errors
 
 ```bash
@@ -208,14 +158,6 @@ bun install
 bun run build
 ```
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
-## 📄 License
-
-MIT License - feel free to use this for your own projects!
-
 ## 🙏 Credits
 
 - Built with [WXT](https://wxt.dev/)
@@ -224,8 +166,4 @@ MIT License - feel free to use this for your own projects!
 
 ## ⚠️ Disclaimer
 
-This is an unofficial extension and is not affiliated with Crunchyroll or Reddit. Please use responsibly and follow both platforms' terms of service.
-
----
-
-Made with ❤️ for the anime community
+This extension is not affiliated with Crunchyroll, Reddit, or affliates. Please use Hayami responsibly and abide by Hayami's Usage Policy.
