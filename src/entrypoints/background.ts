@@ -42,9 +42,7 @@ function registerContextMenu(): void {
 }
 
 export default defineBackground(() => {
-  console.log('Hayami - Background service started', { 
-    id: browser.runtime.id 
-  });
+  console.log('Hayami - Background service started');
 
   registerContextMenu();
 
@@ -78,10 +76,16 @@ export default defineBackground(() => {
   // Single listener for all messages to avoid conflicts
   // When multiple listeners exist, Chrome calls all of them, which can cause port closure issues
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    // SECURITY: Validate that messages come from this extension only
+    if (sender.id !== browser.runtime.id) {
+      console.warn('[background] Rejected message from unauthorized sender:', sender.id);
+      return false;
+    }
     // Handle proxyFetch (needs sendResponse and return true)
-    if (message.action === 'proxyFetch') {
+    // Namespaced to avoid conflicts with other extensions
+    if (message.action === 'hayami_proxyFetch') {
       const { url, init } = message;
-      console.debug('[background] proxyFetch requested:', url, { init });
+      console.debug('[background] hayami_proxyFetch requested:', url, { init });
       (async () => {
         try {
           const resp = await fetch(url, init as any);
@@ -93,12 +97,12 @@ export default defineBackground(() => {
             body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
           }
           const headers = Array.from(resp.headers.entries());
-          console.debug('[background] proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
+          console.debug('[background] hayami_proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
           if (!resp.ok) {
             const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-            console.warn('[background] proxyFetch non-OK response:', { url, status: resp.status, body: bodyStr.slice(0,500) });
+            console.warn('[background] hayami_proxyFetch non-OK response:', { url, status: resp.status, body: bodyStr.slice(0,500) });
           }
-          console.debug('[background] proxyFetch calling sendResponse for:', url);
+          console.debug('[background] hayami_proxyFetch calling sendResponse for:', url);
           sendResponse({
             ok: resp.ok,
             status: resp.status,
@@ -106,9 +110,9 @@ export default defineBackground(() => {
             headers,
             body,
           });
-          console.debug('[background] proxyFetch sendResponse completed for:', url);
+          console.debug('[background] hayami_proxyFetch sendResponse completed for:', url);
         } catch (err) {
-          console.error('[background] proxyFetch error:', err);
+          console.error('[background] hayami_proxyFetch error:', err);
           sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
         }
       })();
@@ -116,7 +120,8 @@ export default defineBackground(() => {
     }
 
     // Handle other async messages
-    if (message.action === 'authenticate') {
+    // All message actions are namespaced with 'hayami_' to avoid conflicts with other extensions
+    if (message.action === 'hayami_authenticate') {
       (async () => {
         try {
           const result = await authenticateWithReddit();
@@ -132,7 +137,7 @@ export default defineBackground(() => {
       return true; // keep channel open for async
     }
 
-    if (message.action === 'checkAuth') {
+    if (message.action === 'hayami_checkAuth') {
       (async () => {
         const authenticated = await isAuthenticated();
         sendResponse({ authenticated });
@@ -140,7 +145,7 @@ export default defineBackground(() => {
       return true; // keep channel open for async
     }
 
-    if (message.action === 'getYouTubeToken') {
+    if (message.action === 'hayami_getYouTubeToken') {
       (async () => {
         try {
           const token = await getYouTubeAccessToken(false);
@@ -153,7 +158,7 @@ export default defineBackground(() => {
       return true; // keep channel open for async
     }
 
-    if (message.action === 'authenticateYouTube') {
+    if (message.action === 'hayami_authenticateYouTube') {
       (async () => {
         try {
           const result = await authenticateWithYouTube();
@@ -169,7 +174,7 @@ export default defineBackground(() => {
       return true; // keep channel open for async
     }
 
-    if (message.action === 'checkYouTubeAuth') {
+    if (message.action === 'hayami_checkYouTubeAuth') {
       (async () => {
         try {
           const authenticated = await checkYouTubeAuth();
@@ -182,7 +187,7 @@ export default defineBackground(() => {
       return true; // keep channel open for async
     }
 
-    if (message.action === 'authenticateMAL') {
+    if (message.action === 'hayami_authenticateMAL') {
       (async () => {
         try {
           const result = await authenticateWithMAL();
@@ -198,7 +203,7 @@ export default defineBackground(() => {
       return true;
     }
 
-    if (message.action === 'checkMALAuth') {
+    if (message.action === 'hayami_checkMALAuth') {
       (async () => {
         try {
           const authenticated = await checkMALAuth();
@@ -211,7 +216,7 @@ export default defineBackground(() => {
       return true;
     }
 
-    if (message.action === 'getMALToken') {
+    if (message.action === 'hayami_getMALToken') {
       (async () => {
         try {
           const token = await getMALAccessToken(false);
@@ -224,7 +229,7 @@ export default defineBackground(() => {
       return true;
     }
 
-    if (message.action === 'getAnimeDiscussion') {
+    if (message.action === 'hayami_getAnimeDiscussion') {
       // This will be handled by the content script sending anime info
       const { animeName, episodeName } = message;
       // Forward to content script or handle here
@@ -235,11 +240,11 @@ export default defineBackground(() => {
     // (Reverted) previously there was a startDisqusLoginFlow handler here.
     // Disqus login should not be initiated automatically from the popup selection.
     
-    // Handle cr_proxyFetch (namespaced proxy for Disqus)
-    if (message.action === 'cr_proxyFetch') {
+    // Handle hayami_cr_proxyFetch (namespaced proxy for Disqus)
+    if (message.action === 'hayami_cr_proxyFetch') {
       const { url } = message as any;
       let init = (message as any).init || {};
-      console.debug('[background] cr_proxyFetch requested:', url, { init });
+      console.debug('[background] hayami_cr_proxyFetch requested:', url, { init });
       (async () => {
         try {
           // Fetch WITHOUT credentials (omit cookies) so Disqus returns the public API key
@@ -254,14 +259,14 @@ export default defineBackground(() => {
             body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
           }
           const headers = Array.from(resp.headers.entries());
-          console.debug('[background] cr_proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
+          console.debug('[background] hayami_cr_proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
           if (!resp.ok) {
             const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-            console.warn('[background] cr_proxyFetch non-OK response:', { url, status: resp.status, body: bodyStr.slice(0,500) });
+            console.warn('[background] hayami_cr_proxyFetch non-OK response:', { url, status: resp.status, body: bodyStr.slice(0,500) });
           }
           sendResponse({ ok: resp.ok, status: resp.status, statusText: resp.statusText, headers, body });
         } catch (err) {
-          console.error('[background] cr_proxyFetch error:', err);
+          console.error('[background] hayami_cr_proxyFetch error:', err);
           sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
         }
       })();

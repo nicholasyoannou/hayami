@@ -18,8 +18,8 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
 
   // Try messaging the background first
   try {
-    const payload = { action: 'proxyFetch', url: input, init: safeInit };
-    console.debug('[extensionFetch] attempting proxyFetch via runtime message', { url: input });
+    const payload = { action: 'hayami_proxyFetch', url: input, init: safeInit };
+    console.debug('[extensionFetch] attempting hayami_proxyFetch via runtime message', { url: input });
     const res = await new Promise<any>((resolve) => {
       let called = false;
       try {
@@ -104,13 +104,13 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
 }
 
 /**
- * Namespaced proxy fetch for Crunchyroll extension to avoid touching other
- * extensions' messaging. Uses `cr_proxyFetch` action handled by background.
+ * Namespaced proxy fetch for Hayami extension to avoid touching other
+ * extensions' messaging. Uses `hayami_cr_proxyFetch` action handled by background.
  */
 export async function crProxyFetch(input: string, init?: RequestInit): Promise<{ ok: boolean; status: number; headers: [string,string][]; json: () => Promise<any>; text: () => Promise<string> } > {
   return new Promise<any>((resolve) => {
     try {
-      chrome.runtime.sendMessage({ action: 'cr_proxyFetch', url: input, init }, (res: any) => {
+      chrome.runtime.sendMessage({ action: 'hayami_cr_proxyFetch', url: input, init }, (res: any) => {
         const last = (chrome.runtime as any).lastError;
         if (last) {
           console.warn('[crProxyFetch] chrome.runtime.lastError:', last?.message || last);

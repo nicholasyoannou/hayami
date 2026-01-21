@@ -6,13 +6,19 @@
 import { escapeHtml } from '@/utils/markdown';
 
 /**
- * Decodes HTML entities in a string
+ * Decodes HTML entities in a string safely using DOMParser
+ * SECURITY: Using DOMParser is safer than innerHTML to avoid XSS
  */
 function decodeEntities(str: string): string {
   if (!str) return '';
-  const txt = document.createElement('textarea');
-  txt.innerHTML = str;
-  return txt.value;
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(str, 'text/html');
+    return doc.documentElement.textContent || '';
+  } catch (e) {
+    console.error('Error decoding entities:', e);
+    return str;
+  }
 }
 
 /**
