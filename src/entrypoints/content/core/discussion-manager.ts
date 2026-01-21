@@ -319,7 +319,8 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
 }
 
 // =============================================================================
-// MAIN SEARCH & DISPLAY FUNCTIONS
+// MAIN SEARCH AND ORCHESTRATION FUNCTIONS
+// Core search logic that determines which provider to use and handles fallbacks
 // =============================================================================
 
 export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
@@ -631,7 +632,8 @@ async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: numb
 }
 
 // =============================================================================
-// UI DISPLAY FUNCTIONS
+// REDDIT UI DISPLAY FUNCTIONS
+// Functions for showing Reddit-related UI panels (selection, auth, no-discussion)
 // =============================================================================
 
 function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: number): void {
@@ -782,7 +784,8 @@ function displayDiscussion(discussion: any): void {
 }
 
 // =============================================================================
-// DISQUS FUNCTIONS
+// DISQUS INTEGRATION FUNCTIONS
+// Functions for loading, embedding, and displaying Disqus discussion threads
 // =============================================================================
 
 function waitForDisqusLoad(callback: () => void): void {
@@ -1037,7 +1040,8 @@ export async function displayDiscussionDependingOnMode(discussion: any): Promise
 }
 
 // =============================================================================
-// INLINE DISCUSSION DISPLAY
+// INLINE DISCUSSION DISPLAY FUNCTIONS
+// Functions for displaying inline Vue-based discussion UI with provider switching
 // =============================================================================
 
 async function displayInlineDiscussion(discussion: any): Promise<void> {
@@ -1406,7 +1410,8 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
 }
 
 // =============================================================================
-// MAL FORUM RENDERING
+// MAL FORUM RENDERING FUNCTIONS
+// Functions for displaying MyAnimeList forum topics and posts with infinite scroll
 // =============================================================================
 
 export function renderMalForumResult(result: MalForumResult, animeTitle: string, topicId?: number | string): void {

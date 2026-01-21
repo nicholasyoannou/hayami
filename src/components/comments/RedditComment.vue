@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { voteThing, getUserAvatar, formatRedditDate, type RedditComment } from '@/utils/redditApi';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
+import { getContrastingTextColor } from '@/utils/color-utils';
 import { toast } from 'vue-sonner';
 
 const props = defineProps<{
@@ -76,34 +77,6 @@ const timestampText = computed(() => formatRedditDate(props.comment.created_utc)
 const timestampTitle = computed(() => new Date(props.comment.created_utc * 1000).toLocaleString());
 const editedText = computed(() => props.comment.edited ? ' • Edited' : '');
 
-/**
- * Calculate relative luminance of a color (0-1, where 0 is black, 1 is white)
- * Uses WCAG formula: https://www.w3.org/TR/WCAG20/#relativeluminancedef
- */
-function getRelativeLuminance(hexColor: string): number {
-  try {
-    const hex = hexColor.replace('#', '');
-    const r = parseInt(hex.substring(0, 2), 16) / 255;
-    const g = parseInt(hex.substring(2, 4), 16) / 255;
-    const b = parseInt(hex.substring(4, 6), 16) / 255;
-
-    const adjust = (c: number) =>
-      c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-
-    return 0.2126 * adjust(r) + 0.7152 * adjust(g) + 0.0722 * adjust(b);
-  } catch {
-    return 0.5;
-  }
-}
-
-/**
- * Determine if light text (white) should be used based on background color luminance
- */
-function shouldUseLightText(bgColor: string): boolean {
-  const luminance = getRelativeLuminance(bgColor);
-  return luminance < 0.5;
-}
-
 // Render flair - use inline styles like DOM version for consistent emoji sizing
 const flairHtml = computed(() => {
   const c = props.comment;
@@ -116,7 +89,7 @@ const flairHtml = computed(() => {
   
   // Determine text color based on background luminance
   const bgColor = c.author_flair_background_color || '#343536';
-  const textColor = shouldUseLightText(bgColor) ? '#ffffff' : '#1c1c1c';
+  const textColor = getContrastingTextColor(bgColor);
   const textStyle = `color:${textColor};`;
   
   let inner = '';
