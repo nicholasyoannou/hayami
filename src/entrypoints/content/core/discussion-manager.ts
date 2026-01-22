@@ -8,6 +8,7 @@
 // @ts-ignore Missing types for wxt in this context
 import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { createIntegratedUi } from 'wxt/utils/content-script-ui/integrated';
+import { browser } from 'wxt/browser';
 import type { App as VueApp } from 'vue';
 import { createApp, h } from 'vue';
 import { toast } from 'vue-sonner';
@@ -70,6 +71,7 @@ import { removeCommentsSkeletonLoading } from '../ui';
 import { createOverlay } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
+import { commentsProviderItem, noCommentsModeItem } from '@/config/storage';
 
 // State management
 import {
@@ -165,14 +167,14 @@ function resolveEffectiveDisplayMode(
 
 async function getPreferredProvider(): Promise<CommentProvider> {
   try {
-    const stored = await chrome.storage.local.get('comments_provider');
-    const raw = stored?.comments_provider;
-    const normalized = typeof raw === 'string' && VALID_PROVIDERS.has(raw as CommentProvider)
-      ? (raw as CommentProvider)
+    const provider = await commentsProviderItem.getValue();
+    const normalized = typeof provider === 'string' && VALID_PROVIDERS.has(provider as CommentProvider)
+      ? (provider as CommentProvider)
       : 'reddit';
     preferredProvider = normalized;
     return normalized;
-  } catch {
+  } catch (error) {
+    console.warn('Failed to load preferred provider, defaulting to reddit', error);
     preferredProvider = 'reddit';
     return 'reddit';
   }
@@ -254,7 +256,7 @@ function ensurePopupShell(): PopupShell {
   launcher.title = 'Open Hayami comments';
   launcher.setAttribute('aria-label', 'Open Hayami comments');
   const icon = document.createElement('img');
-  icon.src = chrome.runtime.getURL('icon/48.png');
+  icon.src = browser.runtime.getURL('icon/48.png');
   icon.alt = 'Hayami comments';
   launcher.appendChild(icon);
   root.appendChild(launcher);
@@ -903,7 +905,7 @@ export function showAuthPrompt(): void {
       overlay.remove();
     },
     onLogin: () => {
-      chrome.runtime.sendMessage({ action: 'openPopup' });
+      browser.runtime.sendMessage({ action: 'openPopup' });
     },
   });
   app.mount(overlay);
@@ -914,8 +916,8 @@ async function showNoDiscussionMessage(animeName: string, episodeNumber: string)
   // Check user preference for no-comments behavior
   let noCommentsMode: 'popup' | 'inline' = 'popup';
   try {
-    const data = await chrome.storage.local.get('no_comments_mode');
-    noCommentsMode = (data?.no_comments_mode === 'inline') ? 'inline' : 'popup';
+    const stored = await noCommentsModeItem.getValue();
+    noCommentsMode = stored === 'inline' ? 'inline' : 'popup';
   } catch (e) {
     // Default to popup
   }

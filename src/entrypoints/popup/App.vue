@@ -1,18 +1,18 @@
 <script lang="ts" setup>
 import { ref, onMounted } from 'vue';
-import { 
-  authenticateWithReddit, 
-  isAuthenticated, 
+import {
+  authenticateWithReddit,
+  isAuthenticated,
   getStoredUsername,
-  getStoredProfilePic, 
-  logout 
+  getStoredProfilePic,
+  logout,
 } from '@/utils/redditAuth';
 import {
   authenticateWithYouTube,
   isYouTubeAuthenticated,
   getStoredYouTubeUsername,
   getStoredYouTubeProfilePic,
-  logoutYouTube
+  logoutYouTube,
 } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malAuth';
 import backIcon from '@/assets/backIcon.svg';
@@ -25,6 +25,14 @@ import {
   type CommentProviderOption,
   type DisplayModeOption,
 } from '@/config/options';
+import {
+  commentsProviderItem,
+  displayModeItem,
+  embedImagesItem,
+  imgchestApiKeyItem,
+  imgurClientIdItem,
+  noCommentsModeItem,
+} from '@/config/storage';
 
 const isLoggedIn = ref(false);
 const username = ref<string | null>(null);
@@ -37,14 +45,7 @@ const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 const isMALLoggedIn = ref(false);
 
-type TabId = 'overview' | 'settings' | 'accounts';
-const tabs: { id: TabId; label: string; icon: string }[] = [
-  { id: 'overview', label: 'Overview', icon: '🏠' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' },
-  { id: 'accounts', label: 'Accounts', icon: '👥' },
-];
-const activeTab = ref<TabId>('overview');
-const currentView = ref<'home' | 'settings' | 'manage'>('home');
+const currentView = ref<'home' | 'manage' | 'settings'>('home');
 const displayMode = ref<DisplayModeOption>('popup');
 const embedImages = ref<boolean>(false);
 const imgurClientId = ref<string>('');
@@ -52,7 +53,6 @@ const imgchestApiKey = ref<string>('');
 const commentsProvider = ref<CommentProviderOption>('reddit');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
 
-// Check authentication status on mount
 onMounted(async () => {
   await checkAuthStatus();
   await checkYouTubeAuthStatus();
@@ -69,7 +69,6 @@ async function checkAuthStatus() {
   try {
     const authenticated = await isAuthenticated();
     isLoggedIn.value = authenticated;
-    
     if (authenticated) {
       username.value = await getStoredUsername();
       profilePic.value = await getStoredProfilePic();
@@ -85,7 +84,6 @@ async function checkYouTubeAuthStatus() {
   try {
     const authenticated = await isYouTubeAuthenticated();
     isYouTubeLoggedIn.value = authenticated;
-    
     if (authenticated) {
       youtubeUsername.value = await getStoredYouTubeUsername();
       youtubeProfilePic.value = await getStoredYouTubeProfilePic();
@@ -97,120 +95,123 @@ async function checkYouTubeAuthStatus() {
 
 async function loadDisplayMode() {
   try {
-    const data = await chrome.storage.local.get('display_mode');
-    const mode = data?.display_mode;
-    if (typeof mode === 'string' && displayModeOptions.some((opt) => opt.value === mode)) {
-      displayMode.value = mode as DisplayModeOption;
+    const mode = await displayModeItem.getValue();
+    if (displayModeOptions.some((opt) => opt.value === mode)) {
+      displayMode.value = mode;
     }
-    // load embed images setting
-    const emb = await chrome.storage.local.get('embed_images');
-    embedImages.value = Boolean(emb?.embed_images);
-  } catch {}
+    const enabled = await embedImagesItem.getValue();
+    embedImages.value = enabled;
+  } catch (error) {
+    console.warn('Failed to load display mode or embed images setting', error);
+  }
 }
 
 async function loadImgurClientId() {
   try {
-    const data = await chrome.storage.local.get('imgur_client_id');
-    imgurClientId.value = typeof data?.imgur_client_id === 'string' ? data.imgur_client_id : '';
-  } catch {}
+    const stored = await imgurClientIdItem.getValue();
+    imgurClientId.value = stored || '';
+  } catch (error) {
+    console.warn('Failed to load Imgur client ID', error);
+  }
 }
 
 async function saveImgurClientId() {
   try {
-    await chrome.storage.local.set({ imgur_client_id: imgurClientId.value.trim() });
+    const trimmed = (imgurClientId.value || '').trim();
+    await imgurClientIdItem.setValue(trimmed || null);
     successMessage.value = 'Imgur Client ID saved';
-    setTimeout(() => successMessage.value = null, 1500);
+    setTimeout(() => (successMessage.value = null), 1500);
   } catch (e) {
     console.error('Failed to save Imgur Client ID', e);
     errorMessage.value = 'Failed to save Imgur Client ID';
-    setTimeout(() => errorMessage.value = null, 2000);
+    setTimeout(() => (errorMessage.value = null), 2000);
   }
 }
 
 async function loadImgchestApiKey() {
   try {
-    const data = await chrome.storage.local.get('imgchest_api_key');
-    imgchestApiKey.value = typeof data?.imgchest_api_key === 'string' ? data.imgchest_api_key : '';
-  } catch {}
-}
-
-async function loadCommentsProvider() {
-  try {
-    const d = await chrome.storage.local.get('comments_provider');
-    const p = d?.comments_provider;
-    if (typeof p === 'string' && commentProviderOptions.some((opt) => opt.value === p)) {
-      commentsProvider.value = p as CommentProviderOption;
-    }
-  } catch {}
-}
-
-async function loadNoCommentsMode() {
-  try {
-    const data = await chrome.storage.local.get('no_comments_mode');
-    const mode = data?.no_comments_mode;
-    if (mode === 'popup' || mode === 'inline') noCommentsMode.value = mode;
-  } catch {}
-}
-
-async function updateCommentsProvider(p: CommentProviderOption) {
-  try {
-    commentsProvider.value = p;
-    await chrome.storage.local.set({ comments_provider: p });
-    successMessage.value = 'Initial provider saved';
-    setTimeout(() => successMessage.value = null, 1500);
-  } catch (e) {
-    console.error('Failed to update comments provider', e);
-    errorMessage.value = 'Failed to save provider setting';
-    setTimeout(() => errorMessage.value = null, 2000);
+    const stored = await imgchestApiKeyItem.getValue();
+    imgchestApiKey.value = stored || '';
+  } catch (error) {
+    console.warn('Failed to load ImgChest API key', error);
   }
-}
-
-async function updateDisplayMode(mode: DisplayModeOption) {
-  displayMode.value = mode;
-  await chrome.storage.local.set({ display_mode: mode });
-  successMessage.value = 'Default display mode saved';
-  setTimeout(() => successMessage.value = null, 2000);
 }
 
 async function saveImgchestApiKey() {
   try {
     const trimmed = (imgchestApiKey.value || '').trim();
-    await chrome.storage.local.set({ imgchest_api_key: trimmed });
+    await imgchestApiKeyItem.setValue(trimmed || null);
     successMessage.value = trimmed ? 'ImgChest API key saved' : 'ImgChest API key cleared';
-    setTimeout(() => successMessage.value = null, 1500);
+    setTimeout(() => (successMessage.value = null), 1500);
   } catch (e) {
     console.error('Failed to save ImgChest API key', e);
     errorMessage.value = 'Failed to save ImgChest API key';
-    setTimeout(() => errorMessage.value = null, 2000);
+    setTimeout(() => (errorMessage.value = null), 2000);
   }
+}
+
+async function loadCommentsProvider() {
+  try {
+    const provider = await commentsProviderItem.getValue();
+    if (commentProviderOptions.some((opt) => opt.value === provider)) {
+      commentsProvider.value = provider;
+    }
+  } catch (error) {
+    console.warn('Failed to load comments provider', error);
+  }
+}
+
+async function loadNoCommentsMode() {
+  try {
+    const stored = await noCommentsModeItem.getValue();
+    if (stored === 'inline' || stored === 'popup') {
+      noCommentsMode.value = stored;
+    }
+  } catch (error) {
+    console.warn('Failed to load no-comments mode', error);
+  }
+}
+
+async function updateCommentsProvider(p: CommentProviderOption) {
+  try {
+    commentsProvider.value = p;
+    await commentsProviderItem.setValue(p);
+    successMessage.value = 'Initial provider saved';
+    setTimeout(() => (successMessage.value = null), 1500);
+  } catch (e) {
+    console.error('Failed to update comments provider', e);
+    errorMessage.value = 'Failed to save provider setting';
+    setTimeout(() => (errorMessage.value = null), 2000);
+  }
+}
+
+async function updateDisplayMode(mode: DisplayModeOption) {
+  displayMode.value = mode;
+  await displayModeItem.setValue(mode);
+  successMessage.value = 'Default display mode saved';
+  setTimeout(() => (successMessage.value = null), 2000);
 }
 
 async function updateEmbedImages(enabled: boolean) {
   embedImages.value = enabled;
-  await chrome.storage.local.set({ embed_images: enabled });
+  await embedImagesItem.setValue(enabled);
   successMessage.value = enabled ? 'Image embedding enabled' : 'Image embedding disabled';
-  setTimeout(() => successMessage.value = null, 1500);
+  setTimeout(() => (successMessage.value = null), 1500);
 }
 
 async function updateNoCommentsMode(mode: 'popup' | 'inline') {
   noCommentsMode.value = mode;
-  await chrome.storage.local.set({ no_comments_mode: mode });
+  await noCommentsModeItem.setValue(mode);
   successMessage.value = mode === 'popup' ? 'No comments mode set to Popup' : 'No comments mode set to Inline selection';
-  setTimeout(() => successMessage.value = null, 1500);
-}
-
-async function loadVueRenderingSetting() {
-  // legacy classic renderer removed; Vue renderer is always used
+  setTimeout(() => (successMessage.value = null), 1500);
 }
 
 async function handleLogin() {
   isLoading.value = true;
   errorMessage.value = null;
   successMessage.value = null;
-  
   try {
     const result = await authenticateWithReddit();
-    
     if (result.success) {
       isLoggedIn.value = true;
       username.value = result.username || null;
@@ -231,7 +232,6 @@ async function handleLogout() {
   isLoading.value = true;
   errorMessage.value = null;
   successMessage.value = null;
-  
   try {
     await logout();
     isLoggedIn.value = false;
@@ -246,19 +246,12 @@ async function handleLogout() {
   }
 }
 
-function openSettings() {
-  // Open Reddit app preferences
-  window.open('https://www.reddit.com/prefs/apps', '_blank');
-}
-
 async function handleYouTubeLogin() {
   isLoading.value = true;
   errorMessage.value = null;
   successMessage.value = null;
-  
   try {
     const result = await authenticateWithYouTube();
-    
     if (result.success) {
       isYouTubeLoggedIn.value = true;
       youtubeUsername.value = result.username || null;
@@ -279,14 +272,13 @@ async function handleYouTubeLogout() {
   isLoading.value = true;
   errorMessage.value = null;
   successMessage.value = null;
-  
   try {
     await logoutYouTube();
-    // Clear local state
+    // Clear local state after logout
     isYouTubeLoggedIn.value = false;
     youtubeUsername.value = null;
     youtubeProfilePic.value = null;
-    // Refresh auth status to ensure it's cleared
+    // Refresh to ensure background state is cleared too
     await checkYouTubeAuthStatus();
     successMessage.value = 'Successfully logged out from YouTube';
   } catch (error) {
@@ -301,11 +293,6 @@ async function handleYouTubeLogout() {
   }
 }
 
-function openGoogleSettings() {
-  // Open Google Cloud Console
-  window.open('https://console.cloud.google.com/apis/credentials', '_blank');
-}
-
 async function checkMALAuthStatus() {
   try {
     isMALLoggedIn.value = await isMALAuthenticated();
@@ -318,7 +305,6 @@ async function handleMALLogin() {
   isLoading.value = true;
   errorMessage.value = null;
   successMessage.value = null;
-
   try {
     const result = await authenticateWithMAL();
     if (result.success) {
@@ -339,7 +325,6 @@ async function handleMALLogout() {
   isLoading.value = true;
   errorMessage.value = null;
   successMessage.value = null;
-
   try {
     await logoutMAL();
     isMALLoggedIn.value = false;
@@ -352,7 +337,6 @@ async function handleMALLogout() {
   }
 }
 </script>
-
 <template>
   <div class="flex min-w-[420px] max-w-[600px] w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
       <header class="flex items-center justify-between">
