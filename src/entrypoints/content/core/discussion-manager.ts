@@ -68,7 +68,7 @@ import { bbcodeToHtml } from '../parsers/bbcode';
 // UI utilities
 import { removeCommentsSkeletonLoading } from '../ui';
 import { createOverlay } from '../ui';
-import { displayModeStorage } from '@/composables/useDisplayMode';
+import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 
 // State management
 import {
@@ -94,6 +94,7 @@ import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageW
 import { handleError } from '../utils/error-handler';
 import { debug } from '@/utils/debug';
 import { findExactDateMatch, isReleaseDateToday } from '../utils/date-utils';
+import { resolveAdapter } from '../mapping';
 
 // Site mapper
 import {
@@ -267,10 +268,6 @@ function ensurePopupShell(): PopupShell {
   }
 
   popupShell = { root, overlay, panel, mount, placeholder, launcher, setOpen };
-  // Ensure display mode is set to popup for this session
-  try {
-    void displayModeStorage.setValue('popup');
-  } catch {}
   return popupShell;
 }
 
@@ -484,9 +481,14 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     }
     setSearchInProgress(true);
 
-    // Force popup mode (disable inline temporarily)
-    void displayModeStorage.setValue('popup');
-    const isInlineMode = false;
+    const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
+    const placement = getCustomSiteMapping()?.display;
+    const adapter = resolveAdapter();
+    const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
+    const effectiveMode: DisplayMode = placement
+      ? (placement === 'popup' ? 'popup' : 'inline')
+      : (adapterMode || storedMode);
+    const isInlineMode = effectiveMode === 'inline';
     
     // Clear discussion cache for new episode search
     discussionCache.reddit = undefined;
@@ -527,8 +529,12 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
       setInlineDiscussionApp(null);
     }
     
-    // Mount an initial UI shell so users see skeletons immediately
-    showPopupPlaceholder('Loading comments…');
+    // Mount an initial UI shell so users see skeletons immediately based on mode
+    if (isInlineMode) {
+      mountLoadingShell();
+    } else {
+      showPopupPlaceholder('Loading comments…');
+    }
     
     // Check if user is authenticated. If not, continue using the public
     // fallback paths (we added unauthenticated search/comments/morechildren)
@@ -1146,7 +1152,11 @@ function mountLoadingShell(): void {
     // Use WXT's integrated UI for inline positioning
     const loadingShellUi = createIntegratedUi(contentScriptContext, {
       position: 'inline',
-      anchor: () => getWatchPageWrapper() || document.body,
+      anchor: () => {
+        const adapter = resolveAdapter();
+        const adapterAnchor = adapter?.getMountAnchor?.();
+        return adapterAnchor || getWatchPageWrapper() || document.body;
+      },
       append: 'last',
       tag: 'div',
       onMount: (wrapper) => {
@@ -1277,7 +1287,19 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'd
 }
 
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
-  // Force popup mode (disable inline temporarily)
+  const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
+  const placement = getCustomSiteMapping()?.display;
+  const adapter = resolveAdapter();
+  const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
+  const effectiveMode: DisplayMode = placement
+    ? (placement === 'popup' ? 'popup' : 'inline')
+    : (adapterMode || storedMode);
+
+  if (effectiveMode === 'inline') {
+    await displayInlineDiscussion(discussion);
+    return;
+  }
+
   await displayDiscussion(discussion);
 }
 
@@ -1501,12 +1523,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const inlineDiscussionUi = createIntegratedUi(contentScriptContext, {
       position: 'inline',
       anchor: () => {
-        const layout = document.querySelector('.erc-watch-episode-layout');
-        const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;  
-        if (!wrapper) {
-          console.warn('content-wrapper inside .erc-watch-episode-layout not found');
-        }
-        return wrapper || getWatchPageWrapper() || document.body;
+        const adapter = resolveAdapter();
+        const adapterAnchor = adapter?.getMountAnchor?.();
+        return adapterAnchor || getWatchPageWrapper() || document.body;
       },
       append: 'last',
       tag: 'div',

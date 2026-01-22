@@ -37,4 +37,8 @@ export interface SiteAdapter {
   fetchMetadata(ctx: DetectedContext): Promise<SiteEpisodeMetadata | null>;
   buildPlacement(doc: Document): PlacementTargets;
   getMappingKey(ctx: DetectedContext): string;
+  /** Optional preferred inline mount anchor for this site */
+  getMountAnchor?: () => HTMLElement | null;
+  /** Optional preferred display mode for this site (fallback when no mapping) */
+  defaultDisplay?: 'popup' | 'inline';
 }

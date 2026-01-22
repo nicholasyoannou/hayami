@@ -1,4 +1,5 @@
 import { extractEpisodeIdFromUrl } from '../mapping';
+import { getWatchPageWrapper } from '../utils/dom-helpers';
 import {
   fetchCrunchyrollEpisodeMetadata,
   fetchCrunchyrollSeasons,
@@ -9,6 +10,13 @@ import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata } f
 export const crunchyrollAdapter: SiteAdapter = {
   id: 'crunchyroll',
   matches: (location) => location.hostname.includes('crunchyroll.com'),
+  defaultDisplay: 'inline',
+  getMountAnchor: () => {
+    const layout = document.querySelector('.erc-watch-episode-layout');
+    const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
+    if (!wrapper) return getWatchPageWrapper();
+    return wrapper;
+  },
   async detectContext(_doc: Document): Promise<DetectedContext | null> {
     const episodeId = extractEpisodeIdFromUrl();
     return {
