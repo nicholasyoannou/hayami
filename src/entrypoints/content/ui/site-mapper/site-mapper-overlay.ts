@@ -13,7 +13,7 @@ import {
   setMapperHotkeyAttached,
 } from './site-mapper-utils';
 import { matchChibiPage, evaluateChibiWithOverrides, loadChibiOverrideForOrigin, saveChibiOverrideForOrigin } from '../../chibi';
-import type { ChibiOverrideEntry, ChibiSync } from '../../chibi';
+import type { ChibiOverrideEntry } from '../../chibi';
 
 export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void): void {
   if (isMapperHotkeyAttached()) return;
@@ -82,13 +82,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       h2 { margin: 0; font-size: 18px; }
       .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
       .field { display: flex; flex-direction: column; gap: 6px; }
+      .field.hidden { display: none; }
       .field label { font-weight: 600; font-size: 13px; }
       input[type='text'], input[type='number'] { background: #0c0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px 12px; color: #fff; }
       input[type='text']:focus, input[type='number']:focus { outline: none; border-color: #5ba8ff; box-shadow: 0 0 0 2px rgba(91,168,255,0.25); }
-      textarea { background: #0c0e14; border: 1px solid rgba(255,255,255,0.18); border-radius: 10px; padding: 10px 12px; color: #fff; resize: vertical; min-height: 96px; font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; }
-      textarea:focus { outline: none; border-color: #5ba8ff; box-shadow: 0 0 0 2px rgba(91,168,255,0.25); }
-      .radio-row { display: flex; gap: 12px; align-items: center; }
-      .radio-row label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+      .tab-row { display: flex; gap: 8px; background: #0c0e14; padding: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); }
+      .tab { flex: 1; border: none; background: transparent; padding: 10px 12px; border-radius: 10px; color: #cfd2de; font-weight: 700; cursor: pointer; transition: all 160ms ease; }
+      .tab.active { background: #5ba8ff; color: #0b1220; }
+      .tab:not(.active):hover { background: rgba(255,255,255,0.04); }
       .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
       button { border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: #1a1e2a; color: #fff; padding: 10px 14px; cursor: pointer; font-weight: 600; }
       button.primary { background: #5ba8ff; border-color: #5ba8ff; color: #0b1220; }
@@ -97,11 +98,9 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       .blurred { filter: blur(2px); }
       .hint { font-size: 12px; color: rgba(255,255,255,0.7); }
       .section-title { font-size: 14px; font-weight: 700; margin: 6px 0; }
-      .chibi-card { border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 10px 12px; background: #0c0e14; display: flex; flex-direction: column; gap: 8px; }
-      .chibi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-      .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; background: rgba(91,168,255,0.1); color: #cce6ff; font-weight: 600; font-size: 12px; }
-      .chibi-preview { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px 10px; font-size: 12px; line-height: 1.45; }
-      .disabled { opacity: 0.6; pointer-events: none; }
+      .preview-card { border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px; background: #0c0e14; display: flex; flex-direction: column; gap: 8px; }
+      .preview-line { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.45; }
+      .preview-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
       .pick-indicator { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #0d6efd; color: #0b1220; padding: 8px 14px; border-radius: 999px; font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,0.35); pointer-events: none; z-index: 2147483001; }
     `;
     shadow.appendChild(style);
@@ -112,23 +111,23 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     panel.className = 'panel';
     panel.innerHTML = `
       <h2>Map this site to Hayami</h2>
-      <div class="radio-row">
-        <label><input type="radio" name="placement" value="below" checked /> Display below target element</label>
-        <label><input type="radio" name="placement" value="insert" /> Insert inline at a selector</label>
-        <label><input type="radio" name="placement" value="replace" /> Replace target element</label>
-        <label><input type="radio" name="placement" value="popup" /> Popup (open extension)</label>
-        <label><input type="radio" name="placement" value="icon" /> Icon insertion (toggle inline)</label>
+      <div class="tab-row" id="placementTabs">
+        <button class="tab active" data-placement="below">Below element</button>
+        <button class="tab" data-placement="insert">Insert inline</button>
+        <button class="tab" data-placement="replace">Replace element</button>
+        <button class="tab" data-placement="popup">Popup only</button>
+        <button class="tab" data-placement="icon">Icon toggle</button>
       </div>
       <div class="row">
-        <div class="field">
-          <label>Mount selector <span class="hint">Where comments should appear</span></label>
+        <div class="field" data-field="mount">
+          <label>Mount selector <span class="hint">Where comments should appear or icon should sit</span></label>
           <div style="display:flex; gap:8px; align-items:center;">
             <input id="mountSelector" type="text" placeholder="CSS selector" />
             <button class="pick" data-target="mount">Pick</button>
           </div>
         </div>
-        <div class="field">
-          <label>Display target selector <span class="hint">Element to anchor below (for 'below' mode)</span></label>
+        <div class="field" data-field="anchor">
+          <label>Display target selector <span class="hint">Element to anchor below/replace</span></label>
           <div style="display:flex; gap:8px; align-items:center;">
             <input id="anchorSelector" type="text" placeholder="CSS selector" />
             <button class="pick" data-target="anchor">Pick</button>
@@ -136,14 +135,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         </div>
       </div>
       <div class="row">
-        <div class="field">
+        <div class="field" data-field="title">
           <label>Anime title selector</label>
           <div style="display:flex; gap:8px; align-items:center;">
             <input id="titleSelector" type="text" placeholder="CSS selector" />
             <button class="pick" data-target="title">Pick</button>
           </div>
         </div>
-        <div class="field">
+        <div class="field" data-field="episode">
           <label>Episode selector</label>
           <div style="display:flex; gap:8px; align-items:center;">
             <input id="episodeSelector" type="text" placeholder="CSS selector" />
@@ -152,34 +151,18 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         </div>
       </div>
       <div class="row">
-        <div class="field" style="grid-column: span 2;">
+        <div class="field" data-field="padding" style="grid-column: span 2;">
           <label>Side padding (px) <span class="hint">Adds horizontal space inside the injected comments</span></label>
           <input id="sidePadding" type="number" min="0" step="4" placeholder="0" />
         </div>
       </div>
-      <div class="chibi-card" id="chibiSection">
-        <div class="section-title">MALSync site data</div>
-        <div class="hint" id="chibiStatus">Loading MALSync match…</div>
-        <div class="chibi-grid">
-          <div class="field">
-            <label>getTitle override <span class="hint">JSON array of steps; blank uses MALSync default</span></label>
-            <textarea id="chibiTitleOverride" spellcheck="false" placeholder='e.g. [["querySelector",".title"],["text"],["trim"]]'></textarea>
-          </div>
-          <div class="field">
-            <label>getEpisode override <span class="hint">JSON array of steps</span></label>
-            <textarea id="chibiEpisodeOverride" spellcheck="false" placeholder='e.g. [["regex","episode-(\\d+)",1]]'></textarea>
-          </div>
-        </div>
-        <div class="field">
-          <label>getIdentifier override <span class="hint">Optional slug/ID extractor</span></label>
-          <textarea id="chibiIdentifierOverride" spellcheck="false" placeholder='e.g. [["url"],["urlPart",3]]'></textarea>
-        </div>
-        <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-          <div class="chibi-preview" id="chibiPreview">Awaiting preview…</div>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button class="pick" id="chibiTest">Preview extraction</button>
-            <button class="pick" id="chibiReset">Reset overrides</button>
-          </div>
+      <div class="preview-card">
+        <div class="section-title">Extraction preview</div>
+        <div class="preview-line" id="extractionPreview">Awaiting preview…</div>
+        <div class="hint" id="previewHint">Uses MALSync when available; otherwise your selectors.</div>
+        <div class="preview-actions">
+          <button class="pick" id="previewExtraction">Preview extraction</button>
+          <button class="pick" id="resetOverrides">Reset overrides</button>
         </div>
       </div>
       <div class="actions">
@@ -196,130 +179,32 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const titleInput = shadow.getElementById('titleSelector') as HTMLInputElement;
     const episodeInput = shadow.getElementById('episodeSelector') as HTMLInputElement;
     const paddingInput = shadow.getElementById('sidePadding') as HTMLInputElement | null;
-
-    const chibiSection = shadow.getElementById('chibiSection') as HTMLElement | null;
-    const chibiStatus = shadow.getElementById('chibiStatus') as HTMLElement | null;
-    const chibiPreview = shadow.getElementById('chibiPreview') as HTMLElement | null;
-    const chibiTitleArea = shadow.getElementById('chibiTitleOverride') as HTMLTextAreaElement | null;
-    const chibiEpisodeArea = shadow.getElementById('chibiEpisodeOverride') as HTMLTextAreaElement | null;
-    const chibiIdentifierArea = shadow.getElementById('chibiIdentifierOverride') as HTMLTextAreaElement | null;
-    const chibiTestBtn = shadow.getElementById('chibiTest') as HTMLButtonElement | null;
-    const chibiResetBtn = shadow.getElementById('chibiReset') as HTMLButtonElement | null;
+    const placementTabs = shadow.getElementById('placementTabs') as HTMLElement | null;
+    const extractionPreview = shadow.getElementById('extractionPreview') as HTMLElement | null;
+    const previewHint = shadow.getElementById('previewHint') as HTMLElement | null;
+    const previewBtn = shadow.getElementById('previewExtraction') as HTMLButtonElement | null;
+    const resetOverridesBtn = shadow.getElementById('resetOverrides') as HTMLButtonElement | null;
     const chibiMatch = matchChibiPage(location.href);
-    const chibiDefaults = (chibiMatch?.page.sync || {}) as Partial<ChibiSync>;
-    const chibiDefaultStrings = {
-      title: chibiDefaults.getTitle ? JSON.stringify(chibiDefaults.getTitle, null, 2) : '',
-      episode: chibiDefaults.getEpisode ? JSON.stringify(chibiDefaults.getEpisode, null, 2) : '',
-      identifier: chibiDefaults.getIdentifier ? JSON.stringify(chibiDefaults.getIdentifier, null, 2) : '',
+
+    const fieldGroups: Record<string, HTMLElement | null> = {
+      mount: shadow.querySelector('[data-field="mount"]') as HTMLElement | null,
+      anchor: shadow.querySelector('[data-field="anchor"]') as HTMLElement | null,
+      title: shadow.querySelector('[data-field="title"]') as HTMLElement | null,
+      episode: shadow.querySelector('[data-field="episode"]') as HTMLElement | null,
+      padding: shadow.querySelector('[data-field="padding"]') as HTMLElement | null,
     };
 
-    const deepEqualSteps = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
-    const serializeSteps = (steps?: any[]) => (steps ? JSON.stringify(steps, null, 2) : '');
-    const parseSteps = (raw: string): any[] | null => {
-      const trimmed = (raw || '').trim();
-      if (!trimmed) return null;
-      try {
-        const parsed = JSON.parse(trimmed);
-        return Array.isArray(parsed) ? parsed : null;
-      } catch (e) {
-        console.warn('[chibi] failed to parse override', e);
-        return null;
-      }
-    };
-
-    const buildChibiOverrides = (): { overrides: Partial<ChibiSync> } | { error: string } => {
-      if (!chibiMatch) return { overrides: {} };
-      const overrides: Partial<ChibiSync> = {};
-
-      const parsedTitle = chibiTitleArea ? parseSteps(chibiTitleArea.value) : null;
-      const parsedEpisode = chibiEpisodeArea ? parseSteps(chibiEpisodeArea.value) : null;
-      const parsedIdentifier = chibiIdentifierArea ? parseSteps(chibiIdentifierArea.value) : null;
-
-      if (chibiTitleArea && chibiTitleArea.value.trim() && !parsedTitle) return { error: 'Invalid JSON for getTitle override' };
-      if (chibiEpisodeArea && chibiEpisodeArea.value.trim() && !parsedEpisode) return { error: 'Invalid JSON for getEpisode override' };
-      if (chibiIdentifierArea && chibiIdentifierArea.value.trim() && !parsedIdentifier) return { error: 'Invalid JSON for getIdentifier override' };
-
-      if (parsedTitle && !deepEqualSteps(parsedTitle, chibiDefaults.getTitle)) overrides.getTitle = parsedTitle as any[];
-      if (parsedEpisode && !deepEqualSteps(parsedEpisode, chibiDefaults.getEpisode)) overrides.getEpisode = parsedEpisode as any[];
-      if (parsedIdentifier && !deepEqualSteps(parsedIdentifier, chibiDefaults.getIdentifier)) overrides.getIdentifier = parsedIdentifier as any[];
-
-      return { overrides };
-    };
-
-    const updateChibiPreview = () => {
-      if (!chibiPreview) return;
-      if (!chibiMatch) {
-        chibiPreview.textContent = 'No MALSync mapping available for this URL.';
-        return;
-      }
-      const built = buildChibiOverrides();
-      if ('error' in built) {
-        chibiPreview.textContent = built.error;
-        return;
-      }
-      const result = evaluateChibiWithOverrides(chibiMatch, built.overrides, document, window.location);
-      const parts = [
-        result.title ? `Title: ${result.title}` : 'Title: (none)',
-        result.episode !== undefined && result.episode !== null ? `Episode: ${result.episode}` : 'Episode: (none)',
-        result.identifier ? `Identifier: ${result.identifier}` : 'Identifier: (none)',
-      ];
-      if (result.errors?.length) {
-        parts.push(`Errors: ${result.errors.slice(0, 3).join('; ')}`);
-      }
-      chibiPreview.textContent = parts.join(' | ');
-    };
-
-    const hydrateChibiSection = async () => {
-      if (!chibiSection) return;
-      if (!chibiMatch) {
-        chibiSection.classList.add('disabled');
-        if (chibiStatus) chibiStatus.textContent = 'No MALSync config found for this site.';
-        return;
-      }
-      if (chibiStatus) {
-        chibiStatus.textContent = `Matched MALSync: ${chibiMatch.page.name || chibiMatch.page.key}`;
-      }
-      const storedOverride = await loadChibiOverrideForOrigin(location.origin);
-      const overridesToUse = storedOverride && storedOverride.key === chibiMatch.page.key ? storedOverride.overrides : undefined;
-
-      if (chibiTitleArea) chibiTitleArea.value = overridesToUse?.getTitle ? serializeSteps(overridesToUse.getTitle) : chibiDefaultStrings.title;
-      if (chibiEpisodeArea) chibiEpisodeArea.value = overridesToUse?.getEpisode ? serializeSteps(overridesToUse.getEpisode) : chibiDefaultStrings.episode;
-      if (chibiIdentifierArea) chibiIdentifierArea.value = overridesToUse?.getIdentifier ? serializeSteps(overridesToUse.getIdentifier) : chibiDefaultStrings.identifier;
-
-      updateChibiPreview();
-    };
-
-    void hydrateChibiSection();
-
-    if (chibiTestBtn) {
-      chibiTestBtn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        updateChibiPreview();
-      });
-    }
-
-    if (chibiResetBtn) {
-      chibiResetBtn.addEventListener('click', (ev) => {
-        ev.preventDefault();
-        if (!chibiMatch) return;
-        if (chibiTitleArea) chibiTitleArea.value = chibiDefaultStrings.title;
-        if (chibiEpisodeArea) chibiEpisodeArea.value = chibiDefaultStrings.episode;
-        if (chibiIdentifierArea) chibiIdentifierArea.value = chibiDefaultStrings.identifier;
-        updateChibiPreview();
-      });
-    }
-
-    const customMapping = getCustomSiteMapping();
-    if (customMapping) {
-      mountInput.value = customMapping.mountSelector || '';
-      anchorInput.value = customMapping.anchorSelector || '';
-      titleInput.value = customMapping.titleSelector || '';
-      episodeInput.value = customMapping.episodeSelector || '';
-      if (paddingInput) paddingInput.value = (customMapping.sidePadding ?? '').toString();
-      (mountInput as any)._hayamiXPath = customMapping.mountXPath || '';
-      (anchorInput as any)._hayamiXPath = customMapping.anchorXPath || '';
-      (titleInput as any)._hayamiXPath = customMapping.titleXPath || '';
-      (episodeInput as any)._hayamiXPath = customMapping.episodeXPath || '';
+    let currentMapping = getCustomSiteMapping();
+    if (currentMapping) {
+      mountInput.value = currentMapping.mountSelector || '';
+      anchorInput.value = currentMapping.anchorSelector || '';
+      titleInput.value = currentMapping.titleSelector || '';
+      episodeInput.value = currentMapping.episodeSelector || '';
+      if (paddingInput) paddingInput.value = (currentMapping.sidePadding ?? '').toString();
+      (mountInput as any)._hayamiXPath = currentMapping.mountXPath || '';
+      (anchorInput as any)._hayamiXPath = currentMapping.anchorXPath || '';
+      (titleInput as any)._hayamiXPath = currentMapping.titleXPath || '';
+      (episodeInput as any)._hayamiXPath = currentMapping.episodeXPath || '';
     }
 
     const inputs: Record<string, HTMLInputElement> = {
@@ -335,16 +220,173 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     let hoverRaf: number | null = null;
     let lastHoverEvent: MouseEvent | null = null;
 
-    const placements = Array.from(shadow.querySelectorAll<HTMLInputElement>('input[name="placement"]'));
+    let selectedPlacement: DisplayPlacement = currentMapping?.display || 'below';
 
-    // Preselect existing display mode if present
-    if (customMapping) {
-      const existing = placements.find((p) => p.value === customMapping!.display);
-      if (existing) {
-        placements.forEach((p) => (p.checked = false));
-        existing.checked = true;
+    const placementFieldVisibility: Record<DisplayPlacement, string[]> = {
+      below: ['anchor', 'mount', 'title', 'episode', 'padding'],
+      insert: ['mount', 'title', 'episode', 'padding'],
+      replace: ['anchor', 'title', 'episode', 'padding'],
+      popup: ['title', 'episode'],
+      icon: ['mount', 'title', 'episode', 'padding'],
+    };
+
+    function syncTabSelection() {
+      if (!placementTabs) return;
+      placementTabs.querySelectorAll<HTMLButtonElement>('.tab').forEach((btn) => {
+        const isActive = btn.dataset.placement === selectedPlacement;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+
+    function updateFieldVisibility() {
+      const visible = new Set(placementFieldVisibility[selectedPlacement] || []);
+      Object.entries(fieldGroups).forEach(([key, el]) => {
+        if (!el) return;
+        el.classList.toggle('hidden', !visible.has(key));
+      });
+      if (previewHint) {
+        const inlineModes: DisplayPlacement[] = ['below', 'insert', 'replace', 'icon'];
+        previewHint.textContent = inlineModes.includes(selectedPlacement)
+          ? 'Preview uses MALSync if available; otherwise your selectors.'
+          : 'Popup mode uses your extraction selectors for preview only.';
       }
     }
+
+    syncTabSelection();
+    updateFieldVisibility();
+
+    placementTabs?.querySelectorAll<HTMLButtonElement>('button[data-placement]').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const nextPlacement = (btn.dataset.placement || 'below') as DisplayPlacement;
+        selectedPlacement = nextPlacement;
+        syncTabSelection();
+        updateFieldVisibility();
+      });
+    });
+
+    let storedChibiOverride: ChibiOverrideEntry | null = null;
+
+    const identifierFallback = (): string => {
+      try {
+        const url = new URL(location.href);
+        const slug = url.pathname.split('/').filter(Boolean).pop();
+        return slug || url.hostname;
+      } catch {
+        return location.href;
+      }
+    };
+
+    const extractFromSelector = (selector: string | undefined): string | null => {
+      const trimmed = (selector || '').trim();
+      if (!trimmed) return null;
+      const el = document.querySelector(trimmed) as HTMLElement | null;
+      const text = el?.textContent?.trim();
+      return text && text.length > 0 ? text : null;
+    };
+
+    const updateResetButtonVisibility = () => {
+      if (!resetOverridesBtn) return;
+      const hasMapping = Boolean(currentMapping);
+      const hasOverride = Boolean(storedChibiOverride);
+      resetOverridesBtn.style.display = hasMapping || hasOverride ? '' : 'none';
+    };
+
+    const runExtractionPreview = () => {
+      if (!extractionPreview) return;
+
+      const manualTitle = extractFromSelector(titleInput.value);
+      const manualEpisode = extractFromSelector(episodeInput.value);
+      const usingManual = Boolean(manualTitle || manualEpisode);
+
+      if (usingManual) {
+        const parts = [
+          manualTitle ? `Title: ${manualTitle}` : 'Title: (none)',
+          manualEpisode ? `Episode: ${manualEpisode}` : 'Episode: (none)',
+          `Identifier: ${identifierFallback()}`,
+          'Source: selectors',
+        ];
+        extractionPreview.textContent = parts.join(' | ');
+        return;
+      }
+
+      if (chibiMatch) {
+        const overridesToUse = storedChibiOverride && storedChibiOverride.key === chibiMatch.page.key ? storedChibiOverride.overrides : undefined;
+        const result = evaluateChibiWithOverrides(chibiMatch, overridesToUse, document, window.location);
+        const parts = [
+          result.title ? `Title: ${result.title}` : 'Title: (none)',
+          result.episode !== undefined && result.episode !== null ? `Episode: ${result.episode}` : 'Episode: (none)',
+          result.identifier ? `Identifier: ${result.identifier}` : `Identifier: ${identifierFallback()}`,
+          `Source: ${result.source === 'override' ? 'MALSync override' : 'MALSync default'}`,
+        ];
+        if (result.errors?.length) {
+          parts.push(`Errors: ${result.errors.slice(0, 3).join('; ')}`);
+        }
+        extractionPreview.textContent = parts.join(' | ');
+        return;
+      }
+
+      const fallbackParts = [
+        'Title: (none)',
+        'Episode: (none)',
+        `Identifier: ${identifierFallback()}`,
+        'Source: current page',
+      ];
+      extractionPreview.textContent = fallbackParts.join(' | ');
+    };
+
+    updateResetButtonVisibility();
+
+    void (async () => {
+      storedChibiOverride = await loadChibiOverrideForOrigin(location.origin);
+      updateResetButtonVisibility();
+      runExtractionPreview();
+    })();
+
+    previewBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      runExtractionPreview();
+    });
+
+    [titleInput, episodeInput].forEach((input) => {
+      input.addEventListener('input', () => runExtractionPreview());
+      input.addEventListener('change', () => runExtractionPreview());
+    });
+
+    resetOverridesBtn?.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      try {
+        const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
+        const map = stored?.[CUSTOM_SITE_MAPPINGS_KEY] || {};
+        if (map[location.origin]) {
+          delete map[location.origin];
+          await chrome.storage.local.set({ [CUSTOM_SITE_MAPPINGS_KEY]: map });
+        }
+        await saveChibiOverrideForOrigin(location.origin, null);
+        currentMapping = null;
+        setCustomSiteMapping(null);
+        mountInput.value = '';
+        anchorInput.value = '';
+        titleInput.value = '';
+        episodeInput.value = '';
+        if (paddingInput) paddingInput.value = '';
+        (mountInput as any)._hayamiXPath = '';
+        (anchorInput as any)._hayamiXPath = '';
+        (titleInput as any)._hayamiXPath = '';
+        (episodeInput as any)._hayamiXPath = '';
+        storedChibiOverride = null;
+        selectedPlacement = 'below';
+        syncTabSelection();
+        updateFieldVisibility();
+        runExtractionPreview();
+        updateResetButtonVisibility();
+        toast.success('Overrides reset for this site');
+      } catch (e) {
+        console.warn('[site-mapper] Failed to reset overrides', e);
+        toast.error('Failed to reset overrides');
+      }
+    });
 
     function cleanupPickers() {
       document.body.classList.remove('hayami-picking');
@@ -478,7 +520,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
 
     shadow.getElementById('saveMapper')?.addEventListener('click', async () => {
       cleanupPickers();
-      const placement = placements.find((p) => p.checked)?.value as DisplayPlacement || 'below';
+      const placement = selectedPlacement || 'below';
       const parsedPadding = paddingInput ? Number.parseFloat(paddingInput.value) : NaN;
       const sidePadding = Number.isFinite(parsedPadding) && parsedPadding >= 0 ? parsedPadding : 0;
       const mapping: CustomSiteMapping = {
@@ -489,23 +531,15 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         titleSelector: titleInput.value.trim(),
         episodeSelector: episodeInput.value.trim(),
         sidePadding,
-        anchorXPath: (anchorInput as any)._hayamiXPath || customMapping?.anchorXPath || '',
-        mountXPath: (mountInput as any)._hayamiXPath || customMapping?.mountXPath || '',
-        titleXPath: (titleInput as any)._hayamiXPath || customMapping?.titleXPath || '',
-        episodeXPath: (episodeInput as any)._hayamiXPath || customMapping?.episodeXPath || '',
+        anchorXPath: (anchorInput as any)._hayamiXPath || currentMapping?.anchorXPath || '',
+        mountXPath: (mountInput as any)._hayamiXPath || currentMapping?.mountXPath || '',
+        titleXPath: (titleInput as any)._hayamiXPath || currentMapping?.titleXPath || '',
+        episodeXPath: (episodeInput as any)._hayamiXPath || currentMapping?.episodeXPath || '',
       };
 
-      let chibiOverrideEntry: ChibiOverrideEntry | null = null;
-      if (chibiMatch) {
-        const built = buildChibiOverrides();
-        if ('error' in built) {
-          toast.error(built.error);
-          return;
-        }
-        if (Object.keys(built.overrides).length > 0) {
-          chibiOverrideEntry = { key: chibiMatch.page.key, overrides: built.overrides };
-        }
-      }
+      const chibiOverrideEntry = chibiMatch && storedChibiOverride && storedChibiOverride.key === chibiMatch.page.key
+        ? storedChibiOverride
+        : null;
 
       try {
         const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
@@ -513,6 +547,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         map[location.origin] = mapping;
         await chrome.storage.local.set({ [CUSTOM_SITE_MAPPINGS_KEY]: map });
         await saveChibiOverrideForOrigin(location.origin, chibiOverrideEntry);
+        currentMapping = mapping;
         setCustomSiteMapping(mapping);
         toast.success('Site mapping saved');
         overlay.remove();
