@@ -45,7 +45,6 @@ const imgurClientId = ref<string>('');
 const imgchestApiKey = ref<string>('');
 const commentsProvider = ref<'reddit' | 'disqus'>('reddit');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
-const useVueRendering = ref<boolean>(true);
 
 // Check authentication status on mount
 onMounted(async () => {
@@ -54,7 +53,6 @@ onMounted(async () => {
   await loadDisplayMode();
   await loadCommentsProvider();
   await loadNoCommentsMode();
-  await loadVueRenderingSetting();
   await loadImgurClientId();
   await loadImgchestApiKey();
   await checkMALAuthStatus();
@@ -192,18 +190,7 @@ async function updateNoCommentsMode(mode: 'popup' | 'inline') {
 }
 
 async function loadVueRenderingSetting() {
-  try {
-    const data = await chrome.storage.local.get('use_vue_rendering');
-    // Default to true (Vue rendering) if not set
-    useVueRendering.value = data?.use_vue_rendering !== false;
-  } catch {}
-}
-
-async function updateVueRendering(enabled: boolean) {
-  useVueRendering.value = enabled;
-  await chrome.storage.local.set({ use_vue_rendering: enabled });
-  successMessage.value = enabled ? 'Using new Vue rendering (reload page to apply)' : 'Using classic DOM rendering (reload page to apply)';
-  setTimeout(() => successMessage.value = null, 2000);
+  // legacy classic renderer removed; Vue renderer is always used
 }
 
 async function handleLogin() {
@@ -478,17 +465,6 @@ async function handleMALLogout() {
                 <div class="flex gap-2 text-sm font-semibold">
                   <button class="rounded-lg px-3 py-2" :class="commentsProvider === 'reddit' ? 'bg-white/15' : 'bg-white/5'" @click="updateCommentsProvider('reddit')">Reddit</button>
                   <button class="rounded-lg px-3 py-2" :class="commentsProvider === 'disqus' ? 'bg-white/15' : 'bg-white/5'" @click="updateCommentsProvider('disqus')">Disqus</button>
-                </div>
-              </div>
-
-              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                <div>
-                  <p class="text-sm text-white/80">Rendering mode</p>
-                  <p class="text-xs text-white/60">Vue components vs classic</p>
-                </div>
-                <div class="flex gap-2 text-sm font-semibold">
-                  <button class="rounded-lg px-3 py-2" :class="useVueRendering ? 'bg-white/15' : 'bg-white/5'" @click="updateVueRendering(true)">Vue</button>
-                  <button class="rounded-lg px-3 py-2" :class="!useVueRendering ? 'bg-white/15' : 'bg-white/5'" @click="updateVueRendering(false)">Classic</button>
                 </div>
               </div>
 
