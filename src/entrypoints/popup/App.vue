@@ -14,6 +14,11 @@ import {
   getStoredYouTubeProfilePic,
   logoutYouTube
 } from '@/utils/youtubeAuth';
+import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malAuth';
+import backIcon from '@/assets/backIcon.svg';
+import settingsIcon from '@/assets/settingsIcon.svg';
+import accountIcon from '@/assets/accountIcon.svg';
+import accountsIcon from '@/assets/accountsIcon.svg';
 
 const isLoggedIn = ref(false);
 const username = ref<string | null>(null);
@@ -24,6 +29,16 @@ const youtubeProfilePic = ref<string | null>(null);
 const isLoading = ref(false);
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
+const isMALLoggedIn = ref(false);
+
+type TabId = 'overview' | 'settings' | 'accounts';
+const tabs: { id: TabId; label: string; icon: string }[] = [
+  { id: 'overview', label: 'Overview', icon: '🏠' },
+  { id: 'settings', label: 'Settings', icon: '⚙️' },
+  { id: 'accounts', label: 'Accounts', icon: '👥' },
+];
+const activeTab = ref<TabId>('overview');
+const currentView = ref<'home' | 'settings' | 'manage'>('home');
 const displayMode = ref<'popup' | 'inline'>('popup');
 const embedImages = ref<boolean>(false);
 const imgurClientId = ref<string>('');
@@ -42,6 +57,7 @@ onMounted(async () => {
   await loadVueRenderingSetting();
   await loadImgurClientId();
   await loadImgchestApiKey();
+  await checkMALAuthStatus();
 });
 
 async function checkAuthStatus() {
@@ -292,486 +308,264 @@ function openGoogleSettings() {
   // Open Google Cloud Console
   window.open('https://console.cloud.google.com/apis/credentials', '_blank');
 }
+
+async function checkMALAuthStatus() {
+  try {
+    isMALLoggedIn.value = await isMALAuthenticated();
+  } catch (error) {
+    console.error('Error checking MAL auth status:', error);
+  }
+}
+
+async function handleMALLogin() {
+  isLoading.value = true;
+  errorMessage.value = null;
+  successMessage.value = null;
+
+  try {
+    const result = await authenticateWithMAL();
+    if (result.success) {
+      isMALLoggedIn.value = true;
+      successMessage.value = 'Successfully connected to MyAnimeList';
+    } else {
+      errorMessage.value = result.error || 'Authentication failed';
+    }
+  } catch (error) {
+    console.error('MAL login error:', error);
+    errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred';
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function handleMALLogout() {
+  isLoading.value = true;
+  errorMessage.value = null;
+  successMessage.value = null;
+
+  try {
+    await logoutMAL();
+    isMALLoggedIn.value = false;
+    successMessage.value = 'Disconnected from MyAnimeList';
+  } catch (error) {
+    console.error('MAL logout error:', error);
+    errorMessage.value = 'Failed to logout from MyAnimeList';
+  } finally {
+    isLoading.value = false;
+  }
+}
 </script>
 
 <template>
-  <div class="popup-container">
-    <div class="header">
-      <h1>Hayami</h1>
-      <p class="subtitle">Bring back episode discussions from r/anime</p>
-    </div>
-
-    <div class="content">
-      <!-- Loading State -->
-      <div v-if="isLoading" class="loading">
-        <div class="spinner"></div>
-        <p>Loading...</p>
-      </div>
-
-      <!-- Not Authenticated -->
-      <div v-else-if="!isLoggedIn" class="auth-section">
-        <div class="info-box">
-          <h2>🔐 Reddit Authentication Required</h2>
-          <p>
-            To view and post comments from r/anime episode discussions, 
-            you need to connect your Reddit account.
-          </p>
-          <ul class="features-list">
-            <li>✅ View episode discussions</li>
-            <li>✅ Read comments from r/anime</li>
-            <li>✅ Post your own comments</li>
-            <li>✅ Fully secure OAuth2 authentication</li>
-          </ul>
+  <div class="min-w-[360px] max-w-[440px]">
+    <div class="flex flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white shadow-2xl">
+      <header class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <img src="/icon/128.png" alt="Hayami" class="h-12 w-12 rounded-xl bg-white/5 p-1 shadow" />
+          <div class="text-lg font-semibold">Hayami</div>
         </div>
-
-        <button @click="handleLogin" class="btn btn-primary" :disabled="isLoading">
-          Login with Reddit
-        </button>
-
-        <div class="setup-instructions">
-          <details>
-            <summary>🛠️ First time setup</summary>
-            <ol>
-              <li>Click "Login with Reddit" above</li>
-              <li>Authorize the extension on Reddit</li>
-              <li>Start browsing Crunchyroll episodes!</li>
-            </ol>
-            <p class="note">
-              <strong>Note:</strong> You need to register this extension as a Reddit app first.
-              <a href="#" @click.prevent="openSettings">Open Reddit Apps Settings</a>
-            </p>
-          </details>
-        </div>
-      </div>
-
-      <!-- Authenticated -->
-      <div v-else class="logged-in-section">
-        <div class="user-info">
-          <div class="avatar">
-            <img v-if="profilePic" :src="profilePic" alt="Profile" class="avatar-img" />
-            <span v-else>👤</span>
-          </div>
-          <div class="user-details">
-            <h3>Logged in as</h3>
-            <p class="username">u/{{ username || 'Unknown' }}</p>
-          </div>
-        </div>
-
-        <div class="status-box success">
-          <p>✅ You're all set! Visit any Crunchyroll episode to see discussions.</p>
-        </div>
-
-        <div class="settings-box">
-          <h4>Display mode</h4>
-          <div class="radio-row">
-            <label><input type="radio" name="displayMode" value="popup" :checked="displayMode==='popup'" @change="updateDisplayMode('popup')"> Popup overlay</label>
-            <label><input type="radio" name="displayMode" value="inline" :checked="displayMode==='inline'" @change="updateDisplayMode('inline')"> Comments beneath the video</label>
-          </div>
-          <p class="small-note">You can change this anytime. Inline mode renders Reddit-style comments under the player.</p>
-          <div style="margin-top:12px;">
-            <label style="display:flex;align-items:center;gap:8px;">
-              <input type="checkbox" :checked="embedImages" @change="(e) => updateEmbedImages((e.target as HTMLInputElement).checked)" />
-              <span>Enable image embeds from standalone i.imgur.com links</span>
-            </label>
-            <p class="small-note">When enabled, a single-line image link (e.g. https://i.imgur.com/xyz.jpg) will be embedded via DuckDuckGo's image proxy.</p>
-          </div>
-
-          <div style="margin-top:12px;">
-            <h4>Imgur Client ID</h4>
-            <p class="small-note">Used for Imgur API requests (header: X-Imgur-Client-ID). Required for UK users when resolving Imgur links/albums.</p>
-            <div class="input-row">
-              <input
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-                v-model="imgurClientId"
-                placeholder="Enter your Imgur Client ID"
-              />
-              <button class="btn btn-secondary" style="width:auto;min-width:90px;padding:8px 12px;" @click="saveImgurClientId">Save</button>
-            </div>
-          </div>
-
-          <div style="margin-top:12px;">
-            <h4>ImgChest API key</h4>
-            <p class="small-note">Needed to load ImgChest albums. Stored locally in this browser only.</p>
-            <div class="input-row">
-              <input
-                type="password"
-                autocomplete="off"
-                spellcheck="false"
-                v-model="imgchestApiKey"
-                placeholder="Enter your ImgChest API key"
-              />
-              <button class="btn btn-secondary" style="width:auto;min-width:90px;padding:8px 12px;" @click="saveImgchestApiKey">Save</button>
-            </div>
-          </div>
-
-          <div style="margin-top:12px;">
-            <h4>When no comments found</h4>
-            <div class="radio-row">
-              <label><input type="radio" name="noCommentsMode" value="popup" :checked="noCommentsMode==='popup'" @change="updateNoCommentsMode('popup')"> Popup overlay</label>
-              <label><input type="radio" name="noCommentsMode" value="inline" :checked="noCommentsMode==='inline'" @change="updateNoCommentsMode('inline')"> Inline selection</label>
-            </div>
-            <p class="small-note">Choose how to handle when no discussion thread is found. Inline mode shows selection UI in the comments section area.</p>
-          </div>
-
-          <div style="margin-top:12px;">
-            <h4>Comments provider</h4>
-            <div class="radio-row">
-              <label><input type="radio" name="commentsProvider" value="reddit" :checked="commentsProvider==='reddit'" @change="() => updateCommentsProvider('reddit')"> Reddit (default)</label>
-              <label><input type="radio" name="commentsProvider" value="disqus" :checked="commentsProvider==='disqus'" @change="() => updateCommentsProvider('disqus')"> Disqus</label>
-            </div>
-            <p class="small-note">Choose which provider to embed for episode discussions.</p>
-          </div>
-
-          <div style="margin-top:12px;">
-            <h4>Reddit rendering mode</h4>
-            <div class="radio-row">
-              <label><input type="radio" name="renderingMode" value="vue" :checked="useVueRendering" @change="() => updateVueRendering(true)"> New (Vue components)</label>
-              <label><input type="radio" name="renderingMode" value="dom" :checked="!useVueRendering" @change="() => updateVueRendering(false)"> Classic (DOM-based)</label>
-            </div>
-            <p class="small-note">New Vue mode has improved comment rendering. Classic mode uses the original implementation. Reload the page after changing.</p>
-          </div>
-        </div>
-
-        <div class="settings-box" style="margin-top: 12px;">
-          <h4>YouTube Authentication</h4>
-          <div v-if="!isYouTubeLoggedIn" style="margin-bottom: 12px;">
-            <p style="font-size: 13px; color: #666; margin-bottom: 10px;">
-              Connect your Google account to view YouTube comments from anime channels.
-            </p>
-            <button @click="handleYouTubeLogin" class="btn btn-primary" :disabled="isLoading" style="width: 100%;">
-              Login with Google
-            </button>
-            <details style="margin-top: 10px;">
-              <summary style="cursor: pointer; font-size: 12px; color: #666;">🛠️ Setup Instructions</summary>
-              <ol style="font-size: 12px; margin: 10px 0; padding-left: 20px; color: #666;">
-                <li>Go to <a href="#" @click.prevent="openGoogleSettings">Google Cloud Console</a></li>
-                <li>Create a new project or select an existing one</li>
-                <li>Enable "YouTube Data API v3"</li>
-                <li>Create OAuth 2.0 credentials - choose <strong>"Chrome Extension"</strong> type</li>
-                <li>No redirect URI configuration needed - Chrome handles this automatically</li>
-                <li>Copy the client ID and add it to config.ts</li>
-              </ol>
-            </details>
-          </div>
-          <div v-else class="user-info" style="padding: 10px; margin-bottom: 10px;">
-            <div class="avatar" style="width: 40px; height: 40px; min-width: 40px;">
-              <img v-if="youtubeProfilePic" :src="youtubeProfilePic" alt="Profile" class="avatar-img" />
-              <span v-else>👤</span>
-            </div>
-            <div class="user-details">
-              <h3 style="font-size: 11px; margin: 0;">YouTube</h3>
-              <p class="username" style="font-size: 14px; margin: 0;">{{ youtubeUsername || 'Unknown' }}</p>
-            </div>
-            <button @click="handleYouTubeLogout" class="btn btn-secondary" :disabled="isLoading" style="padding: 6px 12px; font-size: 12px;">
-              Logout
-            </button>
-          </div>
-        </div>
-
-        <div class="actions">
-          <button @click="handleLogout" class="btn btn-secondary">
-            Logout from Reddit
+        <div class="flex items-center gap-3">
+          <button v-if="currentView !== 'home'" @click="currentView = 'home'" class="p-1 hover:opacity-80" aria-label="Back">
+            <img :src="backIcon" alt="Back" class="h-6 w-6" />
+          </button>
+          <button @click="currentView = currentView === 'settings' ? 'home' : 'settings'" class="p-1 hover:opacity-80" aria-label="Settings">
+            <img :src="settingsIcon" alt="Settings" class="h-6 w-6" />
           </button>
         </div>
+      </header>
 
-        <div class="info-text">
-          <p>
-            When you watch episodes on Crunchyroll, the extension will automatically 
-            search for and display discussion threads from r/anime.
-          </p>
-        </div>
+      <div v-if="errorMessage" class="flex items-start gap-3 rounded-2xl bg-rose-900/40 px-4 py-3 text-sm text-rose-100">
+        <span>⚠️</span>
+        <div class="flex-1">{{ errorMessage }}</div>
+        <button class="text-xs font-semibold text-rose-100" @click="errorMessage = null">Dismiss</button>
+      </div>
+      <div v-if="successMessage" class="flex items-start gap-3 rounded-2xl bg-emerald-900/40 px-4 py-3 text-sm text-emerald-100">
+        <span>✅</span>
+        <div class="flex-1">{{ successMessage }}</div>
+        <button class="text-xs font-semibold text-emerald-100" @click="successMessage = null">Dismiss</button>
       </div>
 
-      <!-- Messages -->
-      <div v-if="errorMessage" class="message error">
-        ❌ {{ errorMessage }}
+      <div v-if="isLoading" class="flex flex-col items-center justify-center gap-3 rounded-3xl bg-[#262b33] px-6 py-10 shadow-inner">
+        <div class="h-12 w-12 animate-spin rounded-full border-4 border-white/10 border-t-white"></div>
+        <p class="text-sm text-white/80">Loading your session...</p>
       </div>
-      <div v-if="successMessage" class="message success">
-        ✅ {{ successMessage }}
-      </div>
-    </div>
 
-    <div class="footer">
-      <p>Made with ❤️ for the anime community</p>
+      <template v-else>
+        <section v-if="currentView === 'home'" class="space-y-6">
+          <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
+            <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
+              <img :src="accountIcon" alt="Connected accounts" class="h-6 w-6" />
+              <span>Connected accounts</span>
+            </div>
+            <div class="space-y-3 text-base text-white/90">
+              <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
+                <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
+                <div class="truncate">{{ isLoggedIn ? `u/${username || 'your reddit'}` : 'Not connected' }}</div>
+              </div>
+              <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
+                <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
+                <div class="truncate">{{ isYouTubeLoggedIn ? `Google ${youtubeUsername || 'YouTube user'}` : 'Not linked' }}</div>
+              </div>
+              <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
+                <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
+                <div class="truncate">{{ isMALLoggedIn ? 'MyAnimeList connected' : 'Not connected' }}</div>
+              </div>
+            </div>
+            <div class="mt-6 space-y-2">
+              <button @click="currentView = 'manage'" class="w-full rounded-full bg-white/10 px-4 py-3 text-lg font-semibold text-white hover:bg-white/15">
+                Manage or add accounts
+              </button>
+            </div>
+          </div>
+
+          <div class="rounded-3xl bg-[#2b3038] px-6 py-6 text-center shadow-inner">
+            <div class="mb-2 flex items-center justify-center gap-2 text-lg font-semibold text-white">
+              <span>👍</span>
+              <span>Hayami?</span>
+            </div>
+            <p class="text-sm text-white/80">Feel free to support the project (and gain some perks too) via <a class="underline" href="https://hayami.moe" target="_blank" rel="noreferrer">Hayami Plus</a>.</p>
+            <p class="mt-2 text-xs text-white/70">$1/monthly, direct API calls rather than IP-based-rate-limits, and allows further, continuous development. Hayami will always be free.</p>
+          </div>
+
+          <div class="pt-1 text-center text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
+        </section>
+
+        <section v-else-if="currentView === 'settings'" class="space-y-4">
+          <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
+            <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
+              <span class="text-2xl">⚙️</span>
+              <span>Settings</span>
+            </div>
+
+            <div class="space-y-3 text-white/90">
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div>
+                  <p class="text-sm text-white/80">Display mode</p>
+                  <p class="text-xs text-white/60">Where comments show on Crunchyroll</p>
+                </div>
+                <div class="flex gap-2 text-sm font-semibold">
+                  <button class="rounded-lg px-3 py-2" :class="displayMode === 'popup' ? 'bg-white/15' : 'bg-white/5'" @click="updateDisplayMode('popup')">Popup</button>
+                  <button class="rounded-lg px-3 py-2" :class="displayMode === 'inline' ? 'bg-white/15' : 'bg-white/5'" @click="updateDisplayMode('inline')">Inline</button>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div>
+                  <p class="text-sm text-white/80">Image embeds</p>
+                  <p class="text-xs text-white/60">Auto-embed Imgur links</p>
+                </div>
+                <label class="relative inline-flex items-center">
+                  <input type="checkbox" class="peer sr-only" :checked="embedImages" @change="(e) => updateEmbedImages((e.target as HTMLInputElement).checked)" />
+                  <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                </label>
+              </div>
+
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div>
+                  <p class="text-sm text-white/80">No comments mode</p>
+                  <p class="text-xs text-white/60">Fallback when nothing is found</p>
+                </div>
+                <div class="flex gap-2 text-sm font-semibold">
+                  <button class="rounded-lg px-3 py-2" :class="noCommentsMode === 'popup' ? 'bg-white/15' : 'bg-white/5'" @click="updateNoCommentsMode('popup')">Popup</button>
+                  <button class="rounded-lg px-3 py-2" :class="noCommentsMode === 'inline' ? 'bg-white/15' : 'bg-white/5'" @click="updateNoCommentsMode('inline')">Inline</button>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div>
+                  <p class="text-sm text-white/80">Comments provider</p>
+                  <p class="text-xs text-white/60">Choose Reddit or Disqus</p>
+                </div>
+                <div class="flex gap-2 text-sm font-semibold">
+                  <button class="rounded-lg px-3 py-2" :class="commentsProvider === 'reddit' ? 'bg-white/15' : 'bg-white/5'" @click="updateCommentsProvider('reddit')">Reddit</button>
+                  <button class="rounded-lg px-3 py-2" :class="commentsProvider === 'disqus' ? 'bg-white/15' : 'bg-white/5'" @click="updateCommentsProvider('disqus')">Disqus</button>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div>
+                  <p class="text-sm text-white/80">Rendering mode</p>
+                  <p class="text-xs text-white/60">Vue components vs classic</p>
+                </div>
+                <div class="flex gap-2 text-sm font-semibold">
+                  <button class="rounded-lg px-3 py-2" :class="useVueRendering ? 'bg-white/15' : 'bg-white/5'" @click="updateVueRendering(true)">Vue</button>
+                  <button class="rounded-lg px-3 py-2" :class="!useVueRendering ? 'bg-white/15' : 'bg-white/5'" @click="updateVueRendering(false)">Classic</button>
+                </div>
+              </div>
+
+              <div class="space-y-2 rounded-2xl bg-white/5 px-4 py-3">
+                <label class="text-sm text-white/80">Imgur Client ID</label>
+                <div class="flex gap-2">
+                  <input type="password" v-model="imgurClientId" autocomplete="off" spellcheck="false" class="flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30" placeholder="Enter Imgur Client ID" />
+                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" @click="saveImgurClientId">Save</button>
+                </div>
+              </div>
+
+              <div class="space-y-2 rounded-2xl bg-white/5 px-4 py-3">
+                <label class="text-sm text-white/80">ImgChest API key</label>
+                <div class="flex gap-2">
+                  <input type="password" v-model="imgchestApiKey" autocomplete="off" spellcheck="false" class="flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30" placeholder="Enter ImgChest API key" />
+                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" @click="saveImgchestApiKey">Save</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-1 text-center text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
+        </section>
+
+        <section v-else class="space-y-4">
+          <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
+            <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
+              <img :src="accountsIcon" alt="Manage accounts" class="h-6 w-6" />
+              <span>Manage accounts</span>
+            </div>
+
+            <div class="space-y-4 text-white/90">
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
+                  <div>
+                    <p class="text-sm text-white/70">Reddit</p>
+                    <p class="text-base font-semibold">{{ isLoggedIn ? `u/${username || 'connected'}` : 'Not connected' }}</p>
+                  </div>
+                </div>
+                <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isLoggedIn ? handleLogout() : handleLogin()">
+                  {{ isLoggedIn ? 'Logout' : 'Login' }}
+                </button>
+              </div>
+
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
+                  <div>
+                    <p class="text-sm text-white/70">YouTube</p>
+                    <p class="text-base font-semibold">{{ isYouTubeLoggedIn ? (youtubeUsername || 'Connected') : 'Not linked' }}</p>
+                  </div>
+                </div>
+                <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isYouTubeLoggedIn ? handleYouTubeLogout() : handleYouTubeLogin()">
+                  {{ isYouTubeLoggedIn ? 'Logout' : 'Connect' }}
+                </button>
+              </div>
+
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
+                  <div>
+                    <p class="text-sm text-white/70">MyAnimeList</p>
+                    <p class="text-base font-semibold">{{ isMALLoggedIn ? 'Connected' : 'Not linked' }}</p>
+                  </div>
+                </div>
+                <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isMALLoggedIn ? handleMALLogout() : handleMALLogin()">
+                  {{ isMALLoggedIn ? 'Logout' : 'Connect' }}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-1 text-center text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
+        </section>
+      </template>
     </div>
   </div>
 </template>
-
-<style scoped>
-.popup-container {
-  width: 400px;
-  min-height: 500px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  color: #333;
-}
-
-.header {
-  background: linear-gradient(135deg, #f5793a 0%, #f85032 100%);
-  color: white;
-  padding: 20px;
-  text-align: center;
-}
-
-.header h1 {
-  margin: 0 0 5px 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.subtitle {
-  margin: 0;
-  font-size: 12px;
-  opacity: 0.9;
-}
-
-.content {
-  padding: 20px;
-}
-
-.loading {
-  text-align: center;
-  padding: 40px 20px;
-}
-
-.spinner {
-  border: 3px solid #f3f3f3;
-  border-top: 3px solid #f5793a;
-  border-radius: 50%;
-  width: 40px;
-  height: 40px;
-  animation: spin 1s linear infinite;
-  margin: 0 auto 15px;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.auth-section {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.info-box {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 15px;
-}
-
-.info-box h2 {
-  margin: 0 0 10px 0;
-  font-size: 16px;
-  color: #333;
-}
-
-.info-box p {
-  margin: 0 0 15px 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: #666;
-}
-
-.features-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.features-list li {
-  padding: 5px 0;
-  font-size: 13px;
-  color: #555;
-}
-
-.btn {
-  width: 100%;
-  padding: 12px 20px;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn-primary {
-  background: #ff4500;
-  color: white;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: #e03d00;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(255, 69, 0, 0.3);
-}
-
-.btn-secondary {
-  background: #757575;
-  color: white;
-}
-
-.btn-secondary:hover:not(:disabled) {
-  background: #616161;
-}
-
-.setup-instructions {
-  margin-top: 10px;
-}
-
-.setup-instructions details {
-  background: #f8f9fa;
-  padding: 10px;
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.setup-instructions summary {
-  cursor: pointer;
-  font-weight: 600;
-  margin-bottom: 10px;
-}
-
-.setup-instructions ol {
-  margin: 10px 0;
-  padding-left: 20px;
-}
-
-.setup-instructions li {
-  margin: 5px 0;
-  line-height: 1.5;
-}
-
-.note {
-  font-size: 12px;
-  color: #666;
-  margin-top: 10px;
-}
-
-.note a {
-  color: #ff4500;
-  text-decoration: none;
-}
-
-.note a:hover {
-  text-decoration: underline;
-}
-
-.logged-in-section {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.user-info {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  padding: 15px;
-  background: #f8f9fa;
-  border-radius: 8px;
-}
-
-.avatar {
-  font-size: 40px;
-  width: 60px;
-  height: 60px;
- min-width: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: white;
-  border-radius: 50%;
-  overflow: hidden;
- flex-shrink: 0;
-}
-
-.avatar-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.user-details {
-  flex: 1;
-  min-width: 0;
-}
-
-.user-details h3 {
-  margin: 0 0 5px 0;
-  font-size: 12px;
-  color: #666;
-  font-weight: normal;
-}
-
-.username {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #ff4500;
- word-break: break-word;
-}
-
-.status-box {
-  padding: 15px;
-  border-radius: 8px;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-.status-box.success {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-
-.settings-box {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 15px;
-}
-.settings-box h4 { margin: 0 0 10px 0; font-size: 14px; }
-.radio-row { display:flex; gap:14px; align-items:center; }
-.small-note { margin: 8px 0 0; font-size: 12px; color:#666; }
-
-.info-text {
-  font-size: 13px;
-  color: #666;
-  line-height: 1.6;
-}
-
-.message {
-  padding: 12px;
-  border-radius: 6px;
-  font-size: 13px;
-  margin-top: 15px;
-}
-
-.message.error {
-  background: #ffebee;
-  color: #c62828;
-}
-
-.message.success {
-  background: #e8f5e9;
-  color: #2e7d32;
-}
-
-.input-row { display:flex; gap:8px; align-items:center; }
-.input-row input { flex:1; padding:8px; border:1px solid #ddd; border-radius:6px; font-size:13px; }
-
-.footer {
-  text-align: center;
-  padding: 15px;
-  border-top: 1px solid #e0e0e0;
-  font-size: 12px;
-  color: #999;
-}
-</style>

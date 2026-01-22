@@ -495,7 +495,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       overlay.style.pointerEvents = '';
     }
 
-    shadow.querySelectorAll('button.pick').forEach((btn) => {
+    shadow.querySelectorAll('button.pick[data-target]').forEach((btn) => {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
         const target = (ev.currentTarget as HTMLElement).getAttribute('data-target') || '';
