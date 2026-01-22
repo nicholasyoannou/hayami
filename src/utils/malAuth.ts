@@ -43,12 +43,12 @@ function generateRandomString(length = 64): string {
 function getRedirectUri(): string {
   // chrome.identity.getRedirectURL appends a trailing slash automatically when a path is provided
   // e.g., https://<ext>.chromiumapp.org/mal-auth/
-  return chrome.identity.getRedirectURL(MAL_REDIRECT_PATH);
+  return browser.identity.getRedirectURL(MAL_REDIRECT_PATH);
 }
 
 async function storeTokens(response: MalTokenResponse): Promise<void> {
   const expiryTime = Date.now() + response.expires_in * 1000;
-  await chrome.storage.local.set({
+  await browser.storage.local.set({
     [STORAGE_KEYS.accessToken]: response.access_token,
     [STORAGE_KEYS.refreshToken]: response.refresh_token,
     [STORAGE_KEYS.tokenExpiry]: expiryTime,
@@ -66,7 +66,7 @@ async function launchAuthFlow(redirectUri: string): Promise<{ responseUrl: strin
   const state = generateRandomString(32);
   const codeVerifier = generateRandomString(64);
 
-  await chrome.storage.local.set({
+  await browser.storage.local.set({
     [STORAGE_KEYS.oauthState]: state,
     [STORAGE_KEYS.codeVerifier]: codeVerifier,
   });
@@ -83,7 +83,7 @@ async function launchAuthFlow(redirectUri: string): Promise<{ responseUrl: strin
 
   console.log('[MAL] Launching auth flow:', authUrl.toString());
 
-  const responseUrl = await chrome.identity
+  const responseUrl = await browser.identity
     .launchWebAuthFlow({
       url: authUrl.toString(),
       interactive: true,
@@ -108,7 +108,7 @@ async function launchImplicitFlow(redirectUri: string): Promise<{ accessToken: s
 
   console.log('[MAL] Launching implicit auth flow:', authUrl.toString());
 
-  const responseUrl = await chrome.identity
+  const responseUrl = await browser.identity
     .launchWebAuthFlow({
       url: authUrl.toString(),
       interactive: true,
@@ -173,7 +173,7 @@ export async function authenticateWithMAL(): Promise<MalAuthResult> {
 
     const primaryRedirect = getRedirectUri();
     const trailingRedirect = primaryRedirect.endsWith('/') ? null : `${primaryRedirect}/`;
-    const rootRedirect = `https://${chrome.runtime.id}.chromiumapp.org/`;
+    const rootRedirect = `https://${browser.runtime.id}.chromiumapp.org/`;
     const redirectCandidates = [primaryRedirect, trailingRedirect, rootRedirect].filter(Boolean) as string[];
 
     // First, try implicit flow to avoid CORS on token endpoint
@@ -228,7 +228,7 @@ export async function authenticateWithMAL(): Promise<MalAuthResult> {
     }
 
     const { [STORAGE_KEYS.oauthState]: storedState, [STORAGE_KEYS.codeVerifier]: storedVerifier } =
-      await chrome.storage.local.get([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
+      await browser.storage.local.get([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
 
     if (!storedState || returnedState !== storedState) {
       return { success: false, error: 'Security validation failed' };
@@ -241,7 +241,7 @@ export async function authenticateWithMAL(): Promise<MalAuthResult> {
     if (!tokenRes.success) return tokenRes;
 
     // Cleanup transient values
-    await chrome.storage.local.remove([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
+    await browser.storage.local.remove([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
 
     return { success: true };
   } catch (error) {
@@ -291,7 +291,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
 }
 
 export async function getMALAccessToken(interactive = false): Promise<string | null> {
-  const storage = await chrome.storage.local.get([
+  const storage = await browser.storage.local.get([
     STORAGE_KEYS.accessToken,
     STORAGE_KEYS.refreshToken,
     STORAGE_KEYS.tokenExpiry,
@@ -313,7 +313,7 @@ export async function getMALAccessToken(interactive = false): Promise<string | n
   if (interactive) {
     const result = await authenticateWithMAL();
     if (result.success) {
-      const renewed = await chrome.storage.local.get([
+      const renewed = await browser.storage.local.get([
         STORAGE_KEYS.accessToken,
         STORAGE_KEYS.tokenExpiry,
       ]);
@@ -330,7 +330,7 @@ export async function isMALAuthenticated(): Promise<boolean> {
 }
 
 export async function logoutMAL(): Promise<void> {
-  await chrome.storage.local.remove([
+  await browser.storage.local.remove([
     STORAGE_KEYS.accessToken,
     STORAGE_KEYS.refreshToken,
     STORAGE_KEYS.tokenExpiry,

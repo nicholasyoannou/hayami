@@ -5,7 +5,7 @@ const emit = defineEmits<{
 }>();
 
 function handleLogin(): void {
-  chrome.runtime.sendMessage({ action: 'openPopup' });
+  try { browser.runtime.sendMessage({ action: 'openPopup' }); } catch {}
   emit('login');
 }
 </script>

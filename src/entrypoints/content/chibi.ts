@@ -1,4 +1,5 @@
 import malsyncPages from '@/lib/chibi/malsync-pages.json';
+import { chibiOverridesItem } from '@/config/storage';
 
 export type ChibiStep = any[];
 export type ChibiSync = Record<string, ChibiStep[]>;
@@ -354,9 +355,8 @@ function mergeSync(base: ChibiSync | undefined, override: Partial<ChibiSync> | u
 
 export async function loadChibiOverrideForOrigin(origin: string): Promise<ChibiOverrideEntry | null> {
   try {
-    const stored = await chrome.storage.local.get(CHIBI_OVERRIDES_KEY);
-    const map = (stored?.[CHIBI_OVERRIDES_KEY] as Record<string, ChibiOverrideEntry | undefined>) || {};
-    return map[origin] || null;
+    const map = (await chibiOverridesItem.getValue()) || {};
+    return (map as Record<string, ChibiOverrideEntry | undefined>)[origin] || null;
   } catch (e) {
     console.warn('[chibi] Failed to read overrides', e);
     return null;
@@ -365,14 +365,13 @@ export async function loadChibiOverrideForOrigin(origin: string): Promise<ChibiO
 
 export async function saveChibiOverrideForOrigin(origin: string, entry: ChibiOverrideEntry | null): Promise<void> {
   try {
-    const stored = await chrome.storage.local.get(CHIBI_OVERRIDES_KEY);
-    const map = (stored?.[CHIBI_OVERRIDES_KEY] as Record<string, ChibiOverrideEntry | undefined>) || {};
+    const map = (await chibiOverridesItem.getValue()) || {};
     if (!entry || !entry.overrides || Object.keys(entry.overrides).length === 0) {
       delete map[origin];
     } else {
       map[origin] = entry;
     }
-    await chrome.storage.local.set({ [CHIBI_OVERRIDES_KEY]: map });
+    await chibiOverridesItem.setValue(map);
   } catch (e) {
     console.warn('[chibi] Failed to save overrides', e);
   }

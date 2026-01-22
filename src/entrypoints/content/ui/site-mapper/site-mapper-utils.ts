@@ -1,5 +1,8 @@
 import type { CustomSiteMapping, DisplayPlacement } from './types';
 import { CUSTOM_SITE_MAPPINGS_KEY } from './types';
+import { browser } from 'wxt/browser';
+import { getRuntimeUrl } from '@/utils/runtime';
+import { customSiteMappingsItem } from '@/config/storage';
 
 let customSiteMapping: CustomSiteMapping | null = null;
 let mapperHotkeyAttached = false;
@@ -26,8 +29,7 @@ export function applySidePadding(target: HTMLElement | null | undefined): void {
 
 export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | null> {
   try {
-    const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
-    const map = stored?.[CUSTOM_SITE_MAPPINGS_KEY] || {};
+    const map = (await customSiteMappingsItem.getValue()) || {};
     const entry = map[location.origin];
     if (entry) {
       customSiteMapping = entry as CustomSiteMapping;
@@ -140,16 +142,16 @@ export function getAbsoluteXPathNoId(el: Element | null): string {
 }
 
 export function ensurePermissionForCurrentSite(): Promise<boolean> {
-  // chrome.permissions is not exposed in all content-script contexts; fall back to true when unavailable
-  if (!chrome.permissions || !chrome.permissions.contains) {
+  const permissions = browser.permissions;
+  if (!permissions || !permissions.contains) {
     return Promise.resolve(true);
   }
 
   return new Promise((resolve) => {
     const originPattern = `${location.origin}/*`;
-    chrome.permissions.contains({ origins: [originPattern] }, (already) => {
+    permissions.contains({ origins: [originPattern] }, (already: boolean) => {
       if (already) return resolve(true);
-      chrome.permissions.request({ origins: [originPattern] }, (granted) => {
+      permissions.request({ origins: [originPattern] }, (granted: boolean) => {
         resolve(Boolean(granted));
       });
     });
@@ -186,7 +188,7 @@ export function ensureLaunchButton(host: HTMLElement | null, toast: any): void {
 
   btn.addEventListener('click', () => {
     if (mode === 'popup') {
-      const url = chrome.runtime.getURL('popup.html');
+        const url = getRuntimeUrl('popup.html');
       window.open(url, '_blank', 'noopener,noreferrer');
       return;
     }

@@ -77,7 +77,7 @@ export async function fetchJikanForumTopics(malId: number): Promise<MalForumResu
 
     if (!data) {
       try {
-        const proxied = await chrome.runtime.sendMessage({
+        const proxied = await browser.runtime.sendMessage({
           action: 'hayami_proxyFetch',
           url,
           init: { method: 'GET' },
@@ -123,7 +123,7 @@ export async function fetchJikanForumTopics(malId: number): Promise<MalForumResu
 
 async function fetchJsonWithProxy(url: string, token: string): Promise<{ ok: boolean; status: number; body: any }> {
   try {
-    const proxied = await chrome.runtime.sendMessage({
+    const proxied = await browser.runtime.sendMessage({
       action: 'hayami_proxyFetch',
       url,
       init: {

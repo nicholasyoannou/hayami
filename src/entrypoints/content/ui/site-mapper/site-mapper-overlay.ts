@@ -14,6 +14,9 @@ import {
 } from './site-mapper-utils';
 import { matchChibiPage, evaluateChibiWithOverrides, loadChibiOverrideForOrigin, saveChibiOverrideForOrigin } from '../../chibi';
 import type { ChibiOverrideEntry } from '../../chibi';
+import { browser } from 'wxt/browser';
+import { getRuntimeUrl } from '@/utils/runtime';
+import { customSiteMappingsItem, displayModeItem } from '@/config/storage';
 
 export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void): void {
   if (isMapperHotkeyAttached()) return;
@@ -38,9 +41,9 @@ export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, que
 
   // Listen for background command trigger
   // SECURITY: Validate sender to prevent message spoofing from other extensions
-  chrome.runtime.onMessage.addListener((msg, sender) => {
+  browser.runtime.onMessage.addListener((msg, sender) => {
     // Only accept messages from this extension's background script
-    if (sender.id !== chrome.runtime.id) {
+    if (sender.id !== browser.runtime.id) {
       console.warn('[site-mapper] Rejected message from unauthorized sender:', sender.id);
       return;
     }
@@ -263,8 +266,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     void (async () => {
       if (!currentMapping) {
         try {
-          const stored = await chrome.storage.local.get('display_mode');
-          selectedPlacement = normalizePlacement((stored?.display_mode as string | undefined) || null);
+          const stored = await displayModeItem.getValue();
+          selectedPlacement = normalizePlacement(stored || null);
         } catch {}
       }
       syncTabSelection();
@@ -372,11 +375,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     resetOverridesBtn?.addEventListener('click', async (ev) => {
       ev.preventDefault();
       try {
-        const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
-        const map = stored?.[CUSTOM_SITE_MAPPINGS_KEY] || {};
+        const map = (await customSiteMappingsItem.getValue()) || {};
         if (map[location.origin]) {
           delete map[location.origin];
-          await chrome.storage.local.set({ [CUSTOM_SITE_MAPPINGS_KEY]: map });
+          await customSiteMappingsItem.setValue(map);
         }
         await saveChibiOverrideForOrigin(location.origin, null);
         currentMapping = null;
@@ -557,10 +559,9 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         : null;
 
       try {
-        const stored = await chrome.storage.local.get(CUSTOM_SITE_MAPPINGS_KEY);
-        const map = stored?.[CUSTOM_SITE_MAPPINGS_KEY] || {};
+        const map = (await customSiteMappingsItem.getValue()) || {};
         map[location.origin] = mapping;
-        await chrome.storage.local.set({ [CUSTOM_SITE_MAPPINGS_KEY]: map });
+        await customSiteMappingsItem.setValue(map);
         await saveChibiOverrideForOrigin(location.origin, chibiOverrideEntry);
         currentMapping = mapping;
         setCustomSiteMapping(mapping);

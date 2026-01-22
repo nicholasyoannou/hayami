@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import { getCommentReplies, type YouTubeComment as YouTubeCommentData } from '@/utils/youtubeApi';
 import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube-utils';
 import { toast } from 'vue-sonner';
+import { getRuntimeUrl } from '@/utils/runtime';
 
 const props = defineProps<{
   comment: YouTubeCommentData;
@@ -22,9 +23,9 @@ const loadingMoreReplies = ref(false);
 const hasMoreReplies = ref(false);
 
 // Icon URLs
-const thumbUFIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/thumbUF.svg');
-const dislikeUFIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/dislikeUnfilled.svg');
-const expandIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/expand.svg');
+const thumbUFIconUrl = getRuntimeUrl('assets/commentAssets/youtube/thumbUF.svg');
+const dislikeUFIconUrl = getRuntimeUrl('assets/commentAssets/youtube/dislikeUnfilled.svg');
+const expandIconUrl = getRuntimeUrl('assets/commentAssets/youtube/expand.svg');
 
 // Watch for external reply updates
 watch(() => props.comment.replies, (newReplies) => {

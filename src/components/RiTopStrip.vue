@@ -192,6 +192,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
+import { getRuntimeUrl } from '@/utils/runtime';
 import 'css-ripple-effect';
 
 interface DiscussionTab {
@@ -244,30 +245,14 @@ const menuWidth = ref(800);
 const logoWidth = ref(200);
 
 // Resolve asset URLs via the extension runtime so they work from the content script
-const redditLogoUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/reddit.svg') ??
-  'assets/topCommentMenu/reddit.svg';
-const redditTextUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/redditText.svg') ??
-  'assets/topCommentMenu/redditText.svg';
-const disqusLogoUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/disqusLogo.svg') ??
-  'assets/topCommentMenu/disqusLogo.svg';
-const youtubeLogoUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/youtubeLogo.svg') ??
-  'assets/topCommentMenu/youtubeLogo.svg';
-const malLogoUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/malLogo.svg') ??
-  'assets/topCommentMenu/malLogo.svg';
-const discussionIconUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/discussion.svg') ??
-  'assets/topCommentMenu/discussion.svg';
-const popoutDiscussionIconUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/topCommentMenu/popoutTab/discussion.svg') ??
-  'assets/topCommentMenu/popoutTab/discussion.svg';
-const upvoteFilledIconUrl =
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/upvoteFilled.svg') ??
-  'assets/commentAssets/upvoteFilled.svg';
+const redditLogoUrl = getRuntimeUrl('assets/topCommentMenu/reddit.svg');
+const redditTextUrl = getRuntimeUrl('assets/topCommentMenu/redditText.svg');
+const disqusLogoUrl = getRuntimeUrl('assets/topCommentMenu/disqusLogo.svg');
+const youtubeLogoUrl = getRuntimeUrl('assets/topCommentMenu/youtubeLogo.svg');
+const malLogoUrl = getRuntimeUrl('assets/topCommentMenu/malLogo.svg');
+const discussionIconUrl = getRuntimeUrl('assets/topCommentMenu/discussion.svg');
+const popoutDiscussionIconUrl = getRuntimeUrl('assets/topCommentMenu/popoutTab/discussion.svg');
+const upvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/upvoteFilled.svg');
 
 const menuItems = computed<MenuItem[]>(() => {
   const items: MenuItem[] = [

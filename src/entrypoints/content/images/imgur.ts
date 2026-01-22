@@ -6,13 +6,13 @@
  */
 
 import { extensionFetch } from '@/utils/redditApi';
+import { imgurClientIdItem } from '@/config/storage';
 
 const PROXY_PREFIX = 'https://external-content.duckduckgo.com/iu/?u=';
 
 async function getImgurClientId(): Promise<string | null> {
   try {
-    const data = await chrome.storage.local.get('imgur_client_id');
-    const raw = data?.imgur_client_id;
+    const raw = await imgurClientIdItem.getValue();
     return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
   } catch (e) {
     console.warn('[imgur] Failed to read Imgur Client ID', e);

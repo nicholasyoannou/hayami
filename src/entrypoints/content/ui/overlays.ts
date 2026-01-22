@@ -57,6 +57,6 @@ export function showAuthPrompt(): void {
   
   const loginBtn = overlay.querySelector('#reddit-login-btn');
   loginBtn?.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ action: 'openPopup' });
+    try { browser.runtime.sendMessage({ action: 'openPopup' }); } catch {}
   });
 }

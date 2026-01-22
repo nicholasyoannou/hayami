@@ -65,12 +65,12 @@ function generateState(): string {
 export async function authenticateWithReddit(): Promise<RedditAuthResult> {
   try {
     // Generate redirect URI from extension ID
-    const extensionId = chrome.runtime.id;
+    const extensionId = browser.runtime.id;
     REDDIT_CONFIG.redirectUri = `https://${extensionId}.chromiumapp.org/`;
 
     // Generate and store state for CSRF protection
     const state = generateState();
-    await chrome.storage.local.set({ oauth_state: state });
+    await browser.storage.local.set({ oauth_state: state });
 
     // Build authorization URL
     const authUrl = new URL(REDDIT_CONFIG.authEndpoint);
@@ -82,7 +82,7 @@ export async function authenticateWithReddit(): Promise<RedditAuthResult> {
     authUrl.searchParams.set('scope', REDDIT_CONFIG.scope);
 
     // Launch OAuth flow
-    const responseUrl = await chrome.identity.launchWebAuthFlow({
+    const responseUrl = await browser.identity.launchWebAuthFlow({
       url: authUrl.toString(),
       interactive: true,
     });
@@ -102,7 +102,7 @@ export async function authenticateWithReddit(): Promise<RedditAuthResult> {
     }
 
     // Verify state to prevent CSRF attacks
-    const { oauth_state } = await chrome.storage.local.get('oauth_state');
+    const { oauth_state } = await browser.storage.local.get('oauth_state');
     if (returnedState !== oauth_state) {
       return { success: false, error: 'Security validation failed' };
     }
@@ -170,7 +170,7 @@ async function exchangeCodeForToken(code: string): Promise<RedditAuthResult> {
 
     // Store tokens securely
     const expiryTime = Date.now() + (data.expires_in * 1000);
-    await chrome.storage.local.set({
+    await browser.storage.local.set({
       [STORAGE_KEYS.accessToken]: data.access_token,
       [STORAGE_KEYS.refreshToken]: data.refresh_token,
       [STORAGE_KEYS.tokenExpiry]: expiryTime,
@@ -190,7 +190,7 @@ async function exchangeCodeForToken(code: string): Promise<RedditAuthResult> {
  * Gets a valid access token, refreshing if necessary
  */
 export async function getAccessToken(): Promise<string | null> {
-  const storage = await chrome.storage.local.get([
+  const storage = await browser.storage.local.get([
     STORAGE_KEYS.accessToken,
     STORAGE_KEYS.refreshToken,
     STORAGE_KEYS.tokenExpiry,
@@ -245,7 +245,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
 
     // Store new access token
     const expiryTime = Date.now() + (data.expires_in * 1000);
-    await chrome.storage.local.set({
+    await browser.storage.local.set({
       [STORAGE_KEYS.accessToken]: data.access_token,
       [STORAGE_KEYS.tokenExpiry]: expiryTime,
     });
@@ -292,7 +292,7 @@ async function getRedditUsername(): Promise<string | null> {
     }
 
     // Store username and profile pic for future use
-    await chrome.storage.local.set({
+    await browser.storage.local.set({
       [STORAGE_KEYS.username]: data.name,
       [STORAGE_KEYS.profilePic]: profilePic,
     });
@@ -316,7 +316,7 @@ export async function isAuthenticated(): Promise<boolean> {
  * Gets the stored Reddit username
  */
 export async function getStoredUsername(): Promise<string | null> {
-  const { [STORAGE_KEYS.username]: username } = await chrome.storage.local.get(
+  const { [STORAGE_KEYS.username]: username } = await browser.storage.local.get(
     STORAGE_KEYS.username
   );
   return username || null;
@@ -326,7 +326,7 @@ export async function getStoredUsername(): Promise<string | null> {
  * Gets the stored Reddit profile picture URL
  */
 export async function getStoredProfilePic(): Promise<string | null> {
-  const { [STORAGE_KEYS.profilePic]: profilePic } = await chrome.storage.local.get(
+  const { [STORAGE_KEYS.profilePic]: profilePic } = await browser.storage.local.get(
     STORAGE_KEYS.profilePic
   );
   return profilePic || null;
@@ -337,7 +337,7 @@ export async function getStoredProfilePic(): Promise<string | null> {
  */
 export async function logout(): Promise<void> {
   try {
-    const storage = await chrome.storage.local.get([
+    const storage = await browser.storage.local.get([
       STORAGE_KEYS.accessToken,
       STORAGE_KEYS.refreshToken,
     ]);
@@ -354,7 +354,7 @@ export async function logout(): Promise<void> {
     }
 
     // Clear local storage
-    await chrome.storage.local.remove([
+    await browser.storage.local.remove([
       STORAGE_KEYS.accessToken,
       STORAGE_KEYS.refreshToken,
       STORAGE_KEYS.tokenExpiry,
@@ -422,7 +422,7 @@ export async function makeRedditRequest<T>(
 
     // Attempt token refresh on 401 and retry once
     if (response.status === 401) {
-      const storage = await chrome.storage.local.get([STORAGE_KEYS.refreshToken]);
+      const storage = await browser.storage.local.get([STORAGE_KEYS.refreshToken]);
       const refreshToken = storage[STORAGE_KEYS.refreshToken];
       
       if (refreshToken) {

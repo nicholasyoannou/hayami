@@ -1,6 +1,14 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted, watch } from 'vue';
+import { browser } from 'wxt/browser';
 import { RedditCommentList } from '@/components/comments';
+import { getRuntimeUrl } from '@/utils/runtime';
+import {
+  imgchestApiKeyItem,
+  imgurClientIdItem,
+  onboardingCompleteItem,
+  redditCommentScaleItem,
+} from '@/config/storage';
 import '@/styles/reddit-inline.css';
 
 const currentStep = ref(0);
@@ -22,10 +30,10 @@ const progress = computed(() => {
 const isPreviewStep = computed(() => currentStep.value === 4);
 
 const platforms = [
-  { id: 'reddit', name: 'Reddit', icon: chrome.runtime.getURL('assets/topCommentMenu/reddit.svg') },
-  { id: 'youtube', name: 'YouTube', icon: chrome.runtime.getURL('assets/topCommentMenu/youtubeLogo.svg') },
-  { id: 'disqus', name: 'Disqus', icon: chrome.runtime.getURL('assets/topCommentMenu/disqusLogo.svg') },
-  { id: 'mal', name: 'MAL Forums', icon: chrome.runtime.getURL('assets/topCommentMenu/malLogo.svg') }
+  { id: 'reddit', name: 'Reddit', icon: getRuntimeUrl('assets/topCommentMenu/reddit.svg') },
+  { id: 'youtube', name: 'YouTube', icon: getRuntimeUrl('assets/topCommentMenu/youtubeLogo.svg') },
+  { id: 'disqus', name: 'Disqus', icon: getRuntimeUrl('assets/topCommentMenu/disqusLogo.svg') },
+  { id: 'mal', name: 'MAL Forums', icon: getRuntimeUrl('assets/topCommentMenu/malLogo.svg') }
 ];
 
 const connectedPlatforms = ref<Set<string>>(new Set());
@@ -35,9 +43,12 @@ const redditSelected = computed(() => connectedPlatforms.value.has('reddit'));
 onMounted(async () => {
   await checkPlatformStatus();
   try {
-    const stored = await chrome.storage.local.get(['imgur_api_key', 'imagechest_api_key']);
-    if (stored?.imgur_api_key) imgurApiKey.value = stored.imgur_api_key;
-    if (stored?.imagechest_api_key) imagechestApiKey.value = stored.imagechest_api_key;
+    const [storedImgur, storedImagechest] = await Promise.all([
+      imgurClientIdItem.getValue(),
+      imgchestApiKeyItem.getValue(),
+    ]);
+    if (storedImgur) imgurApiKey.value = storedImgur;
+    if (storedImagechest) imagechestApiKey.value = storedImagechest;
   } catch (e) {
     console.warn('Failed to load image host keys', e);
   }
@@ -54,9 +65,9 @@ watch(currentStep, (step) => {
 async function checkPlatformStatus() {
   try {
     const [redditResult, youtubeResult, malResult] = await Promise.all([
-      chrome.runtime.sendMessage({ action: 'checkAuth' }),
-      chrome.runtime.sendMessage({ action: 'checkYouTubeAuth' }),
-      chrome.runtime.sendMessage({ action: 'checkMALAuth' })
+      browser.runtime.sendMessage({ action: 'checkAuth' }),
+      browser.runtime.sendMessage({ action: 'checkYouTubeAuth' }),
+      browser.runtime.sendMessage({ action: 'checkMALAuth' })
     ]);
     
     connectedPlatforms.value = new Set();
@@ -81,12 +92,12 @@ async function handlePlatformClick(platformId: string) {
   
   try {
     if (platformId === 'reddit') {
-      const result = await chrome.runtime.sendMessage({ action: 'authenticate' });
+      const result = await browser.runtime.sendMessage({ action: 'authenticate' });
       if (result?.success) {
         connectedPlatforms.value.add('reddit');
       }
     } else if (platformId === 'youtube') {
-      const result = await chrome.runtime.sendMessage({ action: 'authenticateYouTube' });
+      const result = await browser.runtime.sendMessage({ action: 'authenticateYouTube' });
       if (result?.success) {
         connectedPlatforms.value.add('youtube');
       }
@@ -94,7 +105,7 @@ async function handlePlatformClick(platformId: string) {
       // Disqus doesn't require authentication
       connectedPlatforms.value.add('disqus');
     } else if (platformId === 'mal') {
-      const result = await chrome.runtime.sendMessage({ action: 'authenticateMAL' });
+      const result = await browser.runtime.sendMessage({ action: 'authenticateMAL' });
       if (result?.success) {
         connectedPlatforms.value.add('mal');
       }
@@ -162,11 +173,11 @@ function prevStep() {
 async function completeOnboarding() {
   isComplete.value = true;
   // Mark onboarding as complete
-  await chrome.storage.local.set({ onboarding_complete: true });
+  await onboardingCompleteItem.setValue(true);
   // Open the popup for setup
   setTimeout(() => {
-    chrome.tabs.create({
-      url: chrome.runtime.getURL('popup.html')
+    browser.tabs.create({
+      url: getRuntimeUrl('popup.html')
     });
     window.close();
   }, 1500);
@@ -174,7 +185,7 @@ async function completeOnboarding() {
 
 async function persistDisplayScale() {
   try {
-    await chrome.storage.local.set({ reddit_comment_scale: previewScale.value });
+    await redditCommentScaleItem.setValue(previewScale.value);
   } catch (e) {
     console.warn('Failed to persist reddit_comment_scale', e);
   }
@@ -182,10 +193,10 @@ async function persistDisplayScale() {
 
 async function persistMediaKeys() {
   try {
-    await chrome.storage.local.set({
-      imgur_api_key: imgurApiKey.value.trim(),
-      imagechest_api_key: imagechestApiKey.value.trim()
-    });
+    await Promise.all([
+      imgurClientIdItem.setValue(imgurApiKey.value.trim() || null),
+      imgchestApiKeyItem.setValue(imagechestApiKey.value.trim() || null),
+    ]);
   } catch (e) {
     console.warn('Failed to persist image host keys', e);
   }

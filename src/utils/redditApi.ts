@@ -23,11 +23,11 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
     const res = await new Promise<any>((resolve) => {
       let called = false;
       try {
-        chrome.runtime.sendMessage(payload, (r: any) => {
+        browser.runtime.sendMessage(payload, (r: any) => {
           called = true;
-          const last = (chrome.runtime as any).lastError;
+          const last = (browser.runtime as any).lastError;
           if (last) {
-            console.warn('[extensionFetch] chrome.runtime.lastError while sending proxyFetch:', last?.message || last);
+            console.warn('[extensionFetch] browser.runtime.lastError while sending proxyFetch:', last?.message || last);
             resolve({ __messagingError: true, message: last?.message || String(last) });
             return;
           }
@@ -60,10 +60,10 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
       const retry = await new Promise<any>((resolve) => {
         let called2 = false;
         try {
-          chrome.runtime.sendMessage(payload, (r2: any) => {
+          browser.runtime.sendMessage(payload, (r2: any) => {
             called2 = true;
-            const last2 = (chrome.runtime as any).lastError;
-            if (last2) { console.warn('[extensionFetch] retry chrome.runtime.lastError:', last2?.message || last2); resolve({ __messagingError: true, message: last2?.message || String(last2) }); return; }
+            const last2 = (browser.runtime as any).lastError;
+            if (last2) { console.warn('[extensionFetch] retry browser.runtime.lastError:', last2?.message || last2); resolve({ __messagingError: true, message: last2?.message || String(last2) }); return; }
             resolve(r2);
           });
         } catch (e) {
@@ -110,10 +110,10 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
 export async function crProxyFetch(input: string, init?: RequestInit): Promise<{ ok: boolean; status: number; headers: [string,string][]; json: () => Promise<any>; text: () => Promise<string> } > {
   return new Promise<any>((resolve) => {
     try {
-      chrome.runtime.sendMessage({ action: 'hayami_cr_proxyFetch', url: input, init }, (res: any) => {
-        const last = (chrome.runtime as any).lastError;
+      browser.runtime.sendMessage({ action: 'hayami_cr_proxyFetch', url: input, init }, (res: any) => {
+        const last = (browser.runtime as any).lastError;
         if (last) {
-          console.warn('[crProxyFetch] chrome.runtime.lastError:', last?.message || last);
+          console.warn('[crProxyFetch] browser.runtime.lastError:', last?.message || last);
           resolve({ ok: false, status: 0, headers: [], json: async () => null, text: async () => '' });
           return;
         }
@@ -673,7 +673,7 @@ export async function getUserAvatar(username: string): Promise<string | null> {
 
     // No token: try to return a cached profile pic if present (avoid network calls)
     try {
-      const stored = await chrome.storage.local.get('reddit_profile_pic');
+      const stored = await browser.storage.local.get('reddit_profile_pic');
       const pic = stored?.reddit_profile_pic;
       if (pic) return String(pic);
     } catch {}

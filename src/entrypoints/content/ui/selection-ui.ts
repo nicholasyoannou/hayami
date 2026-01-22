@@ -11,6 +11,7 @@ import { parseEpisodeFromTitle, saveSeriesMapping } from '../mapping';
 import { lastAnimeInfo } from '../state';
 import type { AnimeInfo } from '../types';
 import { RedditDiscussionInfoPanel, RedditManualSearchPanel, type RedditPost } from '@/components/overlays';
+import { noCommentsModeItem } from '@/config/storage';
 
 // Forward declarations - set by main module to avoid circular deps
 let displayDiscussionDependingOnModeFn: ((discussion: any) => Promise<void>) | null = null;
@@ -101,8 +102,8 @@ export async function showNoDiscussionMessage(animeName: string, episodeNumber: 
   // Check user preference for no-comments behavior
   let noCommentsMode: 'popup' | 'inline' = 'popup';
   try {
-    const data = await chrome.storage.local.get('no_comments_mode');
-    noCommentsMode = (data?.no_comments_mode === 'inline') ? 'inline' : 'popup';
+    const stored = await noCommentsModeItem.getValue();
+    noCommentsMode = stored === 'inline' ? 'inline' : 'popup';
   } catch (e) {
     // Default to popup
   }

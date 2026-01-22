@@ -47,6 +47,8 @@ import { formatYouTubeDate, formatYouTubeCommentText } from './providers/youtube
 import { generateSkeletonHtml, removeCommentsSkeletonLoading } from './ui';
 import { createOverlay, setupYouTubeModalListener, setupGalleryModalListener } from './ui';
 import { getChibiAnimeInfo, getAnimeInfo, observeAnimeInfoOnce } from './core/anime-info-extractor';
+import { browser } from 'wxt/browser';
+import { getRuntimeUrl } from '@/utils/runtime';
 
 // Import discussion manager
 import { 
@@ -186,7 +188,7 @@ export async function renderYouTubeComments(
 
     // Create YouTube header HTML to be included in the external container
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoIdForUrl || videoId}`;
-    const replyIconUrl = chrome.runtime.getURL('assets/commentAssets/reply.svg');
+    const replyIconUrl = getRuntimeUrl('assets/commentAssets/reply.svg');
     const youtubeHeaderHtml = renderYouTubeHeader(videoTitle, youtubeUrl, totalComments, replyIconUrl);
 
     if (comments.length === 0) {
@@ -195,11 +197,11 @@ export async function renderYouTubeComments(
     }
 
     // Get YouTube icon URLs
-    const thumbIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/thumb.svg');
-    const thumbUFIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/thumbUF.svg');
-    const dislikeIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/dislike.svg');
-    const dislikeUFIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/dislikeUnfilled.svg');
-    const expandIconUrl = chrome.runtime.getURL('assets/commentAssets/youtube/expand.svg');
+    const thumbIconUrl = getRuntimeUrl('assets/commentAssets/youtube/thumb.svg');
+    const thumbUFIconUrl = getRuntimeUrl('assets/commentAssets/youtube/thumbUF.svg');
+    const dislikeIconUrl = getRuntimeUrl('assets/commentAssets/youtube/dislike.svg');
+    const dislikeUFIconUrl = getRuntimeUrl('assets/commentAssets/youtube/dislikeUnfilled.svg');
+    const expandIconUrl = getRuntimeUrl('assets/commentAssets/youtube/expand.svg');
 
     function renderYouTubeComment(comment: any, depth: number = 0): string {
       const tsText = formatYouTubeDate(comment.publishedAt);

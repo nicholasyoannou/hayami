@@ -79,7 +79,7 @@ export default defineBackground(() => {
   // Single listener for all messages to avoid conflicts
   // When multiple listeners exist, Chrome calls all of them, which can cause port closure issues
   const setPollBlockForTab = async (tabId: number, enable: boolean) => {
-    const dnr = chrome?.declarativeNetRequest;
+    const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
     if (!dnr) return;
     const removeRuleIds = [POLL_RULE_ID];
     const addRules = enable

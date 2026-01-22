@@ -1,3 +1,4 @@
+import { getRuntimeUrl } from '@/utils/runtime';
 /**
  * YouTube date formatting utility
  */
@@ -63,11 +64,11 @@ export function formatYouTubeCommentText(text: string): string {
  */
 export function getYouTubeAssetUrls(): Record<string, string> {
   return {
-    thumbIcon: chrome.runtime.getURL('assets/commentAssets/youtube/thumb.svg'),
-    thumbUFIcon: chrome.runtime.getURL('assets/commentAssets/youtube/thumbUF.svg'),
-    dislikeIcon: chrome.runtime.getURL('assets/commentAssets/youtube/dislike.svg'),
-    dislikeUFIcon: chrome.runtime.getURL('assets/commentAssets/youtube/dislikeUnfilled.svg'),
-    expandIcon: chrome.runtime.getURL('assets/commentAssets/youtube/expand.svg'),
-    replyIcon: chrome.runtime.getURL('assets/commentAssets/reply.svg'),
+    thumbIcon: getRuntimeUrl('assets/commentAssets/youtube/thumb.svg'),
+    thumbUFIcon: getRuntimeUrl('assets/commentAssets/youtube/thumbUF.svg'),
+    dislikeIcon: getRuntimeUrl('assets/commentAssets/youtube/dislike.svg'),
+    dislikeUFIcon: getRuntimeUrl('assets/commentAssets/youtube/dislikeUnfilled.svg'),
+    expandIcon: getRuntimeUrl('assets/commentAssets/youtube/expand.svg'),
+    replyIcon: getRuntimeUrl('assets/commentAssets/reply.svg'),
   };
 }

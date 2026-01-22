@@ -8,13 +8,13 @@ import {
 } from '@/composables/useImagePreview';
 import { detectUserInUK } from '@/entrypoints/content/images/imgur';
 import { extensionFetch } from '@/utils/redditApi';
+import { imgchestApiKeyItem, imgurClientIdItem } from '@/config/storage';
 
 let cachedImgchestApiKey: string | null | undefined;
 
 async function getImgurClientId(): Promise<string | null> {
   try {
-    const data = await chrome.storage.local.get('imgur_client_id');
-    const raw = data?.imgur_client_id;
+    const raw = await imgurClientIdItem.getValue();
     return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
   } catch (e) {
     console.warn('[preview] Failed to read Imgur Client ID', e);
@@ -24,8 +24,7 @@ async function getImgurClientId(): Promise<string | null> {
 
 async function getImgchestApiKey(): Promise<string | null> {
   try {
-    const data = await chrome.storage.local.get('imgchest_api_key');
-    const raw = data?.imgchest_api_key;
+    const raw = await imgchestApiKeyItem.getValue();
     cachedImgchestApiKey = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
     return cachedImgchestApiKey;
   } catch (e) {

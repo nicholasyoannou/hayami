@@ -19,6 +19,7 @@ import { handleProviderError } from '../utils/error-handler';
 import { parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName, resolveAdapter } from '../mapping';
 import { isReleaseDateToday } from '../utils/date-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
+import { getRuntimeUrl } from '@/utils/runtime';
 
 /**
  * Wait for Disqus iframe to load and become visible
@@ -127,7 +128,7 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): Dis
 
 async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
   try {
-    await chrome.runtime.sendMessage({ action: 'hayami_blockDisqusPoll', enable });
+    await browser.runtime.sendMessage({ action: 'hayami_blockDisqusPoll', enable });
   } catch (e) {
     console.warn('[DisqusProvider] Failed to toggle poll block', e);
   }
@@ -221,7 +222,7 @@ async function renderDisqusThread(
 
   // Inject Disqus script
   const script = document.createElement('script');
-  script.src = chrome.runtime.getURL(ASSETS.DISQUS_LOADER);
+  script.src = getRuntimeUrl(ASSETS.DISQUS_LOADER);
   script.async = true;
   script.setAttribute('data-thread-url', threadUrl);
   script.setAttribute('data-identifier', identifier);

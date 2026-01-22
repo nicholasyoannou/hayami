@@ -13,7 +13,7 @@
 import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from '@/config';
 
 // Validate configuration (non-blocking warning)
-if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.length === 0 || GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID_HERE') {
+if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.length === 0) {
   console.warn('Google client ID is not configured. YouTube features will not work.');
 }
 
@@ -33,7 +33,7 @@ interface YouTubeAuthResult {
  * Helper to check if we're in a context that has chrome.identity access
  */
 function hasIdentityAccess(): boolean {
-  return typeof chrome !== 'undefined' && typeof chrome.identity !== 'undefined';
+  return typeof browser !== 'undefined' && typeof browser.identity !== 'undefined';
 }
 
 /**
@@ -41,7 +41,7 @@ function hasIdentityAccess(): boolean {
  */
 async function getTokenViaMessage(): Promise<string | null> {
   try {
-    const response = await chrome.runtime.sendMessage({ action: 'hayami_getYouTubeToken' });
+    const response = await browser.runtime.sendMessage({ action: 'hayami_getYouTubeToken' });
     return response?.token || null;
   } catch (error) {
     console.error('Error getting token via message:', error);
@@ -50,19 +50,19 @@ async function getTokenViaMessage(): Promise<string | null> {
 }
 
 /**
- * Initiates the Google OAuth flow using chrome.identity.getAuthToken
+ * Initiates the Google OAuth flow using browser.identity.getAuthToken
  * This is the recommended method for Chrome Extensions using Google services
  * 
  * NOTE: This must be called from a background script or popup script
  */
 export async function authenticateWithYouTube(): Promise<YouTubeAuthResult> {
   try {
-    if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID_HERE') {
+    if (!GOOGLE_CLIENT_ID) {
       return { success: false, error: 'Google client ID is not configured' };
     }
 
     if (!hasIdentityAccess()) {
-      return { success: false, error: 'chrome.identity API not available in this context' };
+      return { success: false, error: 'browser.identity API not available in this context' };
     }
 
     // Clear any existing cached token to force re-authentication with correct scopes
@@ -72,7 +72,7 @@ export async function authenticateWithYouTube(): Promise<YouTubeAuthResult> {
       if (existingToken) {
         console.log('Removing existing token to force re-authentication with correct scopes');
         await new Promise<void>((resolve) => {
-          chrome.identity.removeCachedAuthToken({ token: existingToken }, () => {
+          browser.identity.removeCachedAuthToken({ token: existingToken }, () => {
             resolve();
           });
         });
@@ -86,9 +86,9 @@ export async function authenticateWithYouTube(): Promise<YouTubeAuthResult> {
     // Chrome automatically handles token refresh and caching
     // The scopes are defined in manifest.json oauth2.scopes
     const token = await new Promise<string>((resolve, reject) => {
-      chrome.identity.getAuthToken({ interactive: true }, (token) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+      browser.identity.getAuthToken({ interactive: true }, (token) => {
+        if (browser.runtime.lastError) {
+          reject(new Error(browser.runtime.lastError.message));
           return;
         }
         if (!token) {
@@ -125,7 +125,7 @@ export async function authenticateWithYouTube(): Promise<YouTubeAuthResult> {
  * If called from background/popup, it uses chrome.identity directly.
  */
 export async function getYouTubeAccessToken(interactive: boolean = false): Promise<string | null> {
-  if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID === 'YOUR_GOOGLE_CLIENT_ID_HERE') {
+  if (!GOOGLE_CLIENT_ID) {
     return null;
   }
 
@@ -137,10 +137,10 @@ export async function getYouTubeAccessToken(interactive: boolean = false): Promi
   try {
     // Try to get token (interactive or non-interactive based on parameter)
     const token = await new Promise<string | null>((resolve, reject) => {
-      chrome.identity.getAuthToken({ interactive }, (token) => {
-        if (chrome.runtime.lastError) {
+      browser.identity.getAuthToken({ interactive }, (token) => {
+        if (browser.runtime.lastError) {
           if (interactive) {
-            reject(new Error(chrome.runtime.lastError.message));
+            reject(new Error(browser.runtime.lastError.message));
           } else {
             resolve(null);
           }
@@ -194,7 +194,7 @@ async function getYouTubeUsername(accessToken: string): Promise<string | null> {
     const profilePic = channel.snippet?.thumbnails?.default?.url || null;
 
     // Store username and profile pic for future use
-    await chrome.storage.local.set({
+    await browser.storage.local.set({
       [STORAGE_KEYS.username]: username,
       [STORAGE_KEYS.profilePic]: profilePic,
     });
@@ -216,7 +216,7 @@ export async function isYouTubeAuthenticated(): Promise<boolean> {
   // If we're in a content script, use message passing
   if (!hasIdentityAccess()) {
     try {
-      const response = await chrome.runtime.sendMessage({ action: 'hayami_checkYouTubeAuth' });
+      const response = await browser.runtime.sendMessage({ action: 'hayami_checkYouTubeAuth' });
       return response?.authenticated === true;
     } catch (error) {
       console.error('Error checking YouTube auth via message:', error);
@@ -246,7 +246,7 @@ export async function isYouTubeAuthenticated(): Promise<boolean> {
  * Gets the stored YouTube username
  */
 export async function getStoredYouTubeUsername(): Promise<string | null> {
-  const { [STORAGE_KEYS.username]: username } = await chrome.storage.local.get(
+  const { [STORAGE_KEYS.username]: username } = await browser.storage.local.get(
     STORAGE_KEYS.username
   );
   return username || null;
@@ -256,7 +256,7 @@ export async function getStoredYouTubeUsername(): Promise<string | null> {
  * Gets the stored YouTube profile picture URL
  */
 export async function getStoredYouTubeProfilePic(): Promise<string | null> {
-  const { [STORAGE_KEYS.profilePic]: profilePic } = await chrome.storage.local.get(
+  const { [STORAGE_KEYS.profilePic]: profilePic } = await browser.storage.local.get(
     STORAGE_KEYS.profilePic
   );
   return profilePic || null;
@@ -291,7 +291,7 @@ export async function logoutYouTube(): Promise<void> {
     if (token) {
       // Remove cached token (this revokes it)
       await new Promise<void>((resolve) => {
-        chrome.identity.removeCachedAuthToken({ token: token! }, () => {
+        browser.identity.removeCachedAuthToken({ token: token! }, () => {
           // Ignore errors - token might already be invalid
           resolve();
         });
@@ -299,7 +299,7 @@ export async function logoutYouTube(): Promise<void> {
     }
 
     // Clear local storage
-    await chrome.storage.local.remove([
+    await browser.storage.local.remove([
       STORAGE_KEYS.username,
       STORAGE_KEYS.profilePic,
     ]);

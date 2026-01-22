@@ -160,25 +160,14 @@ onMounted(() => {
   }
 });
 
+import { getRuntimeUrl } from '@/utils/runtime';
 // Asset URLs
-const upvoteIconUrl = computed(() => 
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/upvote.svg') ?? 'assets/commentAssets/upvote.svg'
-);
-const upvoteFilledIconUrl = computed(() => 
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/upvoteFilled.svg') ?? 'assets/commentAssets/upvoteFilled.svg'
-);
-const downvoteIconUrl = computed(() => 
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/downvote.svg') ?? 'assets/commentAssets/downvote.svg'
-);
-const downvoteFilledIconUrl = computed(() => 
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/downvoteFilled.svg') ?? 'assets/commentAssets/downvoteFilled.svg'
-);
-const replyIconUrl = computed(() => 
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/reply.svg') ?? 'assets/commentAssets/reply.svg'
-);
-const shareIconUrl = computed(() => 
-  (globalThis as any)?.chrome?.runtime?.getURL('assets/commentAssets/share.svg') ?? 'assets/commentAssets/share.svg'
-);
+const upvoteIconUrl = getRuntimeUrl('assets/commentAssets/upvote.svg');
+const upvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/upvoteFilled.svg');
+const downvoteIconUrl = getRuntimeUrl('assets/commentAssets/downvote.svg');
+const downvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/downvoteFilled.svg');
+const replyIconUrl = getRuntimeUrl('assets/commentAssets/reply.svg');
+const shareIconUrl = getRuntimeUrl('assets/commentAssets/share.svg');
 
 // Avatar cache (shared across instances via module scope would be better, but this works)
 const avatarCache = new Map<string, string | null>();

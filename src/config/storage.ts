@@ -45,3 +45,21 @@ export const redditCommentScaleItem = storage.defineItem<number>(
   'local:reddit_comment_scale',
   { fallback: 1 }
 );
+
+// Site mapper custom mappings per origin
+export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
+  'local:custom_site_mappings',
+  { fallback: {} }
+);
+
+// Chibi overrides per origin
+export const chibiOverridesItem = storage.defineItem<Record<string, any>>(
+  'local:chibi_overrides',
+  { fallback: {} }
+);
+
+// Series mapping (episode offset) per anime title
+export const seriesMappingItem = storage.defineItem<Record<string, { episodeOffset: number }>>(
+  'local:series_mapping',
+  { fallback: {} }
+);

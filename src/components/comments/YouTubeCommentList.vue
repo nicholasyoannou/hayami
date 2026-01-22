@@ -6,6 +6,7 @@ import type { YouTubeCommentsResult } from '@/utils/youtubeApi';
 import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube-utils';
 import YouTubeComment from './YouTubeComment.vue';
 import { toast } from 'vue-sonner';
+import { getRuntimeUrl } from '@/utils/runtime';
 
 const props = defineProps<{
   videoId: string;
@@ -32,7 +33,7 @@ const hasMore = ref(false);
 const loadingMore = ref(false);
 
 // Icon URLs
-const replyIconUrl = chrome.runtime.getURL('assets/commentAssets/reply.svg');
+const replyIconUrl = getRuntimeUrl('assets/commentAssets/reply.svg');
 
 // Visible comments (paginated)
 const visibleComments = computed(() => {
