@@ -220,7 +220,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     let hoverRaf: number | null = null;
     let lastHoverEvent: MouseEvent | null = null;
 
-    let selectedPlacement: DisplayPlacement = currentMapping?.display || 'below';
+    const normalizePlacement = (raw: string | undefined | null): DisplayPlacement => {
+      if (!raw) return 'below';
+      if (raw === 'inline') return 'below';
+      const allowed: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup', 'icon'];
+      return (allowed.includes(raw as DisplayPlacement) ? raw : 'below') as DisplayPlacement;
+    };
+
+    let selectedPlacement: DisplayPlacement = normalizePlacement(currentMapping?.display);
 
     const placementFieldVisibility: Record<DisplayPlacement, string[]> = {
       below: ['anchor', 'mount', 'title', 'episode', 'padding'],
@@ -253,8 +260,16 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
     }
 
-    syncTabSelection();
-    updateFieldVisibility();
+    void (async () => {
+      if (!currentMapping) {
+        try {
+          const stored = await chrome.storage.local.get('display_mode');
+          selectedPlacement = normalizePlacement((stored?.display_mode as string | undefined) || null);
+        } catch {}
+      }
+      syncTabSelection();
+      updateFieldVisibility();
+    })();
 
     placementTabs?.querySelectorAll<HTMLButtonElement>('button[data-placement]').forEach((btn) => {
       btn.addEventListener('click', (ev) => {

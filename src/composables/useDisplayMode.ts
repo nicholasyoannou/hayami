@@ -1,6 +1,7 @@
 import { storage } from '#imports';
+import { type DisplayModeOption } from '@/config/options';
 
-export type DisplayMode = 'popup' | 'inline';
+export type DisplayMode = DisplayModeOption;
 
 /**
  * Display mode preference management using WXT storage

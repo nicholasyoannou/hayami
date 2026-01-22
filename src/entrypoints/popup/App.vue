@@ -19,6 +19,12 @@ import backIcon from '@/assets/backIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
 import accountIcon from '@/assets/accountIcon.svg';
 import accountsIcon from '@/assets/accountsIcon.svg';
+import {
+  commentProviderOptions,
+  displayModeOptions,
+  type CommentProviderOption,
+  type DisplayModeOption,
+} from '@/config/options';
 
 const isLoggedIn = ref(false);
 const username = ref<string | null>(null);
@@ -39,11 +45,11 @@ const tabs: { id: TabId; label: string; icon: string }[] = [
 ];
 const activeTab = ref<TabId>('overview');
 const currentView = ref<'home' | 'settings' | 'manage'>('home');
-const displayMode = ref<'popup' | 'inline'>('popup');
+const displayMode = ref<DisplayModeOption>('popup');
 const embedImages = ref<boolean>(false);
 const imgurClientId = ref<string>('');
 const imgchestApiKey = ref<string>('');
-const commentsProvider = ref<'reddit' | 'disqus'>('reddit');
+const commentsProvider = ref<CommentProviderOption>('reddit');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
 
 // Check authentication status on mount
@@ -93,7 +99,9 @@ async function loadDisplayMode() {
   try {
     const data = await chrome.storage.local.get('display_mode');
     const mode = data?.display_mode;
-    if (mode === 'popup' || mode === 'inline') displayMode.value = mode;
+    if (typeof mode === 'string' && displayModeOptions.some((opt) => opt.value === mode)) {
+      displayMode.value = mode as DisplayModeOption;
+    }
     // load embed images setting
     const emb = await chrome.storage.local.get('embed_images');
     embedImages.value = Boolean(emb?.embed_images);
@@ -130,7 +138,9 @@ async function loadCommentsProvider() {
   try {
     const d = await chrome.storage.local.get('comments_provider');
     const p = d?.comments_provider;
-    if (p === 'disqus' || p === 'reddit') commentsProvider.value = p;
+    if (typeof p === 'string' && commentProviderOptions.some((opt) => opt.value === p)) {
+      commentsProvider.value = p as CommentProviderOption;
+    }
   } catch {}
 }
 
@@ -142,11 +152,11 @@ async function loadNoCommentsMode() {
   } catch {}
 }
 
-async function updateCommentsProvider(p: 'reddit' | 'disqus') {
+async function updateCommentsProvider(p: CommentProviderOption) {
   try {
     commentsProvider.value = p;
     await chrome.storage.local.set({ comments_provider: p });
-    successMessage.value = p === 'disqus' ? 'Comments provider set to Disqus' : 'Comments provider set to Reddit';
+    successMessage.value = 'Initial provider saved';
     setTimeout(() => successMessage.value = null, 1500);
   } catch (e) {
     console.error('Failed to update comments provider', e);
@@ -155,10 +165,10 @@ async function updateCommentsProvider(p: 'reddit' | 'disqus') {
   }
 }
 
-async function updateDisplayMode(mode: 'popup' | 'inline') {
+async function updateDisplayMode(mode: DisplayModeOption) {
   displayMode.value = mode;
   await chrome.storage.local.set({ display_mode: mode });
-  successMessage.value = mode === 'popup' ? 'Display mode set to Popup overlay' : 'Display mode set to Inline comments';
+  successMessage.value = 'Default display mode saved';
   setTimeout(() => successMessage.value = null, 2000);
 }
 
@@ -426,13 +436,12 @@ async function handleMALLogout() {
             <div class="space-y-3 text-white/90">
               <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
                 <div>
-                  <p class="text-sm text-white/80">Display mode</p>
-                  <p class="text-xs text-white/60">Where comments show on Crunchyroll</p>
+                  <p class="text-sm text-white/80">Default display mode</p>
+                  <p class="text-xs text-white/60">Used on manual override sites with no saved config</p>
                 </div>
-                <div class="flex gap-2 text-sm font-semibold">
-                  <button class="rounded-lg px-3 py-2" :class="displayMode === 'popup' ? 'bg-white/15' : 'bg-white/5'" @click="updateDisplayMode('popup')">Popup</button>
-                  <button class="rounded-lg px-3 py-2" :class="displayMode === 'inline' ? 'bg-white/15' : 'bg-white/5'" @click="updateDisplayMode('inline')">Inline</button>
-                </div>
+                <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="displayMode" @change="(e) => updateDisplayMode((e.target as HTMLSelectElement).value as DisplayModeOption)">
+                  <option v-for="mode in displayModeOptions" :key="mode.value" :value="mode.value" class="bg-[#1f2329]">{{ mode.label }}</option>
+                </select>
               </div>
 
               <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
@@ -459,13 +468,12 @@ async function handleMALLogout() {
 
               <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
                 <div>
-                  <p class="text-sm text-white/80">Comments provider</p>
-                  <p class="text-xs text-white/60">Choose Reddit or Disqus</p>
+                  <p class="text-sm text-white/80">Initial comments provider</p>
+                  <p class="text-xs text-white/60">First provider loaded when opening the popup</p>
                 </div>
-                <div class="flex gap-2 text-sm font-semibold">
-                  <button class="rounded-lg px-3 py-2" :class="commentsProvider === 'reddit' ? 'bg-white/15' : 'bg-white/5'" @click="updateCommentsProvider('reddit')">Reddit</button>
-                  <button class="rounded-lg px-3 py-2" :class="commentsProvider === 'disqus' ? 'bg-white/15' : 'bg-white/5'" @click="updateCommentsProvider('disqus')">Disqus</button>
-                </div>
+                <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="commentsProvider" @change="(e) => updateCommentsProvider((e.target as HTMLSelectElement).value as CommentProviderOption)">
+                  <option v-for="provider in commentProviderOptions" :key="provider.value" :value="provider.value" class="bg-[#1f2329]">{{ provider.label }}</option>
+                </select>
               </div>
 
               <div class="space-y-2 rounded-2xl bg-white/5 px-4 py-3">

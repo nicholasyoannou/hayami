@@ -69,6 +69,7 @@ import { bbcodeToHtml } from '../parsers/bbcode';
 import { removeCommentsSkeletonLoading } from '../ui';
 import { createOverlay } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
+import { commentProviderOptions, displayModeOptions } from '@/config/options';
 
 // State management
 import {
@@ -110,6 +111,72 @@ import { extractMalIdFromMapperResult, extractSeasonNumber } from '../utils/mal-
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
+
+// =============================================================================
+// OPTION REGISTRY HELPERS
+// =============================================================================
+
+const VALID_DISPLAY_MODES = new Set<DisplayMode>(displayModeOptions.map((opt) => opt.value));
+const INLINE_DISPLAY_MODES = new Set<DisplayMode>(['below', 'insert', 'replace', 'icon']);
+const VALID_PROVIDERS = new Set<CommentProvider>(commentProviderOptions.map((opt) => opt.value as CommentProvider));
+
+let preferredProvider: CommentProvider = 'reddit';
+
+function buildPlaceholderDiscussion(animeInfo?: AnimeInfo): any {
+  const titleBase = animeInfo?.animeName || 'Discussion';
+  const episodePart = animeInfo?.episodeName ? ` - ${animeInfo.episodeName}` : '';
+  return {
+    id: 'ext-placeholder',
+    title: `${titleBase}${episodePart}`.trim(),
+    author: '',
+    permalink: '',
+    score: 0,
+    num_comments: 0,
+    created_utc: Math.floor(Date.now() / 1000),
+    subreddit: 'anime',
+    subreddit_icon_url: null,
+    subreddit_primary_color: null,
+  };
+}
+
+function normalizeDisplayMode(mode: unknown): DisplayMode | null {
+  if (typeof mode === 'string') {
+    // Legacy adapter/storage value of "inline" maps to the primary inline placement
+    if (mode === 'inline') return 'below';
+    if (VALID_DISPLAY_MODES.has(mode as DisplayMode)) {
+      return mode as DisplayMode;
+    }
+  }
+  return null;
+}
+
+function resolveEffectiveDisplayMode(
+  placement?: DisplayMode | null,
+  adapterMode?: DisplayMode,
+  storedMode?: DisplayMode,
+): DisplayMode {
+  return (
+    normalizeDisplayMode(placement) ||
+    normalizeDisplayMode(adapterMode) ||
+    normalizeDisplayMode(storedMode) ||
+    'popup'
+  );
+}
+
+async function getPreferredProvider(): Promise<CommentProvider> {
+  try {
+    const stored = await chrome.storage.local.get('comments_provider');
+    const raw = stored?.comments_provider;
+    const normalized = typeof raw === 'string' && VALID_PROVIDERS.has(raw as CommentProvider)
+      ? (raw as CommentProvider)
+      : 'reddit';
+    preferredProvider = normalized;
+    return normalized;
+  } catch {
+    preferredProvider = 'reddit';
+    return 'reddit';
+  }
+}
 
 // =============================================================================
 // TYPES & INTERFACES
@@ -485,10 +552,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     const placement = getCustomSiteMapping()?.display;
     const adapter = resolveAdapter();
     const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
-    const effectiveMode: DisplayMode = placement
-      ? (placement === 'popup' ? 'popup' : 'inline')
-      : (adapterMode || storedMode);
-    const isInlineMode = effectiveMode === 'inline';
+    const effectiveMode: DisplayMode = resolveEffectiveDisplayMode(placement as DisplayMode | null, adapterMode, storedMode);
+    const isInlineMode = INLINE_DISPLAY_MODES.has(effectiveMode);
+    preferredProvider = await getPreferredProvider();
     
     // Clear discussion cache for new episode search
     discussionCache.reddit = undefined;
@@ -550,9 +616,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     // But first check whether user selected Disqus as comments provider. If so,
     // attempt to find a Disqus thread for this anime and embed it.
     try {
-      const d = await chrome.storage.local.get('comments_provider');
-      const provider = d && d.comments_provider ? String(d.comments_provider) : 'reddit';
-      if (provider === 'disqus') {
+      if (preferredProvider === 'disqus') {
         try {
           const releaseToday = isReleaseDateToday(animeInfo.releaseDate);
           if (!releaseToday) {
@@ -562,6 +626,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
               if (mappedThread) {
                 discussionCache.disqus = { thread: mappedThread };
                 await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
+                await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
                 return;
               }
             }
@@ -569,9 +634,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
 
           const thread = await findThreadForAnime(animeInfo);
           if (thread) {
-          // Embed Disqus thread instead of Reddit, respecting display mode
-          await embedDisqusThreadDependingOnMode(thread, animeInfo);
-          return;
+            await embedDisqusThreadDependingOnMode(thread, animeInfo);
+            await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
+            return;
           }
           // No exact match found - offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
@@ -581,6 +646,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
             if (selectedThread) {
               discussionCache.disqus = { thread: selectedThread };
               await embedDisqusThreadDependingOnMode(selectedThread, animeInfo);
+              await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
               return;
             }
           }
@@ -963,7 +1029,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
   const mountPoint = document.createElement('div');
   shell.mount.appendChild(mountPoint);
 
-  let activeProvider: CommentProvider = 'reddit';
+  let activeProvider: CommentProvider = preferredProvider;
 
   const clearLoadingState = (context: string = 'popup') => {
     try {
@@ -1031,6 +1097,12 @@ async function displayDiscussion(discussion: any): Promise<void> {
   setRedditCommentsCleanup(() => {
     // Keep Vue app alive; provider switching handled via exposed callbacks
   });
+
+  if (activeProvider !== 'reddit') {
+    providerChangeCallback(activeProvider).catch((e) => {
+      console.warn('[Popup] Initial provider switch failed', e);
+    });
+  }
 
   showPopupContent();
 }
@@ -1175,7 +1247,7 @@ function mountLoadingShell(): void {
 
         const app1 = createApp(InlineDiscussion, {
           discussion: placeholderDiscussion,
-          provider: 'reddit',
+          provider: preferredProvider,
           initialLoading: true,
         });
         app1.mount(mountPoint);
@@ -1291,11 +1363,9 @@ export async function displayDiscussionDependingOnMode(discussion: any): Promise
   const placement = getCustomSiteMapping()?.display;
   const adapter = resolveAdapter();
   const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
-  const effectiveMode: DisplayMode = placement
-    ? (placement === 'popup' ? 'popup' : 'inline')
-    : (adapterMode || storedMode);
+  const effectiveMode: DisplayMode = resolveEffectiveDisplayMode(placement as DisplayMode | null, adapterMode, storedMode);
 
-  if (effectiveMode === 'inline') {
+  if (INLINE_DISPLAY_MODES.has(effectiveMode)) {
     await displayInlineDiscussion(discussion);
     return;
   }
@@ -1349,7 +1419,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // Build container first so we can show skeletons while loading
     let currentSort: 'best' | 'top' | 'new' = 'best';
-    let activeProvider: CommentProvider = 'reddit';
+    let activeProvider: CommentProvider = preferredProvider;
     let host: HTMLElement | null = null;
 
     // Cache the discussion data (not comments) for faster switching
@@ -1545,7 +1615,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
         const app2 = createApp(InlineDiscussion, {
           discussion,
-          provider: 'reddit',
+          provider: activeProvider,
           onProviderChange: providerChangeCallback,
         });
         app2.mount(mountPoint);
@@ -1601,6 +1671,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     if (vueApp._container && vueApp._container._vnode && vueApp._container._vnode.component) {
       componentInstance = vueApp._container._vnode.component;
       console.log(`[LoadingState] Stored component instance after mount`);
+    }
+
+    if (activeProvider !== 'reddit') {
+      providerChangeCallback(activeProvider).catch((e) => {
+        console.warn('[Inline] Initial provider switch failed', e);
+      });
     }
 
     // Force Vue rendering path (legacy DOM rendering removed)
