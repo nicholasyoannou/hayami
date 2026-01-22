@@ -357,8 +357,7 @@ async function handleMALLogout() {
 </script>
 
 <template>
-  <div class="min-w-[360px] max-w-[440px]">
-    <div class="flex flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white shadow-2xl">
+  <div class="flex min-w-[420px] max-w-[600px] w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
       <header class="flex items-center justify-between">
         <div class="flex items-center gap-3">
           <img src="/icon/128.png" alt="Hayami" class="h-12 w-12 rounded-xl bg-white/5 p-1 shadow" />
@@ -566,6 +565,26 @@ async function handleMALLogout() {
           <div class="pt-1 text-center text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
         </section>
       </template>
-    </div>
   </div>
 </template>
+
+<style scoped>
+:global(html, body) {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: #1f2329;
+  overflow: hidden;
+}
+
+:global(#app) {
+  width: 100%;
+  height: 100%;
+  background: #1f2329;
+}
+
+:global(::-webkit-scrollbar) {
+  width: 0;
+  height: 0;
+}
+</style>
