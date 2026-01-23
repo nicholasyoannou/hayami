@@ -5,7 +5,7 @@
 import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext, MalForumResult } from '../types/data';
 import type { AnimeInfo } from '../types';
-import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId } from '@/utils/malForums';
+import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId, pickEpisodeTopic } from '@/utils/malForums';
 import { getMALAccessToken } from '@/utils/malAuth';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { createApp } from 'vue';
@@ -18,7 +18,8 @@ import {
   DISQUS_CONTAINER_RETRY_DELAY_MS 
 } from '../constants';
 import { getContainerWithRetry } from '../utils/dom-helpers';
-import { fetchAnimeMapperDataBySeriesName, resolveAdapter, fetchAnimeMapperDataBySeriesAndSeason } from '../mapping';
+import { fetchAnimeMapperDataBySeriesName, resolveAdapter, fetchAnimeMapperDataBySeriesAndSeason, extractEpisodeIdFromUrl } from '../mapping';
+import { getSeriesMapping } from '../storage/series-mapping';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
 
@@ -29,6 +30,57 @@ export class MalProvider extends BaseProvider {
     const { animeInfo, discussionCache, clearLoadingState, getExternalCommentsContainer } = context;
     
     this.validateAnimeInfo(animeInfo);
+
+    const adapter = resolveAdapter();
+    const isCrunchyroll = adapter?.id === 'crunchyroll';
+
+    // Helpers reused across the new flow
+    const normalizeNumber = (val: unknown): number | null => {
+      const n = Number(val);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const normalizeTitle = (title: string | null | undefined): string => {
+      return (title || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    };
+
+    const extractEpisodeTitle = (name: string | null | undefined): string | null => {
+      if (!name) return null;
+      const cleaned = name.replace(/^\s*(ep(isode)?|e)?\s*\d+\s*[-–—:]+\s*/i, '').trim();
+      if (cleaned) return cleaned;
+      // If no delimiter, fallback to the original string minus leading code
+      const parts = name.split(/[-–—:]/);
+      return parts.length > 1 ? parts.slice(1).join(' ').trim() : name.trim();
+    };
+
+    const episodeIdFromUrl = extractEpisodeIdFromUrl();
+    let crEpisodeMeta: any | null = null;
+    let mapperData: any | null = null;
+    let crSeriesTitle: string | null = null;
+    let crSeasonTitle: string | null = null;
+
+    if (isCrunchyroll && episodeIdFromUrl) {
+      try {
+        const metaResult = await fetchCrunchyrollEpisodeMetadata(episodeIdFromUrl);
+        crEpisodeMeta = metaResult.ok ? (metaResult.data as any)?.data?.[0]?.episode_metadata : null;
+        crSeriesTitle = crEpisodeMeta?.series_title ?? null;
+        crSeasonTitle = crEpisodeMeta?.season_title ?? null;
+      } catch (err) {
+        console.warn('[MAL] Crunchyroll metadata lookup failed', err);
+      }
+
+      if (crSeriesTitle && crSeasonTitle) {
+        try {
+          mapperData = await fetchAnimeMapperDataBySeriesAndSeason(crSeriesTitle, crSeasonTitle, 'reddit');
+        } catch (err) {
+          console.warn('[MAL] Mapper lookup with series+season failed', err);
+        }
+      }
+    }
 
     // Resolve MAL ID with site-aware strategy
     const normalizeMalId = (val: unknown): number | null => {
@@ -60,32 +112,8 @@ export class MalProvider extends BaseProvider {
 
     let malId = animeInfo.malId;
     if (!malId) {
-      const adapter = resolveAdapter();
-      const isCrunchyroll = adapter?.id === 'crunchyroll';
-
       if (isCrunchyroll) {
         console.log('[MAL] Resolving malId via Hayami mapper with season_title (Crunchyroll context)');
-
-        // Try to obtain Crunchyroll episode metadata to include season_title in mapper query
-        const episodeIdMatch = window.location.pathname.match(/\/watch\/([^/]+)/i);
-        const episodeId = episodeIdMatch?.[1];
-        let mapperData: any | null = null;
-
-        if (episodeId) {
-          try {
-            const metaResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
-            const episodeMeta = metaResult.ok ? (metaResult.data as any)?.data?.[0]?.episode_metadata : null;
-            const seriesTitle = episodeMeta?.series_title;
-            const seasonTitle = episodeMeta?.season_title;
-
-            if (seriesTitle && seasonTitle) {
-              console.log('[MAL] Using series + season title mapper lookup', { seriesTitle, seasonTitle });
-              mapperData = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, 'reddit');
-            }
-          } catch (err) {
-            console.warn('[MAL] Crunchyroll metadata lookup failed; falling back to series-only mapper', err);
-          }
-        }
 
         if (!mapperData) {
           console.log('[MAL] Falling back to series-only mapper lookup');
@@ -137,19 +165,123 @@ export class MalProvider extends BaseProvider {
 
     try {
       const episodeNum = extractEpisodeNumber(animeInfo.episodeName);
+      const mapping = await getSeriesMapping(animeInfo.animeName || '');
+
+      // Step A: derive Reddit-intended episode number from Hayami mapper (reddit platform)
+      const ensureMapperData = async (): Promise<any | null> => {
+        if (mapperData && Array.isArray(mapperData.results) && mapperData.results.length) return mapperData;
+        if (crSeriesTitle && crSeasonTitle) {
+          try {
+            mapperData = await fetchAnimeMapperDataBySeriesAndSeason(crSeriesTitle, crSeasonTitle, 'reddit');
+            if (mapperData?.results?.length) return mapperData;
+          } catch (e) {
+            console.warn('[MAL] Mapper fetch (series+season) failed while ensuring mapper data', e);
+          }
+        }
+        try {
+          mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'reddit');
+        } catch (e) {
+          console.warn('[MAL] Mapper fetch (series-only) failed while ensuring mapper data', e);
+        }
+        return mapperData;
+      };
+
+      const deriveSeasonEpisodeFromMapperAbsolute = (mapper: any, absoluteEpisode: number | null): number | null => {
+        if (!mapper || absoluteEpisode === null || !Array.isArray(mapper.results) || !mapper.results.length) return null;
+        const seasons = mapper.results
+          .map((r: any, idx: number) => ({
+            idx,
+            year: r.year === 'movies' ? null : Number.parseInt(r.year, 10) || null,
+            episodes: r?.episodes && typeof r.episodes === 'object' ? Object.keys(r.episodes) : [],
+          }))
+          .filter((s) => Array.isArray(s.episodes) && s.episodes.length > 0)
+          .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
+
+        if (!seasons.length) return null;
+
+        let cumulative = 0;
+        for (const season of seasons) {
+          const count = season.episodes.length;
+          const start = cumulative + 1;
+          const end = cumulative + count;
+          if (absoluteEpisode >= start && absoluteEpisode <= end) {
+            const seasonEp = absoluteEpisode - cumulative;
+            console.log('[MAL] Mapper continuous→season episode', {
+              absoluteEpisode,
+              seasonEp,
+              seasonIdx: season.idx,
+              seasonYear: season.year,
+              seasonCount: count,
+            });
+            return seasonEp;
+          }
+          cumulative += count;
+        }
+        return null;
+      };
+
+      const pickMapperEpisodeNumber = (mapper: any, desired: number | null): number | null => {
+        if (!mapper || desired === null || !Array.isArray(mapper.results) || !mapper.results.length) return null;
+        const results: any[] = mapper.results;
+        const preferredIdx = typeof mapper.matched_result?.index === 'number' ? mapper.matched_result.index : 0;
+        const order = Array.from(new Set([preferredIdx, ...results.map((_: unknown, i: number) => i)]));
+
+        for (const idx of order) {
+          const eps = results[idx]?.episodes;
+          if (!eps || typeof eps !== 'object') continue;
+          for (const key of Object.keys(eps)) {
+            const num = normalizeNumber(key);
+            if (num === null) continue;
+            if (num === desired) {
+              return num;
+            }
+          }
+        }
+
+        return null;
+      };
+
+      await ensureMapperData();
+
+      const parsedEpisodeNum = episodeNum ? Number(episodeNum) : null;
+      const desiredWithOffset = parsedEpisodeNum !== null ? parsedEpisodeNum + (mapping?.episodeOffset ?? 0) : null;
+      const redditEpisodeNum = pickMapperEpisodeNumber(mapperData, desiredWithOffset);
+      const seasonEpisodeFromMapper = deriveSeasonEpisodeFromMapperAbsolute(mapperData, desiredWithOffset);
+
+      // Step B: rely on mapper-derived per-season conversion and parsed numbers (Jikan already provides episode titles)
+      const chosenEpisodeNum =
+        seasonEpisodeFromMapper ??
+        redditEpisodeNum ??
+        desiredWithOffset ??
+        parsedEpisodeNum;
+
+      console.log('[MAL] Episode resolution (mapper + MAL title match)', {
+        anime: animeInfo.animeName,
+        rawEpisodeName: animeInfo.episodeName,
+        parsedEpisode: parsedEpisodeNum,
+        episodeOffset: mapping?.episodeOffset ?? 0,
+        redditEpisodeNum,
+        seasonEpisodeFromMapper,
+        chosenEpisodeNum,
+        malId,
+      });
       
       // Try Jikan first, then MAL API fallback
-      let forumResult: MalForumResult = await fetchJikanForumTopics(malId);
+      let forumResult: MalForumResult = await fetchJikanForumTopics(malId, chosenEpisodeNum ?? undefined);
       if ((!forumResult.topics || forumResult.topics.length === 0) && forumResult.status !== 'auth_required') {
-        forumResult = await fetchMalForumTopics(malId, episodeNum ? Number(episodeNum) : undefined);
+        forumResult = await fetchMalForumTopics(malId, chosenEpisodeNum ?? undefined);
       }
 
       // Pick a topic if Jikan didn't preselect
       if (!forumResult.selectedTopic && forumResult.topics?.length) {
-        const pick = episodeNum
-          ? forumResult.topics.find((t) => new RegExp(`episode\\s*${episodeNum}\\b`, 'i').test(t.title || ''))
-          : forumResult.topics[0];
-        if (pick) forumResult.selectedTopic = pick;
+        const pick = pickEpisodeTopic(forumResult.topics, chosenEpisodeNum ?? undefined);
+        if (pick) {
+          forumResult.selectedTopic = pick;
+          forumResult.status = 'ok';
+          console.log('[MAL] Picker chose topic', { title: pick.title, id: pick.id });
+        } else if (!forumResult.status || forumResult.status === 'ok') {
+          forumResult.status = 'no_topic';
+        }
       }
 
       let postsResult: any = null;

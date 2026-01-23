@@ -51,7 +51,7 @@ export interface MalBoardTopicsResult {
   error?: string;
 }
 
-export async function fetchJikanForumTopics(malId: number): Promise<MalForumResult> {
+export async function fetchJikanForumTopics(malId: number, episode?: number): Promise<MalForumResult> {
   try {
     const url = `https://api.jikan.moe/v4/anime/${malId}/forum`;
     // Try direct first; if CORS, fall back to proxyFetch without auth
@@ -111,10 +111,20 @@ export async function fetchJikanForumTopics(malId: number): Promise<MalForumResu
     }));
 
     if (!topics.length) {
+      console.log('[MAL][Jikan] No topics returned', { malId, episode });
       return { status: 'no_topic', topics: [] };
     }
 
-    return { status: 'ok', topics, selectedTopic: null };
+    const selectedTopic = pickEpisodeTopic(topics, episode);
+    console.log('[MAL][Jikan] Topics fetched', {
+      malId,
+      episode,
+      total: topics.length,
+      picked: selectedTopic?.title,
+      titles: topics.slice(0, 8).map((t) => t.title),
+    });
+
+    return { status: selectedTopic ? 'ok' : 'no_topic', topics, selectedTopic: selectedTopic ?? null };
   } catch (err) {
     console.error('Jikan forum fetch error:', err);
     return { status: 'error', error: err instanceof Error ? err.message : 'Unknown error' };
@@ -182,18 +192,69 @@ export async function searchMalAnimeId(animeName: string): Promise<number | null
   }
 }
 
-function pickEpisodeTopic(topics: MalForumTopic[] = [], episode?: number): MalForumTopic | null {
-  if (!topics.length) return null;
-  const ep = episode ?? null;
-  const episodeRegex = ep ? new RegExp(`episode\\s*${ep}\\b`, 'i') : null;
+export function extractEpisodeNumbersFromTitle(title: string = ''): number[] {
+  const numbers = new Set<number>();
+  const patterns = [
+    /episode\s*(\d+)/gi, // Episode 3, episode 12
+    /\bep\.?\s*(\d+)/gi, // EP3, EP 12
+    /\be\.?\s*(\d+)/gi, // E3, E12
+    /s\d+e(\d+)/gi, // S2E07
+  ];
 
-  if (episodeRegex) {
-    const exact = topics.find((t) => episodeRegex.test(t.title || ''));
-    if (exact) return exact;
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(title)) !== null) {
+      const n = Number(match[1]);
+      if (Number.isFinite(n)) numbers.add(n);
+    }
   }
 
-  const anyEpisode = topics.find((t) => /episode\s*\d+/i.test(t.title || ''));
-  if (anyEpisode) return anyEpisode;
+  return Array.from(numbers);
+}
+
+export function pickEpisodeTopic(topics: MalForumTopic[] = [], episode?: number): MalForumTopic | null {
+  if (!topics.length) return null;
+
+  const ep = Number.isFinite(episode) ? Number(episode) : null;
+  const enriched = topics.map((t) => ({
+    topic: t,
+    episodes: extractEpisodeNumbersFromTitle(t.title || ''),
+  }));
+
+  if (ep !== null) {
+    console.log('[MAL][Picker] Selecting topic', {
+      requestedEpisode: ep,
+      candidates: enriched.slice(0, 10).map((e) => ({ title: e.topic.title, episodes: e.episodes })),
+    });
+  }
+
+  if (ep !== null) {
+    // 1) Exact episode match
+    const exact = enriched.find((t) => t.episodes.includes(ep));
+    if (exact) return exact.topic;
+
+    // 2) Closest lower-or-equal episode (handles continuing numbering like EP51 when only threads up to EP4 exist)
+    const withNumbers = enriched.filter((t) => t.episodes.length > 0);
+    if (withNumbers.length) {
+      const lowerOrEqual = withNumbers
+        .filter((t) => Math.max(...t.episodes) <= ep)
+        .sort((a, b) => Math.max(...b.episodes) - Math.max(...a.episodes));
+      if (lowerOrEqual.length) return lowerOrEqual[0].topic;
+
+      // 3) Otherwise pick the numerically closest episode thread
+      const closest = withNumbers
+        .map((t) => ({
+          topic: t.topic,
+          distance: Math.min(...t.episodes.map((n) => Math.abs(n - ep))),
+        }))
+        .sort((a, b) => a.distance - b.distance);
+      if (closest.length) return closest[0].topic;
+    }
+  }
+
+  // Fallbacks: any episode thread, then first topic
+  const anyEpisode = enriched.find((t) => t.episodes.length > 0);
+  if (anyEpisode) return anyEpisode.topic;
 
   return topics[0] || null;
 }
