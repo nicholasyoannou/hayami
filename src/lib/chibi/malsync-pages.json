@@ -1,6 +1,6 @@
 {
   "source": "https://chibi.malsync.moe/config",
-  "fetchedAt": "2026-01-21T17:26:50.786Z",
+  "fetchedAt": "2026-01-23T12:20:33.938Z",
   "pages": {
     "anicrush": {
       "key": "anicrush",
@@ -18,7 +18,7 @@
       "search": "https://anicrush.to/search?keyword={searchtermPlus}",
       "version": {
         "hash": "76a64003",
-        "timestamp": "1768917712430"
+        "timestamp": "1769114270792"
       },
       "sync": {
         "getTitle": [
@@ -101,7 +101,7 @@
       "search": "https://anigo.to/browser?keyword={searchtermPlus}",
       "version": {
         "hash": "e7618b20",
-        "timestamp": "1768917712425"
+        "timestamp": "1769114270787"
       },
       "sync": {
         "getTitle": [
@@ -249,7 +249,7 @@
       "search": "https://animeav1.com/catalogo?search={searchtermPlus}",
       "version": {
         "hash": "4a0c0aa4",
-        "timestamp": "1768917712430"
+        "timestamp": "1769114270792"
       },
       "sync": {
         "getTitle": [
@@ -359,7 +359,7 @@
       "search": "https://animeheaven.me/search.php?s={searchtermPlus}",
       "version": {
         "hash": "55487c52",
-        "timestamp": "1768917712425"
+        "timestamp": "1769114270788"
       },
       "sync": {
         "getTitle": [
@@ -448,7 +448,7 @@
       "search": "https://animekai.to/browser?keyword={searchtermPlus}",
       "version": {
         "hash": "bc4abcb2",
-        "timestamp": "1768917712426"
+        "timestamp": "1769114270788"
       },
       "sync": {
         "getTitle": [
@@ -599,7 +599,7 @@
       "search": "https://animekhor.org/?s={searchtermPlus}",
       "version": {
         "hash": "be677ad9",
-        "timestamp": "1768917712426"
+        "timestamp": "1769114270788"
       },
       "sync": {
         "getTitle": [
@@ -693,7 +693,7 @@
       "search": "https://v3.animelib.org/ru/catalog?q={searchterm}",
       "version": {
         "hash": "ef0ca154",
-        "timestamp": "1768917712430"
+        "timestamp": "1769114270792"
       },
       "sync": {
         "getTitle": [
@@ -897,7 +897,7 @@
       "search": "https://animenosub.to/?s={searchtermPlus}",
       "version": {
         "hash": "74086d5f",
-        "timestamp": "1768917712426"
+        "timestamp": "1769114270788"
       },
       "sync": {
         "getTitle": [
@@ -990,7 +990,7 @@
       "database": "animepahe",
       "version": {
         "hash": "8e74ebf6",
-        "timestamp": "1768917712430"
+        "timestamp": "1769114270792"
       },
       "sync": {
         "getTitle": [
@@ -1092,7 +1092,7 @@
       },
       "version": {
         "hash": "f72807c9",
-        "timestamp": "1768917712430"
+        "timestamp": "1769114270792"
       },
       "sync": {
         "getTitle": [
@@ -1181,7 +1181,7 @@
       "database": "AniXL",
       "version": {
         "hash": "d3603397",
-        "timestamp": "1768917712425"
+        "timestamp": "1769114270788"
       },
       "sync": {
         "getTitle": [
@@ -1259,7 +1259,7 @@
       "search": "https://anizium.co/search?value={searchtermPlus}",
       "version": {
         "hash": "a45088a7",
-        "timestamp": "1768917712426"
+        "timestamp": "1769114270788"
       },
       "sync": {
         "getTitle": [
@@ -1440,7 +1440,7 @@
       },
       "version": {
         "hash": "46d069a2",
-        "timestamp": "1768917712430"
+        "timestamp": "1769114270792"
       },
       "sync": {
         "getTitle": [
@@ -1532,7 +1532,7 @@
       "search": "https://anoboye.com/?s={searchtermPlus}",
       "version": {
         "hash": "6b91c6a6",
-        "timestamp": "1768917712426"
+        "timestamp": "1769114270788"
       },
       "sync": {
         "getTitle": [
@@ -1626,7 +1626,7 @@
       "search": "https://www.bilibili.tv/search-result?q={searchterm}",
       "version": {
         "hash": "ef612df7",
-        "timestamp": "1768917712427"
+        "timestamp": "1769114270790"
       },
       "sync": {
         "getTitle": [
@@ -1907,7 +1907,7 @@
       "search": "https://www.crunchyroll.com/search?q={searchtermPlus}",
       "version": {
         "hash": "743cbd29",
-        "timestamp": "1768917712427"
+        "timestamp": "1769114270790"
       },
       "sync": {
         "getTitle": [
@@ -2285,7 +2285,7 @@
       "search": "https://franime.fr/recherche?search={searchtermPlus}",
       "version": {
         "hash": "0ed321c4",
-        "timestamp": "1768917712428"
+        "timestamp": "1769114270790"
       },
       "sync": {
         "getTitle": [
@@ -2481,7 +2481,7 @@
       "search": "https://french-anime.com/index.php?do=search&subaction=search&story={searchterm}",
       "version": {
         "hash": "f796afdd",
-        "timestamp": "1768917712428"
+        "timestamp": "1769114270790"
       },
       "sync": {
         "getTitle": [
@@ -2584,7 +2584,7 @@
       "search": "https://animetsu.net/search?query={searchtermPlus}",
       "version": {
         "hash": "57b97c1a",
-        "timestamp": "1768917712430"
+        "timestamp": "1769114270793"
       },
       "sync": {
         "getTitle": [
@@ -2688,7 +2688,7 @@
       "search": "https://kuudere.to/search?keyword={searchtermRaw}",
       "version": {
         "hash": "125307b5",
-        "timestamp": "1768917712428"
+        "timestamp": "1769114270790"
       },
       "sync": {
         "getTitle": [
@@ -2799,7 +2799,7 @@
       "search": "https://www.miruro.to/search?query={searchtermPlus}",
       "version": {
         "hash": "8adfddd7",
-        "timestamp": "1768917712429"
+        "timestamp": "1769114270791"
       },
       "sync": {
         "getTitle": [
@@ -2882,7 +2882,7 @@
       "search": "https://topanimes.net/?s={searchtermPlus}",
       "version": {
         "hash": "d84e6f18",
-        "timestamp": "1768917712429"
+        "timestamp": "1769114270791"
       },
       "sync": {
         "getTitle": [

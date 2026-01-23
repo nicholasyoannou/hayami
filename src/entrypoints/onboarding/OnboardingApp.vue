@@ -65,9 +65,9 @@ watch(currentStep, (step) => {
 async function checkPlatformStatus() {
   try {
     const [redditResult, youtubeResult, malResult] = await Promise.all([
-      browser.runtime.sendMessage({ action: 'checkAuth' }),
-      browser.runtime.sendMessage({ action: 'checkYouTubeAuth' }),
-      browser.runtime.sendMessage({ action: 'checkMALAuth' })
+      browser.runtime.sendMessage({ action: 'hayami_checkAuth' }),
+      browser.runtime.sendMessage({ action: 'hayami_checkYouTubeAuth' }),
+      browser.runtime.sendMessage({ action: 'hayami_checkMALAuth' })
     ]);
     
     connectedPlatforms.value = new Set();
@@ -92,12 +92,12 @@ async function handlePlatformClick(platformId: string) {
   
   try {
     if (platformId === 'reddit') {
-      const result = await browser.runtime.sendMessage({ action: 'authenticate' });
+      const result = await browser.runtime.sendMessage({ action: 'hayami_authenticate' });
       if (result?.success) {
         connectedPlatforms.value.add('reddit');
       }
     } else if (platformId === 'youtube') {
-      const result = await browser.runtime.sendMessage({ action: 'authenticateYouTube' });
+      const result = await browser.runtime.sendMessage({ action: 'hayami_authenticateYouTube' });
       if (result?.success) {
         connectedPlatforms.value.add('youtube');
       }
@@ -105,7 +105,7 @@ async function handlePlatformClick(platformId: string) {
       // Disqus doesn't require authentication
       connectedPlatforms.value.add('disqus');
     } else if (platformId === 'mal') {
-      const result = await browser.runtime.sendMessage({ action: 'authenticateMAL' });
+      const result = await browser.runtime.sendMessage({ action: 'hayami_authenticateMAL' });
       if (result?.success) {
         connectedPlatforms.value.add('mal');
       }

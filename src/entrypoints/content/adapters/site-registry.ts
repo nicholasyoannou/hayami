@@ -1,19 +1,21 @@
 import { SiteAdapter } from './types';
-import { crunchyrollAdapter } from '../sites/crunchyroll';
+import { getAdapters, findAdapter } from '../sites/registry';
 
-const adapters: SiteAdapter[] = [crunchyrollAdapter];
+const extraAdapters: SiteAdapter[] = [];
 
 export function resolveAdapter(location: Location = window.location): SiteAdapter | null {
-  return adapters.find((adapter) => adapter.matches(location)) || null;
+  const registryAdapter = findAdapter(location);
+  if (registryAdapter) return registryAdapter;
+  return extraAdapters.find((adapter) => adapter.matches(location)) || null;
 }
 
 export function getRegisteredAdapters(): SiteAdapter[] {
-  return [...adapters];
+  return [...getAdapters(), ...extraAdapters];
 }
 
 export function registerAdapter(adapter: SiteAdapter): void {
-  const exists = adapters.some((a) => a.id === adapter.id);
+  const exists = getAdapters().some((a) => a.id === adapter.id) || extraAdapters.some((a) => a.id === adapter.id);
   if (!exists) {
-    adapters.push(adapter);
+    extraAdapters.push(adapter);
   }
 }

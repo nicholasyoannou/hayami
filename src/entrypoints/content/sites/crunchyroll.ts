@@ -6,10 +6,17 @@ import {
   getCrunchyrollAccessToken,
 } from '../net/crunchyroll-client';
 import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata } from '../adapters/types';
+import { matchByHost } from './matchers';
+
+export const crunchyrollMatchers = [/\.crunchyroll\.com$/i, /crunchyroll\.com$/i];
+
+function matchesCrunchyrollHost(location: Location): boolean {
+  return matchByHost(crunchyrollMatchers, location);
+}
 
 export const crunchyrollAdapter: SiteAdapter = {
   id: 'crunchyroll',
-  matches: (location) => location.hostname.includes('crunchyroll.com'),
+  matches: matchesCrunchyrollHost,
   defaultDisplay: 'inline',
   getMountAnchor: () => {
     const layout = document.querySelector('.erc-watch-episode-layout');
@@ -63,3 +70,30 @@ export const crunchyrollAdapter: SiteAdapter = {
     return `${this.id}:${key}`;
   },
 };
+
+export async function detectCrunchyrollAnimeInfo() {
+  try {
+    const mediaInfoContainer = document.querySelector('.erc-current-media-info');
+    if (!mediaInfoContainer) return null;
+
+    const animeNameElement = mediaInfoContainer.querySelector('.current-media-parent-ref a h4');
+    const animeName = animeNameElement?.textContent?.trim() || null;
+
+    const episodeNameElement = mediaInfoContainer.querySelector('h1.title');
+    const episodeName = episodeNameElement?.textContent?.trim() || null;
+
+    const releaseDateElement = document.querySelector('.release-date');
+    const releaseDate = releaseDateElement?.textContent?.trim() || undefined;
+
+    if (!animeName || !episodeName) return null;
+
+    return {
+      animeName,
+      episodeName,
+      releaseDate,
+    };
+  } catch (err) {
+    console.warn('[Detect][Crunchyroll] fallback detect failed', err);
+    return null;
+  }
+}

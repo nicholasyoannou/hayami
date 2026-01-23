@@ -30,3 +30,4 @@ _stashed_reddit-inline.css
 
 # Exclude temp/build JSON files but keep config files
 stats-*.json
+src/lib/chibi/malsync-pages.json

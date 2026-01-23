@@ -4,6 +4,7 @@
  */
 
 import { detectChibi } from '../chibi';
+import { getSiteDetectorsForLocation } from '../sites/registry';
 import type { AnimeInfo } from '../types';
 import {
   activeObserver,
@@ -12,6 +13,29 @@ import {
   setLastProcessedKey,
   setActiveObserver,
 } from '../state';
+
+type Detector = {
+  id: string;
+  detect: () => Promise<AnimeInfo | null>;
+};
+
+function buildDetectionPlan(location: Location, includeChibi: boolean = true): Detector[] {
+  const plan: Detector[] = getSiteDetectorsForLocation(location);
+  if (includeChibi) plan.push(chibiDetector);
+  return plan;
+}
+
+async function runDetectionPlan(detectors: Detector[]): Promise<AnimeInfo | null> {
+  for (const detector of detectors) {
+    try {
+      const detected = await detector.detect();
+      if (detected) return detected;
+    } catch (err) {
+      console.warn(`[Detect][${detector.id}] failed`, err);
+    }
+  }
+  return null;
+}
 
 /**
  * Extracts anime info using Chibi universal detection
@@ -75,49 +99,20 @@ export async function getChibiAnimeInfo(): Promise<{ animeName: string; episodeN
   }
 }
 
+const chibiDetector: Detector = {
+  id: 'chibi',
+  detect: () => getChibiAnimeInfo(),
+};
+
 /**
- * Extracts the anime name and episode name from the current Crunchyroll watch page
- * @returns Object containing animeName and episodeName, or null if not found
+ * Runs the ordered detection plan based on the current location.
  */
-export function getAnimeInfo(): { animeName: string; episodeName: string; releaseDate?: string } | null {
-  try {
-    // Get the container element
-    const mediaInfoContainer = document.querySelector('.erc-current-media-info');
-
-    if (!mediaInfoContainer) {
-      console.warn('Media info container not found');
-      return null;
-    }
-
-    // Get anime name from the parent series link
-    const animeNameElement = mediaInfoContainer.querySelector('.current-media-parent-ref a h4');
-    const animeName = animeNameElement?.textContent?.trim() || null;
-
-    // Get episode name from the title
-    const episodeNameElement = mediaInfoContainer.querySelector('h1.title');
-    const episodeName = episodeNameElement?.textContent?.trim() || null;
-
-    // Try to read release date text (fallback search uses this)
-    const releaseDateElement = document.querySelector('.release-date');
-    const releaseDate = releaseDateElement?.textContent?.trim() || undefined;
-
-    if (!animeName || !episodeName) {
-      console.warn('Could not find anime name or episode name');
-      return null;
-    }
-
-    console.log('[Episode Detection] Crunchyroll page extraction:', { animeName, episodeName, releaseDate });
-    return {
-      animeName,
-      episodeName,
-      releaseDate,
-    };
-  } catch (error) {
-    console.error('Error extracting anime info:', error);
-    return null;
-  }
+export async function detectAnimeInfo(): Promise<AnimeInfo | null> {
+  const plan = buildDetectionPlan(window.location, true);
+  return runDetectionPlan(plan);
 }
 
+/**
 /**
  * Sets up a MutationObserver to watch for the anime info to load
  * Disconnects after finding the info once (for performance)
@@ -132,8 +127,22 @@ export function observeAnimeInfoOnce(
   if (activeObserver) {
     activeObserver.disconnect();
   }
-  const observer = new MutationObserver(async (mutations) => {
-    const info = getAnimeInfo();
+  let detectionInFlight = false;
+
+  const observer = new MutationObserver(async () => {
+    if (detectionInFlight) return;
+    detectionInFlight = true;
+
+    let info: AnimeInfo | null = null;
+    try {
+      const plan = buildDetectionPlan(window.location, true);
+      info = await runDetectionPlan(plan);
+    } finally {
+      // Lightweight backoff to avoid spamming when metadata is late
+      window.setTimeout(() => {
+        detectionInFlight = false;
+      }, 300);
+    }
 
     if (info) {
       console.log('Anime Info Found:', info);

@@ -17,7 +17,7 @@ export default defineConfig({
       'contextMenus',
       'declarativeNetRequest'
     ],
-    optional_host_permissions: ['<all_urls>'],
+    // optional_host_permissions: ['<all_urls>'],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
       extension_pages: "script-src 'self'; object-src 'self'"
@@ -42,6 +42,7 @@ export default defineConfig({
       'https://*.disqus.com/*',
       'https://api.myanimelist.net/*',
       'https://myanimelist.net/*',
+      'https://www.netflix.com/*',
       'https://api.imgchest.com/*',
       'https://imgchest.com/*',
       'https://api.bilibili.com/*',

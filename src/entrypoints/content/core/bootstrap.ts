@@ -13,11 +13,12 @@ import {
   fetchRedditPostFromUrl,
   displayDiscussionDependingOnMode
 } from './discussion-manager';
-import { getChibiAnimeInfo, getAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
+import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo } from '../ui/site-mapper';
 import { setupSiteMapperHotkey, loadCustomMappingForOrigin } from '../ui/site-mapper';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
 import { matchChibiPage } from '../chibi';
+import { isSupportedLocation } from '../sites/registry';
 import {
   debounceTimer,
   lastAnimeInfo,
@@ -52,10 +53,7 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
   // Try to get anime info immediately
   let info = getCustomAnimeInfo();
   if (!info) {
-    info = await getChibiAnimeInfo();
-  }
-  if (!info) {
-    info = getAnimeInfo();
+    info = await detectAnimeInfo();
   }
 
   if (info) {
@@ -104,12 +102,13 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   const { isWatchPage } = useWatchPageDetection();
   const hasWatchUrl = isWatchPage(currentUrl);
   const hasChibiMatch = matchChibiPage(currentUrl) !== null;
+  const hasSiteMatch = isSupportedLocation(window.location);
   
   // Check if there's a custom mapping (this is async, so we'll allow it to load)
   const customMapping = await loadCustomMappingForOrigin();
   
   // If none of these conditions are true, bail out early
-  if (!hasWatchUrl && !hasChibiMatch && !customMapping) {
+  if (!hasWatchUrl && !hasChibiMatch && !customMapping && !hasSiteMatch) {
     debug.log('Hayami: Site not supported, skipping initialization');
     return;
   }
