@@ -252,13 +252,30 @@ export async function searchYouTubePlaylist(
 
     const data = await response.json();
     
-    // Return the matched_result if available
-    if (data.matched_result && data.matched_result.is_exact_match) {
-      return data.matched_result;
+    // Prefer the API's matched_result even when not marked exact, but ensure it resembles the requested series.
+    const normalize = (value: string = '') => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const normalizedSeries = normalize(seriesName);
+    const matched = data.matched_result;
+
+    if (matched) {
+      const normalizedTitle = normalize(matched.title ?? '');
+      const looksRelated = normalizedTitle.includes(normalizedSeries) || normalizedSeries.includes(normalizedTitle);
+      if (matched.is_exact_match || looksRelated) {
+        return matched;
+      }
     }
-    
-    // Otherwise return the first result if available
-    if (data.results && data.results.length > 0) {
+
+    // Otherwise, look for the first result whose title resembles the requested series
+    if (Array.isArray(data.results) && data.results.length > 0) {
+      const firstRelated = data.results.find((result: any) => {
+        const normalizedTitle = normalize(result.title ?? '');
+        return normalizedTitle.includes(normalizedSeries) || normalizedSeries.includes(normalizedTitle);
+      });
+
+      if (firstRelated) {
+        return firstRelated;
+      }
+
       return data.results[0];
     }
 
@@ -304,9 +321,8 @@ export function findVideoInPlaylist(
   }
 
   // Fallback: try to match by position (if videos are in order)
-  // Videos are typically sorted by position, with position 0 being the latest
-  // We want to find the video that corresponds to the episode number
-  const sortedVideos = [...playlist.videos].sort((a, b) => (b.position || 0) - (a.position || 0));
+  // Videos from hayami typically use position 0 = Episode 1, so sort ascending
+  const sortedVideos = [...playlist.videos].sort((a, b) => (a.position || 0) - (b.position || 0));
   if (episodeNumber > 0 && episodeNumber <= sortedVideos.length) {
     const video = sortedVideos[episodeNumber - 1];
     if (video && video.video_id) {
