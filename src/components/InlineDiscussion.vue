@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onUpdated } from 'vue';
+import { computed, ref, watch, nextTick, onUpdated, onMounted, onUnmounted } from 'vue';
 import { getRuntimeUrl } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import { voteThing } from '../utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
+import { extractEpisodeTableFromRedditSelftext } from '@/entrypoints/content/mapping';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal';
 
@@ -59,6 +60,12 @@ const manualSearchQuery = ref('');
 const manualSearchResults = ref<any[]>([]);
 const manualSearchLoading = ref(false);
 const manualSearchError = ref<string | null>(null);
+const manualDialogTab = ref<'search' | 'episode'>('episode');
+const manualEpisodeOptions = ref<Array<{ episode: number; url: string }>>([]);
+const manualEpisodeLoading = ref(false);
+const manualEpisodeError = ref<string | null>(null);
+const manualEpisodeSelected = ref<number | null>(null);
+const manualEpisodeContext = ref<{ animeName?: string; crEpisodeNum?: number | null }>({ animeName: undefined, crEpisodeNum: null });
 
 // Disqus search modal state
 const disqusSearchOpen = ref(false);
@@ -77,11 +84,22 @@ const filteredDisqusSearchResults = computed(() => {
   });
 });
 
-function openManualSearchModal(initialQuery?: string) {
+function openManualSearchModal(initialQuery?: string, context?: { animeName?: string; crEpisodeNum?: number | null }) {
   manualSearchOpen.value = true;
+  manualDialogTab.value = 'episode';
   manualSearchQuery.value = initialQuery || props.discussion.title || '';
   manualSearchResults.value = [];
   manualSearchError.value = null;
+  manualEpisodeOptions.value = [];
+  manualEpisodeError.value = null;
+  manualEpisodeSelected.value = null;
+  manualEpisodeContext.value = {
+    animeName: context?.animeName,
+    crEpisodeNum: context?.crEpisodeNum ?? null,
+  };
+  if (manualDialogTab.value === 'episode') {
+    void loadEpisodeOptions();
+  }
   runManualSearch();
 }
 
@@ -99,6 +117,61 @@ async function runManualSearch() {
     manualSearchError.value = e?.message || 'Search failed.';
   } finally {
     manualSearchLoading.value = false;
+  }
+}
+
+async function loadEpisodeOptions() {
+  manualEpisodeLoading.value = true;
+  manualEpisodeError.value = null;
+  try {
+    const data = await extractEpisodeTableFromRedditSelftext(redditUrl.value, manualEpisodeContext.value.animeName);
+    if (!data || !data.tableMap || data.tableMap.size === 0) {
+      manualEpisodeOptions.value = [];
+      manualEpisodeError.value = 'No episode list found for this post.';
+      return;
+    }
+    manualEpisodeOptions.value = Array.from(data.tableMap.entries())
+      .map(([episode, url]) => ({ episode, url }))
+      .sort((a, b) => a.episode - b.episode);
+
+    if (manualEpisodeContext.value.crEpisodeNum && manualEpisodeSelected.value === null) {
+      const candidate = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeContext.value.crEpisodeNum);
+      manualEpisodeSelected.value = candidate ? candidate.episode : manualEpisodeOptions.value[0]?.episode ?? null;
+    }
+  } catch (e: any) {
+    manualEpisodeError.value = e?.message || 'Failed to load episode list.';
+  } finally {
+    manualEpisodeLoading.value = false;
+  }
+}
+
+function setManualDialogTab(tab: 'search' | 'episode') {
+  manualDialogTab.value = tab;
+  if (tab === 'episode' && !manualEpisodeLoading.value && manualEpisodeOptions.value.length === 0) {
+    void loadEpisodeOptions();
+  }
+}
+
+const selectedEpisodeOffset = computed(() => {
+  if (manualEpisodeSelected.value === null) return null;
+  if (!manualEpisodeContext.value.crEpisodeNum) return null;
+  return manualEpisodeSelected.value - manualEpisodeContext.value.crEpisodeNum;
+});
+
+function confirmEpisodeSelection() {
+  if (manualEpisodeSelected.value === null) return;
+  const chosen = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeSelected.value);
+  try {
+    window.dispatchEvent(new CustomEvent('ri-episode-select-override', {
+      detail: {
+        episodeNumber: manualEpisodeSelected.value,
+        redditUrl: chosen?.url,
+      },
+    }));
+  } catch (e) {
+    console.warn('[EpisodeSelect] Failed to dispatch override', e);
+  } finally {
+    manualSearchOpen.value = false;
   }
 }
 
@@ -371,7 +444,7 @@ onMounted(() => {
     if (animeInfo?.animeName) initialParts.push(animeInfo.animeName);
     if (typeof crEpisodeNum === 'number') initialParts.push(`Episode ${crEpisodeNum}`);
     const initial = initialParts.join(' ').trim() || props.discussion.title || '';
-    openManualSearchModal(initial);
+    openManualSearchModal(initial, { animeName: animeInfo?.animeName || detail?.discussion?.title, crEpisodeNum });
   };
   const escHandler = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape' && manualSearchOpen.value) {
@@ -694,14 +767,32 @@ defineExpose({
     >
       <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
-          <h3 class="text-lg font-semibold text-white">Search r/anime</h3>
+          <h3 class="text-lg font-semibold text-white">Manual search & episode select</h3>
           <button
             class="text-[#aaa] hover:text-white"
             @click="manualSearchOpen = false"
             aria-label="Close"
           >✕</button>
         </div>
-        <div class="p-4 space-y-3">
+
+        <div class="px-4 pt-3 pb-2 border-b border-[#2f2f2f] flex gap-2">
+          <button
+            class="px-3 py-2 text-sm font-semibold rounded-lg border transition-colors"
+            :class="manualDialogTab === 'episode' ? 'bg-[#2f6feb] border-[#2f6feb] text-white' : 'bg-[#0f0f0f] border-[#2f2f2f] text-[#d0d0d0]'"
+            @click="setManualDialogTab('episode')"
+          >
+            Episode select
+          </button>
+          <button
+            class="px-3 py-2 text-sm font-semibold rounded-lg border transition-colors"
+            :class="manualDialogTab === 'search' ? 'bg-[#2f6feb] border-[#2f6feb] text-white' : 'bg-[#0f0f0f] border-[#2f2f2f] text-[#d0d0d0]'"
+            @click="setManualDialogTab('search')"
+          >
+            Manual search
+          </button>
+        </div>
+
+        <div v-if="manualDialogTab === 'search'" class="p-4 space-y-3">
           <div class="flex gap-2">
             <input
               v-model="manualSearchQuery"
@@ -749,6 +840,61 @@ defineExpose({
             class="text-sm text-[#999]"
           >
             No matches found. Try a different query.
+          </div>
+        </div>
+
+        <div v-else class="p-4 space-y-4">
+          <div class="text-sm text-[#ccc]">
+            Pick which episode this Reddit thread corresponds to. We'll remember the offset so future episodes auto-advance correctly.
+            <div v-if="manualEpisodeContext.crEpisodeNum" class="mt-1 text-[#8dd4ff] text-xs">
+              Detected current episode: Episode {{ manualEpisodeContext.crEpisodeNum }}
+            </div>
+          </div>
+
+          <div v-if="manualEpisodeLoading" class="text-sm text-[#ccc]">Loading episode list…</div>
+          <div v-else-if="manualEpisodeError" class="text-sm text-red-400">{{ manualEpisodeError }}</div>
+
+          <ul
+            v-else
+            class="space-y-2 max-h-[320px] overflow-y-auto styled-scroll"
+          >
+            <li
+              v-for="opt in manualEpisodeOptions"
+              :key="opt.episode"
+              class="p-3 border border-[#262626] rounded-lg bg-[#0f0f0f] flex items-center justify-between gap-3"
+            >
+              <label class="flex items-center gap-3 text-sm text-white cursor-pointer w-full">
+                <input
+                  v-model="manualEpisodeSelected"
+                  class="accent-[#2f6feb]"
+                  type="radio"
+                  :value="opt.episode"
+                />
+                <span>Episode {{ opt.episode }}</span>
+              </label>
+              <a
+                class="text-xs text-[#8dd4ff] hover:underline"
+                :href="opt.url"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open
+              </a>
+            </li>
+          </ul>
+
+          <div v-if="selectedEpisodeOffset !== null" class="text-xs text-[#8dd4ff]">
+            Offset to save: Reddit Episode {{ manualEpisodeSelected }} → current Episode {{ manualEpisodeContext.crEpisodeNum }} ({{ selectedEpisodeOffset >= 0 ? '+' : '' }}{{ selectedEpisodeOffset }})
+          </div>
+
+          <div class="flex justify-end gap-2">
+            <button
+              class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm"
+              @click="confirmEpisodeSelection"
+              :disabled="manualEpisodeSelected === null || manualEpisodeLoading"
+            >
+              Save mapping
+            </button>
           </div>
         </div>
       </div>

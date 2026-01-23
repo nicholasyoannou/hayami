@@ -49,7 +49,7 @@ import { AnimeInfo } from '../types';
 import type { MalForumResult, MalPost, MapperResult, MapperMatchedResult, CommentProvider, ProviderContext } from '../types/data';
 
 // Mapping utilities
-import { parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from '../mapping';
+import { getSeriesMapping, parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from '../mapping';
 
 // Template renderers
 import {
@@ -557,6 +557,14 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     const effectiveMode: DisplayMode = resolveEffectiveDisplayMode(placement as DisplayMode | null, adapterMode, storedMode);
     const isInlineMode = INLINE_DISPLAY_MODES.has(effectiveMode);
     preferredProvider = await getPreferredProvider();
+
+    // Apply any saved episode offset for this series so lookups align with user overrides
+    const seriesMapping = animeInfo.animeName ? await getSeriesMapping(animeInfo.animeName) : null;
+    const episodeOffset = seriesMapping?.episodeOffset ?? 0;
+    const rawEpisodeStr = extractEpisodeNumber(animeInfo.episodeName || '');
+    const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
+    const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
+    const mappedEpisodeStr = mappedEpisodeNum !== null ? String(mappedEpisodeNum) : null;
     
     // Clear discussion cache for new episode search
     discussionCache.reddit = undefined;
@@ -622,7 +630,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
         try {
           const releaseToday = isReleaseDateToday(animeInfo.releaseDate);
           if (!releaseToday) {
-            const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus');
+            const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
             if (mappedDisqusUrl) {
               const mappedThread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
               if (mappedThread) {
@@ -664,7 +672,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
 
     // NEW FAILOVER: Try mapper service with series_name and season_title from Crunchyroll API
     console.log('[Search] Attempting new mapper failover...');
-    const failoverRedditUrl = await tryMapperFailover(animeInfo);
+    const failoverRedditUrl = await tryMapperFailover(animeInfo, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
     if (failoverRedditUrl) {
       console.log('[Search] Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
@@ -680,7 +688,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     const mapperResult = await fetchAnimeMapperData(animeInfo.animeName);
     setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
 
-    const epNum = extractEpisodeNumber(animeInfo.episodeName);
+    const epNum = mappedEpisodeStr;
     const targetMalId = lastAnimeInfo?.malId || null;
     const targetSeason = extractSeasonNumber(animeInfo.animeName);
     const normalizeMal = (val: unknown): number | null => {
@@ -771,7 +779,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
 
     if (!results || results.length === 0) {
       // No results from primary search - try manual search query automatically
-      await tryAutoSelectFromManualSearch(animeInfo);
+      await tryAutoSelectFromManualSearch(animeInfo, mappedEpisodeNum);
       return;
     }
 
@@ -785,8 +793,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
       return;
     }
 
-    const episodeFromInfo = extractEpisodeNumber(animeInfo.episodeName || '');
-    console.log('[Episode Detection] Extracted episode number from animeInfo:', { episodeName: animeInfo.episodeName, episodeFromInfo });
+    const episodeFromInfo = mappedEpisodeNum;
+    console.log('[Episode Detection] Extracted episode number from animeInfo:', { episodeName: animeInfo.episodeName, episodeFromInfo, offset: episodeOffset });
     if (typeof episodeFromInfo === 'number') {
       const epMatches = results.filter((r) => parseEpisodeFromTitle(r.title) === episodeFromInfo);
       if (epMatches.length === 1) {
@@ -813,7 +821,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     }
 
     // Multiple candidates: show selection UI
-    showSelectionUI(animeInfo, results, extractEpisodeNumber(animeInfo.episodeName) ? Number(extractEpisodeNumber(animeInfo.episodeName)) : undefined);
+    showSelectionUI(animeInfo, results, mappedEpisodeNum ?? (rawEpisodeNum ?? undefined));
   } catch (error) {
     console.error('Error searching for discussion:', error);
   } finally {
@@ -821,8 +829,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
   }
 }
 
-async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo): Promise<void> {
-  const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
+async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo, mappedEpisodeNum?: number | null): Promise<void> {
+  const ep = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '');
   const query = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
   
   console.log('Trying manual search with query:', query);

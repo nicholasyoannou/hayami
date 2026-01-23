@@ -19,6 +19,8 @@ import { setupSiteMapperHotkey, loadCustomMappingForOrigin } from '../ui/site-ma
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
 import { matchChibiPage } from '../chibi';
 import { isSupportedLocation } from '../sites/registry';
+import { extractEpisodeNumber } from '@/utils/redditApi';
+import { saveSeriesMapping } from '../mapping';
 import {
   debounceTimer,
   lastAnimeInfo,
@@ -141,6 +143,40 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       }
     } catch (e) {
       console.warn('[ManualSearch] Failed to handle manual search result', e);
+    }
+  });
+
+  ctx.addEventListener(window, 'ri-episode-select-override', async (ev: any) => {
+    try {
+      const selectedEpisode = Number(ev?.detail?.episodeNumber);
+      const redditUrl = ev?.detail?.redditUrl as string | undefined;
+      if (!Number.isFinite(selectedEpisode)) return;
+
+      const currentEpStr = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+      const currentEp = currentEpStr !== null ? Number(currentEpStr) : null;
+
+      if (currentEp === null || !Number.isFinite(currentEp)) {
+        toast.error('Could not determine current episode to save mapping');
+        return;
+      }
+
+      if (lastAnimeInfo?.animeName) {
+        const offset = selectedEpisode - currentEp;
+        await saveSeriesMapping(lastAnimeInfo.animeName, { episodeOffset: offset });
+        toast.success(`Saved episode mapping: current=${currentEp}, reddit=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
+      } else {
+        toast.error('Could not determine current episode to save mapping');
+      }
+
+      if (redditUrl) {
+        const postData = await fetchRedditPostFromUrl(redditUrl);
+        if (postData) {
+          await displayDiscussionDependingOnMode(postData);
+        }
+      }
+    } catch (e) {
+      console.warn('[EpisodeSelect] Failed to apply episode override', e);
+      toast.error('Failed to apply episode selection');
     }
   });
 

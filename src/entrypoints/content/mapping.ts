@@ -151,7 +151,7 @@ export async function fetchAnimeMapperDataBySeriesName(
 
 const redditSelftextCache = new Map<string, any>();
 
-async function extractEpisodeTableFromRedditSelftext(
+export async function extractEpisodeTableFromRedditSelftext(
   mapperUrl: string,
   seriesName?: string,
 ): Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> {
@@ -1044,6 +1044,7 @@ function mapEpisodeToSeasonEpisode(
 export async function tryMapperFailover(
   animeInfo: AnimeInfo,
   platform: 'reddit' | 'disqus' = 'reddit',
+  episodeOverride?: number | null,
 ): Promise<string | null> {
   try {
     console.log('[Mapper Failover] Starting failover process', { platform });
@@ -1051,6 +1052,7 @@ export async function tryMapperFailover(
       animeName: animeInfo?.animeName,
       episodeName: animeInfo?.episodeName,
       releaseDate: animeInfo?.releaseDate,
+      episodeOverride,
     });
 
     // For Disqus, bypass Hayami mapper on same-day airings and let native Disqus lookup run instead.
@@ -1123,11 +1125,18 @@ export async function tryMapperFailover(
       return best;
     };
 
+    const overrideEpisode = episodeOverride ?? null;
+
     const episodeId = extractEpisodeIdFromUrl();
     if (!episodeId) {
       console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
-      const episodeFromInfo = extractEpisodeFromInfo();
-      console.log('[Episode Detection] Episode extracted from info for mapping:', episodeFromInfo);
+      const extractedEpisode = extractEpisodeFromInfo();
+      const episodeFromInfo = overrideEpisode ?? extractedEpisode;
+      console.log('[Episode Detection] Episode extracted from info for mapping:', {
+        extractedEpisode,
+        overrideEpisode,
+        episodeFromInfo,
+      });
       
       // For third-party sites, try to resolve MAL/AniList IDs for better matching
       const currentAdapter = resolveAdapter(window.location);

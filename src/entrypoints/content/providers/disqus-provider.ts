@@ -16,7 +16,7 @@ import {
 } from '../constants';
 import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { handleProviderError } from '../utils/error-handler';
-import { parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName, resolveAdapter } from '../mapping';
+import { getSeriesMapping, parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName, resolveAdapter } from '../mapping';
 import { isReleaseDateToday } from '../utils/date-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { getRuntimeUrl } from '@/utils/runtime';
@@ -267,8 +267,14 @@ export class DisqusProvider extends BaseProvider {
     try {
       let thread = discussionCache.disqus?.thread;
 
+      // Apply saved episode offset (e.g., from manual override) for all mapper lookups
+      const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName) : null;
+      const episodeOffset = mapping?.episodeOffset ?? 0;
+      const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
+      const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
+
       if (!thread && !releaseToday) {
-        const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus');
+        const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus', mappedEp ?? rawEp ?? null);
         if (mappedDisqusUrl) {
           thread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
           if (thread) {
@@ -285,7 +291,7 @@ export class DisqusProvider extends BaseProvider {
       if (!thread && !releaseToday && animeInfo.animeName) {
         const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'disqus');
         if (mapperData?.results?.length) {
-          const epNum = parseEpisodeFromTitle(animeInfo.episodeName || '') || 1;
+          const epNum = mappedEp ?? rawEp ?? 1;
           for (const entry of mapperData.results) {
             const maybeUrl = entry?.episodes?.[epNum] || entry?.episodes?.[String(epNum)];
             if (maybeUrl) {
