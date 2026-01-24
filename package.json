@@ -15,6 +15,7 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
+    "@sentry/vue": "^10.36.0",
     "css-ripple-effect": "^1.0.5",
     "element-picker": "^1.0.1",
     "vue": "^3.5.26",

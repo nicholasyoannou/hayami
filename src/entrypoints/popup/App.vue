@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, onMounted } from 'vue';
+import { getCurrentInstance, onMounted, ref } from 'vue';
 import {
   authenticateWithReddit,
   isAuthenticated,
@@ -16,6 +16,7 @@ import {
 } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malAuth';
 import backIcon from '@/assets/backIcon.svg';
+import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
 import accountIcon from '@/assets/accountIcon.svg';
 import accountsIcon from '@/assets/accountsIcon.svg';
@@ -33,6 +34,7 @@ import {
   imgurClientIdItem,
   noCommentsModeItem,
 } from '@/config/storage';
+import { getSentryFeedback, type SentryFeedbackClient } from '@/plugins/sentry';
 
 const isLoggedIn = ref(false);
 const username = ref<string | null>(null);
@@ -52,6 +54,9 @@ const imgurClientId = ref<string>('');
 const imgchestApiKey = ref<string>('');
 const commentsProvider = ref<CommentProviderOption>('reddit');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
+const feedbackButton = ref<HTMLButtonElement | null>(null);
+const appInstance = getCurrentInstance()?.appContext.app;
+let feedbackForm: Awaited<ReturnType<NonNullable<SentryFeedbackClient>['createForm']>> | null = null;
 
 onMounted(async () => {
   await checkAuthStatus();
@@ -206,6 +211,32 @@ async function updateNoCommentsMode(mode: 'popup' | 'inline') {
   setTimeout(() => (successMessage.value = null), 1500);
 }
 
+async function openFeedbackForm() {
+  if (!feedbackButton.value) {
+    return;
+  }
+
+  try {
+    if (!feedbackForm) {
+      const feedbackClient = await getSentryFeedback(appInstance);
+      if (!feedbackClient) {
+        errorMessage.value = 'Feedback form is unavailable right now';
+        setTimeout(() => (errorMessage.value = null), 2000);
+        return;
+      }
+
+      feedbackForm = await feedbackClient.createForm({});
+      feedbackForm.appendToDom();
+    }
+
+    feedbackForm.open();
+  } catch (error) {
+    console.error('Failed to open feedback form', error);
+    errorMessage.value = 'Could not open feedback form';
+    setTimeout(() => (errorMessage.value = null), 2000);
+  }
+}
+
 async function handleLogin() {
   isLoading.value = true;
   errorMessage.value = null;
@@ -347,6 +378,9 @@ async function handleMALLogout() {
         <div class="flex items-center gap-3">
           <button v-if="currentView !== 'home'" @click="currentView = 'home'" class="p-1 hover:opacity-80" aria-label="Back">
             <img :src="backIcon" alt="Back" class="h-6 w-6" />
+          </button>
+          <button ref="feedbackButton" @click="openFeedbackForm" class="p-1 hover:opacity-80" aria-label="Send feedback">
+            <img :src="feedbackIcon" alt="Feedback" class="h-6 w-6" />
           </button>
           <button @click="currentView = currentView === 'settings' ? 'home' : 'settings'" class="p-1 hover:opacity-80" aria-label="Settings">
             <img :src="settingsIcon" alt="Settings" class="h-6 w-6" />
