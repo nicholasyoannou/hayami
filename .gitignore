@@ -32,3 +32,4 @@ _stashed_reddit-inline.css
 stats-*.json
 src/lib/chibi/malsync-pages.json
 /internal
+repomix-output.xml

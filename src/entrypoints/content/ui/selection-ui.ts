@@ -8,7 +8,7 @@ import { extractEpisodeNumber, searchCustomPosts } from '@/utils/redditApi';
 import { createOverlay } from './overlays';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping } from '../mapping';
-import { lastAnimeInfo } from '../state';
+import { getState } from '../state';
 import type { AnimeInfo } from '../types';
 import { RedditDiscussionInfoPanel, RedditManualSearchPanel, type RedditPost } from '@/components/overlays';
 import { noCommentsModeItem } from '@/config/storage';
@@ -144,9 +144,10 @@ function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
   
   const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
   wrongBtn?.addEventListener('click', () => {
-    const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+    const lastInfo = getState().lastAnimeInfo;
+    const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
     showManualSearchUI(
-      lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, 
+      lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, 
       crEpisodeNum ? Number(crEpisodeNum) : undefined
     );
     overlay.remove();
@@ -192,9 +193,10 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
 
   const wrongBtn = container.querySelector('#ri-wrong-episode-btn');
   wrongBtn?.addEventListener('click', () => {
-    const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+    const lastInfo = getState().lastAnimeInfo;
+    const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
     showManualSearchUI(
-      lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, 
+      lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, 
       crEpisodeNum ? Number(crEpisodeNum) : undefined
     );
     container.remove();
@@ -251,11 +253,12 @@ export function displayDiscussionPopup(discussion: any): void {
       overlay.remove();
     },
     onWrong: () => {
-      const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+      const lastInfo = getState().lastAnimeInfo;
+      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
       app.unmount();
       overlay.remove();
       showManualSearchUI(
-        lastAnimeInfo || { animeName: '', episodeName: '' }, 
+        lastInfo || { animeName: '', episodeName: '' }, 
         crEpisodeNum ? Number(crEpisodeNum) : undefined
       );
     },

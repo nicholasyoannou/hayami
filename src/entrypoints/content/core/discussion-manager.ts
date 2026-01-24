@@ -75,15 +75,12 @@ import { commentsProviderItem, noCommentsModeItem } from '@/config/storage';
 
 // State management
 import {
-  inlineDiscussionApp,
-  discussionCache,
-  lastAnimeInfo,
-  lastProcessedKey,
-  searchInProgress,
+  useContentState,
   setInlineDiscussionApp,
   setLastAnimeInfo,
   setSearchInProgress,
   setRedditCommentsCleanup,
+  clearDiscussionCache,
   teardownYouTubeInfiniteScroll,
   teardownRedditInfiniteScroll,
 } from '../state';
@@ -123,6 +120,9 @@ const INLINE_DISPLAY_MODES = new Set<DisplayMode>(['below', 'insert', 'replace',
 const VALID_PROVIDERS = new Set<CommentProvider>(commentProviderOptions.map((opt) => opt.value as CommentProvider));
 
 let preferredProvider: CommentProvider = 'reddit';
+
+// Accessor helper to always use the current state instance
+const state = () => useContentState();
 
 function buildPlaceholderDiscussion(animeInfo?: AnimeInfo): any {
   const titleBase = animeInfo?.animeName || 'Discussion';
@@ -200,7 +200,7 @@ export function setContentScriptContext(ctx: ContentScriptContext | null): void 
  * Returns the .ri-external-comments element from the Vue component.
  */
 function getExternalCommentsContainer(): HTMLElement | null {
-  return getExternalContainerUtil(inlineDiscussionApp);
+  return getExternalContainerUtil(state().inlineDiscussionApp);
 }
 
 // =============================================================================
@@ -359,8 +359,9 @@ function showPopupContent(): void {
 
 function setMalIdOnLastAnimeInfo(malId?: number | null): void {
   if (!malId) return;
-  if (lastAnimeInfo) {
-    setLastAnimeInfo(lastAnimeInfo ? { ...lastAnimeInfo, malId } : null);
+  const currentState = state();
+  if (currentState.lastAnimeInfo) {
+    setLastAnimeInfo({ ...currentState.lastAnimeInfo, malId });
   }
 }
 
@@ -544,7 +545,9 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
 
 export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
   try {
-    if (searchInProgress) {
+    const currentState = state();
+    const cache = currentState.discussionCache;
+    if (currentState.searchInProgress) {
       console.log('Search already in progress, skipping');
       return;
     }
@@ -567,10 +570,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     const mappedEpisodeStr = mappedEpisodeNum !== null ? String(mappedEpisodeNum) : null;
     
     // Clear discussion cache for new episode search
-    discussionCache.reddit = undefined;
-    discussionCache.disqus = undefined;
-    discussionCache.youtube = undefined;
-    discussionCache.mal = undefined;
+    clearDiscussionCache(currentState);
 
     // Hard-clear any leftover Disqus artifacts before mounting the new episode
     // to avoid stale threads sticking around between navigations.
@@ -598,9 +598,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     if (oldVueHost) {
       oldVueHost.remove();
     }
-    if (inlineDiscussionApp) {
+    if (currentState.inlineDiscussionApp) {
       try {
-        inlineDiscussionApp.unmount();
+        currentState.inlineDiscussionApp.unmount();
       } catch {}
       setInlineDiscussionApp(null);
     }
@@ -634,7 +634,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
             if (mappedDisqusUrl) {
               const mappedThread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
               if (mappedThread) {
-                discussionCache.disqus = { thread: mappedThread };
+                cache.disqus = { thread: mappedThread };
                 await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
                 await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
                 return;
@@ -654,7 +654,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
           if (disqusResult.status === 'embedded' && disqusResult.thread) {
             const selectedThread = buildDisqusThreadFromUrl(disqusResult.thread.link || disqusResult.thread.url || '', animeInfo);
             if (selectedThread) {
-              discussionCache.disqus = { thread: selectedThread };
+              cache.disqus = { thread: selectedThread };
               await embedDisqusThreadDependingOnMode(selectedThread, animeInfo);
               await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
               return;
@@ -689,7 +689,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
 
     const epNum = mappedEpisodeStr;
-    const targetMalId = lastAnimeInfo?.malId || null;
+    const targetMalId = currentState.lastAnimeInfo?.malId || null;
     const targetSeason = extractSeasonNumber(animeInfo.animeName);
     const normalizeMal = (val: unknown): number | null => {
       if (typeof val === 'number') return val;
@@ -944,10 +944,11 @@ async function showNoDiscussionMessage(animeName: string, episodeNumber: string)
         overlay.remove();
       },
       onWrong: () => {
-        const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+        const lastInfo = state().lastAnimeInfo;
+        const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
         app.unmount();
         overlay.remove();
-        showManualSearchUI(lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
+        showManualSearchUI(lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
       },
     });
     app.mount(overlay);
@@ -972,8 +973,9 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
     closeBtn?.addEventListener('click', () => overlay.remove());
     const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
     wrongBtn?.addEventListener('click', () => {
-      const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
-      showManualSearchUI(lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
+      const lastInfo = state().lastAnimeInfo;
+      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
+      showManualSearchUI(lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
       overlay.remove();
     });
     return;
@@ -1000,15 +1002,18 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
 
   const wrongBtn = container.querySelector('#ri-wrong-episode-btn');
   wrongBtn?.addEventListener('click', () => {
-    const crEpisodeNum = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
-    showManualSearchUI(lastAnimeInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
+    const lastInfo = state().lastAnimeInfo;
+    const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
+    showManualSearchUI(lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
     container.remove();
   });
 }
 
 async function displayDiscussion(discussion: any): Promise<void> {
+  const currentState = state();
+  const cache = currentState.discussionCache;
   // Cache the discussion data (not comments)
-  discussionCache.reddit = { ...discussion };
+  cache.reddit = { ...discussion };
 
   // Fetch subreddit icon and primary color if missing
   if (discussion.subreddit && (!discussion.subreddit_icon_url || !discussion.subreddit_primary_color)) {
@@ -1043,7 +1048,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
   const clearLoadingState = (context: string = 'popup') => {
     try {
-      const vueApp = inlineDiscussionApp as any;
+      const vueApp = currentState.inlineDiscussionApp as any;
       const instance = vueApp?._instance || vueApp?._container?._vnode?.component;
       if (instance?.exposed?.clearLoading) {
         instance.exposed.clearLoading();
@@ -1054,8 +1059,8 @@ async function displayDiscussion(discussion: any): Promise<void> {
   };
 
   const buildProviderContext = (): ProviderContext => ({
-    animeInfo: lastAnimeInfo,
-    discussionCache,
+    animeInfo: currentState.lastAnimeInfo,
+    discussionCache: cache,
     clearLoadingState,
     getExternalCommentsContainer,
     toast,
@@ -1065,8 +1070,8 @@ async function displayDiscussion(discussion: any): Promise<void> {
     activeProvider = provider;
     teardownYouTubeInfiniteScroll();
 
-    if (provider !== 'reddit' && discussionCache.reddit) {
-      discussionCache.reddit = { ...discussion };
+    if (provider !== 'reddit' && cache.reddit) {
+      cache.reddit = { ...discussion };
     }
 
     try {
@@ -1090,9 +1095,9 @@ async function displayDiscussion(discussion: any): Promise<void> {
     }
   };
 
-  if (inlineDiscussionApp) {
+  if (currentState.inlineDiscussionApp) {
     try {
-      inlineDiscussionApp.unmount();
+      currentState.inlineDiscussionApp.unmount();
     } catch {}
     setInlineDiscussionApp(null);
   }
@@ -1333,13 +1338,15 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any
 }
 
 async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
+  const currentState = state();
+  const cache = currentState.discussionCache;
   // Cache the thread for Vue-side render
-  discussionCache.disqus = { thread };
+  cache.disqus = { thread };
 
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
-    if (inlineDiscussionApp && (inlineDiscussionApp as any)._instance?.exposed?.handleProviderChange) {
-      (inlineDiscussionApp as any)._instance.exposed.handleProviderChange('disqus');
+    if (currentState.inlineDiscussionApp && (currentState.inlineDiscussionApp as any)._instance?.exposed?.handleProviderChange) {
+      (currentState.inlineDiscussionApp as any)._instance.exposed.handleProviderChange('disqus');
       return;
     }
     // If componentInstance is available via the current inlineDiscussionApp (fallback)
@@ -1390,8 +1397,10 @@ export async function displayDiscussionDependingOnMode(discussion: any): Promise
 
 async function displayInlineDiscussion(discussion: any): Promise<void> {
   try {
+    const currentState = state();
+    const cache = currentState.discussionCache;
     // Cache the discussion data (not comments)
-    discussionCache.reddit = { ...discussion };
+    cache.reddit = { ...discussion };
     
     // Fetch subreddit icon and primary color if missing
     if (discussion.subreddit && (!discussion.subreddit_icon_url || !discussion.subreddit_primary_color)) {
@@ -1409,9 +1418,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     if (existing) existing.remove();
     const oldVueHost = document.getElementById('ri-inline-vue-host');
     if (oldVueHost) oldVueHost.remove();
-    if (inlineDiscussionApp) {
+    if (currentState.inlineDiscussionApp) {
       try {
-        inlineDiscussionApp.unmount();
+        currentState.inlineDiscussionApp.unmount();
       } catch {}
       setInlineDiscussionApp(null);
     }
@@ -1433,7 +1442,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     let host: HTMLElement | null = null;
 
     // Cache the discussion data (not comments) for faster switching
-    discussionCache.reddit = { ...discussion };
+    cache.reddit = { ...discussion };
 
     // Store the provider change callback so it can be reused when recreating the Vue app
     // Store component instance ref for accessing exposed methods
@@ -1443,16 +1452,16 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const clearLoadingState = (context: string = 'unknown') => {
       console.log('=== [ClearLoadingState] START ===');
       console.log(`Context: ${context}`);
-      console.log(`inlineDiscussionApp exists:`, !!inlineDiscussionApp);
+      console.log(`inlineDiscussionApp exists:`, !!currentState.inlineDiscussionApp);
       console.log(`componentInstance exists:`, !!componentInstance);
       
       // Try multiple ways to access the component instance
-      if (!componentInstance && inlineDiscussionApp) {
+      if (!componentInstance && currentState.inlineDiscussionApp) {
         const vueHost = document.getElementById('ri-inline-vue-host');
         console.log('Vue host element found:', !!vueHost);
         if (vueHost) {
           // Method 1: Try accessing through Vue's internal structure
-          const vueApp = inlineDiscussionApp as any;
+          const vueApp = currentState.inlineDiscussionApp as any;
           if (vueApp._container) {
             const container = vueApp._container as any;
             // Vue 3 stores component instance in the container's vnode
@@ -1549,8 +1558,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // Build provider context for provider manager
     const buildProviderContext = (): ProviderContext => ({
-      animeInfo: lastAnimeInfo,
-      discussionCache,
+      animeInfo: currentState.lastAnimeInfo,
+      discussionCache: cache,
       clearLoadingState,
       getExternalCommentsContainer,
       toast,
@@ -1560,16 +1569,16 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         console.log('=== [ProviderChangeCallback] START ===');
         activeProvider = provider;
         console.log('Provider change callback received:', provider);
-        console.log('lastAnimeInfo:', lastAnimeInfo);
+        console.log('lastAnimeInfo:', currentState.lastAnimeInfo);
         console.log(`Provider change started: ${provider}`);
         
         // Always clear any existing YouTube observers/sentinels before switching providers
         teardownYouTubeInfiniteScroll();
         
         // Cache current Reddit discussion if switching away from Reddit
-        if (provider !== 'reddit' && discussionCache.reddit) {
+        if (provider !== 'reddit' && cache.reddit) {
           // Already cached above, just ensure it's up to date
-          discussionCache.reddit = { ...discussion };
+          cache.reddit = { ...discussion };
           console.log('Updated Reddit discussion cache');
         }
         
@@ -1677,7 +1686,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // No need to add it here to avoid duplicates
 
     // Store component instance reference after mounting
-    const vueApp = inlineDiscussionApp as any;
+    const vueApp = currentState.inlineDiscussionApp as any;
     if (vueApp._container && vueApp._container._vnode && vueApp._container._vnode.component) {
       componentInstance = vueApp._container._vnode.component;
       console.log(`[LoadingState] Stored component instance after mount`);
@@ -1713,10 +1722,11 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 }
 
 export function handleWrongClick(): void {
-  if (!lastAnimeInfo) return;
-  const crEpisodeNumStr = extractEpisodeNumber(lastAnimeInfo.episodeName || '');
+  const lastInfo = state().lastAnimeInfo;
+  if (!lastInfo) return;
+  const crEpisodeNumStr = extractEpisodeNumber(lastInfo.episodeName || '');
   const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
-  showManualSearchUI(lastAnimeInfo, crEpisodeNum);
+  showManualSearchUI(lastInfo, crEpisodeNum);
 }
 
 function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {

@@ -813,6 +813,15 @@
   text-decoration: underline;
 }
 
+a {
+  transition: color .2s ease;
+  transition-behavior: normal;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
+  transition-delay: 0s;
+  transition-property: color;
+}
+
 /* High-visibility links inside comment bodies */
 #reddit-inline-discussion .ri-text a,
 .ri-comment .ri-text a {
@@ -826,9 +835,9 @@
   color: #ffffff;
 }
 
-#reddit-inline-discussion .ri-text a:visited,
-.ri-comment .ri-text a:visited {
-  color: #338c86;
+#reddit-inline-discussion .ri-text a:visited:hover,
+.ri-comment .ri-text a:visited:hover {
+  color: #ffffff;
 }
 
 /* Proper list styling inside comment text

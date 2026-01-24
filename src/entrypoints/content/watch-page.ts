@@ -5,10 +5,7 @@
 import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import type { AnimeInfo } from './types';
 import {
-  lastAnimeInfo,
-  lastProcessedKey,
-  activeObserver,
-  debounceTimer,
+  getState,
   setLastAnimeInfo,
   setLastProcessedKey,
   setActiveObserver,
@@ -29,8 +26,9 @@ export function setSearchHandler(handler: (info: AnimeInfo) => Promise<void>): v
  * Queues watch page handling with debounce
  */
 export function queueHandleWatchPage(ctx: ContentScriptContext): void {
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
+  const state = getState();
+  if (state.debounceTimer) {
+    clearTimeout(state.debounceTimer);
   }
   setDebounceTimer(window.setTimeout(() => handleWatchPage(ctx), 400));
 }
@@ -48,7 +46,7 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
     console.log('Anime Info:', info);
     setLastAnimeInfo(info);
     const key = `${info.animeName}|${info.episodeName}`;
-    if (key === lastProcessedKey) {
+    if (key === getState().lastProcessedKey) {
       console.log('Already processed this episode, skipping duplicate search');
       return;
     }
@@ -112,8 +110,9 @@ export function getAnimeInfo(): AnimeInfo | null {
  */
 export function observeAnimeInfoOnce(ctx: ContentScriptContext): void {
   // Disconnect previous observer to avoid duplicates
-  if (activeObserver) {
-    activeObserver.disconnect();
+  const state = getState();
+  if (state.activeObserver) {
+    state.activeObserver.disconnect();
   }
   
   const observer = new MutationObserver(async (mutations) => {
@@ -123,7 +122,7 @@ export function observeAnimeInfoOnce(ctx: ContentScriptContext): void {
       console.log('Anime Info Found:', info);
       setLastAnimeInfo(info);
       const key = `${info.animeName}|${info.episodeName}`;
-      if (key !== lastProcessedKey) {
+      if (key !== getState().lastProcessedKey) {
         setLastProcessedKey(key);
         window.dispatchEvent(new CustomEvent('animeInfoLoaded', { detail: info }));
         // Search for discussion thread

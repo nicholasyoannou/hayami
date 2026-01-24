@@ -11,7 +11,7 @@ import {
   setContentScriptContext,
   searchAndDisplayDiscussion,
   fetchRedditPostFromUrl,
-  displayDiscussionDependingOnMode
+  displayDiscussionDependingOnMode,
 } from './discussion-manager';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo } from '../ui/site-mapper';
@@ -21,27 +21,15 @@ import { matchChibiPage } from '../chibi';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { saveSeriesMapping } from '../mapping';
-import {
-  debounceTimer,
-  lastAnimeInfo,
-  lastProcessedKey,
-  activeObserver,
-  redditCommentsCleanup,
-  setDebounceTimer,
-  setLastAnimeInfo,
-  setLastProcessedKey,
-  setActiveObserver,
-  setRedditCommentsCleanup,
-  teardownYouTubeInfiniteScroll,
-  animeInfoComposable as animeInfo,
-} from '../state';
+import { getState, initState, destroyState, setDebounceTimer, setLastAnimeInfo, setLastProcessedKey } from '../state';
 
 /**
  * Debounced watch page handler
  */
 export function queueHandleWatchPage(ctx: ContentScriptContext): void {
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
+  const state = getState();
+  if (state.debounceTimer) {
+    clearTimeout(state.debounceTimer);
   }
   setDebounceTimer(window.setTimeout(() => handleWatchPage(ctx), DEBOUNCE_DELAY_MS));
 }
@@ -62,7 +50,7 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
     console.log('Anime Info:', info);
     setLastAnimeInfo(info);
     const key = `${info.animeName}|${info.episodeName}`;
-    if (key === lastProcessedKey) {
+    if (key === getState().lastProcessedKey) {
       console.log('Already processed this episode, skipping duplicate search');
       return;
     }
@@ -99,39 +87,30 @@ export function ensureToaster(ctx: ContentScriptContext): void {
  */
 export async function bootstrapContent(ctx: ContentScriptContext): Promise<void> {
   // Early bailout: Check if this site is potentially supported
-  // This prevents the extension from running on unrelated sites
   const currentUrl = window.location.href;
   const { isWatchPage } = useWatchPageDetection();
   const hasWatchUrl = isWatchPage(currentUrl);
   const hasChibiMatch = matchChibiPage(currentUrl) !== null;
   const hasSiteMatch = isSupportedLocation(window.location);
-  
-  // Check if there's a custom mapping (this is async, so we'll allow it to load)
+
   const customMapping = await loadCustomMappingForOrigin();
-  
-  // If none of these conditions are true, bail out early
+
   if (!hasWatchUrl && !hasChibiMatch && !customMapping && !hasSiteMatch) {
     debug.log('Hayami: Site not supported, skipping initialization');
     return;
   }
-  
+
+  initState();
   setContentScriptContext(ctx);
-  
+
   debug.log('Hayami extension loaded');
   ensureToaster(ctx);
   setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
 
-  // If we have a custom mapping, trigger handling
-  if (customMapping) {
+  if (customMapping || hasWatchUrl) {
     queueHandleWatchPage(ctx);
   }
 
-  if (hasWatchUrl) {
-    queueHandleWatchPage(ctx);
-  }
-
-  // Handle manual search result from Vue modal
-  // Use WXT's ctx.addEventListener for automatic cleanup
   ctx.addEventListener(window, 'ri-manual-search-result', async (ev: any) => {
     try {
       const permalink = ev?.detail?.permalink || '';
@@ -152,7 +131,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       const redditUrl = ev?.detail?.redditUrl as string | undefined;
       if (!Number.isFinite(selectedEpisode)) return;
 
-      const currentEpStr = extractEpisodeNumber(lastAnimeInfo?.episodeName || '');
+      const currentEpStr = extractEpisodeNumber(getState().lastAnimeInfo?.episodeName || '');
       const currentEp = currentEpStr !== null ? Number(currentEpStr) : null;
 
       if (currentEp === null || !Number.isFinite(currentEp)) {
@@ -160,9 +139,9 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         return;
       }
 
-      if (lastAnimeInfo?.animeName) {
+      if (getState().lastAnimeInfo?.animeName) {
         const offset = selectedEpisode - currentEp;
-        await saveSeriesMapping(lastAnimeInfo.animeName, { episodeOffset: offset });
+        await saveSeriesMapping(getState().lastAnimeInfo!.animeName, { episodeOffset: offset });
         toast.success(`Saved episode mapping: current=${currentEp}, reddit=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
         toast.error('Could not determine current episode to save mapping');
@@ -185,6 +164,8 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     debug.log('URL changed to:', newUrl);
     if (isWatchPage(newUrl)) {
       queueHandleWatchPage(ctx);
+    } else {
+      destroyState();
     }
   });
 
@@ -192,20 +173,9 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   setupYouTubeModalListener();
   setupGalleryModalListener();
 
+  ctx.addEventListener(window, 'beforeunload', () => destroyState());
+
   ctx.onInvalidated(() => {
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-      setDebounceTimer(undefined);
-    }
-    if (activeObserver) {
-      try { activeObserver.disconnect(); } catch {}
-      setActiveObserver(null);
-    }
-    if (redditCommentsCleanup) {
-      try { redditCommentsCleanup(); } catch {}
-      setRedditCommentsCleanup(null);
-    }
-    teardownYouTubeInfiniteScroll();
-    animeInfo.clearCache();
+    destroyState();
   });
 }

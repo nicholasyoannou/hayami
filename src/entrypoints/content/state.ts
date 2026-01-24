@@ -4,118 +4,139 @@
  */
 
 import type { App as VueApp } from 'vue';
-import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo';
-import { useDisplayMode } from '@/composables/useDisplayMode';
 import type { AnimeInfo, DiscussionCache, CommentProvider } from './types/data';
+import { resetEnvCaches } from './env';
 
 // Re-export types for convenience
 export type { DiscussionCache, CommentProvider };
 
 // ==================== State Variables ====================
+export type CoreState = {
+  debounceTimer?: number;
+  lastAnimeInfo: AnimeInfo | null;
+  lastProcessedKey: string | null;
+  activeObserver: MutationObserver | null;
+  searchInProgress: boolean;
+  discussionCache: DiscussionCache;
+};
 
-/** Vue app instance for inline discussion component */
-export let inlineDiscussionApp: VueApp | null = null;
+export type UiState = {
+  inlineDiscussionApp: VueApp | null;
+  redditCommentsObserver: IntersectionObserver | null;
+  redditCommentsSentinel: HTMLElement | null;
+  redditCommentsCleanup: (() => void) | null;
+  youtubeCommentsObserver: IntersectionObserver | null;
+  youtubeCommentsSentinel: HTMLElement | null;
+  youtubeCommentsCleanup: (() => void) | null;
+};
 
-/** Cache for discussion content by provider (not comments) */
-export const discussionCache: DiscussionCache = {};
+export type ContentState = CoreState & UiState;
 
-/** Debounce timer for watch page handling */
-export let debounceTimer: number | undefined;
+let currentState: ContentState | null = null;
 
-/** Last extracted anime info */
-export let lastAnimeInfo: AnimeInfo | null = null;
+function createInitialState(): ContentState {
+  return {
+    debounceTimer: undefined,
+    lastAnimeInfo: null,
+    lastProcessedKey: null,
+    activeObserver: null,
+    searchInProgress: false,
+    discussionCache: {},
+    inlineDiscussionApp: null,
+    redditCommentsObserver: null,
+    redditCommentsSentinel: null,
+    redditCommentsCleanup: null,
+    youtubeCommentsObserver: null,
+    youtubeCommentsSentinel: null,
+    youtubeCommentsCleanup: null,
+  };
+}
 
-/** Key of last processed episode (prevents duplicate processing) */
-export let lastProcessedKey: string | null = null;
+export function getState(): ContentState {
+  if (!currentState) {
+    currentState = createInitialState();
+  }
+  return currentState;
+}
 
-/** Active MutationObserver for anime info */
-export let activeObserver: MutationObserver | null = null;
+export function initState(): ContentState {
+  destroyState();
+  currentState = createInitialState();
+  return currentState;
+}
 
-/** Flag to prevent concurrent searches */
-export let searchInProgress: boolean = false;
+export function destroyState(): void {
+  if (!currentState) return;
+  cleanupAllState(currentState);
+  currentState = null;
+}
 
-// ==================== Reddit Comments State ====================
-
-/** Reddit comments IntersectionObserver */
-export let redditCommentsObserver: IntersectionObserver | null = null;
-
-/** Reddit comments sentinel element for infinite scroll */
-export let redditCommentsSentinel: HTMLElement | null = null;
-
-/** Cleanup function for Reddit comments */
-export let redditCommentsCleanup: (() => void) | null = null;
-
-// ==================== YouTube Comments State ====================
-
-/** YouTube comments IntersectionObserver */
-export let youtubeCommentsObserver: IntersectionObserver | null = null;
-
-/** YouTube comments sentinel element */
-export let youtubeCommentsSentinel: HTMLElement | null = null;
-
-/** Cleanup function for YouTube comments */
-export let youtubeCommentsCleanup: (() => void) | null = null;
-
-// ==================== Vue Apps ====================
-
-/** Track mounted Vue app instances for proper cleanup */
-export const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
-
-// ==================== Composables (Singletons) ====================
-
-export const animeInfoComposable = useAnimeInfo();
-export const displayModeManager = useDisplayMode();
-export const { isWatchPage } = useWatchPageDetection();
+// Preferred accessor for consumers
+export function useContentState(): ContentState {
+  return getState();
+}
 
 // ==================== State Setters ====================
 // These are needed since we can't reassign exported lets from outside the module
 
 export function setInlineDiscussionApp(app: VueApp | null): void {
-  inlineDiscussionApp = app;
+  const state = getState();
+  state.inlineDiscussionApp = app;
 }
 
 export function setDebounceTimer(timer: number | undefined): void {
-  debounceTimer = timer;
+  const state = getState();
+  state.debounceTimer = timer;
 }
 
 export function setLastAnimeInfo(info: AnimeInfo | null): void {
-  lastAnimeInfo = info;
+  const state = getState();
+  state.lastAnimeInfo = info;
 }
 
 export function setLastProcessedKey(key: string | null): void {
-  lastProcessedKey = key;
+  const state = getState();
+  state.lastProcessedKey = key;
 }
 
 export function setActiveObserver(observer: MutationObserver | null): void {
-  activeObserver = observer;
+  const state = getState();
+  state.activeObserver = observer;
 }
 
 export function setSearchInProgress(inProgress: boolean): void {
-  searchInProgress = inProgress;
+  const state = getState();
+  state.searchInProgress = inProgress;
 }
 
 export function setRedditCommentsObserver(observer: IntersectionObserver | null): void {
-  redditCommentsObserver = observer;
+  const state = getState();
+  state.redditCommentsObserver = observer;
 }
 
 export function setRedditCommentsSentinel(sentinel: HTMLElement | null): void {
-  redditCommentsSentinel = sentinel;
+  const state = getState();
+  state.redditCommentsSentinel = sentinel;
 }
 
 export function setRedditCommentsCleanup(cleanup: (() => void) | null): void {
-  redditCommentsCleanup = cleanup;
+  const state = getState();
+  state.redditCommentsCleanup = cleanup;
 }
 
 export function setYouTubeCommentsObserver(observer: IntersectionObserver | null): void {
-  youtubeCommentsObserver = observer;
+  const state = getState();
+  state.youtubeCommentsObserver = observer;
 }
 
 export function setYouTubeCommentsSentinel(sentinel: HTMLElement | null): void {
-  youtubeCommentsSentinel = sentinel;
+  const state = getState();
+  state.youtubeCommentsSentinel = sentinel;
 }
 
 export function setYouTubeCommentsCleanup(cleanup: (() => void) | null): void {
-  youtubeCommentsCleanup = cleanup;
+  const state = getState();
+  state.youtubeCommentsCleanup = cleanup;
 }
 
 // ==================== Cleanup Functions ====================
@@ -123,69 +144,69 @@ export function setYouTubeCommentsCleanup(cleanup: (() => void) | null): void {
 /**
  * Tears down YouTube infinite scroll observers and cleanup
  */
-export function teardownYouTubeInfiniteScroll(): void {
-  if (youtubeCommentsCleanup) {
+export function teardownYouTubeInfiniteScroll(state: ContentState = getState()): void {
+  if (state.youtubeCommentsCleanup) {
     try {
-      youtubeCommentsCleanup();
+      state.youtubeCommentsCleanup();
     } catch (err) {
       console.warn('[LoadingState] Error cleaning up YouTube infinite scroll:', err);
     }
   }
-  youtubeCommentsCleanup = null;
-  youtubeCommentsObserver = null;
-  youtubeCommentsSentinel = null;
+  state.youtubeCommentsCleanup = null;
+  state.youtubeCommentsObserver = null;
+  state.youtubeCommentsSentinel = null;
 }
 
 /**
  * Tears down Reddit infinite scroll observers and cleanup
  */
-export function teardownRedditInfiniteScroll(): void {
-  if (redditCommentsCleanup) {
+export function teardownRedditInfiniteScroll(state: ContentState = getState()): void {
+  if (state.redditCommentsCleanup) {
     try {
-      redditCommentsCleanup();
+      state.redditCommentsCleanup();
     } catch (err) {
       console.warn('[LoadingState] Error cleaning up Reddit infinite scroll:', err);
     }
   }
-  redditCommentsCleanup = null;
-  redditCommentsObserver = null;
-  redditCommentsSentinel = null;
+  state.redditCommentsCleanup = null;
+  state.redditCommentsObserver = null;
+  state.redditCommentsSentinel = null;
 }
 
 /**
  * Clears the discussion cache
  */
-export function clearDiscussionCache(): void {
-  discussionCache.reddit = undefined;
-  discussionCache.disqus = undefined;
-  discussionCache.youtube = undefined;
-  discussionCache.mal = undefined;
+export function clearDiscussionCache(state: ContentState = getState()): void {
+  state.discussionCache.reddit = undefined;
+  state.discussionCache.disqus = undefined;
+  state.discussionCache.youtube = undefined;
+  state.discussionCache.mal = undefined;
 }
 
 /**
  * Full cleanup when context is invalidated
  */
-export function cleanupAllState(): void {
-  if (debounceTimer) {
-    clearTimeout(debounceTimer);
-    debounceTimer = undefined;
+export function cleanupAllState(state: ContentState = getState()): void {
+  if (state.debounceTimer) {
+    clearTimeout(state.debounceTimer);
+    state.debounceTimer = undefined;
   }
   
-  if (activeObserver) {
-    try { activeObserver.disconnect(); } catch {}
-    activeObserver = null;
+  if (state.activeObserver) {
+    try { state.activeObserver.disconnect(); } catch {}
+    state.activeObserver = null;
   }
   
-  teardownRedditInfiniteScroll();
-  teardownYouTubeInfiniteScroll();
+  teardownRedditInfiniteScroll(state);
+  teardownYouTubeInfiniteScroll(state);
   
-  if (inlineDiscussionApp) {
-    try { inlineDiscussionApp.unmount(); } catch {}
-    inlineDiscussionApp = null;
+  if (state.inlineDiscussionApp) {
+    try { state.inlineDiscussionApp.unmount(); } catch {}
+    state.inlineDiscussionApp = null;
   }
   
-  clearDiscussionCache();
-  animeInfoComposable.clearCache();
+  clearDiscussionCache(state);
+  resetEnvCaches();
 }
 
 // ==================== Debug Mode ====================

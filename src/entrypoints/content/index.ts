@@ -89,39 +89,6 @@ import {
 } from './templates';
 import { renderDisqusContainer } from './templates';
 
-// Import state management
-import {
-  inlineDiscussionApp,
-  discussionCache,
-  debounceTimer,
-  lastAnimeInfo,
-  lastProcessedKey,
-  activeObserver,
-  searchInProgress,
-  redditCommentsObserver,
-  redditCommentsSentinel,
-  redditCommentsCleanup,
-  youtubeCommentsObserver,
-  youtubeCommentsSentinel,
-  youtubeCommentsCleanup,
-  setInlineDiscussionApp,
-  setDebounceTimer,
-  setLastAnimeInfo,
-  setLastProcessedKey,
-  setActiveObserver,
-  setSearchInProgress,
-  setRedditCommentsObserver,
-  setRedditCommentsSentinel,
-  setRedditCommentsCleanup,
-  setYouTubeCommentsObserver,
-  setYouTubeCommentsSentinel,
-  setYouTubeCommentsCleanup,
-  teardownYouTubeInfiniteScroll,
-  teardownRedditInfiniteScroll,
-  animeInfoComposable as animeInfo,
-  displayModeManager,
-} from './state';
-
 // Import bootstrap
 import { bootstrapContent } from './core/bootstrap';
 

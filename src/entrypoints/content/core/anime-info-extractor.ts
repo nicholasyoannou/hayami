@@ -7,8 +7,7 @@ import { detectChibi } from '../chibi';
 import { getSiteDetectorsForLocation } from '../sites/registry';
 import type { AnimeInfo } from '../types';
 import {
-  activeObserver,
-  lastProcessedKey,
+  getState,
   setLastAnimeInfo,
   setLastProcessedKey,
   setActiveObserver,
@@ -124,8 +123,9 @@ export function observeAnimeInfoOnce(
   onInfoFound: (info: AnimeInfo) => Promise<void>
 ): void {
   // Disconnect previous observer to avoid duplicates
-  if (activeObserver) {
-    activeObserver.disconnect();
+  const state = getState();
+  if (state.activeObserver) {
+    state.activeObserver.disconnect();
   }
   let detectionInFlight = false;
 
@@ -148,7 +148,7 @@ export function observeAnimeInfoOnce(
       console.log('Anime Info Found:', info);
       setLastAnimeInfo(info);
       const key = `${info.animeName}|${info.episodeName}`;
-      if (key !== lastProcessedKey) {
+      if (key !== state.lastProcessedKey) {
         setLastProcessedKey(key);
         window.dispatchEvent(new CustomEvent('animeInfoLoaded', { detail: info }));
         // Execute the provided callback

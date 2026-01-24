@@ -378,6 +378,9 @@ export async function getSubredditEmojiMap(subreddit: string): Promise<Record<st
 
 export async function getPostComments(postId: string, sort: RedditCommentSort = 'best'): Promise<RedditCommentsResult> {
   try {
+    if (!postId) {
+      return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
+    }
     const sortParam = sort === 'best' ? 'confidence' : sort;
     const token = await getAccessToken();
     let result: any[] | null = null;
