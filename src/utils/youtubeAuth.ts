@@ -29,11 +29,50 @@ interface YouTubeAuthResult {
   error?: string;
 }
 
+const TOKEN_REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
+
 /**
  * Helper to check if we're in a context that has chrome.identity access
  */
 function hasIdentityAccess(): boolean {
   return typeof browser !== 'undefined' && typeof browser.identity !== 'undefined';
+}
+
+function clearAllCachedTokens(): Promise<void> {
+  if (!hasIdentityAccess()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const clearFn = (browser.identity as any).clearAllCachedAuthTokens;
+    if (typeof clearFn === 'function') {
+      clearFn.call(browser.identity, () => resolve());
+    } else {
+      resolve();
+    }
+  });
+}
+
+async function removeCachedToken(token: string | null): Promise<void> {
+  if (!token || !hasIdentityAccess()) return;
+  await new Promise<void>((resolve) => {
+    browser.identity.removeCachedAuthToken({ token }, () => resolve());
+  });
+}
+
+async function revokeYouTubeToken(token: string | null): Promise<void> {
+  if (!token) return;
+  try {
+    await fetch(`${TOKEN_REVOKE_ENDPOINT}?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  } catch (err) {
+    console.warn('Failed to revoke YouTube token', err);
+  }
+}
+
+async function resetYouTubeSession(token: string | null = null): Promise<void> {
+  await removeCachedToken(token);
+  await clearAllCachedTokens();
 }
 
 /**
@@ -66,37 +105,38 @@ export async function authenticateWithYouTube(): Promise<YouTubeAuthResult> {
     }
 
     // Clear any existing cached token to force re-authentication with correct scopes
-    // This ensures we get a token with the scopes defined in manifest.json
-    try {
-      const existingToken = await getYouTubeAccessToken(false);
-      if (existingToken) {
-        console.log('Removing existing token to force re-authentication with correct scopes');
-        await new Promise<void>((resolve) => {
-          browser.identity.removeCachedAuthToken({ token: existingToken }, () => {
-            resolve();
-          });
-        });
-      }
-    } catch (e) {
-      // Ignore errors when clearing token
-      console.log('No existing token to clear');
+    const existingToken = await getYouTubeAccessToken(false);
+    if (existingToken) {
+      console.log('Removing existing token to force re-authentication with correct scopes');
+      await resetYouTubeSession(existingToken);
+    } else {
+      await clearAllCachedTokens();
     }
 
     // Get access token using Chrome's built-in OAuth flow
     // Chrome automatically handles token refresh and caching
     // The scopes are defined in manifest.json oauth2.scopes
     const token = await new Promise<string>((resolve, reject) => {
-      browser.identity.getAuthToken({ interactive: true }, (token) => {
-        if (browser.runtime.lastError) {
-          reject(new Error(browser.runtime.lastError.message));
-          return;
-        }
-        if (!token) {
-          reject(new Error('No token received'));
-          return;
-        }
-        resolve(token);
-      });
+      const getToken = (allowRetry: boolean) => {
+        browser.identity.getAuthToken({ interactive: true }, (tok) => {
+          const errMsg = browser.runtime.lastError?.message || '';
+          if (errMsg) {
+            const normalized = errMsg.toLowerCase();
+            if (allowRetry && (normalized.includes('revoked') || normalized.includes('invalid grant'))) {
+              clearAllCachedTokens().then(() => getToken(false));
+              return;
+            }
+            reject(new Error(errMsg));
+            return;
+          }
+          if (!tok) {
+            reject(new Error('No token received'));
+            return;
+          }
+          resolve(tok);
+        });
+      };
+      getToken(true);
     });
 
     // Fetch and store user identity
@@ -137,25 +177,34 @@ export async function getYouTubeAccessToken(interactive: boolean = false): Promi
   try {
     // Try to get token (interactive or non-interactive based on parameter)
     const token = await new Promise<string | null>((resolve, reject) => {
-      browser.identity.getAuthToken({ interactive }, (token) => {
-        if (browser.runtime.lastError) {
-          if (interactive) {
-            reject(new Error(browser.runtime.lastError.message));
-          } else {
-            resolve(null);
+      const getToken = (allowRetry: boolean) => {
+        browser.identity.getAuthToken({ interactive }, (tok) => {
+          const errMsg = browser.runtime.lastError?.message || '';
+          if (errMsg) {
+            const normalized = errMsg.toLowerCase();
+            if (allowRetry && (normalized.includes('revoked') || normalized.includes('invalid grant'))) {
+              clearAllCachedTokens().then(() => getToken(false));
+              return;
+            }
+            if (interactive) {
+              reject(new Error(errMsg));
+            } else {
+              resolve(null);
+            }
+            return;
           }
-          return;
-        }
-        if (!token) {
-          if (interactive) {
-            reject(new Error('No token received'));
-          } else {
-            resolve(null);
+          if (!tok) {
+            if (interactive) {
+              reject(new Error('No token received'));
+            } else {
+              resolve(null);
+            }
+            return;
           }
-          return;
-        }
-        resolve(token);
-      });
+          resolve(tok);
+        });
+      };
+      getToken(true);
     });
 
     return token;
@@ -289,14 +338,10 @@ export async function logoutYouTube(): Promise<void> {
     }
     
     if (token) {
-      // Remove cached token (this revokes it)
-      await new Promise<void>((resolve) => {
-        browser.identity.removeCachedAuthToken({ token: token! }, () => {
-          // Ignore errors - token might already be invalid
-          resolve();
-        });
-      });
+      await revokeYouTubeToken(token);
     }
+
+    await resetYouTubeSession(token);
 
     // Clear local storage
     await browser.storage.local.remove([
