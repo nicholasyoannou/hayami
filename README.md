@@ -1,169 +1,61 @@
-# Hayami Extension
+<!-- Center Hayami logo -->
+<p align="center">
+  <img src=".github/hayamiLogo.png" alt="Hayami Logo" width="250"/>
+</p>
 
-A Chrome extension that brings episode discussions from r/anime to Crunchyroll (and now any + MALSync-supported anime websites)! Watch anime and discover under-episode comments.
+# Hayami Komento
 
-## Features
+<span style="font-weight:bold;">Hayami</span> is a WXT-built extension purposed for Chrome and Firefox that brings episode discussions from a multitude of sources to Crunchyroll (and also any user-added sites)!
 
-- 🔍 Automatically detects anime and episode information on Crunchyroll
-- 💬 Fetches episode discussion threads from r/anime
-- 📖 Read comments and discussions
-- 🎯 Support for Crunchyroll, ontop of user-added third-party websites
+Makes it possible to view episode discussions on the episode page itself supporting a plethora of comments sections.
+By use of this extension, you agree to the Hayami [Usage Policy](https://hayami.moe/usagepolicy).
 
-## 🚀 Setup Instructions
+<!-- Placeholders for when it eventually does go extension stores -->
+<!-- [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/hdjfbhioaejafcokdmmfgmpcagjggfkm?label=Chrome%20Web%20Store&logo=google-chrome&style=flat-square)](https://chrome.google.com/webstore/detail/hdjfbhioaejafcokdmmfgmpcagjggfkm) [![Firefox Add-ons](https://img.shields.io/amo/v/hayami-extension?label=Firefox%20Add-ons&logo=mozilla-firefox&style=flat-square)](https://addons.mozilla.org/en-US/firefox/addon/hayami-extension/) -->
 
-### Prerequisites
+#### **Supported sites** <a id="anchor-link"></a>
 
-- Google Chrome or Chromium-based browser
-- A Reddit account
-- Node.js or Bun installed (for development)
+  <table>
+    <thead>
+      <tr>
+        <th>Anime platforms</th>
+        <th>Discussion platforms</th>
+      </tr>
+    </thead>
+    <tr>
+         <td><a href="https://www.crunchyroll.com/"><img src="https://www.google.com/s2/favicons?domain=https://www.crunchyroll.com/"> Crunchyroll</a></td>
+         <td><a href="https://www.reddit.com/r/anime/"><img src="https://www.google.com/s2/favicons?domain=https://www.reddit.com"> Reddit (r/anime)</a></td>
+      </tr>
+      <tr>
+         <td><a href="https://www.netflix.com/"><img src="https://www.google.com/s2/favicons?domain=https://www.netflix.com"> Netflix</a></td>
+         <td><a href="https://disqus.com/"><img src="https://www.google.com/s2/favicons?domain=https://disqus.com"> Disqus</a></td>
+      </tr>
+      <tr>
+      <td>+ Manually-added anime sites</td>
+      <td><a href="https://myanimelist.net/"><img src="https://www.google.com/s2/favicons?domain=https://myanimelist.net"> MyAnimeList</a></td>
+      </tr>
+      <tr>
+      <td></td>
+      <td><a href="https://youtube.com/"><img src="https://www.google.com/s2/favicons?domain=https://youtube.com"> YouTube</a></td>
+  </table>
 
-### Step 1: Create a Reddit App
+## What more can it do?
 
-### Note: This will be refactored. Hayami may not have a Reddit API key due to the Reddit API changes
+The usual stuff:
 
-1. Go to [Reddit Apps Preferences](https://www.reddit.com/prefs/apps)
-2. Scroll down and click **"are you a developer? create an app..."**
-3. Fill in the form:
-   - **name**: Crunchyroll Comments Revive (or any name you prefer)
-   - **App type**: Select **"installed app"**
-   - **description**: Chrome extension for viewing r/anime discussions on Crunchyroll
-   - **about url**: Leave blank or add your GitHub repo
-   - **redirect uri**: `https://<YOUR_EXTENSION_ID>.chromiumapp.org/`
-     - **Note**: You'll get the extension ID after loading the extension in Chrome (see Step 3)
-     - For now, you can use a placeholder like: `https://placeholder.chromiumapp.org/`
-4. Click **"create app"**
-5. Copy the **client ID** (the string under "personal use script")
+- Automatic detection of anime and episode information on supported sites, fetching relevant discussion threads
+- Support for manually-added third-party websites, rendering Hayami how you like it (inline, replace, popup)*
 
-### Step 2: Configure the Extension
+- Read and participate in episode discussions without leaving your anime platform
+- Switch between multiple discussion sources, at any time
 
-1. Clone or download this repository
-2. Open `utils/redditAuth.ts` in your code editor
-3. Find the `REDDIT_CONFIG` object and update:
-   ```typescript
-   const REDDIT_CONFIG = {
-     clientId: 'YOUR_CLIENT_ID_HERE', // Paste your Reddit client ID here
-     // ... rest of config
-   };
-   ```
-4. Save the file
+The extras:
+- Preview Imgur and Imgchest images and albums directly in comments in a hover & album-like preview
+- Preview YouTube videos as a light popup without leaving the page
 
-### Step 3: Build and Load the Extension
+##### *Manually-added sites can be configured through the 'Configure site with Hayami' right-click context menu option. You have to choose the anime title and episode number selectors yourself for Hayami to work properly, but once set up, Hayami will remember the configuration for future visits.
 
-#### Using Bun (recommended):
+## Want to support Hayami?
+If you enjoy using Hayami and would like to support its development, consider subscribing to [Hayami Plus](https://hayami.moe/plus) costing a buck ($1 USD) a month. Hayami Plus allows API-based rate limits instead of IP-based rate limits, and your subscription helps fund ongoing development and maintenance of the project, both on the backend, and the extension itself. Like giving something for support also, which may grow over time.
 
-```bash
-# Install dependencies
-bun install
-
-# Build for production
-bun run build
-
-# Or run in development mode with hot reload
-bun run dev
-```
-
-#### Load in Chrome:
-
-1. Open Chrome and navigate to `chrome://extensions/`
-2. Enable **"Developer mode"** (toggle in top right)
-3. Click **"Load unpacked"**
-4. Select the `.output/chrome-mv3` folder from the project directory
-5. **Copy the Extension ID** from the extension card
-
-### Step 4: Update Reddit App Redirect URI
-
-1. Go back to [Reddit Apps Preferences](https://www.reddit.com/prefs/apps)
-2. Click **"edit"** on your app
-3. Update the **redirect uri** with your actual extension ID:
-   ```
-   https://<YOUR_EXTENSION_ID>.chromiumapp.org/
-   ```
-   Example: `https://abcdefghijklmnopqrstuvwxyz.chromiumapp.org/`
-4. Click **"update app"**
-
-### Step 5: Authenticate
-
-1. Click the extension icon in Chrome
-2. Click **"Login with Reddit"**
-3. Authorize the extension on Reddit
-4. You're all set! 🎉
-
-## 📖 Usage
-
-1. Go to [Crunchyroll](https://www.crunchyroll.com/)
-2. Navigate to any anime episode (e.g., `/watch/<series-id>/<episode-name>`)
-3. The extension will automatically:
-   - Detect the anime name and episode number
-   - Search r/anime for discussion threads
-   - Display comments and discussions
-
-### Key Technologies
-
-- **Framework**: [WXT](https://wxt.dev/) - Next-gen web extension framework
-- **UI**: Vue 3 with TypeScript
-- **Build Tool**: Vite
-- **Package Manager**: Bun (or npm/yarn)
-- **APIs**: Reddit OAuth2 API
-
-### Available Commands
-
-```bash
-# Development mode (Chrome)
-bun run dev
-
-# Development mode (Firefox)
-bun run dev:firefox
-
-# Build for production
-bun run build
-
-# Build for Firefox
-bun run build:firefox
-
-# Create distribution zip
-bun run zip
-
-# Type checking
-bun run compile
-```
-
-## 🔐 Privacy & Security
-
-- The extension uses Reddit's official OAuth2 flow
-- Access tokens are stored locally in Chrome's secure storage
-- No data is sent to third-party servers
-- The extension only requests necessary Reddit API scopes:
-  - `identity` - Get your Reddit username
-  - `read` - Read post and comment data
-  - `submit` - Post comments (optional)
-  - `history` - Access your Reddit history
-
-## 📝 Reddit API Scopes
-
-The extension requests the following scopes:
-
-- **identity**: To display your Reddit username
-- **read**: To fetch posts and comments from r/anime
-- **submit**: To allow posting comments
-- **history**: To track your interactions
-
-## 🐛 Troubleshooting
-
-### Build errors
-
-```bash
-# Clear cache and rebuild
-rm -rf .wxt node_modules
-bun install
-bun run build
-```
-
-## 🙏 Credits
-
-- Built with [WXT](https://wxt.dev/)
-- Inspired by the r/anime community
-- Uses [Reddit API](https://www.reddit.com/dev/api/)
-
-## ⚠️ Disclaimer
-
-This extension is not affiliated with Crunchyroll, Reddit, or affliates. Please use Hayami responsibly and abide by Hayami's Usage Policy.
+It's paid? Nope, Hayami will <span style="font-weight:bold;">always</span> be free to use. Hayami Plus is entirely optional, and will stay that way.
