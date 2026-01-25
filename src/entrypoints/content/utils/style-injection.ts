@@ -10,9 +10,12 @@ import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
 
 /**
- * Combined extension styles for injection into UI containers
+ * Combined extension styles for injection into UI containers.
+ * Computed lazily to avoid unnecessary work at module initialization.
  */
-const EXTENSION_STYLES = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
+function getExtensionStyles(): string {
+  return `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
+}
 
 /**
  * Data attribute used to mark containers that already have styles injected
@@ -51,7 +54,8 @@ export function injectExtensionStyles(
   if (styleId) {
     styleEl.id = styleId;
   }
-  styleEl.textContent = EXTENSION_STYLES;
+  styleEl.setAttribute(STYLES_INJECTED_ATTR, 'true');
+  styleEl.textContent = getExtensionStyles();
   
   // Mark container and inject styles
   container.setAttribute(STYLES_INJECTED_ATTR, 'true');
@@ -77,7 +81,9 @@ export function hasStylesInjected(container: HTMLElement): boolean {
  */
 export function removeInjectedStyles(container: HTMLElement): void {
   container.removeAttribute(STYLES_INJECTED_ATTR);
-  const styleEl = container.querySelector('style');
+  
+  // Find and remove the style element that was injected by this utility
+  const styleEl = container.querySelector(`style[${STYLES_INJECTED_ATTR}]`);
   if (styleEl) {
     styleEl.remove();
   }
