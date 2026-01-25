@@ -12,6 +12,7 @@ const props = defineProps<{
   emojiMap?: Record<string, string>;
   initialSort?: 'best' | 'top' | 'new';
   searchQuery?: string;
+  emptyMessage?: string;
 }>();
 
 const emit = defineEmits<{
@@ -278,7 +279,7 @@ defineExpose({
     <!-- Empty state -->
     <div v-else-if="filteredComments.length === 0 && rootMoreIds.length === 0" class="ri-empty">
       <p v-if="searchQuery">No comments match your search.</p>
-      <p v-else>No comments yet.</p>
+      <p v-else>{{ emptyMessage || 'No comments yet.' }}</p>
     </div>
     
     <!-- Comments (including case where we have rootMoreIds but no visible comments yet) -->

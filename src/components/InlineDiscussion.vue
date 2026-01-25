@@ -38,8 +38,21 @@ const isLoading = ref(props.initialLoading ?? false);
 const commentSort = ref<'best' | 'top' | 'new'>('best');
 const searchQuery = ref('');
 const totalComments = ref(props.discussion.num_comments ?? 0);
+const redditEmptyMessage = computed(() => {
+  // When no discussion thread was resolved, avoid showing a misleading empty-comments message.
+  return isNoDiscussion.value ? 'No discussion thread found.' : undefined;
+});
 // Counter to force RedditCommentList re-creation when switching back from other providers
 const redditCommentsKey = ref(0);
+const inlineSectionRef = ref<HTMLElement | null>(null);
+const isNoDiscussion = ref(false);
+const displayTitle = computed(() => isNoDiscussion.value ? 'No Reddit thread found.' : props.discussion.title);
+const noDiscussionDetailTitle = computed(() => {
+  const host = inlineSectionRef.value;
+  const fromHost = host?.dataset?.noDiscussionTitle;
+  if (fromHost) return fromHost;
+  return props.discussion.title || 'No discussion thread found';
+});
 // Ref for external comments container (Disqus/YouTube)
 const externalCommentsRef = ref<HTMLElement | null>(null);
 // Share button state
@@ -84,9 +97,13 @@ const filteredDisqusSearchResults = computed(() => {
   });
 });
 
-function openManualSearchModal(initialQuery?: string, context?: { animeName?: string; crEpisodeNum?: number | null }) {
+function openManualSearchModal(
+  initialQuery?: string,
+  context?: { animeName?: string; crEpisodeNum?: number | null },
+  initialTab: 'search' | 'episode' = 'episode'
+) {
   manualSearchOpen.value = true;
-  manualDialogTab.value = 'episode';
+  manualDialogTab.value = initialTab;
   manualSearchQuery.value = initialQuery || props.discussion.title || '';
   manualSearchResults.value = [];
   manualSearchError.value = null;
@@ -264,6 +281,12 @@ function handleManualSearch() {
     detail: { discussion: props.discussion }
   });
   window.dispatchEvent(event);
+}
+
+function handleManualSearchNoDiscussion() {
+  // Open local manual search modal directly on the Search tab using the resolved no-discussion title
+  const title = noDiscussionDetailTitle.value || props.discussion?.title || '';
+  openManualSearchModal(title, { animeName: title, crEpisodeNum: null }, 'search');
 }
 
 async function handleUpvote(e?: Event) {
@@ -500,6 +523,11 @@ function handleProviderChange(provider: Provider) {
   currentProvider.value = provider;
   console.log('currentProvider is now:', currentProvider.value);
   
+  // Clear no-discussion flag when leaving Reddit so other providers remain visible
+  if (provider !== 'reddit') {
+    clearNoDiscussionFlag();
+  }
+
   // Use nextTick to ensure Vue has rendered the loading state BEFORE calling the callback
   nextTick(() => {
     console.log('[HandleProviderChange] nextTick: Vue should have rendered skeletons');
@@ -544,6 +572,58 @@ const clearLoading = () => {
 // Get the external comments container element
 const getExternalCommentsElement = () => externalCommentsRef.value;
 
+const updateNoDiscussionFlag = () => {
+  const host = inlineSectionRef.value;
+  isNoDiscussion.value = host?.dataset?.noDiscussion === 'true';
+};
+
+const clearNoDiscussionFlag = () => {
+  const host = inlineSectionRef.value;
+  if (host?.dataset?.noDiscussion) {
+    host.removeAttribute('data-no-discussion');
+    host.removeAttribute('data-no-discussion-title');
+  }
+  isNoDiscussion.value = false;
+};
+
+const flagNoDiscussionHost = () => {
+  const host = inlineSectionRef.value;
+  if (!host) return;
+  if (host.dataset.noDiscussion !== 'true') {
+    host.dataset.noDiscussion = 'true';
+  }
+  updateNoDiscussionFlag();
+};
+
+// When returning to Reddit, if the discussion looks like a placeholder (no permalink/id marker),
+// keep the no-discussion state so we don't show the default empty comments view.
+watch(currentProvider, (prov) => {
+  if (prov !== 'reddit') {
+    clearNoDiscussionFlag();
+    return;
+  }
+  const looksPlaceholder = !props.discussion?.permalink || props.discussion?.id?.startsWith('ext-placeholder');
+  if (looksPlaceholder) {
+    flagNoDiscussionHost();
+  }
+});
+
+let noDiscussionObserver: MutationObserver | null = null;
+
+onMounted(() => {
+  updateNoDiscussionFlag();
+  const host = inlineSectionRef.value;
+  if (host) {
+    noDiscussionObserver = new MutationObserver(updateNoDiscussionFlag);
+    noDiscussionObserver.observe(host, { attributes: true, attributeFilter: ['data-no-discussion'] });
+  }
+});
+
+onUnmounted(() => {
+  noDiscussionObserver?.disconnect();
+  noDiscussionObserver = null;
+});
+
 // Expose methods for content script to call - must be after function definitions
 defineExpose({
   handleProviderChange,
@@ -567,12 +647,12 @@ defineExpose({
       @provider-change="(p: Provider) => handleProviderChange(p)"
     />
 
-    <section id="reddit-inline-discussion" style="margin-top: 0; width: 100%;">
+    <section id="reddit-inline-discussion" ref="inlineSectionRef" style="margin-top: 0; width: 100%;">
       <!-- Reddit header - only visible for Reddit provider -->
       <div v-if="currentProvider === 'reddit'" class="ri-header">
         <div class="ri-title-row pt-1">
           <h3 class="ri-title">
-            {{ discussion.title }}
+            {{ displayTitle }}
           </h3>
           <div style="display: flex; align-items: center; gap: 8px;">
             <button
@@ -595,11 +675,11 @@ defineExpose({
             </a>
           </div>
         </div>
-        <div class="ri-meta">
+        <div class="ri-meta" v-if="!isNoDiscussion">
           <span class="ri-author">u/{{ discussion.author }}</span>
           <span class="ri-separator">•</span>
           
-          <div class="ri-post-actions">
+          <div class="ri-post-actions" v-if="!isNoDiscussion">
             <button
               v-if="!isArchived"
               id="ri-add-comment-btn"
@@ -671,8 +751,18 @@ defineExpose({
         </div>
       </div>
 
+      <!-- Inline no-discussion message to persist across provider toggles -->
+      <div v-if="currentProvider === 'reddit' && isNoDiscussion" class="ri-inline-no-discussion">
+        <p class="ri-inline-no-discussion__lead">No discussion thread found for:</p>
+        <p class="ri-inline-no-discussion__title">{{ noDiscussionDetailTitle }}</p>
+        <p class="ri-inline-no-discussion__hint">Discussion threads are usually posted shortly after an episode airs.</p>
+        <button class="ri-inline-no-discussion__cta" type="button" @click="handleManualSearchNoDiscussion">
+          Wrong episode? Search manually
+        </button>
+      </div>
+
       <!-- Toolbar - only visible for Reddit provider -->
-      <div v-if="currentProvider === 'reddit'" class="ri-toolbar">
+      <div v-if="currentProvider === 'reddit' && !isNoDiscussion" class="ri-toolbar">
         <div class="ri-sort">
           Sort by:
           <select 
@@ -747,6 +837,7 @@ defineExpose({
           :is-locked="discussion.locked"
           :initial-sort="commentSort"
           :search-query="searchQuery"
+          :empty-message="redditEmptyMessage"
           @comments-loaded="handleCommentsLoaded"
         />
         

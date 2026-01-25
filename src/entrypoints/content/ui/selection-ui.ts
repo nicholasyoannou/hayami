@@ -9,6 +9,9 @@ import { createOverlay } from './overlays';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping } from '../mapping';
 import { getState } from '../state';
+import { resolveAdapter } from '../adapters/site-registry';
+import { getWatchPageWrapper } from '../utils/dom-helpers';
+import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper';
 import type { AnimeInfo } from '../types';
 import { RedditDiscussionInfoPanel, RedditManualSearchPanel, type RedditPost } from '@/components/overlays';
 import { noCommentsModeItem } from '@/config/storage';
@@ -158,49 +161,44 @@ function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
  * Shows inline UI for selecting episode when no comments found
  */
 function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void {
-  // Remove existing inline panel and skeleton if present
-  const existing = document.getElementById('reddit-inline-discussion');
-  if (existing) existing.remove();
+  // Reuse existing inline container if present (keeps top menu in place)
+  const existing = document.getElementById('reddit-inline-discussion') as HTMLElement | null;
   removeCommentsSkeletonLoading();
 
-  const layout = document.querySelector('.erc-watch-episode-layout');
-  const wrapper = layout?.querySelectorAll('[class^="content-wrapper"]')[1] as HTMLElement | null;
-  
-  if (!wrapper) {
-    // Fallback to popup if wrapper not found
-    showNoDiscussionPopup(animeName, episodeNumber);
-    return;
+  // Prefer adapter/custom anchors; fall back to watch wrapper or document body so we stay inline
+  const adapter = resolveAdapter();
+  const baseAnchor = adapter?.getMountAnchor?.() || getWatchPageWrapper() || document.body;
+
+  const host = existing ?? document.createElement('section');
+  host.id = 'reddit-inline-discussion';
+  host.dataset.noDiscussion = 'true';
+  host.dataset.noDiscussionTitle = `${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}`;
+
+  if (!existing) {
+    applySidePadding(baseAnchor as HTMLElement);
+    baseAnchor.appendChild(host);
   }
 
-  const container = document.createElement('section');
-  container.id = 'reddit-inline-discussion';
-  container.innerHTML = `
-    <div class="ri-header">
-      <h3 class="ri-title">r/anime Discussion</h3>
-    </div>
-    <div class="ri-meta">No discussion thread found</div>
-    <div class="ri-no-comments-content">
-      <p>No discussion thread found for:</p>
-      <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
-      <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
-      <div style="margin-top:16px;">
-        <button id="ri-wrong-episode-btn" class="ri-add-comment-btn" type="button">Wrong Episode? Search Manually</button>
-      </div>
-    </div>
-  `;
+  // If a custom mapping exists, move under its resolved mount once available
+  if (getCustomSiteMapping()) {
+    getCustomMountAnchor().then((anchor) => {
+      if (anchor && anchor !== baseAnchor && host.isConnected) {
+        applySidePadding(anchor);
+        anchor.appendChild(host);
+      }
+    }).catch((e) => console.warn('Failed to move inline no-comments panel to custom anchor', e));
+  }
 
-  wrapper.appendChild(container);
-
-  const wrongBtn = container.querySelector('#ri-wrong-episode-btn');
-  wrongBtn?.addEventListener('click', () => {
-    const lastInfo = getState().lastAnimeInfo;
-    const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-    showManualSearchUI(
-      lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, 
-      crEpisodeNum ? Number(crEpisodeNum) : undefined
-    );
-    container.remove();
-  });
+  // Ensure top menu is enabled by clearing loading on the inline Vue app if present
+  try {
+    const inlineApp = (getState() as any).inlineDiscussionApp;
+    const exposed = inlineApp?._instance?.exposed ?? inlineApp?._container?._vnode?.component?.exposed;
+    if (exposed?.clearLoading) {
+      exposed.clearLoading();
+    }
+  } catch (e) {
+    console.warn('[NoComments] Failed to clear loading on inline app', e);
+  }
 }
 
 /**

@@ -941,8 +941,12 @@ export async function searchCustomPosts(query: string): Promise<RedditPost[]> {
 /**
  * Attempts to parse a Crunchyroll release date text into a JS Date
  */
-function parseReleaseDateText(releaseDateText: string): Date | null {
+function parseReleaseDateText(releaseDateText: unknown): Date | null {
   if (!releaseDateText) return null;
+
+  if (releaseDateText instanceof Date) return releaseDateText;
+  if (typeof releaseDateText !== 'string') return null;
+
   // Normalize whitespace
   const text = releaseDateText.replace(/\s+/g, ' ').trim();
 
@@ -981,7 +985,7 @@ function parseReleaseDateText(releaseDateText: string): Date | null {
  */
 export async function searchSeriesDiscussionsByDate(
   animeName: string,
-  releaseDateText: string
+  releaseDateText: string | Date | null
 ): Promise<RedditPost[]> {
   try {
     const releaseDate = parseReleaseDateText(releaseDateText);

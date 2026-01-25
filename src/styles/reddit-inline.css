@@ -10,6 +10,54 @@
   border-radius: 0 0 8px 8px;
   padding: 16px;
   margin-top: 0;
+  text-align: left;
+}
+
+#reddit-inline-discussion[data-no-discussion="true"] .ri-comments {
+  display: none;
+}
+
+#reddit-inline-discussion .ri-inline-no-discussion {
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  background: #131313;
+  border: 1px solid #262626;
+  border-radius: 8px;
+  color: #e0e0e0;
+}
+
+#reddit-inline-discussion .ri-inline-no-discussion__lead {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+#reddit-inline-discussion .ri-inline-no-discussion__title {
+  margin: 0 0 8px;
+  font-weight: 700;
+  color: #fff;
+}
+
+#reddit-inline-discussion .ri-inline-no-discussion__hint {
+  margin: 0;
+  color: #aaa;
+  font-size: 13px;
+}
+
+#reddit-inline-discussion .ri-inline-no-discussion__cta {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid #ff4500;
+  background: #1a0f0a;
+  color: #ffb199;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+#reddit-inline-discussion .ri-inline-no-discussion__cta:hover {
+  background: #22130c;
+  border-color: #ff6a33;
 }
 
 /* Remove top margin when Disqus is active (no top strip) */
@@ -289,6 +337,8 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* provider buttons removed; keep section alignment reset above */
 
 #reddit-inline-discussion .ri-top-reply-container {
   margin: 8px 0 16px;

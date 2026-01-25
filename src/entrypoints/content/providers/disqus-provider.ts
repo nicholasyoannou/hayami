@@ -201,6 +201,9 @@ async function renderDisqusThread(
   animeInfo: AnimeInfo,
   clearLoadingState: (reason: string) => void
 ): Promise<void> {
+  // Ensure the container is visible even if a previous provider hid it
+  container.style.display = 'block';
+
   const title = thread.clean_title || thread.title || `${animeInfo.animeName || 'Anime'} discussion`;
   const threadUrl = thread.link || '';
   const identifier = String(thread.id || thread.identifier || '');
@@ -330,6 +333,7 @@ export class DisqusProvider extends BaseProvider {
           DISQUS_CONTAINER_RETRY_ATTEMPTS,
           DISQUS_CONTAINER_RETRY_DELAY_MS
         );
+        fallbackContainer.style.display = 'block';
         // Render a simple empty state so the area is not blank
         fallbackContainer.innerHTML = `
           <div style="padding:12px 0;color:#c9c9c9;font-size:13px;line-height:1.4;text-align:left;">

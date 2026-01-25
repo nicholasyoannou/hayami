@@ -824,35 +824,47 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     showSelectionUI(animeInfo, results, mappedEpisodeNum ?? (rawEpisodeNum ?? undefined));
   } catch (error) {
     console.error('Error searching for discussion:', error);
+    try {
+      const epStr = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '?');
+      await showNoDiscussionMessage(animeInfo?.animeName || 'this series', epStr as string);
+    } catch (fallbackErr) {
+      console.warn('Failed to show no-discussion fallback after error', fallbackErr);
+    }
   } finally {
     setSearchInProgress(false);
   }
 }
 
 async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo, mappedEpisodeNum?: number | null): Promise<void> {
-  const ep = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '');
-  const query = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
-  
-  console.log('Trying manual search with query:', query);
-  const results = await searchCustomPosts(query);
-  
-  if (!results || results.length === 0) {
+  try {
+    const ep = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '');
+    const query = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
+    
+    console.log('Trying manual search with query:', query);
+    const results = await searchCustomPosts(query);
+    
+    if (!results || results.length === 0) {
+      await showNoDiscussionMessage(animeInfo.animeName, ep || '?');
+      return;
+    }
+    
+    // Check if any result matches the exact release date
+    const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
+    
+    if (exactDateMatch) {
+      // Auto-select the post that matches the exact release date
+      console.log('Auto-selected from manual search (exact date match):', exactDateMatch.title);
+      await displayDiscussionDependingOnMode(exactDateMatch);
+      return;
+    }
+    
+    // No exact date match - show "no discussion" message with option to search
     await showNoDiscussionMessage(animeInfo.animeName, ep || '?');
-    return;
+  } catch (err) {
+    console.warn('Manual search flow failed, showing fallback UI', err);
+    const ep = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '?');
+    await showNoDiscussionMessage(animeInfo.animeName, ep as string);
   }
-  
-  // Check if any result matches the exact release date
-  const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
-  
-  if (exactDateMatch) {
-    // Auto-select the post that matches the exact release date
-    console.log('Auto-selected from manual search (exact date match):', exactDateMatch.title);
-    await displayDiscussionDependingOnMode(exactDateMatch);
-    return;
-  }
-  
-  // No exact date match - show "no discussion" message with option to search
-  await showNoDiscussionMessage(animeInfo.animeName, ep || '?');
 }
 
 async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: number): Promise<void> {
@@ -956,57 +968,45 @@ async function showNoDiscussionMessage(animeName: string, episodeNumber: string)
 }
 
 function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void {
-  // Remove existing inline panel and skeleton if present
-  const existing = document.getElementById('reddit-inline-discussion');
-  if (existing) existing.remove();
+  // Keep existing Vue host so the top menu stays interactive
+  const existing = document.getElementById('reddit-inline-discussion') as HTMLElement | null;
   removeCommentsSkeletonLoading();
 
-  // Use cached utility function instead of repeated queries
-  const wrapper = getWatchPageWrapper();
-  if (!wrapper) {
-    // Fallback to popup if wrapper not found
-    // Use popup directly since we can't show inline
-    const overlay = createOverlay();
-    overlay.innerHTML = renderNoDiscussionPanel(animeName, episodeNumber);
-    
-    const closeBtn = overlay.querySelector('#reddit-close-btn');
-    closeBtn?.addEventListener('click', () => overlay.remove());
-    const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
-    wrongBtn?.addEventListener('click', () => {
-      const lastInfo = state().lastAnimeInfo;
-      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-      showManualSearchUI(lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
-      overlay.remove();
-    });
-    return;
+  // Prefer adapter/custom anchors; fall back to watch wrapper or document body so we stay inline
+  const adapter = resolveAdapter();
+  const baseAnchor = adapter?.getMountAnchor?.() || getWatchPageWrapper() || document.body;
+
+  // Reuse existing host when present; otherwise create a new host
+  const host = existing ?? document.createElement('section');
+  host.id = 'reddit-inline-discussion';
+  host.dataset.noDiscussion = 'true';
+  host.dataset.noDiscussionTitle = `${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}`;
+
+  if (!existing) {
+    applySidePadding(baseAnchor as HTMLElement);
+    baseAnchor.appendChild(host);
   }
 
-  const container = document.createElement('section');
-  container.id = 'reddit-inline-discussion';
-  container.innerHTML = `
-    <div class="ri-header">
-      <h3 class="ri-title">r/anime Discussion</h3>
-    </div>
-    <div class="ri-meta">No discussion thread found</div>
-    <div class="ri-no-comments-content">
-      <p>No discussion thread found for:</p>
-      <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
-      <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
-      <div style="margin-top:16px;">
-        <button id="ri-wrong-episode-btn" class="ri-add-comment-btn" type="button">Wrong Episode? Search Manually</button>
-      </div>
-    </div>
-  `;
+  // If a custom mapping exists, move under its resolved mount once available (host only)
+  if (!existing && getCustomSiteMapping()) {
+    getCustomMountAnchor().then((anchor) => {
+      if (anchor && anchor !== baseAnchor && host.isConnected) {
+        applySidePadding(anchor);
+        anchor.appendChild(host);
+      }
+    }).catch((e) => console.warn('Failed to move inline no-comments panel to custom anchor', e));
+  }
 
-  wrapper.appendChild(container);
-
-  const wrongBtn = container.querySelector('#ri-wrong-episode-btn');
-  wrongBtn?.addEventListener('click', () => {
-    const lastInfo = state().lastAnimeInfo;
-    const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-    showManualSearchUI(lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
-    container.remove();
-  });
+  // Ensure the top menu is enabled (clear loading state) if the InlineDiscussion app exists
+  try {
+    const inlineApp = state().inlineDiscussionApp as any;
+    const exposed = inlineApp?._instance?.exposed ?? inlineApp?._container?._vnode?.component?.exposed;
+    if (exposed?.clearLoading) {
+      exposed.clearLoading();
+    }
+  } catch (e) {
+    console.warn('[NoComments] Failed to clear loading on inline app', e);
+  }
 }
 
 async function displayDiscussion(discussion: any): Promise<void> {
@@ -1234,6 +1234,12 @@ function mountLoadingShell(): void {
       subreddit_primary_color: null,
     };
 
+    const handleShellProviderChange = async (provider: CommentProvider) => {
+      preferredProvider = provider;
+      const placeholder = buildPlaceholderDiscussion(state().lastAnimeInfo || undefined);
+      await displayDiscussionDependingOnMode(placeholder);
+    };
+
     let loadingWrapper: HTMLElement | null = null;
 
     // Use WXT's integrated UI for inline positioning
@@ -1264,6 +1270,7 @@ function mountLoadingShell(): void {
           discussion: placeholderDiscussion,
           provider: preferredProvider,
           initialLoading: true,
+          onProviderChange: handleShellProviderChange,
         });
         app1.mount(mountPoint);
         setInlineDiscussionApp(app1);

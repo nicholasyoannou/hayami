@@ -9,7 +9,8 @@ export interface OrderedMapperEntry {
   hasZero?: boolean;
 }
 
-export function parseEpisodeFromTitle(title: string): number | null {
+export function parseEpisodeFromTitle(title: unknown): number | null {
+  if (typeof title !== 'string') return null;
   const m = title.match(/Episode\s*(\d+)/i);
   const result = m ? parseInt(m[1], 10) : null;
   console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: result });

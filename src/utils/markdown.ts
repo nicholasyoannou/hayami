@@ -2,8 +2,9 @@
 
 import * as Snudown from '@/lib/snudown';
 
-export function escapeHtml(s: string) {
-  return s.replace(/[&<>\"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[ch] as string));
+export function escapeHtml(s: unknown) {
+  const val = typeof s === 'string' ? s : s === null || s === undefined ? '' : String(s);
+  return val.replace(/[&<>\"]/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch] as string));
 }
 
 export function markdownToHtml(text: string): string {
