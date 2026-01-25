@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onUpdated, onMounted, onUnmounted } from 'vue';
+import { toast } from 'vue-sonner';
 import { getRuntimeUrl } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
-import { voteThing } from '../utils/redditApi';
+import TipTapCommentEditor from './TipTapCommentEditor.vue';
+import { voteThing, submitComment, type RedditComment } from '@/utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
 import { extractEpisodeTableFromRedditSelftext } from '@/entrypoints/content/mapping';
+import { isAuthenticated, getStoredUsername } from '@/utils/redditAuth';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal';
 
@@ -38,6 +41,9 @@ const isLoading = ref(props.initialLoading ?? false);
 const commentSort = ref<'best' | 'top' | 'new'>('best');
 const searchQuery = ref('');
 const totalComments = ref(props.discussion.num_comments ?? 0);
+const redditListRef = ref<any>(null);
+const showTopReplyEditor = ref(false);
+const isPostingTopComment = ref(false);
 const redditEmptyMessage = computed(() => {
   // When no discussion thread was resolved, avoid showing a misleading empty-comments message.
   return isNoDiscussion.value ? 'No discussion thread found.' : undefined;
@@ -428,6 +434,67 @@ async function handleShare() {
   }
 }
 
+function handleAddCommentClick() {
+  if (isArchived.value || isNoDiscussion.value) return;
+  showTopReplyEditor.value = true;
+  nextTick(() => {
+    const host = document.getElementById('ri-top-reply-host');
+    host?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
+
+async function handleTopCommentSubmit(text: string) {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    toast.error('Comment cannot be empty');
+    return;
+  }
+
+  if (isPostingTopComment.value) return;
+  const authed = await isAuthenticated();
+  if (!authed) {
+    toast.error('Reddit login required to comment.');
+    return;
+  }
+
+  isPostingTopComment.value = true;
+  try {
+    const res = await submitComment(postFullname.value, trimmed);
+    if (!res.success || !res.commentId) {
+      toast.error(res.error || 'Failed to post comment');
+      return;
+    }
+
+    const username = await getStoredUsername();
+    const now = Math.floor(Date.now() / 1000);
+    const newComment: RedditComment = {
+      id: res.commentId,
+      author: username || 'you',
+      body: trimmed,
+      score: 1,
+      created_utc: now,
+      likes: true,
+      replies: [],
+      permalink: `${props.discussion.permalink}?comment=${res.commentId}`,
+      link_id: postFullname.value,
+    };
+
+    redditListRef.value?.addComment(newComment);
+    totalComments.value = totalComments.value + 1;
+    showTopReplyEditor.value = false;
+    toast.success('Comment posted');
+  } catch (err: any) {
+    console.error('Failed to submit comment', err);
+    toast.error(err?.message || 'Failed to post comment');
+  } finally {
+    isPostingTopComment.value = false;
+  }
+}
+
+function handleTopReplyCancel() {
+  showTopReplyEditor.value = false;
+}
+
 function handleCommentsLoaded(count: number) {
   totalComments.value = count;
   console.log('Comments loaded:', count);
@@ -526,6 +593,7 @@ function handleProviderChange(provider: Provider) {
   // Clear no-discussion flag when leaving Reddit so other providers remain visible
   if (provider !== 'reddit') {
     clearNoDiscussionFlag();
+    showTopReplyEditor.value = false;
   }
 
   // Use nextTick to ensure Vue has rendered the loading state BEFORE calling the callback
@@ -686,6 +754,7 @@ defineExpose({
               class="ri-add-comment-btn"
               type="button"
               title="Add a top-level comment"
+              @click="handleAddCommentClick"
             >
               Add Comment
             </button>
@@ -790,11 +859,17 @@ defineExpose({
 
       <!-- Top reply host - only visible for Reddit provider -->
       <div
-        v-if="currentProvider === 'reddit'"
+        v-if="currentProvider === 'reddit' && !isArchived && showTopReplyEditor"
         id="ri-top-reply-host"
         class="ri-top-reply-container"
-        style="display: none"
-      />
+      >
+        <TipTapCommentEditor
+          :disabled="isPostingTopComment"
+          placeholder="Add a public comment"
+          @submit="handleTopCommentSubmit"
+          @cancel="handleTopReplyCancel"
+        />
+      </div>
 
       <!-- Archived notice - only visible for Reddit provider -->
       <div
@@ -838,6 +913,7 @@ defineExpose({
           :initial-sort="commentSort"
           :search-query="searchQuery"
           :empty-message="redditEmptyMessage"
+          ref="redditListRef"
           @comments-loaded="handleCommentsLoaded"
         />
         
