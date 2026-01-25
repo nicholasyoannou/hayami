@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@sentry/vue": "^10.36.0",
+    "@tiptap/extension-bubble-menu": "^3.17.1",
     "@tiptap/extension-code-block-lowlight": "^3.17.1",
     "@tiptap/extension-link": "^3.17.1",
     "@tiptap/extension-list": "^3.17.1",

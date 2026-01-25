@@ -2,13 +2,14 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
+import BubbleMenu from '@tiptap/extension-bubble-menu';
 import { BulletList, OrderedList } from '@tiptap/extension-list'
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createLowlight, common } from 'lowlight';
-import { Markdown } from '@tiptap/markdown'
+import { Markdown } from '@tiptap/markdown';
 
 const lowlight = createLowlight(common);
 
@@ -39,6 +40,13 @@ const editor = useEditor({
       placeholder: props.placeholder || 'Write a comment...',
       emptyEditorClass: 'is-editor-empty',
     }),
+    BubbleMenu.configure({
+      // Show popover when there's a selection or active link
+      shouldShow: ({ editor }) => {
+        return editor.isActive('link') || !editor.state.selection.empty
+      },
+    }),
+
     CodeBlockLowlight.configure({ lowlight }),
     Markdown
   ],
@@ -127,6 +135,29 @@ function htmlToMarkdown(html: string): string {
   return processNode(temp).replace(/\n{3,}/g, '\n\n').trim();
 
 };
+
+function setLink() {
+  if (!editor.value) return;
+
+  const isLinkActive = editor.value.isActive('link');
+  const previousUrl = isLinkActive ? editor.value.getAttributes('link').href : '';
+
+  const url = window.prompt('Enter URL (leave empty to remove link):', previousUrl || '');
+
+  // User cancelled
+  if (url === null) return;
+
+  // Remove link if empty
+  if (url.trim() === '') {
+    editor.value.chain().focus().extendMarkRange('link').unsetLink().run();
+    return;
+  }
+
+  // Set / update link
+  editor.value.chain().focus().extendMarkRange('link').setLink({ href: url.trim() }).run();
+}
+
+
 
 function submit() {
   if (!editor.value) return;
@@ -247,6 +278,21 @@ const isReady = computed(() => !!editor.value);
       </button>
 
       <div class="divider" />
+
+      <button
+        type="button"
+        class="icon-btn"
+        :class="{ 'is-active': editor.isActive('link') }"
+        :disabled="props.disabled || editor.state.selection.empty"
+        @click="setLink"
+        title="Link"
+        >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M4.715 6.542 3.343 7.914a3 3 0 1 0 4.243 4.243l1.828-1.829A3 3 0 0 0 8.586 5.5L8 6.086a1.002 1.002 0 0 0-.154.199 2 2 0 0 1 .861 3.337L6.88 11.45a2 2 0 1 1-2.83-2.83l.793-.792a4.018 4.018 0 0 1-.128-1.287z"/>
+          <path d="M6.586 4.672A3 3 0 0 0 7.414 9.5l.775-.776a2 2 0 0 1-.896-3.346L9.12 3.55a2 2 0 1 1 2.83 2.83l-.793.792c.112.42.155.855.128 1.287l1.372-1.372a3 3 0 1 0-4.243-4.243L6.586 4.672z"/>
+        </svg>
+      </button>
+
 
       <button
         type="button"
@@ -391,6 +437,23 @@ const isReady = computed(() => !!editor.value);
   padding-left: 0;
 }
 
+/* Explicitly set list-style-type on li elements within tiptap to override Tailwind resets */
+/* Using !important because injected global styles have same specificity */
+.editor-container :deep(.tiptap ul > li) {
+  list-style-type: disc !important;
+}
+
+.editor-container :deep(.tiptap ol > li) {
+  list-style-type: decimal !important;
+}
+
+/* Style the list markers for tiptap content */
+.editor-container :deep(.tiptap ul > li::marker),
+.editor-container :deep(.tiptap ol > li::marker) {
+  color: #c9d1d9;
+  font-size: 1.1em;
+}
+
 .editor-container .editor-area ol {
   list-style-type: decimal;
 }
@@ -404,16 +467,16 @@ const isReady = computed(() => !!editor.value);
   padding-left: 0.3em;
 }
 
-/* Explicitly set list-style-type on li elements to override Tailwind resets */
+/* Also set for editor-area in case content is there */
 .editor-container .editor-area ul > li {
-  list-style-type: disc;
+  list-style-type: disc !important;
 }
 
 .editor-container .editor-area ol > li {
-  list-style-type: decimal;
+  list-style-type: decimal !important;
 }
 
-/* Style the list markers */
+/* Style the list markers for editor-area */
 .editor-container .editor-area ul > li::marker,
 .editor-container .editor-area ol > li::marker {
   color: #c9d1d9;
