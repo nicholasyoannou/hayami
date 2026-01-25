@@ -342,10 +342,7 @@
 
 #reddit-inline-discussion .ri-top-reply-container {
   margin: 8px 0 16px;
-  background: #1a1a1a;
-  border: 1px solid #2c2c2c;
-  border-radius: 6px;
-  padding: 12px;
+  padding: 6px;
 }
 
 /* ==================== Archived Notice ==================== */
