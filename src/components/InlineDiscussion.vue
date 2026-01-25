@@ -863,6 +863,7 @@ defineExpose({
         id="ri-top-reply-host"
         class="ri-top-reply-container"
       >
+      
         <TipTapCommentEditor
           :disabled="isPostingTopComment"
           placeholder="Add a public comment"

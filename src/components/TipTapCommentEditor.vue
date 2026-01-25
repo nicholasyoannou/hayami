@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
+import { BulletList, OrderedList } from '@tiptap/extension-list'
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createLowlight, common } from 'lowlight';
+import { Markdown } from '@tiptap/markdown'
 
 const lowlight = createLowlight(common);
 
@@ -24,9 +26,9 @@ const cachedHtml = ref('');
 
 const editor = useEditor({
   extensions: [
-    StarterKit.configure({
-      codeBlock: false,
-    }),
+    StarterKit.configure({}),
+    BulletList,
+    OrderedList,
     Underline,
     Link.configure({
       openOnClick: false,
@@ -38,17 +40,25 @@ const editor = useEditor({
       emptyEditorClass: 'is-editor-empty',
     }),
     CodeBlockLowlight.configure({ lowlight }),
+    Markdown
   ],
+
   content: '',
   autofocus: false,
   editable: !props.disabled,
   editorProps: {
     attributes: {
       class: 'tiptap prose prose-invert max-w-none focus:outline-none',
+    style: `
+      ul, ol { list-style-type: disc !important; margin-left: 1.8em !important; padding-left: 0 !important; }
+      ol { list-style-type: decimal !important; }
+      li::marker { color: #c9d1d9 !important; }
+    `,
     },
   },
   onUpdate: ({ editor }) => {
     cachedHtml.value = editor.getHTML();
+    editor.view.updateState(editor.view.state);
   },
 });
 
@@ -124,13 +134,14 @@ function htmlToMarkdown(html: string): string {
 };
 
 function submit() {
-  const html = cachedHtml.value || editor.value?.getHTML() || '';
-  const md = htmlToMarkdown(html).trim();
+  if (!editor.value) return;
+  const json = editor.value.getJSON();
+  const md = editor.value.markdown.serialize(json).trim();
   if (!md) return;
   emit('submit', md);
-  editor.value?.commands.clearContent();
-  cachedHtml.value = '';
+  editor.value.commands.clearContent();
 }
+
 
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -372,6 +383,43 @@ const isReady = computed(() => !!editor.value);
   flex: 1;
 }
 
+.editor-container :deep(.tiptap ul) {
+  list-style-type: disc !important;
+  margin-left: 1.8em !important;
+  padding-left: 0 !important;
+}
+
+.editor-container :deep(.tiptap ol) {
+  list-style-type: decimal !important;
+  margin-left: 1.8em !important;
+  padding-left: 0 !important;
+}
+
+.editor-container .editor-area ol {
+  list-style-type: decimal !important;
+}
+
+.editor-container .editor-area li {
+  margin-bottom: 0.4em !important;
+  padding-left: 0.3em !important;
+}
+
+/* Force the ::marker to show and style it */
+.editor-container .editor-area ul > li::marker,
+.editor-container .editor-area ol > li::marker {
+  color: #c9d1d9 !important;
+  font-size: 1.1em !important;
+  content: initial !important;   /* let browser generate default content */
+}
+
+/* Nested lists */
+.editor-container .editor-area ul ul,
+.editor-container .editor-area ol ol,
+.editor-container .editor-area ul ol,
+.editor-container .editor-area ol ul {
+  margin: 0.4em 0 0.4em 1.2em !important;
+}
+
 .editor-area {
   min-height: 140px;
   padding: 12px 16px;
@@ -384,7 +432,7 @@ const isReady = computed(() => !!editor.value);
   pointer-events: none;
 }
 
-.tiptap :deep(p.is-editor-empty:first-child::before) {
+.editor-area :deep(p.is-editor-empty:first-child::before) {
   color: #8b949e;
   content: attr(data-placeholder);
   float: left;
@@ -392,11 +440,11 @@ const isReady = computed(() => !!editor.value);
   pointer-events: none;
 }
 
-.tiptap :deep(p) {
+.editor-area :deep(p) {
   margin: 0 0 12px;
 }
 
-.tiptap :deep(pre) {
+.editor-area :deep(pre) {
   background: #161b22;
   padding: 12px;
   border-radius: 6px;
@@ -405,22 +453,22 @@ const isReady = computed(() => !!editor.value);
   margin: 12px 0;
 }
 
-.tiptap :deep(blockquote) {
+.editor-area :deep(blockquote) {
   border-left: 3px solid #30363d;
   padding-left: 12px;
   margin: 12px 0;
   color: #8b949e;
 }
 
-.tiptap :deep(code) {
+.editor-area :deep(code) {
   background: #21262d;
   padding: 2px 6px;
   border-radius: 4px;
   color: #79c0ff;
 }
 
-.tiptap :deep(ul),
-.tiptap :deep(ol) {
+.editor-area :deep(ul),
+.editor-area :deep(ol) {
   margin: 8px 0 8px 20px;
   padding: 0;
 }
