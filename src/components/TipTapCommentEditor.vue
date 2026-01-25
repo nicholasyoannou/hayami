@@ -395,9 +395,22 @@ const isReady = computed(() => !!editor.value);
   list-style-type: decimal;
 }
 
+.editor-container .editor-area ul {
+  list-style-type: disc;
+}
+
 .editor-container .editor-area li {
   margin-bottom: 0.4em;
   padding-left: 0.3em;
+}
+
+/* Explicitly set list-style-type on li elements to override Tailwind resets */
+.editor-container .editor-area ul > li {
+  list-style-type: disc;
+}
+
+.editor-container .editor-area ol > li {
+  list-style-type: decimal;
 }
 
 /* Style the list markers */
