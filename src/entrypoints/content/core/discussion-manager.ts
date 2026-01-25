@@ -106,10 +106,8 @@ import {
 // MAL utilities
 import { extractMalIdFromMapperResult, extractSeasonNumber } from '../utils/mal-utils';
 
-// Styles
-import tailwindCss from '@/styles/tailwind.css?inline';
-import redditInlineCss from '@/styles/reddit-inline.css?inline';
-import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
+// Style injection
+import { injectExtensionStyles } from '../utils/style-injection';
 
 // =============================================================================
 // OPTION REGISTRY HELPERS
@@ -1033,12 +1031,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
   shell.mount.innerHTML = '';
 
   // Inject component styles once
-  if (!shell.panel.querySelector('style[data-hayami-inline-styles]')) {
-    const styleEl = document.createElement('style');
-    styleEl.dataset.hayamiInlineStyles = 'true';
-    styleEl.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
-    shell.panel.appendChild(styleEl);
-  }
+  injectExtensionStyles(shell.panel, 'hayami-popup-styles');
 
   // Mount Vue discussion shell inside popup
   const mountPoint = document.createElement('div');
@@ -1257,10 +1250,8 @@ function mountLoadingShell(): void {
         loadingWrapper = wrapper;
         applySidePadding(wrapper);
 
-        // Inject styles directly into host
-        const style = document.createElement('style');
-        style.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
-        wrapper.appendChild(style);
+        // Inject extension styles
+        injectExtensionStyles(wrapper, 'hayami-loading-styles');
 
         // Mount Vue loading shell in a child mount point
         const mountPoint = document.createElement('div');
@@ -1629,11 +1620,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         wrapper.id = 'ri-inline-vue-host';
         host = wrapper; // Store reference for later queries
 
-        // Apply padding and inject scoped styles directly into the host
+        // Apply padding and inject extension styles
         applySidePadding(wrapper);
-        const style = document.createElement('style');
-        style.textContent = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
-        wrapper.appendChild(style);
+        injectExtensionStyles(wrapper, 'hayami-inline-styles');
 
         // Mount Vue inline discussion shell inside a dedicated mount point
         const mountPoint = document.createElement('div');

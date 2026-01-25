@@ -1,4 +1,14 @@
-@tailwind base;
+/**
+ * Tailwind CSS with scoped base layer to prevent style bleeding
+ * 
+ * The base layer is wrapped in @layer to ensure it has lower specificity
+ * than component styles, preventing unwanted resets of extension UI.
+ */
+
+@layer tailwind-base {
+  @tailwind base;
+}
+
 @tailwind components;
 @tailwind utilities;
 

@@ -49,11 +49,6 @@ const editor = useEditor({
   editorProps: {
     attributes: {
       class: 'tiptap prose prose-invert max-w-none focus:outline-none',
-    style: `
-      ul, ol { list-style-type: disc !important; margin-left: 1.8em !important; padding-left: 0 !important; }
-      ol { list-style-type: decimal !important; }
-      li::marker { color: #c9d1d9 !important; }
-    `,
     },
   },
   onUpdate: ({ editor }) => {
@@ -383,33 +378,33 @@ const isReady = computed(() => !!editor.value);
   flex: 1;
 }
 
+/* TipTap editor list styles - these override Tailwind resets */
 .editor-container :deep(.tiptap ul) {
-  list-style-type: disc !important;
-  margin-left: 1.8em !important;
-  padding-left: 0 !important;
+  list-style-type: disc;
+  margin-left: 1.8em;
+  padding-left: 0;
 }
 
 .editor-container :deep(.tiptap ol) {
-  list-style-type: decimal !important;
-  margin-left: 1.8em !important;
-  padding-left: 0 !important;
+  list-style-type: decimal;
+  margin-left: 1.8em;
+  padding-left: 0;
 }
 
 .editor-container .editor-area ol {
-  list-style-type: decimal !important;
+  list-style-type: decimal;
 }
 
 .editor-container .editor-area li {
-  margin-bottom: 0.4em !important;
-  padding-left: 0.3em !important;
+  margin-bottom: 0.4em;
+  padding-left: 0.3em;
 }
 
-/* Force the ::marker to show and style it */
+/* Style the list markers */
 .editor-container .editor-area ul > li::marker,
 .editor-container .editor-area ol > li::marker {
-  color: #c9d1d9 !important;
-  font-size: 1.1em !important;
-  content: initial !important;   /* let browser generate default content */
+  color: #c9d1d9;
+  font-size: 1.1em;
 }
 
 /* Nested lists */
@@ -417,7 +412,7 @@ const isReady = computed(() => !!editor.value);
 .editor-container .editor-area ol ol,
 .editor-container .editor-area ul ol,
 .editor-container .editor-area ol ul {
-  margin: 0.4em 0 0.4em 1.2em !important;
+  margin: 0.4em 0 0.4em 1.2em;
 }
 
 .editor-area {
