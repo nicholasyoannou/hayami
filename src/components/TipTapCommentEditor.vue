@@ -3,9 +3,10 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
-import { BulletList, OrderedList } from '@tiptap/extension-list'
-import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
+import Superscript from '@tiptap/extension-superscript'
+import Strike from '@tiptap/extension-strike'
+import { Mark, markInputRule, markPasteRule, mergeAttributes } from '@tiptap/vue-3';
 import Placeholder from '@tiptap/extension-placeholder';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createLowlight, common } from 'lowlight';
@@ -25,12 +26,71 @@ const emit = defineEmits<{
 
 const cachedHtml = ref('');
 
+// Custom Spoiler mark (Reddit uses >! !<)
+const Spoiler = Mark.create({
+  name: 'spoiler',
+
+  addOptions() {
+    return {
+      HTMLAttributes: {
+        class: 'spoiler', // or any class for styling
+      },
+    }
+  },
+
+  parseHTML() {
+    return [
+      {
+        tag: 'span.spoiler', // or tag: 'span[style*="background-color"]' if you want to match old rendering
+      },
+    ]
+  },
+
+  renderHTML({ HTMLAttributes }) {
+        return ['code', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0]
+
+  },
+
+  addInputRules() {
+    return [
+      markInputRule({
+        find: />\!(.*?)\!</, // matches >!text!<
+        type: this.type,
+        getAttributes: match => ({ text: match[1] }),
+      }),
+    ]
+  },
+
+  addPasteRules() {
+    return [
+      markPasteRule({
+        find: />\!(.*?)\!</,
+        type: this.type,
+      }),
+    ]
+  },
+
+    addCommands() {
+      return {
+        // This is the missing part!
+        toggleSpoiler: () => ({ commands }) => {
+          return commands.toggleMark(this.name)
+        },
+
+        setSpoiler: () => ({ commands }) => {
+          return commands.setMark(this.name)
+        },
+
+        unsetSpoiler: () => ({ commands }) => {
+          return commands.unsetMark(this.name)
+        },
+      }
+  },
+})
+
 const editor = useEditor({
   extensions: [
     StarterKit.configure({}),
-    BulletList,
-    OrderedList,
-    Underline,
     Link.configure({
       openOnClick: false,
       autolink: true,
@@ -46,6 +106,17 @@ const editor = useEditor({
         return editor.isActive('link') || !editor.state.selection.empty
       },
     }),
+    Superscript.configure({
+      HTMLAttributes: {
+        class: 'superscript',
+      },
+    }),
+    Strike.configure({
+      HTMLAttributes: {
+        class: 'strike',
+      },
+    }),
+    Spoiler,
 
     CodeBlockLowlight.configure({ lowlight }),
     Markdown
@@ -164,7 +235,10 @@ function submit() {
   const json = editor.value.getJSON();
   const md = editor.value.markdown.serialize(json).trim();
   if (!md) return;
-  emit('submit', md);
+  console.log('Submitted Markdown:', md);
+  console.log('Raw JSON document:', JSON.stringify(json, null, 2));
+
+  // emit('submit', md);
   editor.value.commands.clearContent();
 }
 
@@ -209,7 +283,7 @@ const isReady = computed(() => !!editor.value);
         </svg>
       </button>
 
-      <button
+      <!-- <button
         type="button"
         class="icon-btn"
         :class="{ 'is-active': editor.isActive('underline') }"
@@ -220,7 +294,7 @@ const isReady = computed(() => !!editor.value);
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
           <path d="M5.313 3.136h-1.23V9.54c0 2.105 1.47 3.623 3.917 3.623s3.917-1.518 3.917-3.623V3.136h-1.23v6.323c0 1.49-.978 2.57-2.687 2.57s-2.687-1.08-2.687-2.57zM12.5 15h-9v-1h9z"/>
         </svg>
-      </button>
+      </button> -->
 
       <button
         type="button"
@@ -236,6 +310,50 @@ const isReady = computed(() => !!editor.value);
       </button>
 
       <div class="divider" />
+
+      <!-- Heading button (example: toggle H2, or cycle levels – simple version) -->
+      <!-- <button
+        type="button"
+        class="icon-btn"
+        :class="{ 'is-active': editor.isActive('heading', { level: 2 }) }"
+        :disabled="props.disabled"
+        @click="editor.chain().focus().toggleHeading({ level: 2 }).run()"
+        title="Heading 2"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M8.5 4.5v7h-1v-7H3.5v-1H13v1H8.5zM3 13h10v1H3v-1z"/>
+        </svg>
+      </button> -->
+
+      <!-- Superscript button -->
+      <button
+        type="button"
+        class="icon-btn"
+        :class="{ 'is-active': editor.isActive('superscript') }"
+        :disabled="props.disabled"
+        @click="editor.chain().focus().toggleSuperscript().run()"
+        title="Superscript"
+      >
+<svg rpl="" fill="currentColor" height="16" icon-name="superscript" viewBox="0 0 20 20" width="16" xmlns="http://www.w3.org/2000/svg"><path d="M8.215 9.992v.086l4.314 6.384a.958.958 0 01-1.247 1.377.955.955 0 01-.345-.318L6.992 11.5h-.086l-3.944 6.021a.955.955 0 01-1.755-.574.957.957 0 01.162-.485l4.314-6.384v-.086L1.388 3.549a.908.908 0 111.517-.997l4 6.174h.086l4-6.174a.909.909 0 111.517.997L8.215 9.992zm10.12-2.807h-1.109l-.54.022.68-.843c.27-.331.471-.593.62-.8.153-.218.28-.453.38-.7a2.11 2.11 0 00.155-.8 1.9 1.9 0 00-.29-1.042 1.965 1.965 0 00-.8-.7 2.4 2.4 0 00-1.14-.25 2.575 2.575 0 00-1.218.282c-.348.183-.637.46-.835.8a2.472 2.472 0 00-.238.712.693.693 0 00.15.578.8.8 0 00.616.281 1.08 1.08 0 00.943-.8.616.616 0 01.235-.253.687.687 0 01.342-.09.611.611 0 01.424.161.532.532 0 01.158.403.988.988 0 01-.1.43c-.079.169-.174.33-.284.48-.117.16-.274.365-.467.6-.119.148-.208.259-.265.334l-1.368 1.701A.622.622 0 0014.87 8.7h3.466a.758.758 0 000-1.515z"></path></svg>
+      </button>
+
+      <!-- Spoiler button -->
+      <button
+        type="button"
+        class="icon-btn"
+        :class="{ 'is-active': editor.isActive('spoiler') }"
+        :disabled="props.disabled"
+        @click="editor.chain().focus().toggleSpoiler().run()"
+        title="Spoiler"
+      >
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M13.359 11.238C15.06 9.72 16 8 16 8s-3-5.5-8-5.5a7 7 0 0 0-2.79.588l.77.771A6 6 0 0 1 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13 13 0 0 1 14.828 8q-.086.13-.195.288c-.335.48-.83 1.12-1.465 1.755q-.247.248-.517.486z"/>
+  <path d="M11.297 9.176a3.5 3.5 0 0 0-4.474-4.474l.823.823a2.5 2.5 0 0 1 2.829 2.829zm-2.943 1.299.822.822a3.5 3.5 0 0 1-4.474-4.474l.823.823a2.5 2.5 0 0 0 2.829 2.829z"/>
+  <path d="M3.35 5.47q-.27.24-.518.487A13 13 0 0 0 1.172 8l.195.288c.335.48.83 1.12 1.465 1.755C4.121 11.332 5.881 12.5 8 12.5c.716 0 1.39-.133 2.02-.36l.77.772A7 7 0 0 1 8 13.5C3 13.5 0 8 0 8s.939-1.721 2.641-3.238l.708.709zm10.296 8.884-12-12 .708-.708 12 12z"/>
+</svg>      
+</button>
+
+      <!-- <div class="divider" /> -->
 
       <button
         type="button"
@@ -263,7 +381,7 @@ const isReady = computed(() => !!editor.value);
         </svg>
       </button>
 
-      <button
+      <!-- <button
         type="button"
         class="icon-btn"
         :class="{ 'is-active': editor.isActive('codeBlock') }"
@@ -275,7 +393,7 @@ const isReady = computed(() => !!editor.value);
           <path d="M14 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zM2 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z"/>
           <path d="M6.854 4.646a.5.5 0 0 1 0 .708L4.207 8l2.647 2.646a.5.5 0 0 1-.708.708l-3-3a.5.5 0 0 1 0-.708l3-3a.5.5 0 0 1 .708 0m2.292 0a.5.5 0 0 0 0 .708L11.793 8l-2.647 2.646a.5.5 0 0 0 .708.708l3-3a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708 0"/>
         </svg>
-      </button>
+      </button> -->
 
       <div class="divider" />
 
@@ -591,4 +709,42 @@ const isReady = computed(() => !!editor.value);
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+
+/* Headings */
+.tiptap :deep(h1) { font-size: 2em; margin: 0.67em 0; font-weight: bold; }
+.tiptap :deep(h2) { font-size: 1.5em; margin: 0.75em 0; font-weight: bold; }
+.tiptap :deep(h3) { font-size: 1.17em; margin: 1em 0; font-weight: bold; }
+/* Add h4-h6 as needed */
+
+/* Superscript */
+.tiptap :deep(sup), .tiptap :deep(.superscript) {
+  vertical-align: super;
+  font-size: 0.8em;
+  line-height: 0;
+}
+
+.tiptap :deep(.spoiler) {
+  background: #21262d;
+  color: #79c0ff;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95em;
+}
+
+/* Optional: small visual hint it's a spoiler (still very close to code) */
+.tiptap :deep(.spoiler) {
+  /* border: 1px solid #444; */          /* uncomment if you want a faint border */
+  cursor: pointer;
+}
+
+/* Reveal on hover (classic Reddit spoiler behavior) */
+.tiptap :deep(.spoiler:hover),
+.tiptap :deep(.spoiler:focus-visible) {
+  background: transparent;
+  color: inherit;
+  border: none;
+}
+
 </style>
