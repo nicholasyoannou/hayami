@@ -193,6 +193,10 @@ export function setContentScriptContext(ctx: ContentScriptContext | null): void 
   contentScriptContext = ctx;
 }
 
+export function getContentScriptContext(): ContentScriptContext | null {
+  return contentScriptContext;
+}
+
 /**
  * Get the appropriate container for external (non-Vue) comment providers (Disqus/YouTube).
  * Returns the .ri-external-comments element from the Vue component.
