@@ -29,7 +29,17 @@ async function openMapperForTab(tabId: number, url?: string): Promise<void> {
   try {
     await browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' });
   } catch {
-    try { await browser.tabs.reload(tabId); } catch {}
+    // Content script likely not injected yet (fresh permission). Reload then retry once the tab is ready.
+    try {
+      await browser.tabs.reload(tabId);
+      const retryOnUpdate = (updatedTabId: number, info: any) => {
+        if (updatedTabId === tabId && info.status === 'complete') {
+          browser.tabs.onUpdated.removeListener(retryOnUpdate);
+          browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' }).catch(() => {});
+        }
+      };
+      browser.tabs.onUpdated.addListener(retryOnUpdate);
+    } catch {}
   }
 }
 
