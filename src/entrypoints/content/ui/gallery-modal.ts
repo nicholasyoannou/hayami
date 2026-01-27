@@ -38,17 +38,44 @@ export function openImageGalleryModal(images: string[]): void {
   // Convert to proxied URLs only when needed (imgur UK workaround)
   const proxiedImages = images.map((u) => proxifyImageUrl(u));
 
-  // Add all images
+  // Add all images as placeholders; we will hydrate them in small batches
   proxiedImages.forEach((imgSrc, idx) => {
     const img = document.createElement('img');
     img.className = 'ri-fullscreen-image';
-    img.src = imgSrc;
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.dataset.src = imgSrc;
     img.alt = `Image ${idx + 1}`;
     content.appendChild(img);
   });
 
   // Utilities for centering and tracking current image
   const imagesEls = Array.from(content.querySelectorAll('.ri-fullscreen-image')) as HTMLImageElement[];
+
+  // Incrementally hydrate images in batches to avoid fetching the entire album at once
+  const batchSize = 3;
+  let highestLoaded = -1;
+
+  const loadNextBatch = () => {
+    const start = highestLoaded + 1;
+    if (start >= imagesEls.length) return;
+    const end = Math.min(start + batchSize - 1, imagesEls.length - 1);
+    for (let i = start; i <= end; i++) {
+      const target = imagesEls[i];
+      const src = target.dataset.src;
+      if (!src) continue;
+      if (target.src === src) continue;
+      target.src = src;
+    }
+    highestLoaded = end;
+  };
+
+  const prefetchIfNeeded = (centerIdx: number) => {
+    const desiredMax = Math.min(imagesEls.length - 1, centerIdx + batchSize - 1);
+    if (highestLoaded < desiredMax) {
+      loadNextBatch();
+    }
+  };
 
   const getCenteredIndex = (): number => {
     if (imagesEls.length === 0) return 0;
@@ -66,6 +93,7 @@ export function openImageGalleryModal(images: string[]): void {
   const centerOnIndex = (idx: number) => {
     if (imagesEls.length === 0) return;
     const i = Math.max(0, Math.min(imagesEls.length - 1, idx));
+    prefetchIfNeeded(i);
     const target = imagesEls[i];
     const y = Math.max(0, target.offsetTop - (content.clientHeight - target.clientHeight) / 2);
     content.scrollTop = y; // force instant jump
@@ -73,9 +101,13 @@ export function openImageGalleryModal(images: string[]): void {
   };
 
   // Update counter based on centered image
+  let initialized = false;
   const updateCounter = () => {
     const i = getCenteredIndex();
     counter.textContent = `${i + 1} / ${imagesEls.length}`;
+    if (initialized) {
+      prefetchIfNeeded(i);
+    }
   };
 
   // Keyboard navigation (Up/Down/Left/Right) — center next/previous image
@@ -105,7 +137,9 @@ export function openImageGalleryModal(images: string[]): void {
   document.body.style.overflow = 'hidden';
 
   // Initial counter update
+  loadNextBatch();
   updateCounter();
+  initialized = true;
 }
 
 /**
