@@ -285,10 +285,11 @@ export async function isYouTubeAuthenticated(): Promise<boolean> {
     // Chrome will handle re-authentication when needed
     return true;
   }
-  
-  // No stored user info - try to get token (non-interactive)
-  const token = await getYouTubeAccessToken(false);
-  return token !== null;
+
+  // Treat missing stored identity as logged out even if Chrome still holds a cached token.
+  // This prevents a brand-new install (with empty extension storage) from appearing logged in
+  // just because Chrome has a token cached from a previous session.
+  return false;
 }
 
 /**
