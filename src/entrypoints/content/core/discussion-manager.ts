@@ -31,9 +31,6 @@ import { escapeHtml } from '@/utils/markdown';
 // Disqus API
 import { findThreadForAnime } from '@/utils/disqusApi';
 
-// MAL API
-import { fetchMalTopicPosts } from '@/utils/malForums';
-
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
 import { 
@@ -46,25 +43,14 @@ import {
 
 // Type imports
 import { AnimeInfo } from '../types';
-import type { MalForumResult, MalPost, MapperResult, MapperMatchedResult, CommentProvider, ProviderContext } from '../types/data';
+import type { MapperResult, MapperMatchedResult, CommentProvider, ProviderContext } from '../types/data';
 
 // Mapping utilities
 import { getSeriesMapping, parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from '../mapping';
 
 // Template renderers
-import {
-  renderMalAuthRequired,
-  renderMalRateLimited,
-  renderMalNoTopic,
-  renderMalPost,
-  renderMalTopicList,
-  renderMalPostSkeleton,
-  renderMalForumContainer,
-  renderNoDiscussionPanel,
-} from '../templates';
+import { renderNoDiscussionPanel } from '../templates';
 
-// BBCode parser
-import { bbcodeToHtml } from '../parsers/bbcode';
 
 // UI utilities
 import { removeCommentsSkeletonLoading } from '../ui';
@@ -1763,127 +1749,6 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
       },
     });
     app.mount(overlay);
-  }
-}
-
-// =============================================================================
-// MAL FORUM RENDERING FUNCTIONS
-// Functions for displaying MyAnimeList forum topics and posts with infinite scroll
-// =============================================================================
-
-export function renderMalForumResult(result: MalForumResult, animeTitle: string, topicId?: number | string): void {
-  const container = getExternalCommentsContainer();
-  if (!container) {
-    debug.warn('[MAL] External comments container not found for render');
-    return;
-  }
-
-  const { status, selectedTopic, topics, posts } = result || {};
-  const topicList = Array.isArray(topics) ? topics : [];
-  const postList = Array.isArray(posts) ? posts : [];
-
-  if (status === 'auth_required') {
-    container.innerHTML = renderMalAuthRequired();
-    return;
-  }
-
-  if (status === 'rate_limited') {
-    container.innerHTML = renderMalRateLimited();
-    return;
-  }
-
-  if (status === 'no_topic' || !selectedTopic) {
-    container.innerHTML = renderMalNoTopic(animeTitle);
-    return;
-  }
-
-  const url = selectedTopic.url || `https://myanimelist.net/forum/?topicid=${selectedTopic.id || ''}`;
-  const comments = typeof selectedTopic.comments === 'number' ? selectedTopic.comments.toLocaleString() : '-';
-  const author = selectedTopic.author?.name ? `by ${escapeHtml(selectedTopic.author.name)}` : '';
-
-  const listHtml = renderMalTopicList(topicList);
-
-  const formatTs = (ts: string | undefined) => {
-    if (!ts) return '';
-    try {
-      const d = new Date(ts);
-      if (Number.isNaN(d.getTime())) return escapeHtml(ts);
-      return d.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-    } catch {
-      return escapeHtml(ts);
-    }
-  };
-
-  const postsHtml = postList.length
-    ? postList
-        .map((p) => renderMalPost(p as MalPost, formatTs, bbcodeToHtml))
-        .join('')
-    : '<li style="color:#aaa;">No posts loaded.</li>';
-    
-  container.innerHTML = renderMalForumContainer(selectedTopic, author, comments, url, postsHtml, listHtml);
-
-  const postsList = container.querySelector('.ri-mal-posts') as HTMLElement | null;
-  if (postsList && topicId && result.nextPageUrl) {
-    let nextUrl: string | null = result.nextPageUrl;
-    let loading = false;
-    const sentinel = document.createElement('div');
-    sentinel.className = 'ri-mal-posts-sentinel';
-    sentinel.style.height = '24px';
-    sentinel.style.margin = '8px 0';
-    postsList.appendChild(sentinel);
-
-    const addSkeleton = () => {
-      for (let i = 0; i < 3; i++) {
-        const sk = document.createElement('li');
-        sk.className = 'ri-mal-post-skel';
-        sk.style.marginBottom = '12px';
-        sk.style.paddingBottom = '8px';
-        sk.style.borderBottom = '1px solid #2a2a2a';
-        sk.innerHTML = renderMalPostSkeleton();
-        postsList.insertBefore(sk, sentinel);
-      }
-    };
-
-    const clearSkeletons = () => {
-      postsList.querySelectorAll('.ri-mal-post-skel').forEach((el) => el.remove());
-    };
-
-    const appendPosts = (posts: MalPost[] = []) => {
-      posts.forEach((p) => {
-        const li = document.createElement('li');
-        li.className = 'ri-mal-post';
-        li.style.marginBottom = '12px';
-        li.style.paddingBottom = '8px';
-        li.style.borderBottom = '1px solid #2a2a2a';
-        li.innerHTML = renderMalPost(p as MalPost, formatTs, bbcodeToHtml);
-        postsList.insertBefore(li, sentinel);
-      });
-    };
-
-    const observer = new IntersectionObserver(async (entries) => {
-      const entry = entries[0];
-      if (!entry?.isIntersecting || loading || !nextUrl) return;
-      loading = true;
-      addSkeleton();
-      try {
-        const more = await fetchMalTopicPosts(topicId, nextUrl);
-        nextUrl = more?.nextPageUrl || null;
-        if (more?.posts?.length) {
-          appendPosts(more.posts);
-        }
-      } catch (e) {
-        debug.warn('[MAL] load more posts error:', e);
-      } finally {
-        clearSkeletons();
-        loading = false;
-        if (!nextUrl) {
-          observer.disconnect();
-          sentinel.remove();
-        }
-      }
-    }, { root: null, threshold: 0.1 });
-
-    observer.observe(sentinel);
   }
 }
 
