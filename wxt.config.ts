@@ -1,5 +1,6 @@
 import { defineConfig } from 'wxt';
 import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './src/config';
+import { hostPermissions } from './src/config';
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
@@ -17,7 +18,9 @@ export default defineConfig({
       'contextMenus',
       'declarativeNetRequest'
     ],
-    // optional_host_permissions: ['<all_urls>'],
+    // Allow requesting per-origin access (needed for user-mapped sites). Optional means
+    // the user is prompted per site; it is not granted by default.
+    optional_host_permissions: ['<all_urls>'],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
       extension_pages: "script-src 'self'; object-src 'self'"
@@ -35,20 +38,7 @@ export default defineConfig({
       scopes: [GOOGLE_SCOPES],
     },
     host_permissions: [
-      'https://www.reddit.com/*',
-      'https://oauth.reddit.com/*',
-      '*://*.crunchyroll.com/*',
-      'https://disqus.com/*',
-      'https://*.disqus.com/*',
-      'https://api.myanimelist.net/*',
-      'https://myanimelist.net/*',
-      'https://www.netflix.com/*',
-      'https://api.imgchest.com/*',
-      'https://imgchest.com/*',
-      'https://api.bilibili.com/*',
-      'https://www.bilibili.com/*',
-      'https://*.hdslb.com/*',
-      'https://api.hayami.moe/*'
+      ...hostPermissions
     ],
     version: '0.0.3',
     /**
@@ -67,12 +57,20 @@ export default defineConfig({
         matches: ['<all_urls>']
       }
     ],
-    scope_extensions: [
-      {
-        type: 'kiosk',
-        origin: 'https://www.crunchyroll.com'
-      }
-    ],
     key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5tUjhS1LlB+2swSeTrPztDTGBkXlhkE9cr9wJ8jQHWpPZZjdqm3YxR3jL08vhUYkWQwBJ48jLBJV9KLBk//+Q5bTPlWe5BFXPS4tKFy1Wyzb4xqXoSqSRZRtQJPwZ9aXQkHOd6Va1yy4IuhJZmPrTEmudVPJIx+h1rK8IZxM/qhU9GMbb7Y8My3nhnh/1Lz163lIFcBehuOZd2hfqebv0bdtmawYDUgXddqJxdRlsunhwH/w6wu+BEry501F5hUJMRK2uRsAHWEq+NbR4RZuuuAXS7NbiGL/BUBvuKXrPu6UuzTJCjlzKvJmJopk3zZS4ynbNtPTASvGs/xcYQzoyQIDAQAB"
   },
+
+  hooks: {
+    "build:manifestGenerated": (wxt, manifest) => {
+      if (wxt.config.command === "serve") {
+        // "webext-dynamic-content-scripts" handles other manual site additions
+        manifest.content_scripts ??= [];
+        manifest.content_scripts.push({
+          matches: [...hostPermissions],
+          js: ["content-scripts/content.js"],
+        });
+      }
+    },
+  },
+
 });

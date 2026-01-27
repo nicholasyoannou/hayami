@@ -22,6 +22,8 @@
         "vue": "^3.5.26",
         "vue-lite-youtube-embed": "^1.2.4",
         "vue-sonner": "^2.0.9",
+        "webext-dynamic-content-scripts": "^10.0.4",
+        "webext-permission-toggle": "^6.0.1",
       },
       "devDependencies": {
         "@types/chrome": "^0.1.33",
@@ -444,6 +446,8 @@
     "configstore": ["configstore@7.1.0", "", { "dependencies": { "atomically": "^2.0.3", "dot-prop": "^9.0.0", "graceful-fs": "^4.2.11", "xdg-basedir": "^5.1.0" } }, "sha512-N4oog6YJWbR9kGyXvS7jEykLDXIE2C0ILYqNBZBp9iwiJpoCBWYsuAdW6PPFn6w06jjnC+3JstVvWHO4cZqvRg=="],
 
     "consola": ["consola@3.4.2", "", {}, "sha512-5IKcdX0nnYavi6G7TtOhwkYzyjfJlatbjMjuLSfE2kYT5pMDOilZ4OvMhi637CcDICTmz3wARPoyhqyX1Y+XvA=="],
+
+    "content-scripts-register-polyfill": ["content-scripts-register-polyfill@4.0.2", "", { "dependencies": { "webext-content-scripts": "^2.5.2", "webext-patterns": "^1.3.0", "webext-polyfill-kinda": "^1.0.0" } }, "sha512-8hDm+tu3BkxHZP7EUIIIo/495F6QNXF7cI9Lwr4PQaiohw2wWmi9k2SE4W4kNrAaLnFw6RZ2ev8EmrQb+sCoGQ=="],
 
     "copy-anything": ["copy-anything@2.0.6", "", { "dependencies": { "is-what": "^3.14.1" } }, "sha512-1j20GZTsvKNkc4BY3NpMOM8tt///wY3FpIzozTOFO2ffuZcV61nojHXVKIy3WM+7ADCy5FVhdZYHYDdgTU0yJw=="],
 
@@ -1066,6 +1070,26 @@
     "watchpack": ["watchpack@2.4.4", "", { "dependencies": { "glob-to-regexp": "^0.4.1", "graceful-fs": "^4.1.2" } }, "sha512-c5EGNOiyxxV5qmTtAB7rbiXxi1ooX1pQKMLX/MIabJjRA0SJBQOjKF+KSVfHkr9U1cADPon0mRiVe/riyaiDUA=="],
 
     "web-ext-run": ["web-ext-run@0.2.4", "", { "dependencies": { "@babel/runtime": "7.28.2", "@devicefarmer/adbkit": "3.3.8", "chrome-launcher": "1.2.0", "debounce": "1.2.1", "es6-error": "4.1.1", "firefox-profile": "4.7.0", "fx-runner": "1.4.0", "multimatch": "6.0.0", "node-notifier": "10.0.1", "parse-json": "7.1.1", "pino": "9.7.0", "promise-toolbox": "0.21.0", "set-value": "4.1.0", "source-map-support": "0.5.21", "strip-bom": "5.0.0", "strip-json-comments": "5.0.2", "tmp": "0.2.5", "update-notifier": "7.3.1", "watchpack": "2.4.4", "zip-dir": "2.0.0" } }, "sha512-rQicL7OwuqWdQWI33JkSXKcp7cuv1mJG8u3jRQwx/8aDsmhbTHs9ZRmNYOL+LX0wX8edIEQX8jj4bB60GoXtKA=="],
+
+    "webext-alert": ["webext-alert@1.1.0", "", { "dependencies": { "webext-detect": "^5.3.2", "webext-events": "^3.1.1" } }, "sha512-8fcC1AmE2cQsI4ejeVdQGgyQEAaFVlQMQxWW6T1Z5sPXi5oXb/CGo8lIsrVD4UC3Ie7TA+l7DDq7LL3FOBxdFA=="],
+
+    "webext-content-scripts": ["webext-content-scripts@2.7.2", "", { "dependencies": { "webext-patterns": "^1.5.0", "webext-polyfill-kinda": "^1.0.2" } }, "sha512-7e6ZHha2jUww3RXWBkqBkSNa/qVPp8bHHY4BNDPfFIOkCebR+mjDq67BgWxnO51OUJU5skntRndjGmEGVcgvpQ=="],
+
+    "webext-detect": ["webext-detect@5.3.2", "", {}, "sha512-RU/e8OLiPwU0efWs/cHp3sRCY+vakaTnbOS/x8VM/FkTtv6cfW/Ofed0i7WnkAKw2jbp4gki3WcpAdii+2QVMw=="],
+
+    "webext-dynamic-content-scripts": ["webext-dynamic-content-scripts@10.0.4", "", { "dependencies": { "content-scripts-register-polyfill": "^4.0.2", "webext-content-scripts": "^2.7.0", "webext-detect": "^5.0.2", "webext-events": "^3.0.1", "webext-patterns": "^1.5.0", "webext-permissions": "^3.1.3", "webext-polyfill-kinda": "^1.0.2" } }, "sha512-41n7/H7MIV7QpWrFjwhEQKhaj4xdicD8+2tZyKETcIw2Vzo29481VbBsRZWdHxhegshflC6RfFZs0LM5q0pqSw=="],
+
+    "webext-events": ["webext-events@3.1.1", "", { "dependencies": { "webext-detect": "^5.0.2" } }, "sha512-/QlXfa8LHcPOwLIycLglnHbXLqBOGetNn4pOyVJhV5UA6RifcP1tfkp8DYj3R6CjnHbjpSqFWXyc6dD4aTUcXw=="],
+
+    "webext-patterns": ["webext-patterns@1.5.1", "", { "dependencies": { "escape-string-regexp": "^5.0.0" } }, "sha512-N0r4U1vhsa+7zgIt4qsf6j6X7vRf10/nG7ycwRXIjg0+45v5/fFmjpSrFSe0RKW9bB3Lo5RqYJXEFb6syRFxpQ=="],
+
+    "webext-permission-toggle": ["webext-permission-toggle@6.0.1", "", { "dependencies": { "webext-alert": "^1.0.3", "webext-content-scripts": "^2.7.2", "webext-detect": "^5.3.2", "webext-patterns": "^1.5.0", "webext-permissions": "^3.1.4", "webext-polyfill-kinda": "^1.0.2", "webext-tools": "^3.0.0" } }, "sha512-AN9zHqa8nUUFRapykqc40Jeac0rB0f9eam223/8bPBxrPGcZlB2B7qsitvAYXKxo1S4SYglrAAOXGrJPq0adYA=="],
+
+    "webext-permissions": ["webext-permissions@3.1.4", "", { "dependencies": { "webext-patterns": "^1.5.0" } }, "sha512-/20ihnr67KzVUdI+NJFia3VM04UILM00xLpG2MbmWSaZK7P7ZYPyMxfT0wKhA5SyfXAPQV7bLscX4arN2IIHcQ=="],
+
+    "webext-polyfill-kinda": ["webext-polyfill-kinda@1.0.2", "", {}, "sha512-rqQUKeBTOicej0tjDJWDQlOTnDcm9yYJTzgI+7rMdyYV4QHmYMRm+yjkcVgECkg/Wu9MboZ4lYeBPdp1Ep9WgQ=="],
+
+    "webext-tools": ["webext-tools@3.0.0", "", { "dependencies": { "webext-content-scripts": "^2.7.0", "webext-detect": "^5.3.2", "webext-polyfill-kinda": "^1.0.2" } }, "sha512-CqxJetvu7mxDf8yqr0/hFotxUP+9Zw7JT76tbdVo62Py2zhM+rRcsbordwX9jWXMX4q0qw1bk1aHXSxy0coCDw=="],
 
     "webpack-virtual-modules": ["webpack-virtual-modules@0.6.2", "", {}, "sha512-66/V2i5hQanC51vBQKPH4aI8NMAcBW59FVBs+rC7eGHupMyfn34q7rZIE+ETlJ+XTevqfUhVVBgSUNSW2flEUQ=="],
 

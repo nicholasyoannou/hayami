@@ -72,3 +72,19 @@ export const MAL_SCOPES = 'read';
  * with the MAL client secret.
  */
 export const MAL_TOKEN_PROXY_URL = 'https://api.hayami.moe/mal/token';
+
+export const hostPermissions = [
+      'https://www.reddit.com/*',
+      'https://oauth.reddit.com/*',
+      '*://*.crunchyroll.com/*',
+      'https://*.disqus.com/*',
+      'https://api.myanimelist.net/*',
+      'https://myanimelist.net/*',
+      'https://api.imgchest.com/*',
+      'https://imgchest.com/*',
+      'https://api.bilibili.com/*',
+      'https://www.bilibili.com/*',
+      'https://*.hdslb.com/*',
+      'https://www.netflix.com/*',
+      'https://api.hayami.moe/*'
+];

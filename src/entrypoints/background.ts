@@ -1,6 +1,8 @@
 import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
+import "webext-dynamic-content-scripts";
+import domainPermissionToggle from "webext-permission-toggle";
 
 const POLL_RULE_ID = 99001;
 const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
@@ -46,6 +48,8 @@ function registerContextMenu(): void {
 
 export default defineBackground(() => {
   console.log('Hayami - Background service started');
+
+  domainPermissionToggle();
 
   registerContextMenu();
 
