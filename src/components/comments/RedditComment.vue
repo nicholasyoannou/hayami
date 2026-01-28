@@ -13,7 +13,7 @@ const props = defineProps<{
   emojiMap?: Record<string, string>;
   highlightIds?: Set<string>;
   onReply?: (comment: RedditComment) => void;
-  onLoadMore?: (commentId: string) => Promise<void>;
+  loadMoreHandler?: (commentId: string) => Promise<void>;
 }>();
 
 const emit = defineEmits<{
@@ -428,10 +428,10 @@ async function handleDownvote() {
 }
 
 async function handleLoadMoreChildren() {
-  if (!props.onLoadMore || loadingMoreChildren.value) return;
+  if (!props.loadMoreHandler || loadingMoreChildren.value) return;
   loadingMoreChildren.value = true;
   try {
-    await props.onLoadMore(props.comment.id);
+    await props.loadMoreHandler(props.comment.id);
   } finally {
     loadingMoreChildren.value = false;
   }
@@ -639,7 +639,7 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           :emoji-map="emojiMap"
           :highlight-ids="highlightIds"
           :on-reply="onReply"
-          :on-load-more="onLoadMore"
+          :load-more-handler="loadMoreHandler"
           @reply="(c) => emit('reply', c)"
         />
         

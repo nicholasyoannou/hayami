@@ -34,12 +34,20 @@ type PopupMountOptions = {
   props: Record<string, unknown>;
 };
 
+type UiMode = 'inline' | 'popup' | 'overlay';
+
 type MountOptions = {
-  mode: 'inline' | 'popup' | 'overlay';
+  mode: UiMode;
   component: Component;
   props: Record<string, unknown>;
   styleId?: string;
   anchor?: () => HTMLElement;
+};
+
+type MountedEntry = {
+  app: VueApp;
+  exposed: InlineDiscussionExposed | null;
+  host?: HTMLElement | null;
 };
 
 class UiManager {
@@ -50,16 +58,12 @@ class UiManager {
 
   private overlayUi: { remove: () => void; mount: () => void } | null = null;
 
-  private currentApp: VueApp | null = null;
-  private currentExposed: InlineDiscussionExposed | null = null;
-  private currentHost: HTMLElement | null = null;
-  private currentMode: 'inline' | 'popup' | 'overlay' | null = null;
+  private apps = new Map<UiMode, MountedEntry>();
 
   private readonly overlayCss = `${tailwindCss}\n${redditInlineCss}`;
 
   async mount(options: MountOptions): Promise<void> {
-    this.unmount();
-    this.currentMode = options.mode;
+    this.unmount(options.mode);
     const contentContext = getContentScriptContext();
     if (!contentContext) {
       console.warn('UiManager: content script context not available');
@@ -78,7 +82,6 @@ class UiManager {
         tag: 'div',
         onMount: (wrapper) => {
           wrapper.id = 'ri-inline-vue-host';
-          this.currentHost = wrapper;
           applySidePadding(wrapper);
           if (options.styleId) {
             injectExtensionStyles(wrapper, options.styleId);
@@ -89,8 +92,8 @@ class UiManager {
 
           const app = createApp(options.component, options.props);
           app.mount(mountPoint);
-          this.currentApp = app;
-          this.currentExposed = (app as any)._instance?.exposed ?? null;
+          const exposed = (app as any)._instance?.exposed ?? null;
+          this.apps.set('inline', { app, exposed, host: wrapper });
           setInlineDiscussionApp(app);
           return app;
         },
@@ -103,6 +106,7 @@ class UiManager {
             }
           }
           setInlineDiscussionApp(null);
+          this.apps.delete('inline');
         },
       });
 
@@ -120,8 +124,8 @@ class UiManager {
 
       const app = createApp(options.component, options.props);
       app.mount(mountPoint);
-      this.currentApp = app;
-      this.currentExposed = (app as any)._instance?.exposed ?? null;
+      const exposed = (app as any)._instance?.exposed ?? null;
+      this.apps.set('popup', { app, exposed });
       return;
     }
 
@@ -147,8 +151,8 @@ class UiManager {
 
         const app = createApp(options.component, options.props);
         app.mount(wrapper);
-        this.currentApp = app;
-        this.currentExposed = (app as any)._instance?.exposed ?? null;
+        const exposed = (app as any)._instance?.exposed ?? null;
+        this.apps.set('overlay', { app, exposed, host: wrapper });
         return app;
       },
       onRemove: (mountedApp) => {
@@ -157,10 +161,7 @@ class UiManager {
         } catch (err) {
           console.warn('UiManager: failed to unmount overlay app', err);
         }
-        if (this.currentMode === 'overlay') {
-          this.currentApp = null;
-          this.currentExposed = null;
-        }
+        this.apps.delete('overlay');
       },
     });
 
@@ -168,67 +169,75 @@ class UiManager {
     overlayUi.mount();
   }
 
-  updateProps(newProps: Record<string, unknown>): void {
-    if (!this.currentApp) return;
-    const instance = (this.currentApp as any)._instance;
+  updateProps(mode: UiMode, newProps: Record<string, unknown>): void {
+    const entry = this.apps.get(mode);
+    if (!entry) return;
+    const instance = (entry.app as any)._instance;
     if (instance?.props) {
       Object.assign(instance.props, newProps);
     }
   }
 
-  getExposed<T>(): T | null {
-    return this.currentExposed as T | null;
+  getExposed<T>(mode: UiMode): T | null {
+    return (this.apps.get(mode)?.exposed ?? null) as T | null;
   }
 
-  isMounted(): boolean {
-    return !!this.currentApp;
+  isMounted(mode: UiMode): boolean {
+    return this.apps.has(mode);
   }
 
-  getMode(): 'inline' | 'popup' | 'overlay' | null {
-    return this.currentMode;
-  }
-
-  unmount(): void {
-    if (this.currentApp) {
-      try {
-        this.currentApp.unmount();
-      } catch (err) {
-        console.warn('UiManager: failed to unmount current app', err);
+  unmount(mode?: UiMode): void {
+    const modes = mode ? [mode] : (['inline', 'popup', 'overlay'] as UiMode[]);
+    modes.forEach((targetMode) => {
+      const entry = this.apps.get(targetMode);
+      if (entry) {
+        try {
+          entry.app.unmount();
+        } catch (err) {
+          console.warn('UiManager: failed to unmount current app', err);
+        }
+        this.apps.delete(targetMode);
       }
-    }
-    if (this.inlineUi) {
-      try { this.inlineUi.remove(); } catch {}
-      this.inlineUi = null;
-    }
-    if (this.popupUi) {
-      try { this.popupUi.remove(); } catch {}
-      this.popupUi = null;
-      this.popupShell = null;
-    }
-    if (this.overlayUi) {
-      try { this.overlayUi.remove(); } catch {}
-      this.overlayUi = null;
-    }
-    this.currentApp = null;
-    this.currentExposed = null;
-    this.currentHost = null;
-    this.currentMode = null;
+
+      if (targetMode === 'inline' && this.inlineUi) {
+        try { this.inlineUi.remove(); } catch {}
+        this.inlineUi = null;
+        setInlineDiscussionApp(null);
+      }
+      if (targetMode === 'popup' && this.popupUi) {
+        try { this.popupUi.remove(); } catch {}
+        this.popupUi = null;
+        this.popupShell = null;
+      }
+      if (targetMode === 'overlay' && this.overlayUi) {
+        try { this.overlayUi.remove(); } catch {}
+        this.overlayUi = null;
+      }
+    });
   }
 
   wireSortOptions(provider: CommentProvider, currentSort: string): void {
-    const exposed = this.getExposed<InlineDiscussionExposed>();
+    const exposed = this.getExposed<InlineDiscussionExposed>('inline');
     if (exposed?.updateSortOptions) {
       exposed.updateSortOptions(provider, currentSort);
     }
   }
 
-  mountWithPropsFactory(component: Component, propsFactory: (utils: { close: () => void }) => Record<string, unknown>): void {
-    const close = () => this.unmount();
-    void this.mount({
-      mode: 'overlay',
-      component,
-      props: propsFactory({ close }),
-    });
+  mountWithPropsFactory(
+    component: Component,
+    propsFactory: (utils: { close: () => void }) => Record<string, unknown>,
+    mode: UiMode = 'overlay'
+  ): void {
+    try {
+      const close = () => this.unmount(mode);
+      void this.mount({
+        mode,
+        component,
+        props: propsFactory({ close }),
+      });
+    } catch (error) {
+      console.error('UiManager: failed to mount UI', error);
+    }
   }
 
   async showPopupPlaceholder(message: string): Promise<void> {
@@ -387,6 +396,7 @@ class UiManager {
       onRemove: () => {
         this.popupShell = null;
         this.popupUi = null;
+        this.apps.delete('popup');
       },
     });
 
@@ -403,9 +413,10 @@ class UiManager {
   private async moveInlineToCustomAnchor(): Promise<void> {
     try {
       const anchor = await getCustomMountAnchor();
-      if (!anchor || !this.currentHost || anchor === this.currentHost || !this.inlineUi) return;
+      const inlineHost = this.apps.get('inline')?.host ?? null;
+      if (!anchor || !inlineHost || anchor === inlineHost || !this.inlineUi) return;
 
-      const node = (this.inlineUi as any).root ?? (this.inlineUi as any).container ?? this.currentHost;
+      const node = (this.inlineUi as any).root ?? (this.inlineUi as any).container ?? inlineHost;
       if (getCustomSiteMapping()?.display === 'replace') {
         if (!(node as any).__hayamiReplacedOriginal) {
           const placeholder = document.createElement('div');

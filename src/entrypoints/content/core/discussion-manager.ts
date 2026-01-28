@@ -101,6 +101,26 @@ const VALID_PROVIDERS = new Set<CommentProvider>(commentProviderOptions.map((opt
 
 let preferredProvider: CommentProvider = 'reddit';
 
+function normalizeRedditDiscussion(discussion: any): void {
+  if (!discussion) return;
+  const permalink = typeof discussion.permalink === 'string' ? discussion.permalink : '';
+  const url = typeof discussion.url === 'string' ? discussion.url : '';
+  const source = permalink || url;
+  const fullname = typeof discussion.fullname === 'string' ? discussion.fullname : '';
+  const match = source.match(/\/comments\/([a-z0-9]+)/i);
+  const fullnameId = fullname.startsWith('t3_') ? fullname.slice(3) : '';
+  const id = match?.[1] || discussion.id || fullnameId;
+  if (!discussion.permalink && url) {
+    discussion.permalink = url.replace('https://www.reddit.com', '');
+  }
+  if (id && !discussion.id) {
+    discussion.id = id;
+  }
+  if (id && !discussion.fullname) {
+    discussion.fullname = id.startsWith('t3_') ? id : `t3_${id}`;
+  }
+}
+
 // Accessor helper to always use the current state instance
 const state = () => useContentState();
 
@@ -809,6 +829,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
 }
 
 async function displayDiscussion(discussion: any): Promise<void> {
+  normalizeRedditDiscussion(discussion);
   const currentState = state();
   const cache = currentState.discussionCache;
   const discussionStore = useDiscussionStore();
@@ -830,10 +851,13 @@ async function displayDiscussion(discussion: any): Promise<void> {
   void uiManager.showPopupPlaceholder('Loading comments…');
 
   let activeProvider: CommentProvider = preferredProvider;
+  if (discussion?.permalink || discussion?.subreddit) {
+    activeProvider = 'reddit';
+  }
 
   const clearLoadingState = (context: string = 'popup') => {
     try {
-      const exposed = uiManager.getExposed<InlineDiscussionExposed>();
+      const exposed = uiManager.getExposed<InlineDiscussionExposed>('popup');
       if (exposed?.clearLoading) {
         exposed.clearLoading();
       }
@@ -853,7 +877,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
   const providerChangeCallback = (provider: CommentProvider) => {
     activeProvider = provider;
-    const exposed = uiManager.getExposed<InlineDiscussionExposed>();
+    const exposed = uiManager.getExposed<InlineDiscussionExposed>('popup');
     if (exposed?.handleProviderChange) {
       exposed.handleProviderChange(provider);
     }
@@ -867,8 +891,8 @@ async function displayDiscussion(discussion: any): Promise<void> {
     }
   }
 
-  if (uiManager.isMounted() && uiManager.getMode() === 'popup') {
-    uiManager.updateProps({
+  if (uiManager.isMounted('popup')) {
+    uiManager.updateProps('popup', {
       discussion,
       provider: activeProvider,
       onProviderChange: providerChangeCallback,
@@ -885,6 +909,14 @@ async function displayDiscussion(discussion: any): Promise<void> {
         providerContext: buildProviderContext(),
       },
     });
+  }
+
+  if (activeProvider !== 'reddit') {
+    try {
+      providerChangeCallback(activeProvider);
+    } catch (e) {
+      console.warn('[Popup] Initial provider switch failed', e);
+    }
   }
 
   await uiManager.showPopupContent();
@@ -997,8 +1029,8 @@ function mountLoadingShell(): void {
       await displayDiscussionDependingOnMode(placeholder);
     };
     const manager = getUiManager();
-    if (manager.isMounted() && manager.getMode() === 'inline') {
-      manager.updateProps({
+    if (manager.isMounted('inline')) {
+      manager.updateProps('inline', {
         discussion: placeholderDiscussion,
         provider: preferredProvider,
         initialLoading: true,
@@ -1056,7 +1088,7 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
     const manager = getUiManager();
-    const exposed = manager.getExposed<InlineDiscussionExposed>();
+    const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
     if (exposed?.handleProviderChange) {
       exposed.handleProviderChange('disqus');
       return;
@@ -1081,6 +1113,7 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'd
 }
 
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
+  normalizeRedditDiscussion(discussion);
   const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
   const placement = getCustomSiteMapping()?.display;
   const adapter = resolveAdapter();
@@ -1102,6 +1135,7 @@ export async function displayDiscussionDependingOnMode(discussion: any): Promise
 
 async function displayInlineDiscussion(discussion: any): Promise<void> {
   try {
+    normalizeRedditDiscussion(discussion);
     const currentState = state();
     const cache = currentState.discussionCache;
     // Cache the discussion data (not comments)
@@ -1128,13 +1162,16 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Build container first so we can show skeletons while loading
     let currentSort: 'best' | 'top' | 'new' = 'best';
     let activeProvider: CommentProvider = preferredProvider;
+    if (discussion?.permalink || discussion?.subreddit) {
+      activeProvider = 'reddit';
+    }
     const manager = getUiManager();
 
     // Cache the discussion data (not comments) for faster switching
     cache.reddit = { ...discussion };
 
     const clearLoadingState = (_context?: string) => {
-      const exposed = manager.getExposed<InlineDiscussionExposed>();
+      const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
       if (exposed?.clearLoading) {
         exposed.clearLoading();
       }
@@ -1164,32 +1201,26 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       console.log('lastAnimeInfo:', currentState.lastAnimeInfo);
       console.log(`Provider change started: ${provider}`);
 
-      const exposed = manager.getExposed<InlineDiscussionExposed>();
+      const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
       if (exposed?.handleProviderChange) {
         exposed.handleProviderChange(provider);
       }
     };
     
-    if (manager.isMounted() && manager.getMode() === 'inline') {
-      manager.updateProps({
+    if (manager.isMounted('inline')) {
+      manager.unmount('inline');
+    }
+    await manager.mount({
+      mode: 'inline',
+      component: InlineDiscussion,
+      props: {
         discussion,
         provider: activeProvider,
         onProviderChange: providerChangeCallback,
         providerContext: buildProviderContext(),
-      });
-    } else {
-      await manager.mount({
-        mode: 'inline',
-        component: InlineDiscussion,
-        props: {
-          discussion,
-          provider: activeProvider,
-          onProviderChange: providerChangeCallback,
-          providerContext: buildProviderContext(),
-        },
-        styleId: 'hayami-inline-styles',
-      });
-    }
+      },
+      styleId: 'hayami-inline-styles',
+    });
 
     if (activeProvider !== 'reddit') {
       try {

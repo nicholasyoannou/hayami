@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onUpdated, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
@@ -273,10 +273,16 @@ const postFullname = computed(() => {
     console.log('Using fullname from discussion:', props.discussion.fullname);
     return props.discussion.fullname;
   }
-  const id = props.discussion.id || '';
+  const fallbackId = props.discussion.permalink?.match(/\/comments\/([a-z0-9]+)/i)?.[1] || '';
+  const id = props.discussion.id || fallbackId;
   const constructed = id.startsWith('t3_') ? id : `t3_${id}`;
-  console.log('Constructed fullname from id:', constructed, 'original id:', id);
+  console.log('Constructed fullname from id:', constructed, 'original id:', id, 'fallback id:', fallbackId);
   return constructed;
+});
+
+const discussionId = computed(() => {
+  const fallbackId = props.discussion.permalink?.match(/\/comments\/([a-z0-9]+)/i)?.[1] || '';
+  return props.discussion.id || fallbackId;
 });
 
 // Resolve asset URLs via the extension runtime so they work from the content script
@@ -572,13 +578,27 @@ watch(
   }
 );
 
-onUpdated(() => {
-  console.log('[Vue-Updated] Component UPDATED');
-  const skeletonEl = document.querySelector('.ri-loading-skeletons');
-  const redditList = document.querySelector('redditcommentlist');
-  const externalContainer = document.querySelector('.ri-external-comments');
-  console.log('[Vue-Updated] Skeleton visible?', !!skeletonEl, 'Reddit visible?', !!redditList, 'External visible?', !!externalContainer);
-});
+watch(
+  () => props.provider,
+  (provider) => {
+    if (provider && provider !== currentProvider.value) {
+      currentProvider.value = provider as Provider;
+    }
+  }
+);
+
+watch(
+  () => props.discussion,
+  (discussion) => {
+    if (!discussion) return;
+    if (discussion.permalink || discussion.subreddit || discussion.fullname) {
+      if (currentProvider.value !== 'reddit') {
+        currentProvider.value = 'reddit';
+      }
+    }
+  },
+  { deep: true, immediate: true }
+);
 
 async function handleProviderChange(provider: Provider) {
   console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
@@ -890,8 +910,8 @@ defineExpose({
         <!-- Reddit comments list - only shown when loaded and on Reddit -->
         <RedditCommentList
           v-show="currentProvider === 'reddit' && !isLoading"
-          :key="`reddit-${discussion.id}-${redditCommentsKey}`"
-          :discussion-id="discussion.id"
+          :key="`reddit-${discussionId}-${redditCommentsKey}`"
+          :discussion-id="discussionId"
           :link-fullname="postFullname"
           :subreddit="discussion.subreddit"
           :is-archived="discussion.archived"

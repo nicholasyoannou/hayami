@@ -225,6 +225,19 @@ watch(() => props.initialSort, (newSort) => {
   }
 });
 
+watch(
+  () => [props.discussionId, props.linkFullname],
+  ([newDiscussionId, newLinkFullname], [prevDiscussionId, prevLinkFullname]) => {
+    if (!newDiscussionId || !newLinkFullname) return;
+    if (newDiscussionId === prevDiscussionId && newLinkFullname === prevLinkFullname) return;
+    comments.value = [];
+    rootMoreIds.value = [];
+    renderedCount.value = 0;
+    hasMore.value = false;
+    void loadComments(currentSort.value);
+  }
+);
+
 // Expose methods for parent
 defineExpose({
   loadComments,
@@ -293,7 +306,7 @@ defineExpose({
         :is-locked="isLocked"
         :emoji-map="emojiMap"
         :highlight-ids="highlightIds"
-        :on-load-more="loadMoreForComment"
+        :load-more-handler="loadMoreForComment"
         @reply="handleReply"
       />
       
