@@ -5,7 +5,6 @@
  * It includes Reddit/Disqus/MAL/YouTube provider integration, search orchestration, and UI rendering.
  */
 
-import { createIntegratedUi } from 'wxt/utils/content-script-ui/integrated';
 import type { App as VueApp } from 'vue';
 import { createApp, h } from 'vue';
 import { toast } from 'vue-sonner';
@@ -55,6 +54,7 @@ import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMo
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
 import { commentsProviderItem, noCommentsModeItem } from '@/config/storage';
 import { getContentScriptContext } from './content-script-context';
+import { getUiManager } from './ui-manager';
 
 // State management
 import {
@@ -171,157 +171,6 @@ async function getPreferredProvider(): Promise<CommentProvider> {
  */
 function getExternalCommentsContainer(): HTMLElement | null {
   return getExternalContainerUtil(state().inlineDiscussionApp);
-}
-
-// =============================================================================
-// POPUP OVERLAY SHELL
-// =============================================================================
-
-type PopupShell = {
-  root: HTMLElement;
-  overlay: HTMLElement;
-  panel: HTMLElement;
-  mount: HTMLElement;
-  placeholder: HTMLElement;
-  launcher: HTMLButtonElement;
-  setOpen: (open: boolean) => void;
-};
-
-let popupShell: PopupShell | null = null;
-let popupShellCleanupRegistered = false;
-
-function ensurePopupShell(): PopupShell {
-  if (popupShell) return popupShell;
-
-  const root = document.createElement('div');
-  root.id = 'hayami-popup-shell';
-  root.dataset.open = 'false';
-  root.style.position = 'fixed';
-  root.style.inset = '0';
-  root.style.pointerEvents = 'none';
-  root.style.zIndex = '2147483004';
-
-  const style = document.createElement('style');
-  style.textContent = `
-    #hayami-popup-shell { --hayami-launcher-side: right; --hayami-launcher-offset: 18px; --hayami-launcher-top: 50%; }
-    #hayami-popup-shell .hayami-launcher { position: fixed; top: var(--hayami-launcher-top); right: var(--hayami-launcher-offset); left: auto; z-index: 2147483005; pointer-events: auto; width: 46px; height: 46px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.16); background: rgba(11,15,25,0.9); box-shadow: 0 14px 34px rgba(0,0,0,0.4); display: grid; place-items: center; cursor: pointer; transform: translateY(-50%); transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease; }
-    #hayami-popup-shell .hayami-launcher:hover { transform: translateY(-50%) scale(1.03); box-shadow: 0 16px 38px rgba(0,0,0,0.48); background: rgba(18,22,34,0.95); }
-    #hayami-popup-shell .hayami-launcher:active { transform: translateY(-50%) scale(0.98); }
-    #hayami-popup-shell .hayami-launcher img { width: 26px; height: 26px; }
-    #hayami-popup-shell .hayami-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 140ms ease; }
-    #hayami-popup-shell .hayami-overlay.open { opacity: 1; pointer-events: auto; }
-    #hayami-popup-shell .hayami-backdrop { position: absolute; inset: 0; background: rgba(6,8,14,0.55); backdrop-filter: blur(4px); }
-    #hayami-popup-shell .hayami-panel { position: relative; z-index: 1; background: #0f121c; border: 1px solid rgba(255,255,255,0.14); border-radius: 14px; width: min(1120px, 94vw); height: min(90vh, 960px); box-shadow: 0 32px 70px rgba(0,0,0,0.48); overflow: hidden; display: flex; flex-direction: column; transform: translateY(10px) scale(0.985); opacity: 0.96; transition: transform 160ms ease, opacity 160ms ease; outline: none; }
-    #hayami-popup-shell .hayami-overlay.open .hayami-panel { transform: translateY(0) scale(1); opacity: 1; }
-    #hayami-popup-shell .hayami-body { position: relative; flex: 1; display: flex; background: #0a0d14; color: #f5f6fb; overflow: auto; }
-    #hayami-popup-shell .hayami-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; gap: 10px; font-weight: 600; letter-spacing: 0.01em; background: repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0, rgba(255,255,255,0.02) 14px, rgba(255,255,255,0.04) 14px, rgba(255,255,255,0.04) 28px); }
-    #hayami-popup-shell .hayami-mount { flex: 1; display: none; }
-    #hayami-popup-shell .hayami-close-hit { position: absolute; inset: 0; }
-  `;
-  root.appendChild(style);
-
-  const launcher = document.createElement('button');
-  launcher.type = 'button';
-  launcher.className = 'hayami-launcher';
-  launcher.title = 'Open Hayami comments';
-  launcher.setAttribute('aria-label', 'Open Hayami comments');
-  const icon = document.createElement('img');
-  icon.src = browser.runtime.getURL('icon/48.png');
-  icon.alt = 'Hayami comments';
-  launcher.appendChild(icon);
-  root.appendChild(launcher);
-
-  const overlay = document.createElement('div');
-  overlay.className = 'hayami-overlay';
-  overlay.dataset.open = 'false';
-  overlay.setAttribute('aria-hidden', 'true');
-  overlay.style.pointerEvents = 'none';
-
-  const backdrop = document.createElement('div');
-  backdrop.className = 'hayami-backdrop';
-  overlay.appendChild(backdrop);
-
-  const panel = document.createElement('div');
-  panel.className = 'hayami-panel';
-  panel.tabIndex = -1;
-  panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-modal', 'true');
-
-  const body = document.createElement('div');
-  body.className = 'hayami-body';
-
-  const placeholder = document.createElement('div');
-  placeholder.className = 'hayami-placeholder';
-  placeholder.textContent = 'Loading comments…';
-
-  const mount = document.createElement('div');
-  mount.className = 'hayami-mount';
-
-  body.appendChild(placeholder);
-  body.appendChild(mount);
-  panel.appendChild(body);
-  overlay.appendChild(panel);
-  root.appendChild(overlay);
-  document.body.appendChild(root);
-
-  let isOpen = false;
-  const setOpen = (open: boolean) => {
-    isOpen = open;
-    root.dataset.open = open ? 'true' : 'false';
-    overlay.dataset.open = open ? 'true' : 'false';
-    overlay.classList.toggle('open', open);
-    overlay.setAttribute('aria-hidden', open ? 'false' : 'true');
-    overlay.style.pointerEvents = open ? 'auto' : 'none';
-    root.style.pointerEvents = open ? 'auto' : 'none';
-    if (open) {
-      setTimeout(() => panel.focus(), 0);
-    } else {
-      launcher.focus({ preventScroll: true });
-    }
-  };
-
-  launcher.addEventListener('click', () => setOpen(!isOpen));
-  overlay.addEventListener('click', (ev) => {
-    const target = ev.target as HTMLElement | null;
-    if (!target) return;
-    if (target === overlay || target.classList.contains('hayami-backdrop')) {
-      setOpen(false);
-    }
-  });
-
-  const onKeyDown = (ev: KeyboardEvent) => {
-    if (ev.key === 'Escape' && isOpen) {
-      setOpen(false);
-    }
-  };
-  window.addEventListener('keydown', onKeyDown, true);
-
-  const contentContext = getContentScriptContext();
-  if (contentContext && !popupShellCleanupRegistered) {
-    popupShellCleanupRegistered = true;
-    contentContext.onInvalidated(() => {
-      window.removeEventListener('keydown', onKeyDown, true);
-      try { root.remove(); } catch {}
-      popupShell = null;
-      popupShellCleanupRegistered = false;
-    });
-  }
-
-  popupShell = { root, overlay, panel, mount, placeholder, launcher, setOpen };
-  return popupShell;
-}
-
-function showPopupPlaceholder(message: string): void {
-  const shell = ensurePopupShell();
-  shell.placeholder.textContent = message;
-  shell.placeholder.style.display = 'flex';
-  shell.mount.style.display = 'none';
-}
-
-function showPopupContent(): void {
-  const shell = ensurePopupShell();
-  shell.placeholder.style.display = 'none';
-  shell.mount.style.display = 'block';
 }
 
 // =============================================================================
@@ -580,7 +429,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     if (isInlineMode) {
       mountLoadingShell();
     } else {
-      showPopupPlaceholder('Loading comments…');
+      void getUiManager().showPopupPlaceholder('Loading comments…');
     }
     
     // Check if user is authenticated. If not, continue using the public
@@ -622,14 +471,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
           // No exact match found - offer manual Disqus search UI. If the user
           // chooses to fallback, continue with Reddit search.
           const disqusResult = await showDisqusSearchUI(animeInfo);
-          if (disqusResult.status === 'embedded' && disqusResult.thread) {
-            const selectedThread = buildDisqusThreadFromUrl(disqusResult.thread.link || disqusResult.thread.url || '', animeInfo);
-            if (selectedThread) {
-              cache.disqus = { thread: selectedThread };
-              await embedDisqusThreadDependingOnMode(selectedThread, animeInfo);
-              await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
-              return;
-            }
+          if (disqusResult === 'embedded') {
+            return;
           }
           // User dismissed or clicked fallback - continue with Reddit search
           // Skeleton will be removed when Reddit discussion is shown or no discussion found
@@ -673,16 +516,16 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
 
       const candidates = mapperResult.results;
       const malPreferred = targetMalId ? candidates
-        .map((c, i) => ({ c, i, mid: entryMal(c) }))
-        .filter((x) => x.mid === targetMalId)
-        .map((x) => x.i) : [];
+        .map((c: any, i: number) => ({ c, i, mid: entryMal(c) }))
+        .filter((x: { mid: number | null }) => x.mid === targetMalId)
+        .map((x: { i: number }) => x.i) : [];
       const matchedIdx = typeof mapperResult.matched_result?.index === 'number' ? mapperResult.matched_result.index : null;
 
       const pickOrder = [
         ...(malPreferred.length ? malPreferred : []),
         ...(matchedIdx !== null ? [matchedIdx] : []),
-        ...candidates.map((_, i) => i),
-      ].filter((v, i, arr) => arr.indexOf(v) === i);
+        ...candidates.map((_entry: any, i: number) => i),
+      ].filter((v: number, i: number, arr: number[]) => arr.indexOf(v) === i);
 
       for (const idx of pickOrder) {
         const entry: any = candidates[idx];
@@ -796,8 +639,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
   } catch (error) {
     console.error('Error searching for discussion:', error);
     try {
-      const epStr = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '?');
-      await showNoDiscussionMessage(animeInfo?.animeName || 'this series', epStr as string);
+      const epStr = mappedEpisodeStr ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '?');
+      await showNoDiscussionMessage(animeInfo?.animeName || 'this series', String(epStr || '?'));
     } catch (fallbackErr) {
       console.warn('Failed to show no-discussion fallback after error', fallbackErr);
     }
@@ -815,7 +658,7 @@ async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo, mappedEpisode
     const results = await searchCustomPosts(query);
     
     if (!results || results.length === 0) {
-      await showNoDiscussionMessage(animeInfo.animeName, ep || '?');
+      await showNoDiscussionMessage(animeInfo.animeName, String(ep || '?'));
       return;
     }
     
@@ -830,11 +673,11 @@ async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo, mappedEpisode
     }
     
     // No exact date match - show "no discussion" message with option to search
-    await showNoDiscussionMessage(animeInfo.animeName, ep || '?');
+    await showNoDiscussionMessage(animeInfo.animeName, String(ep || '?'));
   } catch (err) {
     console.warn('Manual search flow failed, showing fallback UI', err);
     const ep = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '?');
-    await showNoDiscussionMessage(animeInfo.animeName, ep as string);
+    await showNoDiscussionMessage(animeInfo.animeName, String(ep || '?'));
   }
 }
 
@@ -980,27 +823,16 @@ async function displayDiscussion(discussion: any): Promise<void> {
     }
   }
 
-  const shell = ensurePopupShell();
-  showPopupPlaceholder('Loading comments…');
-
-  // Clear previous mount content but keep the shell alive to preserve state between opens
-  shell.mount.innerHTML = '';
-
-  // Inject component styles once
-  injectExtensionStyles(shell.panel, 'hayami-popup-styles');
-
-  // Mount Vue discussion shell inside popup
-  const mountPoint = document.createElement('div');
-  shell.mount.appendChild(mountPoint);
+  const uiManager = getUiManager();
+  void uiManager.showPopupPlaceholder('Loading comments…');
 
   let activeProvider: CommentProvider = preferredProvider;
 
   const clearLoadingState = (context: string = 'popup') => {
     try {
-      const vueApp = currentState.inlineDiscussionApp as any;
-      const instance = vueApp?._instance || vueApp?._container?._vnode?.component;
-      if (instance?.exposed?.clearLoading) {
-        instance.exposed.clearLoading();
+      const exposed = uiManager.getInlineExposed();
+      if (exposed?.clearLoading) {
+        exposed.clearLoading();
       }
     } catch (e) {
       console.warn(`[Popup] Failed to clear loading state (${context})`, e);
@@ -1046,29 +878,24 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
   if (currentState.inlineDiscussionApp) {
     try {
-      currentState.inlineDiscussionApp.unmount();
-    } catch {}
-    setInlineDiscussionApp(null);
+      providerChangeCallback(activeProvider).catch((e) => {
+        console.warn('[Popup] Initial provider switch failed', e);
+      });
+    } catch (e) {
+      console.warn('[Popup] Failed to run initial provider switch', e);
+    }
   }
 
-  const app2 = createApp(InlineDiscussion, {
-    discussion,
-    provider: activeProvider,
-    onProviderChange: providerChangeCallback,
-  });
-  app2.mount(mountPoint);
-  setInlineDiscussionApp(app2);
-  setRedditCommentsCleanup(() => {
-    // Keep Vue app alive; provider switching handled via exposed callbacks
+  await uiManager.mountPopup({
+    component: InlineDiscussion,
+    props: {
+      discussion,
+      provider: activeProvider,
+      onProviderChange: providerChangeCallback,
+    },
   });
 
-  if (activeProvider !== 'reddit') {
-    providerChangeCallback(activeProvider).catch((e) => {
-      console.warn('[Popup] Initial provider switch failed', e);
-    });
-  }
-
-  showPopupContent();
+  await uiManager.showPopupContent();
 }
 
 // =============================================================================
@@ -1157,19 +984,7 @@ function waitForDisqusLoad(callback: () => void): void {
 }
 
 function mountLoadingShell(): void {
-  const contentContext = getContentScriptContext();
-  if (!contentContext) {
-    console.warn('mountLoadingShell: content script context not available');
-    return;
-  }
-
   try {
-    // Avoid double-mounting if UI already exists
-    if ((window as any).__crLoadingShellUi) {
-      (window as any).__crLoadingShellUi.mount();
-      return;
-    }
-
     const placeholderDiscussion = {
       id: '',
       title: 'Loading comments...',
@@ -1189,78 +1004,13 @@ function mountLoadingShell(): void {
       const placeholder = buildPlaceholderDiscussion(state().lastAnimeInfo || undefined);
       await displayDiscussionDependingOnMode(placeholder);
     };
-
-    let loadingWrapper: HTMLElement | null = null;
-
-    // Use WXT's integrated UI for inline positioning
-    const loadingShellUi = createIntegratedUi(contentContext, {
-      position: 'inline',
-      anchor: () => {
-        const adapter = resolveAdapter();
-        const adapterAnchor = adapter?.getMountAnchor?.();
-        return adapterAnchor || getWatchPageWrapper() || document.body;
-      },
-      append: 'last',
-      tag: 'div',
-      onMount: (wrapper) => {
-        wrapper.id = 'ri-inline-vue-host';
-        loadingWrapper = wrapper;
-        applySidePadding(wrapper);
-
-        // Inject extension styles
-        injectExtensionStyles(wrapper, 'hayami-loading-styles');
-
-        // Mount Vue loading shell in a child mount point
-        const mountPoint = document.createElement('div');
-        wrapper.appendChild(mountPoint);
-
-        const app1 = createApp(InlineDiscussion, {
-          discussion: placeholderDiscussion,
-          provider: preferredProvider,
-          initialLoading: true,
-          onProviderChange: handleShellProviderChange,
-        });
-        app1.mount(mountPoint);
-        setInlineDiscussionApp(app1);
-        return app1;
-      },
-      onRemove: (app) => {
-        if (app) {
-          try {
-            (app as VueApp).unmount();
-          } catch (e) {
-            console.warn('Error unmounting loading shell:', e);
-          }
-        }
-      },
-    });
-
-    // Store reference and mount
-    (window as any).__crLoadingShellUi = loadingShellUi;
-    loadingShellUi.mount();
-
-    // After mount, if a custom anchor exists, move the wrapper under it
-    getCustomMountAnchor().then((anchor) => {
-      if (anchor && loadingWrapper && anchor !== loadingWrapper) {
-        try {
-          const node = (loadingShellUi as any).root ?? (loadingShellUi as any).container ?? loadingWrapper;
-
-          // For replace mode, swap the anchor with a stable placeholder so final render stays in place
-          if (getCustomSiteMapping()?.display === 'replace') {
-            if (!(node as any).__hayamiReplacedOriginal) {
-              const placeholder = document.createElement('div');
-              placeholder.style.minHeight = `${anchor.getBoundingClientRect().height || 1}px`;
-              anchor.replaceWith(placeholder);
-              (node as any).__hayamiReplacedOriginal = anchor;
-              placeholder.appendChild(node);
-            }
-          } else {
-            anchor.appendChild(node);
-          }
-        } catch (e) {
-          console.warn('Failed to move loading shell to custom anchor', e);
-        }
-      }
+    const manager = getUiManager();
+    void manager.mountInline({
+      discussion: placeholderDiscussion,
+      provider: preferredProvider,
+      initialLoading: true,
+      onProviderChange: handleShellProviderChange,
+      styleId: 'hayami-loading-styles',
     });
   } catch (e) {
     console.warn('mountLoadingShell failed:', e);
@@ -1300,15 +1050,10 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
 
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
-    if (currentState.inlineDiscussionApp && (currentState.inlineDiscussionApp as any)._instance?.exposed?.handleProviderChange) {
-      (currentState.inlineDiscussionApp as any)._instance.exposed.handleProviderChange('disqus');
-      return;
-    }
-    // If componentInstance is available via the current inlineDiscussionApp (fallback)
-    const vueHost = document.getElementById('ri-inline-vue-host');
-    const instance = (vueHost as any)?._vnode?.component;
-    if (instance?.exposed?.handleProviderChange) {
-      instance.exposed.handleProviderChange('disqus');
+    const manager = getUiManager();
+    const exposed = manager.getInlineExposed();
+    if (exposed?.handleProviderChange) {
+      exposed.handleProviderChange('disqus');
       return;
     }
   } catch (e) {
@@ -1368,18 +1113,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       }
     }
     
-    // Remove existing inline panel if present
-    const existing = document.getElementById('reddit-inline-discussion');
-    if (existing) existing.remove();
-    const oldVueHost = document.getElementById('ri-inline-vue-host');
-    if (oldVueHost) oldVueHost.remove();
-    if (currentState.inlineDiscussionApp) {
-      try {
-        currentState.inlineDiscussionApp.unmount();
-      } catch {}
-      setInlineDiscussionApp(null);
-    }
-
     const contentContext = getContentScriptContext();
     if (!contentContext) {
       console.warn('displayInlineDiscussion: content script context not available');
@@ -1387,129 +1120,27 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       return;
     }
 
-    // Remove existing UI if present
-    if ((window as any).__crInlineDiscussionUi) {
-      (window as any).__crInlineDiscussionUi.remove();
-    }
-
     // Build container first so we can show skeletons while loading
     let currentSort: 'best' | 'top' | 'new' = 'best';
     let activeProvider: CommentProvider = preferredProvider;
-    let host: HTMLElement | null = null;
+    const manager = getUiManager();
 
     // Cache the discussion data (not comments) for faster switching
     cache.reddit = { ...discussion };
 
-    // Store the provider change callback so it can be reused when recreating the Vue app
-    // Store component instance ref for accessing exposed methods
-    let componentInstance: any = null;
-
-    // Helper function to clear loading state
-    const clearLoadingState = (context: string = 'unknown') => {
-      console.log('=== [ClearLoadingState] START ===');
-      console.log(`Context: ${context}`);
-      console.log(`inlineDiscussionApp exists:`, !!currentState.inlineDiscussionApp);
-      console.log(`componentInstance exists:`, !!componentInstance);
-      
-      // Try multiple ways to access the component instance
-      if (!componentInstance && currentState.inlineDiscussionApp) {
-        const vueHost = document.getElementById('ri-inline-vue-host');
-        console.log('Vue host element found:', !!vueHost);
-        if (vueHost) {
-          // Method 1: Try accessing through Vue's internal structure
-          const vueApp = currentState.inlineDiscussionApp as any;
-          if (vueApp._container) {
-            const container = vueApp._container as any;
-            // Vue 3 stores component instance in the container's vnode
-            if (container._vnode && container._vnode.component) {
-              componentInstance = container._vnode.component;
-              console.log(`✓ Found component instance via _vnode.component`);
-            }
-          }
-          
-          // Method 2: Try accessing through the element's Vue properties
-          if (!componentInstance && (vueHost as any).__vueParentComponent) {
-            componentInstance = (vueHost as any).__vueParentComponent;
-            console.log(`[LoadingState] Found component instance via __vueParentComponent`);
-          }
-          
-          // Method 3: Try accessing through app's _instance
-          if (!componentInstance && vueApp._instance) {
-            componentInstance = vueApp._instance;
-            console.log(`✓ Found component instance via _instance`);
-          }
-        }
+    const clearLoadingState = (_context?: string) => {
+      const exposed = manager.getInlineExposed();
+      if (exposed?.clearLoading) {
+        exposed.clearLoading();
       }
-      
-      console.log('About to call clearLoading in 100ms...');
-      // Small delay to ensure DOM mutations are settled
-      setTimeout(() => {
-        console.log('[ClearLoadingState] Timeout fired, checking component...');
-        if (componentInstance && componentInstance.exposed) {
-          console.log(`✓ componentInstance.exposed exists`);
-          try {
-            if (typeof componentInstance.exposed.clearLoading === 'function') {
-              console.log(`[ClearLoadingState] Calling clearLoading()...`);
-              componentInstance.exposed.clearLoading();
-              console.log(`✓ clearLoading() called successfully`);
-            } else {
-              console.warn(`✗ clearLoading is not a function. Type:`, typeof componentInstance.exposed.clearLoading);
-              console.warn(`Available exposed methods:`, Object.keys(componentInstance.exposed || {}));
-            }
-          } catch (e) {
-            console.error(`✗ Error clearing loading state:`, e);
-            console.error(`Error stack:`, e instanceof Error ? e.stack : 'No stack');
-          }
-        } else {
-          console.warn(`✗ componentInstance or exposed is missing`);
-          console.warn(`  componentInstance:`, componentInstance);
-          if (componentInstance) {
-            console.warn(`  componentInstance keys:`, Object.keys(componentInstance));
-          }
-        }
-        console.log('=== [ClearLoadingState] END ===');
-      }, 100); // Small delay to let DOM settle
     };
 
     const applyRedditSortOptions = () => {
-      if (!host) return;
-      const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
-      if (!select) return;
-      // Use safer DOM manipulation instead of innerHTML
-      select.textContent = ''; // Clear existing options
-      const options = [
-        { value: 'best', label: 'Best' },
-        { value: 'top', label: 'Top' },
-        { value: 'new', label: 'New' },
-      ];
-      options.forEach(opt => {
-        const option = document.createElement('option');
-        option.value = opt.value;
-        option.textContent = opt.label;
-        select.appendChild(option);
-      });
-      select.value = currentSort;
-      select.disabled = false;
+      manager.wireRedditSortOptions(currentSort);
     };
 
     const applyYouTubeSortOptions = () => {
-      if (!host) return;
-      const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
-      if (!select) return;
-      // Use safer DOM manipulation instead of innerHTML
-      select.textContent = ''; // Clear existing options
-      const options = [
-        { value: 'relevance', label: 'Top' },
-        { value: 'time', label: 'Newest' },
-      ];
-      options.forEach(opt => {
-        const option = document.createElement('option');
-        option.value = opt.value;
-        option.textContent = opt.label;
-        select.appendChild(option);
-      });
-      select.value = getCurrentYouTubeOrder();
-      select.disabled = false;
+      manager.wireYouTubeSortOptions(getCurrentYouTubeOrder());
     };
 
     // Build provider context for provider manager
@@ -1564,87 +1195,12 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         }
       };
     
-    // Use WXT's integrated UI for inline positioning
-    const inlineDiscussionUi = createIntegratedUi(contentContext, {
-      position: 'inline',
-      anchor: () => {
-        const adapter = resolveAdapter();
-        const adapterAnchor = adapter?.getMountAnchor?.();
-        return adapterAnchor || getWatchPageWrapper() || document.body;
-      },
-      append: 'last',
-      tag: 'div',
-      onMount: (wrapper) => {
-        wrapper.id = 'ri-inline-vue-host';
-        host = wrapper; // Store reference for later queries
-
-        // Apply padding and inject extension styles
-        applySidePadding(wrapper);
-        injectExtensionStyles(wrapper, 'hayami-inline-styles');
-
-        // Mount Vue inline discussion shell inside a dedicated mount point
-        const mountPoint = document.createElement('div');
-        wrapper.appendChild(mountPoint);
-
-        const app2 = createApp(InlineDiscussion, {
-          discussion,
-          provider: activeProvider,
-          onProviderChange: providerChangeCallback,
-        });
-        app2.mount(mountPoint);
-        setInlineDiscussionApp(app2);
-        return app2;
-      },
-      onRemove: (app) => {
-        if (app) {
-          try {
-            (app as VueApp).unmount();
-          } catch (e) {
-            console.warn('Error unmounting inline discussion:', e);
-          }
-        }
-        setInlineDiscussionApp(null);
-      },
+    await manager.refreshInline({
+      discussion,
+      provider: activeProvider,
+      onProviderChange: providerChangeCallback,
+      styleId: 'hayami-inline-styles',
     });
-
-    // Store reference and mount
-    (window as any).__crInlineDiscussionUi = inlineDiscussionUi;
-    inlineDiscussionUi.mount();
-
-    // Get the host element after mounting
-    host = document.getElementById('ri-inline-vue-host');
-
-    // If a custom mapping exists, re-parent the host to the chosen anchor (including replace mode)
-    getCustomMountAnchor().then((anchor) => {
-      if (!anchor || !host || anchor === host) return;
-      try {
-        const node = (inlineDiscussionUi as any).root ?? (inlineDiscussionUi as any).container ?? host;
-
-        if (getCustomSiteMapping()?.display === 'replace') {
-          if (!(node as any).__hayamiReplacedOriginal) {
-            const placeholder = document.createElement('div');
-            placeholder.style.minHeight = `${anchor.getBoundingClientRect().height || 1}px`;
-            anchor.replaceWith(placeholder);
-            (node as any).__hayamiReplacedOriginal = anchor;
-            placeholder.appendChild(node);
-          }
-        } else {
-          anchor.appendChild(node);
-        }
-      } catch (e) {
-        console.warn('Failed to move inline discussion host to custom anchor', e);
-      }
-    });
-
-    // Note: 'ri-manual-search-requested' event listener is handled by InlineDiscussion.vue component     
-    // No need to add it here to avoid duplicates
-
-    // Store component instance reference after mounting
-    const vueApp = currentState.inlineDiscussionApp as any;
-    if (vueApp._container && vueApp._container._vnode && vueApp._container._vnode.component) {
-      componentInstance = vueApp._container._vnode.component;
-      console.log(`[LoadingState] Stored component instance after mount`);
-    }
 
     if (activeProvider !== 'reddit') {
       providerChangeCallback(activeProvider).catch((e) => {
