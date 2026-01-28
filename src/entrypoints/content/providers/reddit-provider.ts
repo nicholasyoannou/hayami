@@ -5,6 +5,7 @@
 import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext } from '../types/data';
 import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
+import { teardownRedditInfiniteScroll } from '../state';
 import { ASSETS, SELECTORS } from '../constants';
 
 export class RedditProvider extends BaseProvider {
@@ -30,9 +31,8 @@ export class RedditProvider extends BaseProvider {
       safeClear(disqusContainer);
       disqusContainer.style.display = 'none';
     }
-    
-    // Note: Reddit cleanup (observers, etc.) is handled by the Vue component
-    // and the state management module
+
+    teardownRedditInfiniteScroll();
   }
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {

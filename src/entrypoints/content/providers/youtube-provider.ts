@@ -19,6 +19,7 @@ import {
   SELECTORS
 } from '../constants';
 import { waitForElement, removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
+import { teardownYouTubeInfiniteScroll } from '../state';
 import { toast } from 'vue-sonner';
 
 // Global state for YouTube (should be moved to state module)
@@ -220,8 +221,7 @@ export class YouTubeProvider extends BaseProvider {
   }
 
   cleanup(): void {
-    // YouTube cleanup is handled by teardownYouTubeInfiniteScroll in state module
-    // This is called when switching away from YouTube
+    teardownYouTubeInfiniteScroll();
   }
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {

@@ -65,8 +65,6 @@ import {
   setSearchInProgress,
   setRedditCommentsCleanup,
   clearDiscussionCache,
-  teardownYouTubeInfiniteScroll,
-  teardownRedditInfiniteScroll,
 } from '../state';
 
 // Provider manager
@@ -853,40 +851,17 @@ async function displayDiscussion(discussion: any): Promise<void> {
     toast,
   });
 
-  const providerChangeCallback = async (provider: CommentProvider) => {
+  const providerChangeCallback = (provider: CommentProvider) => {
     activeProvider = provider;
-    teardownYouTubeInfiniteScroll();
-
-    if (provider !== 'reddit' && cache.reddit) {
-      cache.reddit = { ...discussion };
-    }
-
-    try {
-      const context = buildProviderContext();
-      if (provider === 'reddit') {
-        cleanupProvider('disqus');
-        cleanupProvider('youtube');
-        cleanupProvider('mal');
-        teardownRedditInfiniteScroll();
-        clearLoadingState('Switch back to Reddit');
-        return;
-      }
-
-      await switchProvider(provider, context);
-    } catch (error) {
-      handleError(error, {
-        operation: 'Provider switch',
-        provider,
-      });
-      clearLoadingState(`${provider} error`);
+    const exposed = uiManager.getExposed<InlineDiscussionExposed>();
+    if (exposed?.handleProviderChange) {
+      exposed.handleProviderChange(provider);
     }
   };
 
   if (currentState.inlineDiscussionApp) {
     try {
-      providerChangeCallback(activeProvider).catch((e) => {
-        console.warn('[Popup] Initial provider switch failed', e);
-      });
+      providerChangeCallback(activeProvider);
     } catch (e) {
       console.warn('[Popup] Failed to run initial provider switch', e);
     }
@@ -1182,48 +1157,18 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       toast,
     });
 
-    const providerChangeCallback = async (provider: CommentProvider) => {
-        console.log('=== [ProviderChangeCallback] START ===');
-        activeProvider = provider;
-        console.log('Provider change callback received:', provider);
-        console.log('lastAnimeInfo:', currentState.lastAnimeInfo);
-        console.log(`Provider change started: ${provider}`);
-        
-        // Always clear any existing YouTube observers/sentinels before switching providers
-        teardownYouTubeInfiniteScroll();
-        
-        // Cache current Reddit discussion if switching away from Reddit
-        if (provider !== 'reddit' && cache.reddit) {
-          // Already cached above, just ensure it's up to date
-          cache.reddit = { ...discussion };
-          console.log('Updated Reddit discussion cache');
-        }
-        
-        // Use provider manager to switch providers
-        try {
-          const context = buildProviderContext();
-          
-          // Handle special case: Reddit uses Vue component, others use provider manager
-          if (provider === 'reddit') {
-            // Reddit is handled by Vue component, just clean up other providers
-            cleanupProvider('disqus');
-            cleanupProvider('youtube');
-            cleanupProvider('mal');
-            teardownRedditInfiniteScroll();
-            clearLoadingState('Switch back to Reddit');
-            return;
-          }
-          
-          // For other providers, use the provider manager
-          await switchProvider(provider, context);
-        } catch (error) {
-          handleError(error, {
-            operation: 'Provider switch',
-            provider,
-          });
-          clearLoadingState(`${provider} error`);
-        }
-      };
+    const providerChangeCallback = (provider: CommentProvider) => {
+      console.log('=== [ProviderChangeCallback] START ===');
+      activeProvider = provider;
+      console.log('Provider change callback received:', provider);
+      console.log('lastAnimeInfo:', currentState.lastAnimeInfo);
+      console.log(`Provider change started: ${provider}`);
+
+      const exposed = manager.getExposed<InlineDiscussionExposed>();
+      if (exposed?.handleProviderChange) {
+        exposed.handleProviderChange(provider);
+      }
+    };
     
     if (manager.isMounted() && manager.getMode() === 'inline') {
       manager.updateProps({
@@ -1247,9 +1192,11 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     }
 
     if (activeProvider !== 'reddit') {
-      providerChangeCallback(activeProvider).catch((e) => {
+      try {
+        providerChangeCallback(activeProvider);
+      } catch (e) {
         console.warn('[Inline] Initial provider switch failed', e);
-      });
+      }
     }
 
     // Force Vue rendering path (legacy DOM rendering removed)
