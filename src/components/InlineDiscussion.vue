@@ -38,10 +38,12 @@ const props = defineProps<{
   onProviderChange?: (provider: Provider) => void;
   initialLoading?: boolean;
   providerContext?: ProviderContext | null;
+  redditCommentsKey?: number;
 }>();
 
 const discussionStore = useDiscussionStore();
-const providerHook = useProvider((props.provider || 'reddit') as Provider, props.providerContext ?? null);
+const providerContextRef = computed(() => props.providerContext ?? null);
+const providerHook = useProvider((props.provider || 'reddit') as Provider, providerContextRef);
 const currentProvider = providerHook.activeProvider;
 const isLoading = ref(props.initialLoading ?? discussionStore.isLoading);
 const commentSort = ref<'best' | 'top' | 'new'>('best');
@@ -275,6 +277,7 @@ const postFullname = computed(() => {
   }
   const fallbackId = props.discussion.permalink?.match(/\/comments\/([a-z0-9]+)/i)?.[1] || '';
   const id = props.discussion.id || fallbackId;
+  if (!id) return '';
   const constructed = id.startsWith('t3_') ? id : `t3_${id}`;
   console.log('Constructed fullname from id:', constructed, 'original id:', id, 'fallback id:', fallbackId);
   return constructed;
@@ -579,12 +582,44 @@ watch(
 );
 
 watch(
+  () => props.discussion,
+  (d) => {
+    console.log('[InlineDiscussion] discussion prop changed:', { id: d.id, fullname: d.fullname, title: d.title });
+  },
+  { deep: true, immediate: true }
+);
+
+// Trigger providerHook.changeProvider for non-Reddit defaults on startup
+watch(
+  providerContextRef,
+  (ctx) => {
+    const prov = currentProvider.value;
+    if (ctx && prov && prov !== 'reddit') {
+      console.log('[InlineDiscussion] Triggering provider change for non-Reddit default:', prov);
+      providerHook.changeProvider(prov);
+    }
+  },
+  { immediate: true }
+);
+
+watch(
   () => props.provider,
   (provider) => {
     if (provider && provider !== currentProvider.value) {
       currentProvider.value = provider as Provider;
     }
   }
+);
+
+watch(
+  () => props.redditCommentsKey,
+  (v) => {
+    if (typeof v === 'number') {
+      console.log('[InlineDiscussion] redditCommentsKey prop changed to:', v);
+      redditCommentsKey.value = v;
+    }
+  },
+  { immediate: true }
 );
 
 watch(
@@ -912,9 +947,9 @@ defineExpose({
           </div>
         </div>
 
-        <!-- Reddit comments list - only shown when loaded and on Reddit -->
+        <!-- Reddit comments list - only mounted when loaded, on Reddit, and we have a valid discussion id -->
         <RedditCommentList
-          v-show="currentProvider === 'reddit' && !isLoading"
+          v-if="currentProvider === 'reddit' && !isLoading && !!discussionId"
           :key="`reddit-${discussionId}-${redditCommentsKey}`"
           :discussion-id="discussionId"
           :link-fullname="postFullname"
@@ -927,6 +962,9 @@ defineExpose({
           ref="redditListRef"
           @comments-loaded="handleCommentsLoaded"
         />
+        <div v-else-if="currentProvider === 'reddit' && !isLoading && !discussionId">
+          <p class="text-center text-gray-500">No Reddit thread resolved.</p>
+        </div>
         
         <!-- External provider container - ALWAYS in DOM, controlled with display:none -->
         <div 

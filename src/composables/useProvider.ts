@@ -1,4 +1,4 @@
-import { ref } from 'vue';
+import { ref, type Ref } from 'vue';
 import type { CommentProvider, ProviderContext } from '@/entrypoints/content/types/data';
 import { switchProvider, cleanupProvider } from '@/entrypoints/content/providers/provider-manager';
 import { useDiscussionStore } from '@/store/discussion';
@@ -6,7 +6,7 @@ import { handleError } from '@/entrypoints/content/utils/error-handler';
 import { debounce } from '@/utils/debounce';
 import { providers } from '@/entrypoints/content/providers';
 
-export const useProvider = (initial: CommentProvider, context?: ProviderContext | null) => {
+export const useProvider = (initial: CommentProvider, context?: Ref<ProviderContext | null> | null) => {
   const store = useDiscussionStore();
   const active = ref<CommentProvider>(initial);
   const previous = ref<CommentProvider | null>(null);
@@ -25,19 +25,18 @@ export const useProvider = (initial: CommentProvider, context?: ProviderContext 
       active.value = newProvider;
       previous.value = newProvider;
 
-      if (newProvider === 'reddit') {
-        store.clearLoading();
-        return;
-      }
-
-      if (context) {
-        await switchProvider(newProvider, context);
+      const currentContext = context?.value ?? null;
+      if (currentContext) {
+        await switchProvider(newProvider, currentContext);
       }
     } catch (error: any) {
       store.setError(error?.message || 'Provider switch failed');
       handleError(error, { operation: 'Provider switch', provider: newProvider });
     } finally {
-      store.clearLoading();
+      // Reddit loading is cleared by RedditProvider.switchTo or by discussion-manager after resolution
+      if (active.value !== 'reddit') {
+        store.clearLoading();
+      }
     }
   };
 

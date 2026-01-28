@@ -176,7 +176,11 @@ class UiManager {
 
   updateProps(mode: UiMode, newProps: Record<string, unknown>): void {
     const entry = this.apps.get(mode);
-    if (!entry) return;
+    if (!entry) {
+      console.warn('[UiManager] updateProps: no entry for mode', mode);
+      return;
+    }
+    console.log(`[UiManager] updateProps (${mode}):`, newProps);
     Object.assign(entry.props, newProps);
   }
 

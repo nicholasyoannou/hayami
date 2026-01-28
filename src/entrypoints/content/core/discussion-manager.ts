@@ -128,14 +128,15 @@ function buildPlaceholderDiscussion(animeInfo?: AnimeInfo): any {
   const titleBase = animeInfo?.animeName || 'Discussion';
   const episodePart = animeInfo?.episodeName ? ` - ${animeInfo.episodeName}` : '';
   return {
-    id: 'ext-placeholder',
+    id: '',
     title: `${titleBase}${episodePart}`.trim(),
     author: '',
     permalink: '',
+    fullname: '',
     score: 0,
     num_comments: 0,
     created_utc: Math.floor(Date.now() / 1000),
-    subreddit: 'anime',
+    subreddit: '',
     subreddit_icon_url: null,
     subreddit_primary_color: null,
   };
@@ -438,16 +439,6 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     } else {
       void getUiManager().showPopupPlaceholder('Loading comments…');
     }
-    
-    // Check if user is authenticated. If not, continue using the public
-    // fallback paths (we added unauthenticated search/comments/morechildren)
-    // so the UI won't force the user to log in just to view threads. Keep
-    // the auth prompt available for actions that require OAuth (posting/voting).
-    const authenticated = await isAuthenticated();
-    if (!authenticated) {
-      console.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
-      // do not show auth prompt here; allow unauthenticated browsing
-    }
 
     // New primary search: series name filtered by release date
     // But first check whether user selected Disqus as comments provider. If so,
@@ -476,19 +467,37 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
             return;
           }
           // No exact match found - offer manual Disqus search UI. If the user
-          // chooses to fallback, continue with Reddit search.
+          // chooses to fallback, they can explicitly switch providers.
           const disqusResult = await showDisqusSearchUI(animeInfo);
           if (disqusResult === 'embedded') {
             return;
           }
-          // User dismissed or clicked fallback - continue with Reddit search
-          // Skeleton will be removed when Reddit discussion is shown or no discussion found
+          // User dismissed - keep the selected provider without falling back to Reddit
+          await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
+          return;
         } catch (e) {
           console.warn('Disqus lookup failed, falling back to Reddit', e);
         }
       }
     } catch (e) {
       // ignore storage errors and fall back to reddit
+    }
+
+    // If the user's preferred provider is not Reddit, do not do any Reddit work
+    // in the background. Mount the UI and let the provider manager handle fetching.
+    if (preferredProvider !== 'reddit') {
+      await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
+      return;
+    }
+
+    // Check if user is authenticated. If not, continue using the public
+    // fallback paths (we added unauthenticated search/comments/morechildren)
+    // so the UI won't force the user to log in just to view threads. Keep
+    // the auth prompt available for actions that require OAuth (posting/voting).
+    const authenticated = await isAuthenticated();
+    if (!authenticated) {
+      console.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
+      // do not show auth prompt here; allow unauthenticated browsing
     }
 
     // NEW FAILOVER: Try mapper service with series_name and season_title from Crunchyroll API
@@ -837,9 +846,6 @@ async function displayDiscussion(discussion: any): Promise<void> {
   void uiManager.showPopupPlaceholder('Loading comments…');
 
   let activeProvider: CommentProvider = preferredProvider;
-  if (discussion?.permalink || discussion?.subreddit) {
-    activeProvider = 'reddit';
-  }
 
   const clearLoadingState = (context: string = 'popup') => {
     try {
@@ -866,6 +872,52 @@ async function displayDiscussion(discussion: any): Promise<void> {
     const exposed = uiManager.getExposed<InlineDiscussionExposed>('popup');
     if (exposed?.handleProviderChange) {
       exposed.handleProviderChange(provider);
+    }
+
+    // If the user switches to Reddit while we only have a placeholder discussion,
+    // resolve the Reddit post on-demand so the Vue RedditCommentList has an id/fullname.
+    if (provider === 'reddit' && (!cache.reddit?.id || cache.reddit.id === '')) {
+      discussionStore.startLoading();
+      void (async () => {
+        try {
+          const info = currentState.lastAnimeInfo;
+          if (!info?.animeName) return;
+          const mapping = await getSeriesMapping(info.animeName);
+          const episodeOffset = mapping?.episodeOffset ?? 0;
+          const rawEpisodeStr = extractEpisodeNumber(info.episodeName || '');
+          const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
+          const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
+
+          const failoverRedditUrl = await tryMapperFailover(info, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+          if (!failoverRedditUrl) return;
+
+          const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
+          if (!postData) return;
+          normalizeRedditDiscussion(postData);
+          cache.reddit = { ...postData };
+
+          const key = Date.now();
+          console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
+          const manager = getUiManager();
+          manager.updateProps('inline', {
+            discussion: postData,
+            provider: 'reddit',
+            redditCommentsKey: key,
+          });
+          // Ensure the current Vue app processes the new discussion (handles potential app replacement)
+          const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
+          if (exposed?.handleProviderChange) {
+            exposed.handleProviderChange('reddit');
+          }
+        } catch (e) {
+          console.warn('[Popup] Failed to resolve Reddit discussion on-demand', e);
+        } finally {
+          // Only clear loading if the user is still on Reddit
+          if (activeProvider === 'reddit') {
+            discussionStore.clearLoading();
+          }
+        }
+      })();
     }
   };
 
@@ -1148,9 +1200,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // Build container first so we can show skeletons while loading
     let currentSort: 'best' | 'top' | 'new' = 'best';
     let activeProvider: CommentProvider = preferredProvider;
-    if (discussion?.permalink || discussion?.subreddit) {
-      activeProvider = 'reddit';
-    }
     const manager = getUiManager();
 
     // Cache the discussion data (not comments) for faster switching
@@ -1180,6 +1229,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       toast,
     });
 
+    const inlineDiscussionStore = useDiscussionStore();
+    let resolvingReddit = false;
     const providerChangeCallback = (provider: CommentProvider) => {
       console.log('=== [ProviderChangeCallback] START ===');
       activeProvider = provider;
@@ -1191,6 +1242,58 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       if (exposed?.handleProviderChange) {
         exposed.handleProviderChange(provider);
       }
+
+      // If the user switches to Reddit while we only have a placeholder discussion,
+      // resolve the Reddit post on-demand so the Vue RedditCommentList has an id/fullname.
+      if (provider === 'reddit' && !resolvingReddit && (!cache.reddit?.id || cache.reddit.id === '')) {
+        resolvingReddit = true;
+        inlineDiscussionStore.startLoading();
+        void (async () => {
+          try {
+            const info = currentState.lastAnimeInfo;
+            if (!info?.animeName) return;
+            const mapping = await getSeriesMapping(info.animeName);
+            const episodeOffset = mapping?.episodeOffset ?? 0;
+            const rawEpisodeStr = extractEpisodeNumber(info.episodeName || '');
+            const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
+            const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
+
+            const failoverRedditUrl = await tryMapperFailover(info, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+            if (!failoverRedditUrl) return;
+
+            const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
+            if (!postData) return;
+            normalizeRedditDiscussion(postData);
+            cache.reddit = { ...postData };
+
+            const key = Date.now();
+            console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
+            const manager = getUiManager();
+            manager.updateProps('inline', {
+              discussion: postData,
+              provider: 'reddit',
+              redditCommentsKey: key,
+            });
+            // Ensure the current Vue app processes the new discussion (handles potential app replacement)
+            const exposedCurrent = manager.getExposed<InlineDiscussionExposed>('inline');
+            if (exposedCurrent?.handleProviderChange) {
+              exposedCurrent.handleProviderChange('reddit');
+            }
+          } catch (e) {
+            console.warn('[Inline] Failed to resolve Reddit discussion on-demand', e);
+          } finally {
+            resolvingReddit = false;
+            // Only clear loading if the user is still on Reddit
+            if (activeProvider === 'reddit') {
+              inlineDiscussionStore.clearLoading();
+            }
+          }
+        })();
+      } else if (provider === 'reddit' && cache.reddit?.id) {
+        // Already have a Reddit discussion, just ensure loading is cleared
+        console.log('[Inline] Reddit already cached, clearing loading');
+        inlineDiscussionStore.clearLoading();
+      }
     };
     
     if (manager.isMounted('inline')) {
@@ -1201,6 +1304,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         provider: activeProvider,
         onProviderChange: providerChangeCallback,
         providerContext: buildProviderContext(),
+        redditCommentsKey: 0,
         initialLoading: true,
       });
     } else {
@@ -1212,6 +1316,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           provider: activeProvider,
           onProviderChange: providerChangeCallback,
           providerContext: buildProviderContext(),
+          redditCommentsKey: 0,
           initialLoading: true,
         },
         styleId: 'hayami-inline-styles',
@@ -1226,9 +1331,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       }
     }
 
-    // Force Vue rendering path (legacy DOM rendering removed)
-    const USE_VUE_REDDIT_COMMENTS = true;
-    console.log('[Vue] Using Vue-based Reddit comment rendering (forced)');
+    // Use Vue rendering path (legacy DOM rendering removed)
+    if (activeProvider === 'reddit') {
+      console.log('[Vue] Using Vue-based Reddit comment rendering');
+    }
     // Set up cleanup for the mounted app
     // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
     setRedditCommentsCleanup(() => {

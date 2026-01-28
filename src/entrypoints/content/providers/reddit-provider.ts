@@ -12,13 +12,20 @@ export class RedditProvider extends BaseProvider {
   readonly name: CommentProvider = 'reddit';
 
   async switchTo(context: ProviderContext): Promise<void> {
-    // Reddit is handled by Vue component, so we just need to clean up other providers
+    const { clearLoadingState, discussionCache } = context;
+    
+    // Clean up other providers
     this.cleanup();
     
-    // Note: Vue component already updated its provider state via handleProviderChange
-    // which was triggered by the RiTopStrip @provider-change event before this callback
-    console.log(`[RedditProvider] Switching to Reddit - Vue already handling rendering`);
-    context.clearLoadingState('Switch back to Reddit');
+    // Only clear loading if we have a resolved Reddit discussion
+    // Otherwise, let the on-demand resolver clear it after fetching
+    if (discussionCache.reddit?.id) {
+      console.log('[RedditProvider] Clearing loading with resolved Reddit discussion:', discussionCache.reddit.id);
+      clearLoadingState('Reddit switchTo with resolved discussion');
+    } else {
+      console.log('[RedditProvider] No Reddit discussion available, keeping loading state');
+      // Don't clear loading - let the on-demand resolver handle it
+    }
   }
 
   cleanup(): void {
