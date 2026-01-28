@@ -4,7 +4,6 @@ import YouTubeCommentsRoot from '@/components/comments/YouTubeCommentsRoot.vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
-import { teardownYouTubeInfiniteScroll } from '../state';
 import { getContentScriptContext } from '../core/content-script-context';
 
 // Track mounted Vue apps for cleanup within this helper
@@ -88,8 +87,6 @@ export async function renderYouTubeComments(
     console.error('Comments root element is null');
     throw new Error('Comments container not found');
   }
-
-  teardownYouTubeInfiniteScroll();
 
   commentsRoot.innerHTML = '';
 
