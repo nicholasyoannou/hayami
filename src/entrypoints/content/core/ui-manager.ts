@@ -5,7 +5,6 @@ import type { App as VueApp, Component } from 'vue';
 import { createApp } from 'vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
-import InlineDiscussion from '@/components/InlineDiscussion.vue';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from '../ui/site-mapper';
 import { resolveAdapter } from '../adapters/site-registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
@@ -17,17 +16,8 @@ import { setInlineDiscussionApp } from '../state';
 export type InlineDiscussionExposed = {
   clearLoading?: () => void;
   handleProviderChange?: (provider: CommentProvider) => void;
+  updateSortOptions?: (provider: CommentProvider, currentSort: string) => void;
 };
-
-type InlineMountOptions = {
-  discussion: any;
-  provider: CommentProvider;
-  initialLoading?: boolean;
-  onProviderChange: (provider: CommentProvider) => void;
-  styleId: string;
-};
-
-type InlineRefreshOptions = InlineMountOptions;
 
 type PopupShell = {
   root: HTMLElement;
@@ -51,177 +41,133 @@ type OverlayMountOptions = {
 
 class UiManager {
   private inlineUi: { remove: () => void; mount: () => void; root?: HTMLElement; container?: HTMLElement } | null = null;
-  private inlineApp: VueApp | null = null;
-  private inlineExposed: InlineDiscussionExposed | null = null;
-  private inlineHost: HTMLElement | null = null;
-
   private popupUi: { remove: () => void; mount: () => void } | null = null;
   private popupShell: PopupShell | null = null;
-  private popupApp: VueApp | null = null;
   private popupCleanupRegistered = false;
 
   private overlayUi: { remove: () => void; mount: () => void } | null = null;
-  private overlayApp: VueApp | null = null;
+
+  private currentApp: VueApp | null = null;
+  private currentExposed: InlineDiscussionExposed | null = null;
+  private currentHost: HTMLElement | null = null;
+  private currentMode: 'inline' | 'popup' | null = null;
 
   private readonly overlayCss = `${tailwindCss}\n${redditInlineCss}`;
 
-  getInlineExposed(): InlineDiscussionExposed | null {
-    return this.inlineExposed;
-  }
-
-  getInlineHost(): HTMLElement | null {
-    return this.inlineHost;
-  }
-
-  isInlineMounted(): boolean {
-    return !!this.inlineUi && !!this.inlineApp;
-  }
-
-  async mountInline(options: InlineMountOptions): Promise<void> {
+  async mount(options: { mode: 'inline' | 'popup'; component: Component; props: Record<string, unknown>; styleId?: string }): Promise<void> {
+    this.unmount();
+    this.currentMode = options.mode;
     const contentContext = getContentScriptContext();
     if (!contentContext) {
       console.warn('UiManager: content script context not available');
       return;
     }
 
-    if (this.inlineUi) {
-      try {
-        this.inlineUi.remove();
-      } catch (err) {
-        console.warn('UiManager: failed to remove existing inline UI', err);
-      }
-      this.inlineUi = null;
-      this.inlineHost = null;
-    }
-
-    const inlineUi = createIntegratedUi(contentContext, {
-      position: 'inline',
-      anchor: () => {
-        const adapter = resolveAdapter();
-        const adapterAnchor = adapter?.getMountAnchor?.();
-        return adapterAnchor || getWatchPageWrapper() || document.body;
-      },
-      append: 'last',
-      tag: 'div',
-      onMount: (wrapper) => {
-        wrapper.id = 'ri-inline-vue-host';
-        this.inlineHost = wrapper;
-        applySidePadding(wrapper);
-        injectExtensionStyles(wrapper, options.styleId);
-
-        const mountPoint = document.createElement('div');
-        wrapper.appendChild(mountPoint);
-
-        const app = createApp(InlineDiscussion, {
-          discussion: options.discussion,
-          provider: options.provider,
-          initialLoading: options.initialLoading,
-          onProviderChange: options.onProviderChange,
-        });
-        app.mount(mountPoint);
-        this.inlineApp = app;
-        this.inlineExposed = (app as any)._instance?.exposed ?? null;
-        setInlineDiscussionApp(app);
-        return app;
-      },
-      onRemove: (app) => {
-        if (app) {
-          try {
-            (app as VueApp).unmount();
-          } catch (e) {
-            console.warn('UiManager: error unmounting inline app', e);
+    if (options.mode === 'inline') {
+      const inlineUi = createIntegratedUi(contentContext, {
+        position: 'inline',
+        anchor: () => {
+          const adapter = resolveAdapter();
+          const adapterAnchor = adapter?.getMountAnchor?.();
+          return adapterAnchor || getWatchPageWrapper() || document.body;
+        },
+        append: 'last',
+        tag: 'div',
+        onMount: (wrapper) => {
+          wrapper.id = 'ri-inline-vue-host';
+          this.currentHost = wrapper;
+          applySidePadding(wrapper);
+          if (options.styleId) {
+            injectExtensionStyles(wrapper, options.styleId);
           }
-        }
-        this.inlineApp = null;
-        this.inlineExposed = null;
-        this.inlineHost = null;
-        setInlineDiscussionApp(null);
-      },
-    });
 
-    this.inlineUi = inlineUi;
-    inlineUi.mount();
+          const mountPoint = document.createElement('div');
+          wrapper.appendChild(mountPoint);
 
-    await this.moveInlineToCustomAnchor();
-  }
+          const app = createApp(options.component, options.props);
+          app.mount(mountPoint);
+          this.currentApp = app;
+          this.currentExposed = (app as any)._instance?.exposed ?? null;
+          setInlineDiscussionApp(app);
+          return app;
+        },
+        onRemove: (app) => {
+          if (app) {
+            try {
+              (app as VueApp).unmount();
+            } catch (e) {
+              console.warn('UiManager: error unmounting inline app', e);
+            }
+          }
+          setInlineDiscussionApp(null);
+        },
+      });
 
-  async refreshInline(options: InlineRefreshOptions): Promise<void> {
-    if (!this.isInlineMounted()) {
-      await this.mountInline(options);
+      this.inlineUi = inlineUi;
+      inlineUi.mount();
+      await this.moveInlineToCustomAnchor();
       return;
     }
 
-    const host = this.getInlineHost();
-    if (!host) {
-      await this.mountInline(options);
-      return;
-    }
-
-    try {
-      this.inlineApp?.unmount();
-    } catch (err) {
-      console.warn('UiManager: failed to unmount inline app during refresh', err);
-    }
-    this.inlineApp = null;
-    this.inlineExposed = null;
-
-    host.textContent = '';
-    injectExtensionStyles(host, options.styleId);
-
+    const shell = await this.ensurePopupShell();
+    shell.mount.innerHTML = '';
     const mountPoint = document.createElement('div');
-    host.appendChild(mountPoint);
+    shell.mount.appendChild(mountPoint);
 
-    const app = createApp(InlineDiscussion, {
-      discussion: options.discussion,
-      provider: options.provider,
-      initialLoading: options.initialLoading,
-      onProviderChange: options.onProviderChange,
-    });
+    const app = createApp(options.component, options.props);
     app.mount(mountPoint);
-    this.inlineApp = app;
-    this.inlineExposed = (app as any)._instance?.exposed ?? null;
-    setInlineDiscussionApp(app);
+    this.currentApp = app;
+    this.currentExposed = (app as any)._instance?.exposed ?? null;
   }
 
-  wireRedditSortOptions(currentSort: 'best' | 'top' | 'new'): void {
-    const host = this.getInlineHost();
-    if (!host) return;
-    const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
-    if (!select) return;
-    select.textContent = '';
-    const options = [
-      { value: 'best', label: 'Best' },
-      { value: 'top', label: 'Top' },
-      { value: 'new', label: 'New' },
-    ];
-    options.forEach(opt => {
-      const option = document.createElement('option');
-      option.value = opt.value;
-      option.textContent = opt.label;
-      select.appendChild(option);
-    });
-    select.value = currentSort;
-    select.disabled = false;
+  updateProps(newProps: Record<string, unknown>): void {
+    if (!this.currentApp) return;
+    const instance = (this.currentApp as any)._instance;
+    if (instance?.props) {
+      Object.assign(instance.props, newProps);
+    }
   }
 
-  wireYouTubeSortOptions(currentOrder: string): void {
-    const host = this.getInlineHost();
-    if (!host) return;
-    const select = host.querySelector('#ri-sort-select') as HTMLSelectElement | null;
-    if (!select) return;
-    select.textContent = '';
-    const options = [
-      { value: 'relevance', label: 'Top' },
-      { value: 'time', label: 'Newest' },
-    ];
-    options.forEach(opt => {
-      const option = document.createElement('option');
-      option.value = opt.value;
-      option.textContent = opt.label;
-      select.appendChild(option);
-    });
-    select.value = currentOrder;
-    select.disabled = false;
+  getExposed<T>(): T | null {
+    return this.currentExposed as T | null;
+  }
+
+  isMounted(): boolean {
+    return !!this.currentApp;
+  }
+
+  getMode(): 'inline' | 'popup' | null {
+    return this.currentMode;
+  }
+
+  unmount(): void {
+    if (this.currentApp) {
+      try {
+        this.currentApp.unmount();
+      } catch (err) {
+        console.warn('UiManager: failed to unmount current app', err);
+      }
+    }
+    if (this.inlineUi) {
+      try { this.inlineUi.remove(); } catch {}
+      this.inlineUi = null;
+    }
+    if (this.popupUi) {
+      try { this.popupUi.remove(); } catch {}
+      this.popupUi = null;
+      this.popupShell = null;
+    }
+    this.currentApp = null;
+    this.currentExposed = null;
+    this.currentHost = null;
+    this.currentMode = null;
+  }
+
+  wireSortOptions(provider: CommentProvider, currentSort: string): void {
+    const exposed = this.getExposed<InlineDiscussionExposed>();
+    if (exposed?.updateSortOptions) {
+      exposed.updateSortOptions(provider, currentSort);
+    }
   }
 
   async mountOverlayPanel({ component, props }: OverlayMountOptions): Promise<void> {
@@ -253,7 +199,6 @@ class UiManager {
 
         const app = createApp(component, props);
         app.mount(wrapper);
-        this.overlayApp = app;
         return app;
       },
       onRemove: (mountedApp) => {
@@ -262,7 +207,6 @@ class UiManager {
         } catch (err) {
           console.warn('UiManager: failed to unmount overlay app', err);
         }
-        this.overlayApp = null;
       },
     });
 
@@ -278,7 +222,6 @@ class UiManager {
       console.warn('UiManager: failed to remove overlay UI', err);
     }
     this.overlayUi = null;
-    this.overlayApp = null;
   }
 
   async showPopupPlaceholder(message: string): Promise<void> {
@@ -295,22 +238,7 @@ class UiManager {
   }
 
   async mountPopup({ component, props }: PopupMountOptions): Promise<void> {
-    const shell = await this.ensurePopupShell();
-    shell.mount.innerHTML = '';
-    const mountPoint = document.createElement('div');
-    shell.mount.appendChild(mountPoint);
-
-    if (this.popupApp) {
-      try {
-        this.popupApp.unmount();
-      } catch (err) {
-        console.warn('UiManager: failed to unmount popup app', err);
-      }
-    }
-
-    const app = createApp(component, props);
-    app.mount(mountPoint);
-    this.popupApp = app;
+    await this.mount({ mode: 'popup', component, props });
   }
 
   private async ensurePopupShell(): Promise<PopupShell> {
@@ -468,9 +396,9 @@ class UiManager {
   private async moveInlineToCustomAnchor(): Promise<void> {
     try {
       const anchor = await getCustomMountAnchor();
-      if (!anchor || !this.inlineHost || anchor === this.inlineHost || !this.inlineUi) return;
+      if (!anchor || !this.currentHost || anchor === this.currentHost || !this.inlineUi) return;
 
-      const node = (this.inlineUi as any).root ?? (this.inlineUi as any).container ?? this.inlineHost;
+      const node = (this.inlineUi as any).root ?? (this.inlineUi as any).container ?? this.currentHost;
       if (getCustomSiteMapping()?.display === 'replace') {
         if (!(node as any).__hayamiReplacedOriginal) {
           const placeholder = document.createElement('div');

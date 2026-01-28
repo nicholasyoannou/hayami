@@ -54,7 +54,8 @@ import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMo
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
 import { commentsProviderItem, noCommentsModeItem } from '@/config/storage';
 import { getContentScriptContext } from './content-script-context';
-import { getUiManager } from './ui-manager';
+import { getUiManager, type InlineDiscussionExposed } from './ui-manager';
+import { useDiscussionStore } from '@/store/discussion';
 
 // State management
 import {
@@ -365,6 +366,7 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
 
 export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
   try {
+    const discussionStore = useDiscussionStore();
     const currentState = state();
     const cache = currentState.discussionCache;
     if (currentState.searchInProgress) {
@@ -372,6 +374,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
       return;
     }
     setSearchInProgress(true);
+    discussionStore.startLoading();
 
     const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
     const placement = getCustomSiteMapping()?.display;
@@ -646,6 +649,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     }
   } finally {
     setSearchInProgress(false);
+    useDiscussionStore().clearLoading();
   }
 }
 
@@ -809,6 +813,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
 async function displayDiscussion(discussion: any): Promise<void> {
   const currentState = state();
   const cache = currentState.discussionCache;
+  const discussionStore = useDiscussionStore();
   // Cache the discussion data (not comments)
   cache.reddit = { ...discussion };
 
@@ -830,10 +835,11 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
   const clearLoadingState = (context: string = 'popup') => {
     try {
-      const exposed = uiManager.getInlineExposed();
+      const exposed = uiManager.getExposed<InlineDiscussionExposed>();
       if (exposed?.clearLoading) {
         exposed.clearLoading();
       }
+      discussionStore.clearLoading();
     } catch (e) {
       console.warn(`[Popup] Failed to clear loading state (${context})`, e);
     }
@@ -886,14 +892,25 @@ async function displayDiscussion(discussion: any): Promise<void> {
     }
   }
 
-  await uiManager.mountPopup({
-    component: InlineDiscussion,
-    props: {
+  if (uiManager.isMounted() && uiManager.getMode() === 'popup') {
+    uiManager.updateProps({
       discussion,
       provider: activeProvider,
       onProviderChange: providerChangeCallback,
-    },
-  });
+      providerContext: buildProviderContext(),
+    });
+  } else {
+    await uiManager.mount({
+      mode: 'popup',
+      component: InlineDiscussion,
+      props: {
+        discussion,
+        provider: activeProvider,
+        onProviderChange: providerChangeCallback,
+        providerContext: buildProviderContext(),
+      },
+    });
+  }
 
   await uiManager.showPopupContent();
 }
@@ -1005,13 +1022,26 @@ function mountLoadingShell(): void {
       await displayDiscussionDependingOnMode(placeholder);
     };
     const manager = getUiManager();
-    void manager.mountInline({
-      discussion: placeholderDiscussion,
-      provider: preferredProvider,
-      initialLoading: true,
-      onProviderChange: handleShellProviderChange,
-      styleId: 'hayami-loading-styles',
-    });
+    if (manager.isMounted() && manager.getMode() === 'inline') {
+      manager.updateProps({
+        discussion: placeholderDiscussion,
+        provider: preferredProvider,
+        initialLoading: true,
+        onProviderChange: handleShellProviderChange,
+      });
+    } else {
+      void manager.mount({
+        mode: 'inline',
+        component: InlineDiscussion,
+        props: {
+          discussion: placeholderDiscussion,
+          provider: preferredProvider,
+          initialLoading: true,
+          onProviderChange: handleShellProviderChange,
+        },
+        styleId: 'hayami-loading-styles',
+      });
+    }
   } catch (e) {
     console.warn('mountLoadingShell failed:', e);
   }
@@ -1051,7 +1081,7 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
     const manager = getUiManager();
-    const exposed = manager.getInlineExposed();
+    const exposed = manager.getExposed<InlineDiscussionExposed>();
     if (exposed?.handleProviderChange) {
       exposed.handleProviderChange('disqus');
       return;
@@ -1129,18 +1159,18 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     cache.reddit = { ...discussion };
 
     const clearLoadingState = (_context?: string) => {
-      const exposed = manager.getInlineExposed();
+      const exposed = manager.getExposed<InlineDiscussionExposed>();
       if (exposed?.clearLoading) {
         exposed.clearLoading();
       }
     };
 
     const applyRedditSortOptions = () => {
-      manager.wireRedditSortOptions(currentSort);
+      manager.wireSortOptions('reddit', currentSort);
     };
 
     const applyYouTubeSortOptions = () => {
-      manager.wireYouTubeSortOptions(getCurrentYouTubeOrder());
+      manager.wireSortOptions('youtube', getCurrentYouTubeOrder());
     };
 
     // Build provider context for provider manager
@@ -1195,12 +1225,26 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         }
       };
     
-    await manager.refreshInline({
-      discussion,
-      provider: activeProvider,
-      onProviderChange: providerChangeCallback,
-      styleId: 'hayami-inline-styles',
-    });
+    if (manager.isMounted() && manager.getMode() === 'inline') {
+      manager.updateProps({
+        discussion,
+        provider: activeProvider,
+        onProviderChange: providerChangeCallback,
+        providerContext: buildProviderContext(),
+      });
+    } else {
+      await manager.mount({
+        mode: 'inline',
+        component: InlineDiscussion,
+        props: {
+          discussion,
+          provider: activeProvider,
+          onProviderChange: providerChangeCallback,
+          providerContext: buildProviderContext(),
+        },
+        styleId: 'hayami-inline-styles',
+      });
+    }
 
     if (activeProvider !== 'reddit') {
       providerChangeCallback(activeProvider).catch((e) => {

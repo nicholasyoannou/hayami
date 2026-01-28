@@ -10,6 +10,9 @@ import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
 import { extractEpisodeTableFromRedditSelftext } from '@/entrypoints/content/mapping';
 import { isAuthenticated, getStoredUsername } from '@/utils/redditAuth';
+import { useProvider } from '@/composables/useProvider';
+import type { ProviderContext } from '@/entrypoints/content/types/data';
+import { useDiscussionStore } from '@/store/discussion';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal';
 
@@ -34,9 +37,12 @@ const props = defineProps<{
   provider?: Provider;
   onProviderChange?: (provider: Provider) => void;
   initialLoading?: boolean;
+  providerContext?: ProviderContext | null;
 }>();
 
-const currentProvider = ref<Provider>(props.provider || 'reddit');
+const discussionStore = useDiscussionStore();
+const providerHook = useProvider((props.provider || 'reddit') as Provider, props.providerContext ?? null);
+const currentProvider = providerHook.activeProvider;
 const isLoading = ref(props.initialLoading ?? false);
 const commentSort = ref<'best' | 'top' | 'new'>('best');
 const searchQuery = ref('');
@@ -567,62 +573,36 @@ onUpdated(() => {
   console.log('[Vue-Updated] Skeleton visible?', !!skeletonEl, 'Reddit visible?', !!redditList, 'External visible?', !!externalContainer);
 });
 
-function handleProviderChange(provider: Provider) {
+async function handleProviderChange(provider: Provider) {
   console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
   if (currentProvider.value === provider) return;
-  
-  console.log(`[LoadingState] Setting isLoading to true for provider: ${provider}`);
+
   isLoading.value = true;
-  
-  // Force RedditCommentList re-creation when switching back to Reddit
+  discussionStore.startLoading();
+
   if (provider === 'reddit') {
     redditCommentsKey.value++;
-    console.log('[LoadingState] Incremented redditCommentsKey to force re-creation');
   }
-  
-  console.log('=== [HandleProviderChange] START ===');
-  console.log('Previous provider:', currentProvider.value);
-  console.log('New provider:', provider);
-  console.log('Setting isLoading = true');
-  isLoading.value = true;
-  console.log('isLoading is now:', isLoading.value);
-  
-  currentProvider.value = provider;
-  console.log('currentProvider is now:', currentProvider.value);
-  
-  // Clear no-discussion flag when leaving Reddit so other providers remain visible
+
   if (provider !== 'reddit') {
     clearNoDiscussionFlag();
     showTopReplyEditor.value = false;
   }
 
-  // Use nextTick to ensure Vue has rendered the loading state BEFORE calling the callback
+  await providerHook.changeProvider(provider);
+
   nextTick(() => {
-    console.log('[HandleProviderChange] nextTick: Vue should have rendered skeletons');
-    const skeletonEl = document.querySelector('.ri-loading-skeletons');
-    console.log('[HandleProviderChange] Skeleton div now exists?', !!skeletonEl);
-    
     if (props.onProviderChange) {
-      console.log('Calling onProviderChange callback with:', provider);
       props.onProviderChange(provider);
-    } else {
-      console.warn('onProviderChange callback not provided');
     }
   });
-  
-  // For Reddit: Clear loading quickly after changing provider so skeletons show briefly then RedditCommentList mounts
-  // For external providers: Keep isLoading true until content.ts calls clearLoading()
+
   if (provider === 'reddit') {
     setTimeout(() => {
-      console.log('[LoadingState] Clearing loading for Reddit provider - allowing RedditCommentList to render');
-      console.log('isLoading BEFORE setting false:', isLoading.value);
       isLoading.value = false;
-      console.log('isLoading AFTER setting false:', isLoading.value);
+      discussionStore.clearLoading();
     }, 200);
-  } else {
-    console.log('[HandleProviderChange] NOT Reddit - keeping isLoading=true until content.ts calls clearLoading()');
   }
-  console.log('=== [HandleProviderChange] END ===');
 }
 
 // Expose clearLoading method with logging
@@ -633,6 +613,7 @@ const clearLoading = () => {
   console.log('Current provider:', currentProvider.value);
   console.log('Skeleton element exists?', document.querySelector('.ri-loading-skeletons') !== null);
   isLoading.value = false;
+  discussionStore.clearLoading();
   console.log(`isLoading AFTER setting to false:`, isLoading.value);
   console.log('=== [ClearLoading] END ===');
 };
@@ -693,11 +674,18 @@ onUnmounted(() => {
 });
 
 // Expose methods for content script to call - must be after function definitions
+function updateSortOptions(provider: Provider, currentSort: string) {
+  if (provider === 'reddit') {
+    commentSort.value = currentSort as 'best' | 'top' | 'new';
+  }
+}
+
 defineExpose({
   handleProviderChange,
   clearLoading,
   getExternalCommentsElement,
   currentProvider,
+  updateSortOptions,
 });
 </script>
 
