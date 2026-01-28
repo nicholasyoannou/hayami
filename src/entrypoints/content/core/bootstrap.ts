@@ -1,3 +1,4 @@
+// @ts-ignore Missing types for wxt in this context
 import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { toast } from 'vue-sonner';
 import { createApp, h } from 'vue';
@@ -8,11 +9,11 @@ import { wirePreviewHandlers } from '@/utils/previewHandlers';
 import { useWatchPageDetection } from '@/composables/useAnimeInfo';
 import { DEBOUNCE_DELAY_MS } from '../constants';
 import {
-  setContentScriptContext,
   searchAndDisplayDiscussion,
   fetchRedditPostFromUrl,
   displayDiscussionDependingOnMode,
 } from './discussion-manager';
+import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo } from '../ui/site-mapper';
 import { setupSiteMapperHotkey, loadCustomMappingForOrigin } from '../ui/site-mapper';

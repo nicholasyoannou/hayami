@@ -5,10 +5,7 @@
  * It includes Reddit/Disqus/MAL/YouTube provider integration, search orchestration, and UI rendering.
  */
 
-// @ts-ignore Missing types for wxt in this context
-import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { createIntegratedUi } from 'wxt/utils/content-script-ui/integrated';
-import { browser } from 'wxt/browser';
 import type { App as VueApp } from 'vue';
 import { createApp, h } from 'vue';
 import { toast } from 'vue-sonner';
@@ -53,11 +50,11 @@ import { renderNoDiscussionPanel } from '../templates';
 
 
 // UI utilities
-import { removeCommentsSkeletonLoading } from '../ui';
-import { createOverlay } from '../ui';
+import { removeCommentsSkeletonLoading, mountOverlayPanel } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
 import { commentsProviderItem, noCommentsModeItem } from '@/config/storage';
+import { getContentScriptContext } from './content-script-context';
 
 // State management
 import {
@@ -167,21 +164,6 @@ async function getPreferredProvider(): Promise<CommentProvider> {
 // =============================================================================
 // TYPES & INTERFACES
 // =============================================================================
-
-// Store content script context globally for WXT UI helpers (set by index.ts)
-let contentScriptContext: ContentScriptContext | null = null;
-
-/**
- * Set the content script context for use in discussion manager
- * This should be called from index.ts during bootstrap
- */
-export function setContentScriptContext(ctx: ContentScriptContext | null): void {
-  contentScriptContext = ctx;
-}
-
-export function getContentScriptContext(): ContentScriptContext | null {
-  return contentScriptContext;
-}
 
 /**
  * Get the appropriate container for external (non-Vue) comment providers (Disqus/YouTube).
@@ -314,9 +296,10 @@ function ensurePopupShell(): PopupShell {
   };
   window.addEventListener('keydown', onKeyDown, true);
 
-  if (contentScriptContext && !popupShellCleanupRegistered) {
+  const contentContext = getContentScriptContext();
+  if (contentContext && !popupShellCleanupRegistered) {
     popupShellCleanupRegistered = true;
-    contentScriptContext.onInvalidated(() => {
+    contentContext.onInvalidated(() => {
       window.removeEventListener('keydown', onKeyDown, true);
       try { root.remove(); } catch {}
       popupShell = null;
@@ -876,17 +859,12 @@ async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: numb
 // =============================================================================
 
 function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: number): void {
-  const overlay = createOverlay();
-  const app = createApp(RedditSelectionPanel, {
+  void mountOverlayPanel(RedditSelectionPanel, ({ close }) => ({
     animeName: animeInfo.animeName || 'this series',
     posts: posts.slice(0, 12),
-    onClose: () => {
-      app.unmount();
-      overlay.remove();
-    },
+    onClose: close,
     onWrong: () => {
-      app.unmount();
-      overlay.remove();
+      close();
       showManualSearchUI(animeInfo, crEpisodeNum);
     },
     onSelect: async (post: any, index: number) => {
@@ -897,26 +875,17 @@ function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: numb
           await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
         }
       }
-      app.unmount();
-      overlay.remove();
+      close();
       await displayDiscussionDependingOnMode(post);
     },
-  });
-  app.mount(overlay);
+  }));
 }
 
 export function showAuthPrompt(): void {
-  const overlay = createOverlay();
-  const app = createApp(RedditAuthPrompt, {
-    onClose: () => {
-      app.unmount();
-      overlay.remove();
-    },
-    onLogin: () => {
-      browser.runtime.sendMessage({ action: 'openPopup' });
-    },
-  });
-  app.mount(overlay);
+  void mountOverlayPanel(RedditAuthPrompt, ({ close }) => ({
+    onClose: close,
+    onLogin: close,
+  }));
 }
 
 async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
@@ -935,23 +904,20 @@ async function showNoDiscussionMessage(animeName: string, episodeNumber: string)
     showInlineNoCommentsUI(animeName, episodeNumber);
   } else {
     // Show popup (original behavior)
-    const overlay = createOverlay();
-    const app = createApp(RedditNoDiscussionPanel, {
+    void mountOverlayPanel(RedditNoDiscussionPanel, ({ close }) => ({
       animeName,
       episodeNumber,
-      onClose: () => {
-        app.unmount();
-        overlay.remove();
-      },
+      onClose: close,
       onWrong: () => {
         const lastInfo = state().lastAnimeInfo;
         const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-        app.unmount();
-        overlay.remove();
-        showManualSearchUI(lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, crEpisodeNum ? Number(crEpisodeNum) : undefined);
+        close();
+        showManualSearchUI(
+          lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` },
+          crEpisodeNum ? Number(crEpisodeNum) : undefined
+        );
       },
-    });
-    app.mount(overlay);
+    }));
   }
 }
 
@@ -1191,7 +1157,8 @@ function waitForDisqusLoad(callback: () => void): void {
 }
 
 function mountLoadingShell(): void {
-  if (!contentScriptContext) {
+  const contentContext = getContentScriptContext();
+  if (!contentContext) {
     console.warn('mountLoadingShell: content script context not available');
     return;
   }
@@ -1226,7 +1193,7 @@ function mountLoadingShell(): void {
     let loadingWrapper: HTMLElement | null = null;
 
     // Use WXT's integrated UI for inline positioning
-    const loadingShellUi = createIntegratedUi(contentScriptContext, {
+    const loadingShellUi = createIntegratedUi(contentContext, {
       position: 'inline',
       anchor: () => {
         const adapter = resolveAdapter();
@@ -1413,7 +1380,8 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       setInlineDiscussionApp(null);
     }
 
-    if (!contentScriptContext) {
+    const contentContext = getContentScriptContext();
+    if (!contentContext) {
       console.warn('displayInlineDiscussion: content script context not available');
       await displayDiscussion(discussion);
       return;
@@ -1597,7 +1565,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       };
     
     // Use WXT's integrated UI for inline positioning
-    const inlineDiscussionUi = createIntegratedUi(contentScriptContext, {
+    const inlineDiscussionUi = createIntegratedUi(contentContext, {
       position: 'inline',
       anchor: () => {
         const adapter = resolveAdapter();
@@ -1722,20 +1690,12 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
     });
     window.dispatchEvent(event);
     console.log('[ManualSearch] Routed manual search to Vue event');
-    return; // bypass legacy DOM overlay
   } catch (e) {
     console.warn('[ManualSearch] Failed to dispatch manual search event, using Vue component fallback', e);
-    // Fallback: Use Vue component instead of legacy innerHTML
-    const overlay = createOverlay();
-    const app = createApp(RedditManualSearchPanel, {
-      onClose: () => {
-        app.unmount();
-        overlay.remove();
-      },
-      onSearch: async (query: string) => {
-        return searchCustomPosts(query);
-      },
-      onSelect: async (post: RedditPost, index: number) => {
+    void mountOverlayPanel(RedditManualSearchPanel, ({ close }) => ({
+      onClose: close,
+      onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
+      onSelect: async (post: any, index: number) => {
         if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
           const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
@@ -1743,12 +1703,9 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
             await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
           }
         }
-        app.unmount();
-        overlay.remove();
+        close();
         await displayDiscussionDependingOnMode(post);
       },
-    });
-    app.mount(overlay);
+    }));
   }
 }
-

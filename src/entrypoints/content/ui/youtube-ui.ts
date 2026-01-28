@@ -5,7 +5,7 @@ import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
 import { teardownYouTubeInfiniteScroll } from '../state';
-import { getContentScriptContext } from '../core/discussion-manager';
+import { getContentScriptContext } from '../core/content-script-context';
 
 // Track mounted Vue apps for cleanup within this helper
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();

@@ -2,10 +2,8 @@
  * Selection UI for episode picking and manual search
  */
 
-import { createApp } from 'vue';
-import { escapeHtml } from '@/utils/markdown';
 import { extractEpisodeNumber, searchCustomPosts } from '@/utils/redditApi';
-import { createOverlay } from './overlays';
+import { mountOverlayPanel } from './overlays';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping } from '../mapping';
 import { getState } from '../state';
@@ -13,7 +11,7 @@ import { resolveAdapter } from '../adapters/site-registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper';
 import type { AnimeInfo } from '../types';
-import { RedditDiscussionInfoPanel, RedditManualSearchPanel, type RedditPost } from '@/components/overlays';
+import { RedditDiscussionInfoPanel, RedditManualSearchPanel, RedditNoDiscussionPanel, RedditSelectionPanel, type RedditPost } from '@/components/overlays';
 import { noCommentsModeItem } from '@/config/storage';
 
 // Forward declarations - set by main module to avoid circular deps
@@ -27,22 +25,6 @@ export function setDisplayHandler(handler: (discussion: any) => Promise<void>): 
 }
 
 /**
- * Renders a list of posts as HTML
- */
-function renderPostList(items: any[]): string {
-  return items.slice(0, 12).map((p, idx) => {
-    const date = new Date(p.created_utc * 1000).toLocaleString();
-    return `
-      <li class="choice-item">
-        <div class="choice-title">${escapeHtml(p.title)}</div>
-        <div class="choice-meta">u/${escapeHtml(p.author)} • ${date} • ${p.num_comments} comments</div>
-        <button class="reddit-btn choice-select" data-index="${idx}">Select</button>
-      </li>
-    `;
-  }).join('');
-}
-
-/**
  * Shows selection UI when multiple discussion threads are found
  */
 export function showSelectionUI(
@@ -50,51 +32,28 @@ export function showSelectionUI(
   posts: any[], 
   crEpisodeNum?: number
 ): void {
-  const overlay = createOverlay();
-
-  overlay.innerHTML = `
-    <div class="reddit-discussion-panel">
-      <div class="panel-header">
-        <h3>r/anime Discussion</h3>
-        <div class="panel-actions">
-          <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
-          <button class="close-btn" id="reddit-close-btn">✕</button>
-        </div>
-      </div>
-      <div class="panel-content">
-        <p style="margin-top:0">Multiple possible threads found for <strong>${escapeHtml(animeInfo.animeName || 'this series')}</strong>. Pick the one that matches this episode.</p>
-        <ul class="choice-list" id="reddit-choice-list">${renderPostList(posts)}</ul>
-      </div>
-    </div>
-  `;
-
-  const closeBtn = overlay.querySelector('#reddit-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-
-  const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
-  wrongBtn?.addEventListener('click', () => showManualSearchUI(animeInfo, crEpisodeNum));
-
-  const wireChoiceHandlers = (items: any[]) => {
-    overlay.querySelectorAll('.choice-select').forEach(btn => {
-      btn.addEventListener('click', async (ev) => {
-        const index = Number((ev.currentTarget as HTMLElement).getAttribute('data-index'));
-        const chosen = items[index];
-        if (typeof crEpisodeNum === 'number') {
-          const redditEp = parseEpisodeFromTitle(chosen.title);
-          if (redditEp !== null && animeInfo.animeName) {
-            const offset = redditEp - crEpisodeNum;
-            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
-          }
+  void mountOverlayPanel(RedditSelectionPanel, ({ close }) => ({
+    animeName: animeInfo.animeName || 'this series',
+    posts: posts.slice(0, 12),
+    onClose: close,
+    onWrong: () => {
+      close();
+      showManualSearchUI(animeInfo, crEpisodeNum);
+    },
+    onSelect: async (post: RedditPost, index: number) => {
+      if (typeof crEpisodeNum === 'number') {
+        const redditEp = parseEpisodeFromTitle(post.title);
+        if (redditEp !== null && animeInfo.animeName) {
+          const offset = redditEp - crEpisodeNum;
+          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
         }
-        overlay.remove();
-        if (displayDiscussionDependingOnModeFn) {
-          await displayDiscussionDependingOnModeFn(chosen);
-        }
-      });
-    });
-  };
-
-  wireChoiceHandlers(posts);
+      }
+      close();
+      if (displayDiscussionDependingOnModeFn) {
+        await displayDiscussionDependingOnModeFn(post);
+      }
+    },
+  }));
 }
 
 /**
@@ -122,39 +81,20 @@ export async function showNoDiscussionMessage(animeName: string, episodeNumber: 
  * Shows popup version of no discussion message
  */
 function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
-  const overlay = createOverlay();
-  overlay.innerHTML = `
-    <div class="reddit-discussion-panel">
-      <div class="panel-header">
-        <h3>r/anime Discussion</h3>
-        <div class="panel-actions">
-          <button class="wrong-btn" id="reddit-wrong-btn" title="Refine search manually">Wrong?</button>
-          <button class="close-btn" id="reddit-close-btn">✕</button>
-        </div>
-      </div>
-      <div class="panel-content">
-        <div class="no-discussion">
-          <p>No discussion thread found for:</p>
-          <p class="anime-title">${escapeHtml(animeName)} - Episode ${escapeHtml(episodeNumber)}</p>
-          <p class="hint">Discussion threads are usually posted by AutoLovepon or Shadoxfix shortly after an episode airs.</p>
-        </div>
-      </div>
-    </div>
-  `;
-  
-  const closeBtn = overlay.querySelector('#reddit-close-btn');
-  closeBtn?.addEventListener('click', () => overlay.remove());
-  
-  const wrongBtn = overlay.querySelector('#reddit-wrong-btn');
-  wrongBtn?.addEventListener('click', () => {
-    const lastInfo = getState().lastAnimeInfo;
-    const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-    showManualSearchUI(
-      lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` }, 
-      crEpisodeNum ? Number(crEpisodeNum) : undefined
-    );
-    overlay.remove();
-  });
+  void mountOverlayPanel(RedditNoDiscussionPanel, ({ close }) => ({
+    animeName,
+    episodeNumber,
+    onClose: close,
+    onWrong: () => {
+      const lastInfo = getState().lastAnimeInfo;
+      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
+      close();
+      showManualSearchUI(
+        lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` },
+        crEpisodeNum ? Number(crEpisodeNum) : undefined
+      );
+    },
+  }));
 }
 
 /**
@@ -205,20 +145,14 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
  * Dedicated manual search prompt with auto-search-as-you-type
  */
 export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
-  const overlay = createOverlay();
   const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
   const initialQuery = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
-  
-  const app = createApp(RedditManualSearchPanel, {
+
+  void mountOverlayPanel(RedditManualSearchPanel, ({ close }) => ({
     initialQuery,
-    onSearch: async (query: string) => {
-      return query ? await searchCustomPosts(query) : [];
-    },
-    onClose: () => {
-      app.unmount();
-      overlay.remove();
-    },
-    onSelect: async (post: any, index: number) => {
+    onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
+    onClose: close,
+    onSelect: async (post: RedditPost, index: number) => {
       if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
         const redditEp = parseEpisodeFromTitle(post.title);
         if (redditEp !== null) {
@@ -226,40 +160,32 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
           await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
         }
       }
-      app.unmount();
-      overlay.remove();
+      close();
       if (displayDiscussionDependingOnModeFn) {
         await displayDiscussionDependingOnModeFn(post);
       }
     },
-  });
-  app.mount(overlay);
+  }));
 }
 
 /**
  * Shows the discussion thread in popup mode
  */
 export function displayDiscussionPopup(discussion: any): void {
-  const overlay = createOverlay();
   const redditUrl = `https://www.reddit.com${discussion.permalink}`;
-  
-  const app = createApp(RedditDiscussionInfoPanel, {
+
+  void mountOverlayPanel(RedditDiscussionInfoPanel, ({ close }) => ({
     discussion,
     redditUrl,
-    onClose: () => {
-      app.unmount();
-      overlay.remove();
-    },
+    onClose: close,
     onWrong: () => {
       const lastInfo = getState().lastAnimeInfo;
       const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-      app.unmount();
-      overlay.remove();
+      close();
       showManualSearchUI(
-        lastInfo || { animeName: '', episodeName: '' }, 
+        lastInfo || { animeName: '', episodeName: '' },
         crEpisodeNum ? Number(crEpisodeNum) : undefined
       );
     },
-  });
-  app.mount(overlay);
+  }));
 }
