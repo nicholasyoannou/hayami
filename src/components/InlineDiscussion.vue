@@ -591,6 +591,11 @@ watch(
   () => props.discussion,
   (discussion) => {
     if (!discussion) return;
+    const hasReddit = discussion.permalink || discussion.subreddit || discussion.fullname || discussion.id;
+    if (hasReddit) {
+      isLoading.value = true;
+      redditCommentsKey.value++;
+    }
     if (discussion.permalink || discussion.subreddit || discussion.fullname) {
       if (currentProvider.value !== 'reddit') {
         currentProvider.value = 'reddit';

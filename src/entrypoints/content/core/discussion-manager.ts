@@ -430,21 +430,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
       }
     }
     
-    // Remove old comments section if present (when navigating between episodes)
-    const oldComments = document.getElementById('reddit-inline-discussion');
-    if (oldComments) {
-      oldComments.remove();
-    }
-    const oldVueHost = document.getElementById('ri-inline-vue-host');
-    if (oldVueHost) {
-      oldVueHost.remove();
-    }
-    if (currentState.inlineDiscussionApp) {
-      try {
-        currentState.inlineDiscussionApp.unmount();
-      } catch {}
-      setInlineDiscussionApp(null);
-    }
+    // Keep inline host mounted between episodes; we'll show loading state instead
     
     // Mount an initial UI shell so users see skeletons immediately based on mode
     if (isInlineMode) {
@@ -1208,19 +1194,29 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     };
     
     if (manager.isMounted('inline')) {
-      manager.unmount('inline');
-    }
-    await manager.mount({
-      mode: 'inline',
-      component: InlineDiscussion,
-      props: {
+      const discussionStore = useDiscussionStore();
+      discussionStore.startLoading();
+      manager.replaceInlineApp(InlineDiscussion, {
         discussion,
         provider: activeProvider,
         onProviderChange: providerChangeCallback,
         providerContext: buildProviderContext(),
-      },
-      styleId: 'hayami-inline-styles',
-    });
+        initialLoading: true,
+      });
+    } else {
+      await manager.mount({
+        mode: 'inline',
+        component: InlineDiscussion,
+        props: {
+          discussion,
+          provider: activeProvider,
+          onProviderChange: providerChangeCallback,
+          providerContext: buildProviderContext(),
+          initialLoading: true,
+        },
+        styleId: 'hayami-inline-styles',
+      });
+    }
 
     if (activeProvider !== 'reddit') {
       try {

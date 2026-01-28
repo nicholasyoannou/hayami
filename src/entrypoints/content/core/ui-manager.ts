@@ -2,7 +2,7 @@ import { createIntegratedUi } from 'wxt/utils/content-script-ui/integrated';
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 import { browser } from 'wxt/browser';
 import type { App as VueApp, Component } from 'vue';
-import { createApp } from 'vue';
+import { createApp, reactive } from 'vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from '../ui/site-mapper';
@@ -48,6 +48,8 @@ type MountedEntry = {
   app: VueApp;
   exposed: InlineDiscussionExposed | null;
   host?: HTMLElement | null;
+  props: Record<string, unknown>;
+  mountPoint?: HTMLElement | null;
 };
 
 class UiManager {
@@ -90,10 +92,11 @@ class UiManager {
           const mountPoint = document.createElement('div');
           wrapper.appendChild(mountPoint);
 
-          const app = createApp(options.component, options.props);
+          const props = reactive({ ...options.props });
+          const app = createApp(options.component, props);
           app.mount(mountPoint);
           const exposed = (app as any)._instance?.exposed ?? null;
-          this.apps.set('inline', { app, exposed, host: wrapper });
+          this.apps.set('inline', { app, exposed, host: wrapper, props, mountPoint });
           setInlineDiscussionApp(app);
           return app;
         },
@@ -122,10 +125,11 @@ class UiManager {
       const mountPoint = document.createElement('div');
       shell.mount.appendChild(mountPoint);
 
-      const app = createApp(options.component, options.props);
+      const props = reactive({ ...options.props });
+      const app = createApp(options.component, props);
       app.mount(mountPoint);
       const exposed = (app as any)._instance?.exposed ?? null;
-      this.apps.set('popup', { app, exposed });
+      this.apps.set('popup', { app, exposed, props });
       return;
     }
 
@@ -149,10 +153,11 @@ class UiManager {
         wrapper.id = 'reddit-discussion-overlay';
         uiContainer.appendChild(wrapper);
 
-        const app = createApp(options.component, options.props);
+        const props = reactive({ ...options.props });
+        const app = createApp(options.component, props);
         app.mount(wrapper);
         const exposed = (app as any)._instance?.exposed ?? null;
-        this.apps.set('overlay', { app, exposed, host: wrapper });
+        this.apps.set('overlay', { app, exposed, host: wrapper, props });
         return app;
       },
       onRemove: (mountedApp) => {
@@ -172,10 +177,25 @@ class UiManager {
   updateProps(mode: UiMode, newProps: Record<string, unknown>): void {
     const entry = this.apps.get(mode);
     if (!entry) return;
-    const instance = (entry.app as any)._instance;
-    if (instance?.props) {
-      Object.assign(instance.props, newProps);
+    Object.assign(entry.props, newProps);
+  }
+
+  replaceInlineApp(component: Component, props: Record<string, unknown>): void {
+    const entry = this.apps.get('inline');
+    if (!entry?.mountPoint) {
+      return;
     }
+    try {
+      entry.app.unmount();
+    } catch (e) {
+      console.warn('UiManager: error unmounting inline app', e);
+    }
+    const nextProps = reactive({ ...props });
+    const app = createApp(component, nextProps);
+    app.mount(entry.mountPoint);
+    const exposed = (app as any)._instance?.exposed ?? null;
+    this.apps.set('inline', { app, exposed, host: entry.host, props: nextProps, mountPoint: entry.mountPoint });
+    setInlineDiscussionApp(app);
   }
 
   getExposed<T>(mode: UiMode): T | null {
