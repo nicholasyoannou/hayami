@@ -34,9 +34,12 @@ type PopupMountOptions = {
   props: Record<string, unknown>;
 };
 
-type OverlayMountOptions = {
+type MountOptions = {
+  mode: 'inline' | 'popup' | 'overlay';
   component: Component;
   props: Record<string, unknown>;
+  styleId?: string;
+  anchor?: () => HTMLElement;
 };
 
 class UiManager {
@@ -50,11 +53,11 @@ class UiManager {
   private currentApp: VueApp | null = null;
   private currentExposed: InlineDiscussionExposed | null = null;
   private currentHost: HTMLElement | null = null;
-  private currentMode: 'inline' | 'popup' | null = null;
+  private currentMode: 'inline' | 'popup' | 'overlay' | null = null;
 
   private readonly overlayCss = `${tailwindCss}\n${redditInlineCss}`;
 
-  async mount(options: { mode: 'inline' | 'popup'; component: Component; props: Record<string, unknown>; styleId?: string }): Promise<void> {
+  async mount(options: MountOptions): Promise<void> {
     this.unmount();
     this.currentMode = options.mode;
     const contentContext = getContentScriptContext();
@@ -109,15 +112,60 @@ class UiManager {
       return;
     }
 
-    const shell = await this.ensurePopupShell();
-    shell.mount.innerHTML = '';
-    const mountPoint = document.createElement('div');
-    shell.mount.appendChild(mountPoint);
+    if (options.mode === 'popup') {
+      const shell = await this.ensurePopupShell();
+      shell.mount.innerHTML = '';
+      const mountPoint = document.createElement('div');
+      shell.mount.appendChild(mountPoint);
 
-    const app = createApp(options.component, options.props);
-    app.mount(mountPoint);
-    this.currentApp = app;
-    this.currentExposed = (app as any)._instance?.exposed ?? null;
+      const app = createApp(options.component, options.props);
+      app.mount(mountPoint);
+      this.currentApp = app;
+      this.currentExposed = (app as any)._instance?.exposed ?? null;
+      return;
+    }
+
+    if (this.overlayUi) {
+      try {
+        this.overlayUi.remove();
+      } catch (err) {
+        console.warn('UiManager: failed to remove overlay UI', err);
+      }
+      this.overlayUi = null;
+    }
+
+    const overlayUi = await createShadowRootUi(contentContext, {
+      name: 'ri-overlay-panel',
+      position: 'inline',
+      anchor: options.anchor ?? (() => document.body),
+      append: 'last',
+      css: this.overlayCss,
+      onMount: (uiContainer) => {
+        const wrapper = document.createElement('div');
+        wrapper.id = 'reddit-discussion-overlay';
+        uiContainer.appendChild(wrapper);
+
+        const app = createApp(options.component, options.props);
+        app.mount(wrapper);
+        this.currentApp = app;
+        this.currentExposed = (app as any)._instance?.exposed ?? null;
+        return app;
+      },
+      onRemove: (mountedApp) => {
+        try {
+          mountedApp?.unmount();
+        } catch (err) {
+          console.warn('UiManager: failed to unmount overlay app', err);
+        }
+        if (this.currentMode === 'overlay') {
+          this.currentApp = null;
+          this.currentExposed = null;
+        }
+      },
+    });
+
+    this.overlayUi = overlayUi;
+    overlayUi.mount();
   }
 
   updateProps(newProps: Record<string, unknown>): void {
@@ -136,7 +184,7 @@ class UiManager {
     return !!this.currentApp;
   }
 
-  getMode(): 'inline' | 'popup' | null {
+  getMode(): 'inline' | 'popup' | 'overlay' | null {
     return this.currentMode;
   }
 
@@ -157,6 +205,10 @@ class UiManager {
       this.popupUi = null;
       this.popupShell = null;
     }
+    if (this.overlayUi) {
+      try { this.overlayUi.remove(); } catch {}
+      this.overlayUi = null;
+    }
     this.currentApp = null;
     this.currentExposed = null;
     this.currentHost = null;
@@ -170,58 +222,13 @@ class UiManager {
     }
   }
 
-  async mountOverlayPanel({ component, props }: OverlayMountOptions): Promise<void> {
-    const contentContext = getContentScriptContext();
-    if (!contentContext) {
-      console.warn('UiManager: content script context not available');
-      return;
-    }
-
-    if (this.overlayUi) {
-      try {
-        this.overlayUi.remove();
-      } catch (err) {
-        console.warn('UiManager: failed to remove overlay UI', err);
-      }
-      this.overlayUi = null;
-    }
-
-    const overlayUi = await createShadowRootUi(contentContext, {
-      name: 'ri-overlay-panel',
-      position: 'inline',
-      anchor: () => document.body,
-      append: 'last',
-      css: this.overlayCss,
-      onMount: (uiContainer) => {
-        const wrapper = document.createElement('div');
-        wrapper.id = 'reddit-discussion-overlay';
-        uiContainer.appendChild(wrapper);
-
-        const app = createApp(component, props);
-        app.mount(wrapper);
-        return app;
-      },
-      onRemove: (mountedApp) => {
-        try {
-          mountedApp?.unmount();
-        } catch (err) {
-          console.warn('UiManager: failed to unmount overlay app', err);
-        }
-      },
+  mountWithPropsFactory(component: Component, propsFactory: (utils: { close: () => void }) => Record<string, unknown>): void {
+    const close = () => this.unmount();
+    void this.mount({
+      mode: 'overlay',
+      component,
+      props: propsFactory({ close }),
     });
-
-    this.overlayUi = overlayUi;
-    overlayUi.mount();
-  }
-
-  removeOverlayPanel(): void {
-    if (!this.overlayUi) return;
-    try {
-      this.overlayUi.remove();
-    } catch (err) {
-      console.warn('UiManager: failed to remove overlay UI', err);
-    }
-    this.overlayUi = null;
   }
 
   async showPopupPlaceholder(message: string): Promise<void> {

@@ -49,7 +49,7 @@ import { renderNoDiscussionPanel } from '../templates';
 
 
 // UI utilities
-import { removeCommentsSkeletonLoading, mountOverlayPanel } from '../ui';
+import { removeCommentsSkeletonLoading } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
 import { commentsProviderItem, noCommentsModeItem } from '@/config/storage';
@@ -706,7 +706,7 @@ async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: numb
 // =============================================================================
 
 function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: number): void {
-  void mountOverlayPanel(RedditSelectionPanel, ({ close }) => ({
+  getUiManager().mountWithPropsFactory(RedditSelectionPanel, ({ close }) => ({
     animeName: animeInfo.animeName || 'this series',
     posts: posts.slice(0, 12),
     onClose: close,
@@ -729,7 +729,7 @@ function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: numb
 }
 
 export function showAuthPrompt(): void {
-  void mountOverlayPanel(RedditAuthPrompt, ({ close }) => ({
+  getUiManager().mountWithPropsFactory(RedditAuthPrompt, ({ close }) => ({
     onClose: close,
     onLogin: close,
   }));
@@ -751,7 +751,7 @@ async function showNoDiscussionMessage(animeName: string, episodeNumber: string)
     showInlineNoCommentsUI(animeName, episodeNumber);
   } else {
     // Show popup (original behavior)
-    void mountOverlayPanel(RedditNoDiscussionPanel, ({ close }) => ({
+    getUiManager().mountWithPropsFactory(RedditNoDiscussionPanel, ({ close }) => ({
       animeName,
       episodeNumber,
       onClose: close,
@@ -1292,7 +1292,7 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
     console.log('[ManualSearch] Routed manual search to Vue event');
   } catch (e) {
     console.warn('[ManualSearch] Failed to dispatch manual search event, using Vue component fallback', e);
-    void mountOverlayPanel(RedditManualSearchPanel, ({ close }) => ({
+    getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
       onClose: close,
       onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
       onSelect: async (post: any, index: number) => {

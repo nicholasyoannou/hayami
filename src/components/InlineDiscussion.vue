@@ -43,7 +43,7 @@ const props = defineProps<{
 const discussionStore = useDiscussionStore();
 const providerHook = useProvider((props.provider || 'reddit') as Provider, props.providerContext ?? null);
 const currentProvider = providerHook.activeProvider;
-const isLoading = ref(props.initialLoading ?? false);
+const isLoading = ref(props.initialLoading ?? discussionStore.isLoading);
 const commentSort = ref<'best' | 'top' | 'new'>('best');
 const searchQuery = ref('');
 const totalComments = ref(props.discussion.num_comments ?? 0);
@@ -565,6 +565,13 @@ onMounted(() => {
   });
 });
 
+watch(
+  () => discussionStore.isLoading,
+  (loading) => {
+    isLoading.value = loading;
+  }
+);
+
 onUpdated(() => {
   console.log('[Vue-Updated] Component UPDATED');
   const skeletonEl = document.querySelector('.ri-loading-skeletons');
@@ -577,9 +584,6 @@ async function handleProviderChange(provider: Provider) {
   console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
   if (currentProvider.value === provider) return;
 
-  isLoading.value = true;
-  discussionStore.startLoading();
-
   if (provider === 'reddit') {
     redditCommentsKey.value++;
   }
@@ -589,20 +593,13 @@ async function handleProviderChange(provider: Provider) {
     showTopReplyEditor.value = false;
   }
 
-  await providerHook.changeProvider(provider);
+  providerHook.changeProvider(provider);
 
   nextTick(() => {
     if (props.onProviderChange) {
       props.onProviderChange(provider);
     }
   });
-
-  if (provider === 'reddit') {
-    setTimeout(() => {
-      isLoading.value = false;
-      discussionStore.clearLoading();
-    }, 200);
-  }
 }
 
 // Expose clearLoading method with logging

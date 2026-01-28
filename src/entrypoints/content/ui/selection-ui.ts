@@ -3,7 +3,7 @@
  */
 
 import { extractEpisodeNumber, searchCustomPosts } from '@/utils/redditApi';
-import { mountOverlayPanel } from './overlays';
+import { getUiManager } from '../core/ui-manager';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping } from '../mapping';
 import { getState } from '../state';
@@ -32,7 +32,7 @@ export function showSelectionUI(
   posts: any[], 
   crEpisodeNum?: number
 ): void {
-  void mountOverlayPanel(RedditSelectionPanel, ({ close }) => ({
+  getUiManager().mountWithPropsFactory(RedditSelectionPanel, ({ close }) => ({
     animeName: animeInfo.animeName || 'this series',
     posts: posts.slice(0, 12),
     onClose: close,
@@ -81,7 +81,7 @@ export async function showNoDiscussionMessage(animeName: string, episodeNumber: 
  * Shows popup version of no discussion message
  */
 function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
-  void mountOverlayPanel(RedditNoDiscussionPanel, ({ close }) => ({
+  getUiManager().mountWithPropsFactory(RedditNoDiscussionPanel, ({ close }) => ({
     animeName,
     episodeNumber,
     onClose: close,
@@ -148,7 +148,7 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
   const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
   const initialQuery = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
 
-  void mountOverlayPanel(RedditManualSearchPanel, ({ close }) => ({
+  getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
     initialQuery,
     onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
     onClose: close,
@@ -174,7 +174,7 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
 export function displayDiscussionPopup(discussion: any): void {
   const redditUrl = `https://www.reddit.com${discussion.permalink}`;
 
-  void mountOverlayPanel(RedditDiscussionInfoPanel, ({ close }) => ({
+  getUiManager().mountWithPropsFactory(RedditDiscussionInfoPanel, ({ close }) => ({
     discussion,
     redditUrl,
     onClose: close,
