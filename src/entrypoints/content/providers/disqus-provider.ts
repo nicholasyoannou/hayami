@@ -214,9 +214,6 @@ async function renderDisqusThread(
     : DISQUS_FORUM_SHORTNAME;
   const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
 
-  // Clear Vue loading before rendering header/content
-  clearLoadingState('Disqus render start');
-
   // Block Disqus poll endpoint while rendering
   toggleDisqusPollBlock(true);
 
@@ -263,6 +260,7 @@ export class DisqusProvider extends BaseProvider {
         animeInfo,
         clearLoadingState
       );
+      clearLoadingState('Disqus cache restore complete');
       return;
     }
 
@@ -326,6 +324,7 @@ export class DisqusProvider extends BaseProvider {
           DISQUS_CONTAINER_RETRY_DELAY_MS
         );
         await renderDisqusThread(thread, container, animeInfo, clearLoadingState);
+        clearLoadingState('Disqus render complete');
       } else {
         // No Disqus thread found, show search UI
         const fallbackContainer = await this.getContainerWithRetry(
@@ -358,6 +357,7 @@ export class DisqusProvider extends BaseProvider {
           if (selectedThread) {
             discussionCache.disqus = { thread: selectedThread };
             await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
+            clearLoadingState('Disqus selection render complete');
             return;
           }
         }
@@ -368,6 +368,9 @@ export class DisqusProvider extends BaseProvider {
       clearLoadingState('Disqus error');
       throw error;
     }
+
+    // Safety: ensure loading is cleared even if no branch returned above
+    clearLoadingState('Disqus switch complete');
   }
 
   cleanup(): void {

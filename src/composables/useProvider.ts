@@ -3,7 +3,6 @@ import type { CommentProvider, ProviderContext } from '@/entrypoints/content/typ
 import { switchProvider, cleanupProvider } from '@/entrypoints/content/providers/provider-manager';
 import { useDiscussionStore } from '@/store/discussion';
 import { handleError } from '@/entrypoints/content/utils/error-handler';
-import { debounce } from '@/utils/debounce';
 import { providers } from '@/entrypoints/content/providers';
 
 export const useProvider = (initial: CommentProvider, context?: Ref<ProviderContext | null> | null) => {
@@ -28,19 +27,20 @@ export const useProvider = (initial: CommentProvider, context?: Ref<ProviderCont
       const currentContext = context?.value ?? null;
       if (currentContext) {
         await switchProvider(newProvider, currentContext);
+        // Only clear global loading for non-Reddit providers; Reddit clears after post resolution
+        if (newProvider !== 'reddit') {
+          store.clearLoading();
+        }
+      } else {
+        // Without context, we can't switch; avoid leaving the UI stuck in loading
+        store.clearLoading();
       }
     } catch (error: any) {
       store.setError(error?.message || 'Provider switch failed');
       handleError(error, { operation: 'Provider switch', provider: newProvider });
-    } finally {
-      // Reddit loading is cleared by RedditProvider.switchTo or by discussion-manager after resolution
-      if (active.value !== 'reddit') {
-        store.clearLoading();
-      }
+      store.clearLoading();
     }
   };
 
-  const debouncedChange = debounce(change, 300);
-
-  return { activeProvider: active, changeProvider: debouncedChange };
+  return { activeProvider: active, changeProvider: change };
 };

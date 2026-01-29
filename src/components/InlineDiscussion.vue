@@ -60,7 +60,10 @@ const redditEmptyMessage = computed(() => {
 const redditCommentsKey = ref(0);
 const inlineSectionRef = ref<HTMLElement | null>(null);
 const isNoDiscussion = ref(false);
-const displayTitle = computed(() => isNoDiscussion.value ? 'No Reddit thread found.' : props.discussion.title);
+const displayTitle = computed(() => {
+  if (isLoading.value) return 'Loading discussion…';
+  return isNoDiscussion.value ? 'No Reddit thread found.' : props.discussion.title;
+});
 const noDiscussionDetailTitle = computed(() => {
   const host = inlineSectionRef.value;
   const fromHost = host?.dataset?.noDiscussionTitle;
@@ -693,6 +696,13 @@ async function handleProviderChange(provider: Provider) {
   console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
   if (currentProvider.value === provider) return;
 
+  // Enter loading immediately so Reddit shows skeleton instead of "no episode" while resolving
+  isLoading.value = true;
+  discussionStore.startLoading();
+
+  // Immediately reflect the target provider to hide prior provider UI while loading
+  currentProvider.value = provider;
+
   if (provider === 'reddit') {
     redditCommentsKey.value++;
   }
@@ -754,9 +764,7 @@ const flagNoDiscussionHost = () => {
 // keep the no-discussion state so we don't show the default empty comments view.
 watch(currentProvider, (prov) => {
   if (prov !== 'reddit') {
-    // Hide Reddit-only loading state when switching providers
-    isLoading.value = false;
-    discussionStore.clearLoading();
+    // Keep loading state so non-Reddit providers can show skeletons until they clear it
     clearNoDiscussionFlag();
     return;
   }
@@ -990,7 +998,7 @@ defineExpose({
       <!-- Comments section - ALWAYS present in DOM -->
       <div class="ri-comments" style="width: 100%; min-height: 100px;">
         <!-- Show skeletons while loading -->
-        <div v-if="currentProvider === 'reddit' && isLoading" class="ri-loading-skeletons">
+        <div v-if="isLoading" class="ri-loading-skeletons">
           <div style="color: #999; font-size: 12px; margin-bottom: 8px;">
             [DEBUG] Skeletons visible - isLoading={{ isLoading }}, provider={{ currentProvider }}
           </div>
