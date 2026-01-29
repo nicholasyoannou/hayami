@@ -81,6 +81,19 @@ const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
   'idle'
 );
 
+watch(
+  () => props.discussion,
+  (disc) => {
+    if (!disc) return;
+    const nextScore = typeof disc.score === 'number'
+      ? disc.score
+      : (typeof (disc as any).ups === 'number' ? (disc as any).ups : 0);
+    currentScore.value = nextScore;
+    voteState.value = disc.likes === true ? 'upvoted' : disc.likes === false ? 'downvoted' : 'idle';
+  },
+  { deep: false, immediate: true }
+);
+
 // Manual search modal state (Vue-based replacement for legacy overlay)
 const manualSearchOpen = ref(false);
 const manualSearchQuery = ref('');
@@ -284,9 +297,35 @@ const postFullname = computed(() => {
 });
 
 const discussionId = computed(() => {
+  const fromId = props.discussion.id || '';
+  if (fromId) return fromId;
+  const fromFullname = props.discussion.fullname?.replace(/^t3_/, '') || '';
+  if (fromFullname) return fromFullname;
   const fallbackId = props.discussion.permalink?.match(/\/comments\/([a-z0-9]+)/i)?.[1] || '';
-  return props.discussion.id || fallbackId;
+  return fallbackId;
 });
+
+watch(discussionId, (id) => {
+  console.log('[Inline] discussionId changed:', id, 'isLoading:', isLoading.value, 'provider:', currentProvider.value);
+  if (id && currentProvider.value === 'reddit') {
+    isLoading.value = false;
+    discussionStore.clearLoading();
+    clearNoDiscussionFlag();
+  }
+});
+
+watch(
+  () => props.discussion,
+  (disc) => {
+    const hasId = !!(disc?.id || disc?.fullname || disc?.permalink);
+    if (currentProvider.value === 'reddit' && hasId) {
+      isLoading.value = false;
+      discussionStore.clearLoading();
+      clearNoDiscussionFlag();
+    }
+  },
+  { deep: false }
+);
 
 // Resolve asset URLs via the extension runtime so they work from the content script
 const replyIconUrl = getRuntimeUrl('assets/commentAssets/reply.svg');
@@ -513,6 +552,10 @@ function handleTopReplyCancel() {
 function handleCommentsLoaded(count: number) {
   totalComments.value = count;
   console.log('Comments loaded:', count);
+  // Clear Reddit-only loading state once comments render
+  isLoading.value = false;
+  discussionStore.clearLoading();
+  clearNoDiscussionFlag();
 }
 
 function handleSortChange(e: Event) {
@@ -705,6 +748,14 @@ const flagNoDiscussionHost = () => {
 // keep the no-discussion state so we don't show the default empty comments view.
 watch(currentProvider, (prov) => {
   if (prov !== 'reddit') {
+    // Hide Reddit-only loading state when switching providers
+    isLoading.value = false;
+    discussionStore.clearLoading();
+    clearNoDiscussionFlag();
+    return;
+  }
+  if (isLoading.value) {
+    // While loading a Reddit discussion, avoid showing the no-discussion state prematurely
     clearNoDiscussionFlag();
     return;
   }
@@ -933,7 +984,7 @@ defineExpose({
       <!-- Comments section - ALWAYS present in DOM -->
       <div class="ri-comments" style="width: 100%; min-height: 100px;">
         <!-- Show skeletons while loading -->
-        <div v-if="isLoading" class="ri-loading-skeletons">
+        <div v-if="currentProvider === 'reddit' && isLoading" class="ri-loading-skeletons">
           <div style="color: #999; font-size: 12px; margin-bottom: 8px;">
             [DEBUG] Skeletons visible - isLoading={{ isLoading }}, provider={{ currentProvider }}
           </div>
@@ -949,7 +1000,7 @@ defineExpose({
 
         <!-- Reddit comments list - only mounted when loaded, on Reddit, and we have a valid discussion id -->
         <RedditCommentList
-          v-if="currentProvider === 'reddit' && !isLoading && !!discussionId"
+          v-if="currentProvider === 'reddit' && !!discussionId"
           :key="`reddit-${discussionId}-${redditCommentsKey}`"
           :discussion-id="discussionId"
           :link-fullname="postFullname"
@@ -962,7 +1013,7 @@ defineExpose({
           ref="redditListRef"
           @comments-loaded="handleCommentsLoaded"
         />
-        <div v-else-if="currentProvider === 'reddit' && !isLoading && !discussionId">
+        <div v-else-if="currentProvider === 'reddit' && !isLoading && isNoDiscussion">
           <p class="text-center text-gray-500">No Reddit thread resolved.</p>
         </div>
         

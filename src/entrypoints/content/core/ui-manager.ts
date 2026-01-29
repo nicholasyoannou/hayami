@@ -2,7 +2,7 @@ import { createIntegratedUi } from 'wxt/utils/content-script-ui/integrated';
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 import { browser } from 'wxt/browser';
 import type { App as VueApp, Component } from 'vue';
-import { createApp, reactive } from 'vue';
+import { createApp, reactive, h } from 'vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from '../ui/site-mapper';
@@ -93,7 +93,11 @@ class UiManager {
           wrapper.appendChild(mountPoint);
 
           const props = reactive({ ...options.props });
-          const app = createApp(options.component, props);
+          const app = createApp({
+            setup() {
+              return () => h(options.component, props);
+            },
+          });
           app.mount(mountPoint);
           const exposed = (app as any)._instance?.exposed ?? null;
           this.apps.set('inline', { app, exposed, host: wrapper, props, mountPoint });
@@ -126,7 +130,11 @@ class UiManager {
       shell.mount.appendChild(mountPoint);
 
       const props = reactive({ ...options.props });
-      const app = createApp(options.component, props);
+      const app = createApp({
+        setup() {
+          return () => h(options.component, props);
+        },
+      });
       app.mount(mountPoint);
       const exposed = (app as any)._instance?.exposed ?? null;
       this.apps.set('popup', { app, exposed, props });
@@ -195,7 +203,11 @@ class UiManager {
       console.warn('UiManager: error unmounting inline app', e);
     }
     const nextProps = reactive({ ...props });
-    const app = createApp(component, nextProps);
+    const app = createApp({
+      setup() {
+        return () => h(component, nextProps);
+      },
+    });
     app.mount(entry.mountPoint);
     const exposed = (app as any)._instance?.exposed ?? null;
     this.apps.set('inline', { app, exposed, host: entry.host, props: nextProps, mountPoint: entry.mountPoint });

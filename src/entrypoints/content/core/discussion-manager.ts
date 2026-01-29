@@ -98,6 +98,7 @@ import { injectExtensionStyles } from '../utils/style-injection';
 const VALID_DISPLAY_MODES = new Set<DisplayMode>(displayModeOptions.map((opt) => opt.value));
 const INLINE_DISPLAY_MODES = new Set<DisplayMode>(['below', 'insert', 'replace', 'icon']);
 const VALID_PROVIDERS = new Set<CommentProvider>(commentProviderOptions.map((opt) => opt.value as CommentProvider));
+const FALLBACK_SUB_ICON = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';
 
 let preferredProvider: CommentProvider = 'reddit';
 
@@ -119,6 +120,16 @@ function normalizeRedditDiscussion(discussion: any): void {
   if (id && !discussion.fullname) {
     discussion.fullname = id.startsWith('t3_') ? id : `t3_${id}`;
   }
+
+  // Ensure score is populated even when Reddit omits it (use ups fallback)
+  if (typeof discussion.score !== 'number' && typeof discussion.ups === 'number') {
+    discussion.score = discussion.ups;
+  }
+}
+
+function sanitizeRedditIconUrl(iconUrl?: string | null): string | null {
+  if (!iconUrl) return null;
+  return iconUrl.replace(/&amp;/g, '&').trim();
 }
 
 // Accessor helper to always use the current state instance
@@ -191,6 +202,17 @@ async function getPreferredProvider(): Promise<CommentProvider> {
  */
 function getExternalCommentsContainer(): HTMLElement | null {
   return getExternalContainerUtil(state().inlineDiscussionApp);
+}
+
+function clearInlineNoDiscussionHost(): void {
+  const host = document.getElementById('reddit-inline-discussion');
+  if (!host) return;
+  if (host.hasAttribute('data-no-discussion')) {
+    host.removeAttribute('data-no-discussion');
+  }
+  if (host.hasAttribute('data-no-discussion-title')) {
+    host.removeAttribute('data-no-discussion-title');
+  }
 }
 
 // =============================================================================
@@ -281,7 +303,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
             id: postData.id,
             title: postData.title,
             author: postData.author,
-            score: postData.score,
+            score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
             num_comments: postData.num_comments,
             created_utc: postData.created_utc,
             permalink: postData.permalink,
@@ -289,7 +311,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
             archived: postData.archived,
             locked: postData.locked,
             subreddit: postData.subreddit,
-            subreddit_icon_url: (postData.community_icon && postData.community_icon.trim()) || (postData.icon_img && postData.icon_img.trim()) || null,
+            subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
             subreddit_primary_color: (postData.primary_color && postData.primary_color.trim()) || (postData.key_color && postData.key_color.trim()) || null,
             fullname: fullname, // t3_ prefixed fullname for voting
             likes: postData.likes, // true=upvoted, false=downvoted, null=none
@@ -319,7 +341,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
               id: postData.id,
               title: postData.title,
               author: postData.author,
-              score: postData.score,
+              score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
               num_comments: postData.num_comments,
               created_utc: postData.created_utc,
               permalink: postData.permalink,
@@ -327,7 +349,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
               archived: postData.archived,
               locked: postData.locked,
               subreddit: postData.subreddit,
-              subreddit_icon_url: (postData.community_icon && postData.community_icon.trim()) || (postData.icon_img && postData.icon_img.trim()) || null,
+              subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
               fullname: fullname, // t3_ prefixed fullname for voting
               likes: postData.likes, // true=upvoted, false=downvoted, null=none
             };
@@ -365,10 +387,11 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
     const resp = await extensionFetch(url, { credentials: 'include' } as any);
     if (resp.ok) {
       const data = await resp.json();
-      const iconUrl = data?.data?.community_icon || data?.data?.icon_img || null;
+      // Prefer icon_img (usually square and stable); fall back to community_icon
+      const iconUrl = sanitizeRedditIconUrl(data?.data?.icon_img) || sanitizeRedditIconUrl(data?.data?.community_icon) || null;
       const primaryColor = data?.data?.primary_color || data?.data?.key_color || null;
       return {
-        iconUrl: (iconUrl && iconUrl.trim()) || null,
+        iconUrl: iconUrl || null,
         primaryColor: (primaryColor && primaryColor.trim()) || null,
       };
     }
@@ -383,17 +406,32 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
 // Core search logic that determines which provider to use and handles fallbacks
 // =============================================================================
 
-export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<void> {
+type SearchOptions = {
+  forceProvider?: CommentProvider;
+  skipProviderGuard?: boolean;
+  // Allow a provider switch (e.g., user-initiated Reddit toggle) to run even if another search is underway
+  allowConcurrent?: boolean;
+};
+
+export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?: SearchOptions): Promise<void> {
+  const allowConcurrent = options?.allowConcurrent === true;
+  const currentState = state();
+  const searchAlreadyRunning = currentState.searchInProgress;
+
   try {
     const discussionStore = useDiscussionStore();
-    const currentState = state();
     const cache = currentState.discussionCache;
-    if (currentState.searchInProgress) {
+
+    if (searchAlreadyRunning && !allowConcurrent) {
       console.log('Search already in progress, skipping');
       return;
     }
-    setSearchInProgress(true);
+
+    if (!searchAlreadyRunning) {
+      setSearchInProgress(true);
+    }
     discussionStore.startLoading();
+    setLastAnimeInfo(animeInfo);
 
     const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
     const placement = getCustomSiteMapping()?.display;
@@ -401,7 +439,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
     const effectiveMode: DisplayMode = resolveEffectiveDisplayMode(placement as DisplayMode | null, adapterMode, storedMode);
     const isInlineMode = INLINE_DISPLAY_MODES.has(effectiveMode);
-    preferredProvider = await getPreferredProvider();
+    const resolvedProvider = options?.forceProvider ?? (await getPreferredProvider());
+    const guardProviders = options?.skipProviderGuard !== true;
+    preferredProvider = resolvedProvider;
 
     // Apply any saved episode offset for this series so lookups align with user overrides
     const seriesMapping = animeInfo.animeName ? await getSeriesMapping(animeInfo.animeName) : null;
@@ -413,6 +453,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
     
     // Clear discussion cache for new episode search
     clearDiscussionCache(currentState);
+    clearInlineNoDiscussionHost();
 
     // Hard-clear any leftover Disqus artifacts before mounting the new episode
     // to avoid stale threads sticking around between navigations.
@@ -485,7 +526,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
 
     // If the user's preferred provider is not Reddit, do not do any Reddit work
     // in the background. Mount the UI and let the provider manager handle fetching.
-    if (preferredProvider !== 'reddit') {
+    if (preferredProvider !== 'reddit' && guardProviders) {
       await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
       return;
     }
@@ -607,12 +648,6 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
 
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
 
-    if (!results || results.length === 0) {
-      // No results from primary search - try manual search query automatically
-      await tryAutoSelectFromManualSearch(animeInfo, mappedEpisodeNum);
-      return;
-    }
-
     // Check if any result matches the exact release date (same day)
     const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
     
@@ -661,7 +696,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo): Promise<
       console.warn('Failed to show no-discussion fallback after error', fallbackErr);
     }
   } finally {
-    setSearchInProgress(false);
+    if (!searchAlreadyRunning) {
+      setSearchInProgress(false);
+    }
     useDiscussionStore().clearLoading();
   }
 }
@@ -832,7 +869,13 @@ async function displayDiscussion(discussion: any): Promise<void> {
   cache.reddit = { ...discussion };
 
   // Fetch subreddit icon and primary color if missing
-  if (discussion.subreddit && (!discussion.subreddit_icon_url || !discussion.subreddit_primary_color)) {
+  const needsSubredditInfo = discussion.subreddit && (
+    !discussion.subreddit_icon_url ||
+    discussion.subreddit_icon_url === FALLBACK_SUB_ICON ||
+    !discussion.subreddit_primary_color
+  );
+
+  if (needsSubredditInfo) {
     const { iconUrl, primaryColor } = await fetchSubredditInfo(discussion.subreddit);
     if (iconUrl && !discussion.subreddit_icon_url) {
       discussion.subreddit_icon_url = iconUrl;
@@ -889,30 +932,33 @@ async function displayDiscussion(discussion: any): Promise<void> {
           const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
           const failoverRedditUrl = await tryMapperFailover(info, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
-          if (!failoverRedditUrl) return;
+          if (failoverRedditUrl) {
+            const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
+            if (postData) {
+              normalizeRedditDiscussion(postData);
+              cache.reddit = { ...postData };
 
-          const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
-          if (!postData) return;
-          normalizeRedditDiscussion(postData);
-          cache.reddit = { ...postData };
-
-          const key = Date.now();
-          console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
-          const manager = getUiManager();
-          manager.updateProps('inline', {
-            discussion: postData,
-            provider: 'reddit',
-            redditCommentsKey: key,
-          });
-          // Ensure the current Vue app processes the new discussion (handles potential app replacement)
-          const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
-          if (exposed?.handleProviderChange) {
-            exposed.handleProviderChange('reddit');
+              const key = Date.now();
+              console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
+              const manager = getUiManager();
+              manager.updateProps('inline', {
+                discussion: postData,
+                provider: 'reddit',
+                redditCommentsKey: key,
+              });
+              const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
+              if (exposed?.handleProviderChange) {
+                exposed.handleProviderChange('reddit');
+              }
+              return;
+            }
           }
+
+          // Full Reddit search pipeline (mapper + searches) when we didn't have a cached discussion
+          await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
         } catch (e) {
           console.warn('[Popup] Failed to resolve Reddit discussion on-demand', e);
         } finally {
-          // Only clear loading if the user is still on Reddit
           if (activeProvider === 'reddit') {
             discussionStore.clearLoading();
           }
@@ -1180,7 +1226,11 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     cache.reddit = { ...discussion };
     
     // Fetch subreddit icon and primary color if missing
-    if (discussion.subreddit && (!discussion.subreddit_icon_url || !discussion.subreddit_primary_color)) {
+    if (discussion.subreddit && (
+      !discussion.subreddit_icon_url ||
+      discussion.subreddit_icon_url === FALLBACK_SUB_ICON ||
+      !discussion.subreddit_primary_color
+    )) {
       const { iconUrl, primaryColor } = await fetchSubredditInfo(discussion.subreddit);
       if (iconUrl && !discussion.subreddit_icon_url) {
         discussion.subreddit_icon_url = iconUrl;
@@ -1188,6 +1238,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       if (primaryColor && !discussion.subreddit_primary_color) {
         discussion.subreddit_primary_color = primaryColor;
       }
+    }
+
+    if (discussion?.id || discussion?.permalink) {
+      clearInlineNoDiscussionHost();
     }
     
     const contentContext = getContentScriptContext();
@@ -1259,26 +1313,31 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
             const failoverRedditUrl = await tryMapperFailover(info, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
-            if (!failoverRedditUrl) return;
+            if (failoverRedditUrl) {
+              const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
+              if (postData) {
+                normalizeRedditDiscussion(postData);
+                cache.reddit = { ...postData };
 
-            const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
-            if (!postData) return;
-            normalizeRedditDiscussion(postData);
-            cache.reddit = { ...postData };
-
-            const key = Date.now();
-            console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
-            const manager = getUiManager();
-            manager.updateProps('inline', {
-              discussion: postData,
-              provider: 'reddit',
-              redditCommentsKey: key,
-            });
-            // Ensure the current Vue app processes the new discussion (handles potential app replacement)
-            const exposedCurrent = manager.getExposed<InlineDiscussionExposed>('inline');
-            if (exposedCurrent?.handleProviderChange) {
-              exposedCurrent.handleProviderChange('reddit');
+                const key = Date.now();
+                console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
+                const manager = getUiManager();
+                manager.updateProps('inline', {
+                  discussion: postData,
+                  provider: 'reddit',
+                  redditCommentsKey: key,
+                });
+                clearInlineNoDiscussionHost();
+                // Ensure the current Vue app processes the new discussion (handles potential app replacement)
+                const exposedCurrent = manager.getExposed<InlineDiscussionExposed>('inline');
+                if (exposedCurrent?.handleProviderChange) {
+                  exposedCurrent.handleProviderChange('reddit');
+                }
+                return;
+              }
             }
+
+            await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
           } catch (e) {
             console.warn('[Inline] Failed to resolve Reddit discussion on-demand', e);
           } finally {

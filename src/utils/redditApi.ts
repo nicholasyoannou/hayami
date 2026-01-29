@@ -387,6 +387,7 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
 
     if (token) {
       const endpoint = `/comments/${postId}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
+      console.log('[getPostComments] using authenticated request', { postId, sort: sortParam });
       result = await makeRedditRequest<any[]>(endpoint);
     } else {
       // Public fetch from reddit.com; request more items/depth when possible
@@ -395,14 +396,18 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
   // Include credentials so a logged-in reddit session (cookies) can be used
   const resp = await extensionFetch(url, { credentials: 'include' } as any);
         if (resp.ok) {
+          console.log('[getPostComments] public fetch ok', { url });
           result = await resp.json();
+        } else {
+          console.warn('[getPostComments] public fetch non-ok', { status: resp.status, url });
         }
       } catch (e) {
-        // ignore and fall through to error return
+        console.warn('[getPostComments] public fetch threw', e);
       }
     }
 
     if (!result || result.length < 2) {
+      console.warn('[getPostComments] result missing or too short', { hasResult: !!result, length: result?.length, postId });
       return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
     }
 
@@ -411,6 +416,7 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
     const commentsData = result[1];
     const linkFullname = (postData?.data?.children?.[0]?.data?.name as string | undefined) || (postId.startsWith('t3_') ? postId : `t3_${postId}`);
     if (!commentsData || !commentsData.data || !commentsData.data.children) {
+      console.warn('[getPostComments] commentsData missing children', { postId, linkFullname });
       return { comments: [], rootMoreChildrenIds: [], linkFullname };
     }
 

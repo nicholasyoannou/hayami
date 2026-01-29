@@ -57,8 +57,9 @@
           <img
             v-else
             class="w-full h-full object-cover"
-            :src="subredditAvatar"
+            :src="avatarSrc"
             :alt="`${subredditName} logo`"
+            @error="handleAvatarError"
         />
         </span>
         <span class="truncate max-w-[8rem]">{{ subredditName }}</span>
@@ -225,7 +226,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   subredditName: 'r/anime',
-  subredditIconUrl: 'https://styles.redditmedia.com/t5_2qh6z/styles/communityIcon_opm326b239fa1.png',
+  subredditIconUrl: null,
   score: 0,
   numComments: 0,
   provider: 'reddit',
@@ -354,8 +355,40 @@ const tabItems = computed<DiscussionTab[]>(() => {
   return [main, ...fallbackTabs];
 });
 
-const subredditAvatar = computed(() => props.subredditIconUrl || 'https://styles.redditmedia.com/t5_2qh6z/styles/communityIcon_opm326b239fa1.png');
-const subredditPrimaryColor = computed(() => props.subredditPrimaryColor);
+const defaultSubredditIconUrl = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';
+const fetchedPrimaryColor = ref<string | null>(props.subredditPrimaryColor || null);
+const subredditAvatar = computed(() => props.subredditIconUrl || defaultSubredditIconUrl);
+const subredditPrimaryColor = computed(() => fetchedPrimaryColor.value || props.subredditPrimaryColor || null);
+const avatarSrc = ref(subredditAvatar.value);
+
+async function fetchSubredditAvatar(name?: string | null) {
+  const sub = (name || '').replace(/^r\//i, '').trim();
+  if (!sub) return;
+  try {
+    const resp = await fetch(`https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`, { credentials: 'omit' });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const iconImg = (data?.data?.icon_img || '').replace(/&amp;/g, '&').trim();
+    const communityIcon = (data?.data?.community_icon || '').replace(/&amp;/g, '&').trim();
+    const resolved = iconImg || communityIcon;
+    if (resolved) {
+      avatarSrc.value = resolved;
+    }
+    const primaryColor = (data?.data?.primary_color || data?.data?.key_color || '').trim();
+    if (primaryColor) {
+      fetchedPrimaryColor.value = fetchedPrimaryColor.value || primaryColor;
+    }
+  } catch (e) {
+    console.warn('Failed to fetch subreddit avatar', e);
+  }
+}
+
+const handleAvatarError = () => {
+  // Fallback to default subreddit icon if the provided URL fails
+  if (avatarSrc.value !== defaultSubredditIconUrl) {
+    avatarSrc.value = defaultSubredditIconUrl;
+  }
+};
 const showTabs = computed(() => props.showTabs);
 const showOnlyActiveTab = computed(() => currentProvider.value !== 'reddit');
 
@@ -363,6 +396,32 @@ const showOnlyActiveTab = computed(() => currentProvider.value !== 'reddit');
 watch(() => props.provider, (newProvider) => {
   currentProvider.value = newProvider;
 });
+
+// Update avatar when prop changes
+watch(subredditAvatar, (val) => {
+  avatarSrc.value = val || defaultSubredditIconUrl;
+});
+
+watch(
+  () => props.subredditPrimaryColor,
+  (val) => {
+    if (val) {
+      fetchedPrimaryColor.value = val;
+    }
+  }
+);
+
+// Attempt to fetch a better avatar if we only have the generic fallback
+watch(
+  () => ({ name: props.subredditName, url: avatarSrc.value, loading: props.isLoading }),
+  (state) => {
+    const hasRealAvatar = state.url && state.url !== defaultSubredditIconUrl;
+    if (!state.loading && !hasRealAvatar) {
+      void fetchSubredditAvatar(state.name);
+    }
+  },
+  { immediate: true }
+);
 
 // Close menu when loading starts
 watch(() => props.isLoading, (loading) => {
