@@ -50,7 +50,7 @@
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
         >
           <div
-            v-if="props.isLoading"
+            v-if="props.isLoading || isAvatarHydrating"
             class="w-full h-full shimmer-bg"
             aria-hidden="true"
           />
@@ -194,6 +194,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getRuntimeUrl } from '@/utils/runtime';
+import { extensionFetch } from '@/utils/redditApi';
 import 'css-ripple-effect';
 
 interface DiscussionTab {
@@ -360,16 +361,36 @@ const fetchedPrimaryColor = ref<string | null>(null);
 const subredditAvatar = computed(() => props.subredditIconUrl || defaultSubredditIconUrl);
 const subredditPrimaryColor = computed(() => fetchedPrimaryColor.value || props.subredditPrimaryColor || null);
 const avatarSrc = ref(subredditAvatar.value);
+const isAvatarHydrating = ref(false);
 
 const sanitizeIcon = (url?: string | null) => (url || '').replace(/&amp;/g, '&').trim();
 
 async function fetchSubredditAvatar(name?: string | null) {
   const sub = (name || '').replace(/^r\//i, '').trim();
-  if (!sub) return;
+  if (!sub) {
+    isAvatarHydrating.value = false;
+    return;
+  }
+  isAvatarHydrating.value = true;
   try {
-    const resp = await fetch(`https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`, { credentials: 'omit' });
-    if (!resp.ok) return;
-    const data = await resp.json();
+    const apiUrl = `https://api.reddit.com/r/${encodeURIComponent(sub)}/about.json`;
+    const webUrl = `https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`;
+
+    const doFetch = async (url: string) => {
+      try {
+        const resp = await extensionFetch(url, { credentials: 'omit' } as any);
+        if (!resp.ok) return null;
+        return resp.json();
+      } catch (e) {
+        // Fall back to plain fetch if extensionFetch fails
+        const resp = await fetch(url, { credentials: 'omit' });
+        if (!resp.ok) return null;
+        return resp.json();
+      }
+    };
+
+    const data = (await doFetch(apiUrl)) || (await doFetch(webUrl));
+    if (!data) return;
     const iconImg = sanitizeIcon(data?.data?.icon_img);
     const communityIcon = sanitizeIcon(data?.data?.community_icon);
     const resolved = iconImg || communityIcon;
@@ -382,6 +403,8 @@ async function fetchSubredditAvatar(name?: string | null) {
     }
   } catch (e) {
     console.warn('Failed to fetch subreddit avatar', e);
+  } finally {
+    isAvatarHydrating.value = false;
   }
 }
 
@@ -416,15 +439,13 @@ watch(
 // If we only have the fallback avatar and we're not loading, attempt to hydrate from about.json
 watch(
   () => ({ name: props.subredditName, url: avatarSrc.value, loading: props.isLoading, provider: currentProvider.value }),
-  (state, prev) => {
+  (state) => {
     const hasRealAvatar = state.url && state.url !== defaultSubredditIconUrl;
-    const providerChanged = state.provider !== prev?.provider;
     if (
       state.provider === 'reddit' &&
       !state.loading &&
       !hasRealAvatar &&
-      state.name &&
-      providerChanged
+      state.name
     ) {
       void fetchSubredditAvatar(state.name);
     }
