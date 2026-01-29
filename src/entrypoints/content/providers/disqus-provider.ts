@@ -21,6 +21,13 @@ import { isReleaseDateToday } from '../utils/date-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { getRuntimeUrl } from '@/utils/runtime';
 
+const buildDisqusCacheKey = (animeInfo?: AnimeInfo | null) => {
+  if (!animeInfo) return null;
+  const title = animeInfo.animeName || '';
+  const episode = animeInfo.episodeName || '';
+  return `${title}__${episode}`.trim();
+};
+
 /**
  * Wait for Disqus iframe to load and become visible
  */
@@ -242,12 +249,17 @@ export class DisqusProvider extends BaseProvider {
 
   async switchTo(context: ProviderContext): Promise<void> {
     const { animeInfo, discussionCache, clearLoadingState, getExternalCommentsContainer } = context;
+    const cacheKey = buildDisqusCacheKey(animeInfo);
     
     this.validateAnimeInfo(animeInfo);
     const releaseToday = isReleaseDateToday(animeInfo?.releaseDate);
 
     // Check cache first
     if (discussionCache.disqus?.thread) {
+      // Drop stale cache when switching series/episodes
+      if (cacheKey && discussionCache.disqus.animeKey && discussionCache.disqus.animeKey !== cacheKey) {
+        discussionCache.disqus = undefined;
+      } else {
       console.log('[DisqusProvider] Restoring Disqus from cache');
       const container = await this.getContainerWithRetry(
         getExternalCommentsContainer,
@@ -262,6 +274,7 @@ export class DisqusProvider extends BaseProvider {
       );
       clearLoadingState('Disqus cache restore complete');
       return;
+      }
     }
 
     // Fetch thread if not cached
@@ -317,7 +330,7 @@ export class DisqusProvider extends BaseProvider {
 
       if (thread) {
         // Cache the Disqus thread
-        discussionCache.disqus = { thread };
+        discussionCache.disqus = { thread, animeKey: cacheKey || undefined };
         const container = await this.getContainerWithRetry(
           getExternalCommentsContainer,
           DISQUS_CONTAINER_RETRY_ATTEMPTS,
@@ -355,7 +368,7 @@ export class DisqusProvider extends BaseProvider {
         if (result.status === 'embedded' && result.thread) {
           const selectedThread = buildDisqusThreadFromUrl(result.thread.link || result.thread.url || '', animeInfo);
           if (selectedThread) {
-            discussionCache.disqus = { thread: selectedThread };
+            discussionCache.disqus = { thread: selectedThread, animeKey: cacheKey || undefined };
             await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
             clearLoadingState('Disqus selection render complete');
             return;

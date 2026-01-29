@@ -146,6 +146,7 @@ export interface DiscussionCache {
   reddit?: RedditPost;
   disqus?: {
     thread: DisqusThread;
+    animeKey?: string;
     container?: HTMLElement;
   };
   youtube?: {

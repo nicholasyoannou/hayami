@@ -201,7 +201,50 @@ async function getPreferredProvider(): Promise<CommentProvider> {
  * Returns the .ri-external-comments element from the Vue component.
  */
 function getExternalCommentsContainer(): HTMLElement | null {
+  const container = getExternalContainerUtil(state().inlineDiscussionApp);
+  if (container && container.isConnected) {
+    return container;
+  }
+
+  // If the inline app was unmounted (e.g., SPA navigation swapped layouts), remount a loading shell
+  try {
+    const manager = getUiManager();
+    const inlineEntry: any = (manager as any).apps?.get?.('inline') || null;
+    const host: HTMLElement | null = inlineEntry?.host || null;
+
+    if (host && !host.isConnected) {
+      manager.unmount('inline');
+    }
+
+    if (!manager.isMounted('inline')) {
+      mountLoadingShell();
+    }
+  } catch (e) {
+    console.warn('[getExternalCommentsContainer] recovery failed', e);
+  }
+
   return getExternalContainerUtil(state().inlineDiscussionApp);
+}
+
+/**
+ * Ensure the inline host element exists and the app is mounted. If the host was removed
+ * (common with SPA navigations), unmount stale entries and mount a loading shell so
+ * subsequent calls (clearLoading/render) have a valid container.
+ */
+function ensureInlineHost(): HTMLElement | null {
+  const manager = getUiManager();
+  const inlineEntry: any = (manager as any).apps?.get?.('inline') || null;
+  const existingHost: HTMLElement | null = inlineEntry?.host || document.getElementById('reddit-inline-discussion');
+
+  if (existingHost && !existingHost.isConnected) {
+    manager.unmount('inline');
+  }
+
+  if (!manager.isMounted('inline')) {
+    mountLoadingShell();
+  }
+
+  return document.getElementById('reddit-inline-discussion');
 }
 
 function clearInlineNoDiscussionHost(): void {
@@ -893,6 +936,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
   const clearLoadingState = (context: string = 'popup') => {
     try {
+      ensureInlineHost();
       const exposed = uiManager.getExposed<InlineDiscussionExposed>('popup');
       if (exposed?.clearLoading) {
         exposed.clearLoading();
@@ -913,6 +957,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
   const providerChangeCallback = (provider: CommentProvider) => {
     activeProvider = provider;
+    ensureInlineHost();
     const exposed = uiManager.getExposed<InlineDiscussionExposed>('popup');
     if (exposed?.handleProviderChange) {
       exposed.handleProviderChange(provider);
@@ -1167,8 +1212,9 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any
 async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
   const currentState = state();
   const cache = currentState.discussionCache;
+  const cacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
   // Cache the thread for Vue-side render
-  cache.disqus = { thread };
+  cache.disqus = { thread, animeKey: cacheKey || undefined };
 
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
@@ -1256,6 +1302,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     let currentSort: 'best' | 'top' | 'new' = 'best';
     let activeProvider: CommentProvider = preferredProvider;
     const manager = getUiManager();
+
+  // If the host was torn down by SPA nav, re-create it before touching the app
+  ensureInlineHost();
 
     // Cache the discussion data (not comments) for faster switching
     cache.reddit = { ...discussion };

@@ -70,6 +70,30 @@ const noDiscussionDetailTitle = computed(() => {
   if (fromHost) return fromHost;
   return props.discussion.title || 'No discussion thread found';
 });
+
+// Manage the host element state for "no discussion" conditions so we avoid stale UI
+const updateNoDiscussionFlag = () => {
+  const host = inlineSectionRef.value;
+  isNoDiscussion.value = host?.dataset?.noDiscussion === 'true';
+};
+
+const clearNoDiscussionFlag = () => {
+  const host = inlineSectionRef.value;
+  if (host?.dataset?.noDiscussion) {
+    host.removeAttribute('data-no-discussion');
+    host.removeAttribute('data-no-discussion-title');
+  }
+  isNoDiscussion.value = false;
+};
+
+const flagNoDiscussionHost = () => {
+  const host = inlineSectionRef.value;
+  if (!host) return;
+  if (host.dataset.noDiscussion !== 'true') {
+    host.dataset.noDiscussion = 'true';
+  }
+  updateNoDiscussionFlag();
+};
 // Ref for external comments container (Disqus/YouTube)
 const externalCommentsRef = ref<HTMLElement | null>(null);
 const shouldHideExternalComments = computed(() => currentProvider.value !== 'reddit' && isLoading.value);
@@ -577,18 +601,12 @@ function handleSearchInput(e: Event) {
 }
 
 // Monitor reactive state changes
-watch(() => isLoading.value, (newVal, oldVal) => {
-  console.log('[WATCH] isLoading changed:', { from: oldVal, to: newVal });
-  nextTick(() => {
-    const skeletonEl = document.querySelector('.ri-loading-skeletons');
-    console.log('[WATCH-NEXTTICK] Skeleton element in DOM?', !!skeletonEl);
-    const hostDiv = document.getElementById('ri-inline-vue-host');
-    console.log('[WATCH-NEXTTICK] Vue host exists?', !!hostDiv);
-  });
-});
-
-watch(() => currentProvider.value, (newVal, oldVal) => {
-  console.log('[WATCH] currentProvider changed:', { from: oldVal, to: newVal });
+watch(() => isLoading.value, (newVal) => {
+  const hostDivImmediate = document.getElementById('ri-inline-vue-host');
+  if (!hostDivImmediate && newVal === false) {
+    isLoading.value = true;
+    discussionStore.startLoading();
+  }
 });
 
 onMounted(() => {
@@ -737,29 +755,6 @@ const clearLoading = () => {
 
 // Get the external comments container element
 const getExternalCommentsElement = () => externalCommentsRef.value;
-
-const updateNoDiscussionFlag = () => {
-  const host = inlineSectionRef.value;
-  isNoDiscussion.value = host?.dataset?.noDiscussion === 'true';
-};
-
-const clearNoDiscussionFlag = () => {
-  const host = inlineSectionRef.value;
-  if (host?.dataset?.noDiscussion) {
-    host.removeAttribute('data-no-discussion');
-    host.removeAttribute('data-no-discussion-title');
-  }
-  isNoDiscussion.value = false;
-};
-
-const flagNoDiscussionHost = () => {
-  const host = inlineSectionRef.value;
-  if (!host) return;
-  if (host.dataset.noDiscussion !== 'true') {
-    host.dataset.noDiscussion = 'true';
-  }
-  updateNoDiscussionFlag();
-};
 
 // When returning to Reddit, if the discussion looks like a placeholder (no permalink/id marker),
 // keep the no-discussion state so we don't show the default empty comments view.

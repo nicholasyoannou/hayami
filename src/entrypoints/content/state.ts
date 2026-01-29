@@ -52,6 +52,13 @@ function createInitialState(): ContentState {
   };
 }
 
+function buildAnimeKey(info: AnimeInfo | null): string | null {
+  if (!info) return null;
+  const name = info.animeName || '';
+  const episode = info.episodeName || '';
+  return `${name}|${episode}`.trim() || null;
+}
+
 export function getState(): ContentState {
   if (!currentState) {
     currentState = createInitialState();
@@ -91,6 +98,14 @@ export function setDebounceTimer(timer: number | undefined): void {
 
 export function setLastAnimeInfo(info: AnimeInfo | null): void {
   const state = getState();
+  const prevKey = buildAnimeKey(state.lastAnimeInfo);
+  const nextKey = buildAnimeKey(info);
+
+  // Clear all provider caches when navigating to a new series/episode
+  if (prevKey && nextKey && prevKey !== nextKey) {
+    clearDiscussionCache(state);
+  }
+
   state.lastAnimeInfo = info;
 }
 
