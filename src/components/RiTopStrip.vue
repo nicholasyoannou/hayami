@@ -415,10 +415,17 @@ watch(
 
 // If we only have the fallback avatar and we're not loading, attempt to hydrate from about.json
 watch(
-  () => ({ name: props.subredditName, url: avatarSrc.value, loading: props.isLoading }),
-  (state) => {
+  () => ({ name: props.subredditName, url: avatarSrc.value, loading: props.isLoading, provider: currentProvider.value }),
+  (state, prev) => {
     const hasRealAvatar = state.url && state.url !== defaultSubredditIconUrl;
-    if (!state.loading && !hasRealAvatar) {
+    const providerChanged = state.provider !== prev?.provider;
+    if (
+      state.provider === 'reddit' &&
+      !state.loading &&
+      !hasRealAvatar &&
+      state.name &&
+      providerChanged
+    ) {
       void fetchSubredditAvatar(state.name);
     }
   },
