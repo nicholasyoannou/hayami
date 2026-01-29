@@ -384,7 +384,8 @@ async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string 
   if (!subreddit) return { iconUrl: null, primaryColor: null };
   try {
     const url = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/about.json?raw_json=1`;
-    const resp = await extensionFetch(url, { credentials: 'include' } as any);
+    // Use credential-omitted fetch to avoid CORS rejection on third-party pages
+    const resp = await extensionFetch(url, { credentials: 'omit' } as any);
     if (resp.ok) {
       const data = await resp.json();
       // Prefer icon_img (usually square and stable); fall back to community_icon

@@ -356,10 +356,12 @@ const tabItems = computed<DiscussionTab[]>(() => {
 });
 
 const defaultSubredditIconUrl = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';
-const fetchedPrimaryColor = ref<string | null>(props.subredditPrimaryColor || null);
+const fetchedPrimaryColor = ref<string | null>(null);
 const subredditAvatar = computed(() => props.subredditIconUrl || defaultSubredditIconUrl);
 const subredditPrimaryColor = computed(() => fetchedPrimaryColor.value || props.subredditPrimaryColor || null);
 const avatarSrc = ref(subredditAvatar.value);
+
+const sanitizeIcon = (url?: string | null) => (url || '').replace(/&amp;/g, '&').trim();
 
 async function fetchSubredditAvatar(name?: string | null) {
   const sub = (name || '').replace(/^r\//i, '').trim();
@@ -368,13 +370,13 @@ async function fetchSubredditAvatar(name?: string | null) {
     const resp = await fetch(`https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`, { credentials: 'omit' });
     if (!resp.ok) return;
     const data = await resp.json();
-    const iconImg = (data?.data?.icon_img || '').replace(/&amp;/g, '&').trim();
-    const communityIcon = (data?.data?.community_icon || '').replace(/&amp;/g, '&').trim();
+    const iconImg = sanitizeIcon(data?.data?.icon_img);
+    const communityIcon = sanitizeIcon(data?.data?.community_icon);
     const resolved = iconImg || communityIcon;
     if (resolved) {
       avatarSrc.value = resolved;
     }
-    const primaryColor = (data?.data?.primary_color || data?.data?.key_color || '').trim();
+    const primaryColor = sanitizeIcon(data?.data?.primary_color || data?.data?.key_color);
     if (primaryColor) {
       fetchedPrimaryColor.value = fetchedPrimaryColor.value || primaryColor;
     }
@@ -411,7 +413,7 @@ watch(
   }
 );
 
-// Attempt to fetch a better avatar if we only have the generic fallback
+// If we only have the fallback avatar and we're not loading, attempt to hydrate from about.json
 watch(
   () => ({ name: props.subredditName, url: avatarSrc.value, loading: props.isLoading }),
   (state) => {

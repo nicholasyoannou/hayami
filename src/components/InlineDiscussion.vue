@@ -80,19 +80,23 @@ const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
   props.discussion.likes === false ? 'downvoted' :
   'idle'
 );
+const lastDiscussionId = ref<string | null>(props.discussion.id || props.discussion.fullname || null);
 
-watch(
-  () => props.discussion,
-  (disc) => {
-    if (!disc) return;
-    const nextScore = typeof disc.score === 'number'
-      ? disc.score
-      : (typeof (disc as any).ups === 'number' ? (disc as any).ups : 0);
-    currentScore.value = nextScore;
-    voteState.value = disc.likes === true ? 'upvoted' : disc.likes === false ? 'downvoted' : 'idle';
-  },
-  { deep: false, immediate: true }
-);
+function applyDiscussionUpdate(discussion: Discussion | undefined) {
+  if (!discussion) return;
+  const nextScore = typeof discussion.score === 'number'
+    ? discussion.score
+    : (typeof (discussion as any).ups === 'number' ? (discussion as any).ups : 0);
+  currentScore.value = nextScore;
+  voteState.value = discussion.likes === true ? 'upvoted' : discussion.likes === false ? 'downvoted' : 'idle';
+
+  const hasRedditIdentity = !!(discussion.permalink || discussion.id || discussion.fullname);
+  if (hasRedditIdentity && currentProvider.value === 'reddit') {
+    isLoading.value = false;
+    discussionStore.clearLoading();
+    clearNoDiscussionFlag();
+  }
+}
 
 // Manual search modal state (Vue-based replacement for legacy overlay)
 const manualSearchOpen = ref(false);
@@ -668,19 +672,21 @@ watch(
 watch(
   () => props.discussion,
   (discussion) => {
+    applyDiscussionUpdate(discussion as Discussion);
+
     if (!discussion) return;
-    const hasReddit = discussion.permalink || discussion.subreddit || discussion.fullname || discussion.id;
-    if (hasReddit) {
-      isLoading.value = true;
+    const marker = discussion.id || discussion.fullname || discussion.permalink || null;
+    if (marker && marker !== lastDiscussionId.value) {
+      lastDiscussionId.value = marker;
       redditCommentsKey.value++;
     }
-    if (discussion.permalink || discussion.subreddit || discussion.fullname) {
-      if (currentProvider.value !== 'reddit') {
-        currentProvider.value = 'reddit';
-      }
+
+    const hasReddit = discussion.permalink || discussion.subreddit || discussion.fullname || discussion.id;
+    if (hasReddit && discussion.permalink && currentProvider.value !== 'reddit') {
+      currentProvider.value = 'reddit';
     }
   },
-  { deep: true, immediate: true }
+  { deep: false, immediate: true }
 );
 
 async function handleProviderChange(provider: Provider) {
