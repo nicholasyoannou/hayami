@@ -72,6 +72,7 @@ const noDiscussionDetailTitle = computed(() => {
 });
 // Ref for external comments container (Disqus/YouTube)
 const externalCommentsRef = ref<HTMLElement | null>(null);
+const shouldHideExternalComments = computed(() => currentProvider.value !== 'reddit' && isLoading.value);
 // Share button state
 const shareLabel = ref('Share');
 const isShareCopied = ref(false);
@@ -1035,7 +1036,7 @@ defineExpose({
         <div 
           ref="externalCommentsRef" 
           class="ri-external-comments"
-          :style="{ display: currentProvider === 'reddit' ? 'none' : 'block' }"
+          :style="{ display: (currentProvider === 'reddit' || shouldHideExternalComments) ? 'none' : 'block' }"
         />
       </div>
     </section>
