@@ -52,7 +52,9 @@ export default defineConfig({
         resources: [
           'assets/commentAssets/*.svg',
           'assets/*.svg',
-          'disqus-loader.js'
+          'assets/topCommentMenu/*.svg',
+          'disqus-loader.js',
+          'popup.html'
         ],
         matches: ['<all_urls>']
       }
