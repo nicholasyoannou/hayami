@@ -12,7 +12,7 @@ import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper';
 import type { AnimeInfo } from '../types';
 import { RedditDiscussionInfoPanel, RedditManualSearchPanel, RedditNoDiscussionPanel, RedditSelectionPanel, type RedditPost } from '@/components/overlays';
-import { noCommentsModeItem } from '@/config/storage';
+import { resolveNoCommentsMode } from '../utils/no-comments-mode';
 
 // Forward declarations - set by main module to avoid circular deps
 let displayDiscussionDependingOnModeFn: ((discussion: any) => Promise<void>) | null = null;
@@ -27,11 +27,30 @@ export function setDisplayHandler(handler: (discussion: any) => Promise<void>): 
 /**
  * Shows selection UI when multiple discussion threads are found
  */
-export function showSelectionUI(
+export async function showSelectionUI(
   animeInfo: AnimeInfo, 
   posts: any[], 
   crEpisodeNum?: number
-): void {
+): Promise<void> {
+  if (!posts || posts.length === 0) {
+    await showNoDiscussionMessage(animeInfo.animeName || 'this series', crEpisodeNum ? String(crEpisodeNum) : '?');
+    return;
+  }
+
+  try {
+    const mode = await resolveNoCommentsMode();
+    console.warn('[NoComments] selection-ui resolved mode:', mode, 'posts:', posts.length);
+    if (mode === 'inline' && posts.length > 0) {
+      console.warn('[NoComments] inline mode set; auto-selecting first candidate to avoid popup', { title: posts[0]?.title });
+      if (displayDiscussionDependingOnModeFn) {
+        await displayDiscussionDependingOnModeFn(posts[0]);
+      }
+      return;
+    }
+  } catch (e) {
+    console.warn('[NoComments] inline selection guard failed; falling back to popup', e);
+  }
+
   getUiManager().mountWithPropsFactory(RedditSelectionPanel, ({ close }) => ({
     animeName: animeInfo.animeName || 'this series',
     posts: posts.slice(0, 12),
@@ -61,26 +80,24 @@ export function showSelectionUI(
  */
 export async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
   removeCommentsSkeletonLoading();
-  // Check user preference for no-comments behavior
-  let noCommentsMode: 'popup' | 'inline' = 'popup';
   try {
-    const stored = await noCommentsModeItem.getValue();
-    noCommentsMode = stored === 'inline' ? 'inline' : 'popup';
+    const mode = await resolveNoCommentsMode();
+    if (mode === 'inline') {
+      showInlineNoCommentsUI(animeName, episodeNumber);
+      return;
+    }
   } catch (e) {
-    // Default to popup
+    console.warn('[NoComments] Failed to resolve no-comments mode; falling back to popup', e);
   }
-
-  if (noCommentsMode === 'inline') {
-    showInlineNoCommentsUI(animeName, episodeNumber);
-  } else {
-    showNoDiscussionPopup(animeName, episodeNumber);
-  }
+  showNoDiscussionPopup(animeName, episodeNumber);
 }
 
 /**
  * Shows popup version of no discussion message
  */
 function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
+  console.warn('[NoComments] selection-ui showNoDiscussionPopup mount');
+  console.log('[NoComments] selection-ui showNoDiscussionPopup mount');
   getUiManager().mountWithPropsFactory(RedditNoDiscussionPanel, ({ close }) => ({
     animeName,
     episodeNumber,
@@ -101,6 +118,8 @@ function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
  * Shows inline UI for selecting episode when no comments found
  */
 function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void {
+  console.warn('[NoComments] selection-ui showInlineNoCommentsUI mount');
+  console.log('[NoComments] selection-ui showInlineNoCommentsUI mount');
   // Reuse existing inline container if present (keeps top menu in place)
   const existing = document.getElementById('reddit-inline-discussion') as HTMLElement | null;
   removeCommentsSkeletonLoading();

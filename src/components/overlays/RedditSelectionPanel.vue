@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
+import { resolveNoCommentsMode } from '@/entrypoints/content/utils/no-comments-mode';
 import { escapeHtml } from '@/utils/markdown';
 
 export interface RedditPost {
@@ -28,6 +30,23 @@ function formatDate(timestamp: number): string {
 function handleSelect(post: RedditPost, index: number): void {
   emit('select', post, index);
 }
+
+// Safety guard: if inline mode is set but we still mounted, auto-select first result to avoid popup
+onMounted(async () => {
+  try {
+    const mode = await resolveNoCommentsMode();
+    if (mode === 'inline') {
+      const first = props.posts?.[0];
+      if (first) {
+        console.warn('[NoComments] selection panel mounted in inline mode; auto-selecting first result');
+        emit('select', first, 0);
+      }
+      emit('close');
+    }
+  } catch (e) {
+    console.warn('[NoComments] selection panel inline guard failed; leaving popup visible', e);
+  }
+});
 </script>
 
 <template>

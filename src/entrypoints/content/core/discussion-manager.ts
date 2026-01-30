@@ -52,10 +52,11 @@ import { renderNoDiscussionPanel } from '../templates';
 import { removeCommentsSkeletonLoading } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
-import { commentsProviderItem, noCommentsModeItem } from '@/config/storage';
+import { commentsProviderItem } from '@/config/storage';
 import { getContentScriptContext } from './content-script-context';
 import { getUiManager, type InlineDiscussionExposed } from './ui-manager';
 import { useDiscussionStore } from '@/store/discussion';
+import { resolveNoCommentsMode } from '../utils/no-comments-mode';
 
 // State management
 import {
@@ -729,8 +730,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       return;
     }
 
-    // Multiple candidates: show selection UI
-    showSelectionUI(animeInfo, results, mappedEpisodeNum ?? (rawEpisodeNum ?? undefined));
+    // Multiple candidates: show selection UI (respects inline no-comments mode fallback)
+    await showSelectionUI(animeInfo, results, mappedEpisodeNum ?? (rawEpisodeNum ?? undefined));
   } catch (error) {
     console.error('Error searching for discussion:', error);
     try {
@@ -787,8 +788,8 @@ async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: numb
       return;
     }
 
-    // Let the user pick which one matches this episode
-    showSelectionUI(animeInfo, results, crEpisodeNum);
+    // Let the user pick which one matches this episode (respects inline no-comments mode fallback)
+    await showSelectionUI(animeInfo, results, crEpisodeNum);
   } catch (err) {
     console.error('Fallback search error:', err);
   }
@@ -799,7 +800,24 @@ async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: numb
 // Functions for showing Reddit-related UI panels (selection, auth, no-discussion)
 // =============================================================================
 
-function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: number): void {
+async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: number): Promise<void> {
+  if (!posts || posts.length === 0) {
+    await showNoDiscussionMessage(animeInfo.animeName || 'this series', crEpisodeNum ? String(crEpisodeNum) : '?');
+    return;
+  }
+
+  try {
+    const mode = await resolveNoCommentsMode();
+    console.warn('[NoComments] core selection resolved mode:', mode, 'posts:', posts.length);
+    if (mode === 'inline' && posts.length > 0) {
+      console.warn('[NoComments] inline mode set; auto-selecting first candidate to avoid popup', { title: posts[0]?.title });
+      await displayDiscussionDependingOnMode(posts[0]);
+      return;
+    }
+  } catch (e) {
+    console.warn('[NoComments] inline selection guard failed; falling back to popup', e);
+  }
+
   getUiManager().mountWithPropsFactory(RedditSelectionPanel, ({ close }) => ({
     animeName: animeInfo.animeName || 'this series',
     posts: posts.slice(0, 12),
@@ -831,35 +849,29 @@ export function showAuthPrompt(): void {
 
 async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
   removeCommentsSkeletonLoading();
-  // Check user preference for no-comments behavior
-  let noCommentsMode: 'popup' | 'inline' = 'popup';
   try {
-    const stored = await noCommentsModeItem.getValue();
-    noCommentsMode = stored === 'inline' ? 'inline' : 'popup';
+    const mode = await resolveNoCommentsMode();
+    if (mode === 'inline') {
+      showInlineNoCommentsUI(animeName, episodeNumber);
+      return;
+    }
   } catch (e) {
-    // Default to popup
+    console.warn('[NoComments] Failed to resolve no-comments mode; showing popup fallback', e);
   }
-
-  if (noCommentsMode === 'inline') {
-    // Show inline selection UI in comments section area
-    showInlineNoCommentsUI(animeName, episodeNumber);
-  } else {
-    // Show popup (original behavior)
-    getUiManager().mountWithPropsFactory(RedditNoDiscussionPanel, ({ close }) => ({
-      animeName,
-      episodeNumber,
-      onClose: close,
-      onWrong: () => {
-        const lastInfo = state().lastAnimeInfo;
-        const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-        close();
-        showManualSearchUI(
-          lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` },
-          crEpisodeNum ? Number(crEpisodeNum) : undefined
-        );
-      },
-    }));
-  }
+  getUiManager().mountWithPropsFactory(RedditNoDiscussionPanel, ({ close }) => ({
+    animeName,
+    episodeNumber,
+    onClose: close,
+    onWrong: () => {
+      const lastInfo = getState().lastAnimeInfo;
+      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
+      close();
+      showManualSearchUI(
+        lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` },
+        crEpisodeNum ? Number(crEpisodeNum) : undefined
+      );
+    },
+  }));
 }
 
 function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void {
