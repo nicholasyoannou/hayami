@@ -2,8 +2,9 @@
   <div class="flex w-full items-end gap-3 pt-4 px-0 relative">
     <div class="flex items-center gap-2 shrink-0 relative z-30" ref="logoContainer">
       <!-- Provider Logo Button -->
-      <div 
-        class="ripple flex items-center gap-2 px-4 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
+      <div
+        ref="logoButton"
+        class="ripple flex items-center gap-2 px-6 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
         :class="{ 'cursor-pointer': !isLoading, 'cursor-not-allowed opacity-60': isLoading }"
         @click.stop="!isLoading && toggleMenu()"
       >
@@ -70,7 +71,7 @@
     <div
       class="absolute flex items-center pb-1.5 gap-2 overflow-hidden transition-all duration-300 h-11"
       :class="menuOpen && !isLoading ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'"
-      :style="menuOpen && !isLoading ? { left: 170 + 'px', width: (menuWidth - logoWidth) + 'px' } : { left: logoWidth + 'px', width: '0px' }"
+      :style="menuOpen && !isLoading ? { left: logoWidth + 'px', width: (menuWidth - logoWidth) + 'px' } : { left: logoWidth + 'px', width: '0px' }"
     >
       <button
         v-for="item in menuItems"
@@ -86,7 +87,7 @@
       >
         <img 
           v-if="item.id === 'reddit'"
-          class="w-6 h-5 opacity-80" 
+          class="w-6 h-5 opacity-60" 
           :src="redditLogoUrl" 
           alt="reddit logo" 
         />
@@ -98,7 +99,7 @@
         />
         <img 
           v-if="item.id === 'reddit'"
-          class="h-5 opacity-80" 
+          class="h-4 opacity-60" 
           :src="redditTextUrl" 
           alt="reddit" 
         />
@@ -243,6 +244,7 @@ const menuOpen = ref(false);
 const currentProvider = ref<Provider>(props.provider);
 const tabsContainer = ref<HTMLElement | null>(null);
 const logoContainer = ref<HTMLElement | null>(null);
+const logoButton = ref<HTMLElement | null>(null);
 const menuWidth = ref(800);
 const logoWidth = ref(200);
 
@@ -278,18 +280,13 @@ function calculateMenuWidth() {
   try {
     const logoRect = logoContainer.value.getBoundingClientRect();
     const tabsRect = tabsContainer.value.getBoundingClientRect();
-    
-    // Get the Reddit logo button width specifically (not the whole container with r/anime pill)
-    const redditLogoBtn = logoContainer.value.querySelector('.flex.items-center.gap-2.px-4.h-11.bg-\\[\\#0f0f0f\\]') as HTMLElement;
-    if (redditLogoBtn) {
-      const redditLogoRect = redditLogoBtn.getBoundingClientRect();
-      // Add small offset to move menu items slightly to the right
-      logoWidth.value = redditLogoRect.width + 20;
-      menuWidth.value = redditLogoRect.width + 20 + tabsRect.width;
-    } else {
-      logoWidth.value = logoRect.width + 4;
-      menuWidth.value = logoRect.width + 4 + tabsRect.width;
-    }
+
+    // Prefer the actual logo button width; fall back to container
+    const buttonRect = logoButton.value?.getBoundingClientRect();
+    const baseWidth = buttonRect?.width ?? logoRect.width;
+    // Add small offset to move menu items slightly to the right
+    logoWidth.value = baseWidth + 20;
+    menuWidth.value = baseWidth + 20 + tabsRect.width;
   } catch (error) {
     console.warn('Error calculating menu width:', error);
     // Fallback on error
