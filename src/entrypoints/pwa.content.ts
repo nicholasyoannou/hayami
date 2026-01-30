@@ -5,6 +5,10 @@ export default defineContentScript({
   matches: ['https://hayami.moe/pwa*'],
   runAt: 'document_end',
   main(ctx: ContentScriptContext) {
+    if (location.hostname !== 'hayami.moe') {
+      return;
+    }
+
     mountPwaShell(ctx);
   },
 });
