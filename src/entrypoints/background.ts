@@ -1,4 +1,5 @@
 import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
+import { exchangeCodeForToken as exchangeRedditCode } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 import "webext-dynamic-content-scripts";
@@ -183,6 +184,15 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (message.action === 'hayami_closeTab') {
+      const tabId = sender.tab?.id;
+      if (tabId) {
+        browser.tabs.remove(tabId).catch(() => {});
+      }
+      sendResponse({ ok: true });
+      return false;
+    }
+
     // Handle other async messages
     // All message actions are namespaced with 'hayami_' to avoid conflicts with other extensions
     if (message.action === 'hayami_authenticate') {
@@ -299,6 +309,23 @@ export default defineBackground(() => {
       // Forward to content script or handle here
       sendResponse({ received: true });
       return false; // synchronous response
+    }
+
+    if (message.action === 'hayami_reddit_exchange') {
+      (async () => {
+        try {
+          const { code } = message as any;
+          if (!code) {
+            sendResponse({ success: false, error: 'missing_code' });
+            return;
+          }
+          const result = await exchangeRedditCode(code);
+          sendResponse(result);
+        } catch (err) {
+          sendResponse({ success: false, error: err instanceof Error ? err.message : 'unknown' });
+        }
+      })();
+      return true;
     }
 
     // (Reverted) previously there was a startDisqusLoginFlow handler here.

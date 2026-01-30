@@ -15,6 +15,7 @@ import {
   logoutYouTube,
 } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malAuth';
+import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilistAuth';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
@@ -46,6 +47,7 @@ const isLoading = ref(false);
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 const isMALLoggedIn = ref(false);
+const isAniListLoggedIn = ref(false);
 
 const currentView = ref<'home' | 'manage' | 'settings'>('home');
 const displayMode = ref<DisplayModeOption>('popup');
@@ -67,6 +69,7 @@ onMounted(async () => {
   await loadImgurClientId();
   await loadImgchestApiKey();
   await checkMALAuthStatus();
+  await checkAniListAuthStatus();
 });
 
 async function checkAuthStatus() {
@@ -367,6 +370,52 @@ async function handleMALLogout() {
     isLoading.value = false;
   }
 }
+
+async function checkAniListAuthStatus() {
+  try {
+    isAniListLoggedIn.value = await isAniListAuthenticated();
+  } catch (error) {
+    console.error('Error checking AniList auth status:', error);
+  }
+}
+
+async function handleAniListLogin() {
+  isLoading.value = true;
+  errorMessage.value = null;
+  successMessage.value = null;
+  try {
+    const result = await authenticateWithAniList();
+    if (result.success) {
+      successMessage.value = result.message || 'AniList login opened in a new tab. Complete it to finish connecting.';
+      setTimeout(() => {
+        checkAniListAuthStatus();
+      }, 2000);
+    } else {
+      errorMessage.value = result.error || 'Authentication failed';
+    }
+  } catch (error) {
+    console.error('AniList login error:', error);
+    errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred';
+  } finally {
+    isLoading.value = false;
+  }
+}
+
+async function handleAniListLogout() {
+  isLoading.value = true;
+  errorMessage.value = null;
+  successMessage.value = null;
+  try {
+    await logoutAniList();
+    isAniListLoggedIn.value = false;
+    successMessage.value = 'Disconnected from AniList';
+  } catch (error) {
+    console.error('AniList logout error:', error);
+    errorMessage.value = 'Failed to logout from AniList';
+  } finally {
+    isLoading.value = false;
+  }
+}
 </script>
 <template>
   <div class="flex min-w-[420px] max-w-[600px] w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
@@ -423,6 +472,10 @@ async function handleMALLogout() {
               <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                 <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
                 <div class="truncate">{{ isMALLoggedIn ? 'MyAnimeList connected' : 'Not connected' }}</div>
+              </div>
+              <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
+                <img src="/assets/topCommentMenu/anilistIcon.svg" alt="AniList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
+                <div class="truncate">{{ isAniListLoggedIn ? 'AniList connected' : 'Not connected' }}</div>
               </div>
             </div>
             <div class="mt-6 space-y-2">
@@ -559,6 +612,19 @@ async function handleMALLogout() {
                 </div>
                 <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isMALLoggedIn ? handleMALLogout() : handleMALLogin()">
                   {{ isMALLoggedIn ? 'Logout' : 'Connect' }}
+                </button>
+              </div>
+
+              <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                <div class="flex items-center gap-3">
+                  <img src="/assets/topCommentMenu/anilistIcon.svg" alt="AniList" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
+                  <div>
+                    <p class="text-sm text-white/70">AniList</p>
+                    <p class="text-base font-semibold">{{ isAniListLoggedIn ? 'Connected' : 'Not linked' }}</p>
+                  </div>
+                </div>
+                <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isAniListLoggedIn ? handleAniListLogout() : handleAniListLogin()">
+                  {{ isAniListLoggedIn ? 'Logout' : 'Connect' }}
                 </button>
               </div>
             </div>

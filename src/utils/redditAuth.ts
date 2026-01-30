@@ -7,7 +7,7 @@
  * See config.ts for setup instructions.
  */
 
-import { REDDIT_CLIENT_ID, REDDIT_SCOPES, REDDIT_DURATION } from '@/config';
+import { REDDIT_CLIENT_ID, REDDIT_SCOPES, REDDIT_DURATION, REDDIT_REDIRECT_URI } from '@/config';
 
 // Validate configuration
 if (!REDDIT_CLIENT_ID || REDDIT_CLIENT_ID.length === 0) {
@@ -17,7 +17,7 @@ if (!REDDIT_CLIENT_ID || REDDIT_CLIENT_ID.length === 0) {
 // Reddit OAuth Configuration
 const REDDIT_CONFIG = {
   clientId: REDDIT_CLIENT_ID,
-  redirectUri: '', // Will be generated dynamically from extension ID
+  redirectUri: REDDIT_REDIRECT_URI,
   scope: REDDIT_SCOPES,
   duration: REDDIT_DURATION,
   authEndpoint: 'https://www.reddit.com/api/v1/authorize',
@@ -43,7 +43,7 @@ interface RedditTokenResponse {
   refresh_token?: string;
 }
 
-interface RedditAuthResult {
+export interface RedditAuthResult {
   success: boolean;
   username?: string;
   error?: string;
@@ -64,15 +64,9 @@ function generateState(): string {
  */
 export async function authenticateWithReddit(): Promise<RedditAuthResult> {
   try {
-    // Generate redirect URI from extension ID
-    const extensionId = browser.runtime.id;
-    REDDIT_CONFIG.redirectUri = `https://${extensionId}.chromiumapp.org/`;
-
-    // Generate and store state for CSRF protection
     const state = generateState();
     await browser.storage.local.set({ oauth_state: state });
 
-    // Build authorization URL
     const authUrl = new URL(REDDIT_CONFIG.authEndpoint);
     authUrl.searchParams.set('client_id', REDDIT_CONFIG.clientId);
     authUrl.searchParams.set('response_type', 'code');
@@ -81,48 +75,27 @@ export async function authenticateWithReddit(): Promise<RedditAuthResult> {
     authUrl.searchParams.set('duration', REDDIT_CONFIG.duration);
     authUrl.searchParams.set('scope', REDDIT_CONFIG.scope);
 
-    // Launch OAuth flow
-    const responseUrl = await browser.identity.launchWebAuthFlow({
-      url: authUrl.toString(),
-      interactive: true,
-    });
+    const urlStr = authUrl.toString();
 
-    if (!responseUrl) {
-      return { success: false, error: 'Authorization was cancelled' };
+    if (browser?.windows?.create) {
+      await browser.windows.create({
+        url: urlStr,
+        type: 'popup',
+        width: 520,
+        height: 760,
+        left: Math.round(window.screenX + (window.outerWidth - 520) / 2),
+        top: Math.round(window.screenY + (window.outerHeight - 760) / 2),
+      });
+    } else if (browser?.tabs?.create) {
+      await browser.tabs.create({ url: urlStr, active: true });
+    } else {
+      window.open(urlStr, '_blank', 'noopener');
     }
-
-    // Parse callback URL
-    const url = new URL(responseUrl);
-    const code = url.searchParams.get('code');
-    const returnedState = url.searchParams.get('state');
-    const error = url.searchParams.get('error');
-
-    if (error) {
-      return { success: false, error: `Authorization denied: ${error}` };
-    }
-
-    // Verify state to prevent CSRF attacks
-    const { oauth_state } = await browser.storage.local.get('oauth_state');
-    if (returnedState !== oauth_state) {
-      return { success: false, error: 'Security validation failed' };
-    }
-
-    if (!code) {
-      return { success: false, error: 'No authorization code received' };
-    }
-
-    // Exchange code for tokens
-    const tokenResult = await exchangeCodeForToken(code);
-    if (!tokenResult.success) {
-      return tokenResult;
-    }
-
-    // Fetch and store user identity
-    const username = await getRedditUsername();
 
     return {
       success: true,
-      username: username || 'Unknown',
+      username: undefined,
+      error: undefined,
     };
   } catch (error) {
     console.error('Reddit authentication error:', error);
@@ -136,7 +109,7 @@ export async function authenticateWithReddit(): Promise<RedditAuthResult> {
 /**
  * Exchanges authorization code for access token
  */
-async function exchangeCodeForToken(code: string): Promise<RedditAuthResult> {
+export async function exchangeCodeForToken(code: string): Promise<RedditAuthResult> {
   try {
     const formData = new URLSearchParams({
       grant_type: 'authorization_code',
@@ -183,6 +156,37 @@ async function exchangeCodeForToken(code: string): Promise<RedditAuthResult> {
       success: false,
       error: error instanceof Error ? error.message : 'Token exchange failed',
     };
+  }
+}
+
+export async function completeRedditRedirectCallback(callbackUrl: string): Promise<RedditAuthResult> {
+  try {
+    const url = new URL(callbackUrl);
+    const code = url.searchParams.get('code');
+    const returnedState = url.searchParams.get('state');
+    const error = url.searchParams.get('error');
+
+    if (error) {
+      return { success: false, error: `Authorization denied: ${error}` };
+    }
+
+    const { oauth_state } = await browser.storage.local.get('oauth_state');
+    if (!returnedState || returnedState !== oauth_state) {
+      return { success: false, error: 'Security validation failed' };
+    }
+
+    if (!code) {
+      return { success: false, error: 'No authorization code received' };
+    }
+
+    const tokenResult = await exchangeCodeForToken(code);
+    if (!tokenResult.success) return tokenResult;
+
+    const username = await getRedditUsername();
+    return { success: true, username: username || 'Unknown' };
+  } catch (err) {
+    console.error('Reddit redirect completion error:', err);
+    return { success: false, error: err instanceof Error ? err.message : 'Authentication failed' };
   }
 }
 

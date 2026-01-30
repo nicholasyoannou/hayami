@@ -2,6 +2,7 @@ import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { completeAniListImplicitGrant } from '@/utils/anilistAuth';
+import { completeRedditRedirectCallback } from '@/utils/redditAuth';
 
 function resetPageChrome(): void {
   document.documentElement.style.height = '100%';
@@ -128,11 +129,60 @@ async function handleAniListRedirect(ctx: ContentScriptContext): Promise<void> {
   });
 }
 
+async function handleRedditRedirect(ctx: ContentScriptContext): Promise<void> {
+  resetPageChrome();
+  document.body.innerHTML = '';
+
+  const status = renderMessage('Completing Reddit login...', 'Give us a second to save your session.');
+  document.body.append(status);
+
+  const result = await completeRedditRedirectCallback(window.location.href || '');
+
+  if (result.success) {
+    status.replaceWith(
+      renderMessage(
+        'Reddit connected',
+        'You are all set! You can close this tab or head back to the Hayami popup.',
+        '#a5b4fc'
+      )
+    );
+
+    try {
+      await browser.runtime.sendMessage({ action: 'hayami_closeTab' });
+    } catch {}
+
+    try {
+      history.replaceState(null, '', `${window.location.origin}/pwa`);
+    } catch {}
+
+    setTimeout(() => {
+      window.location.href = `${window.location.origin}/pwa`;
+    }, 1200);
+  } else {
+    status.replaceWith(
+      renderMessage(
+        'Reddit connection failed',
+        result.error || 'We could not complete the Reddit login. Please try again.',
+        '#fca5a5'
+      )
+    );
+  }
+
+  ctx.onInvalidated(() => {
+    document.getElementById('hayami-pwa-shell')?.remove();
+  });
+}
+
 export async function mountPwaShell(ctx: ContentScriptContext): Promise<void> {
   const path = window.location.pathname || '';
 
   if (path.startsWith('/pwa/link/anilist')) {
     await handleAniListRedirect(ctx);
+    return;
+  }
+
+  if (path.startsWith('/pwa/link/reddit')) {
+    await handleRedditRedirect(ctx);
     return;
   }
 

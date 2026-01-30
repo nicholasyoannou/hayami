@@ -11,6 +11,7 @@
  */
 
 export const REDDIT_CLIENT_ID = 'YOUR_REDDIT_CLIENT_ID';
+export const REDDIT_REDIRECT_URI = 'https://hayami.moe/pwa/link/reddit';
 
 /**
  * Reddit OAuth scopes
@@ -55,6 +56,13 @@ export const GOOGLE_CLIENT_ID = '74928001886-t3tbc872m0mkflh0rr175s5ag1nn5t70.ap
 export const GOOGLE_SCOPES = 'https://www.googleapis.com/auth/youtube.force-ssl';
 
 /**
+ * AniList OAuth Configuration (Implicit Grant)
+ * Redirect URI must match the AniList app settings exactly.
+ */
+export const ANILIST_CLIENT_ID = '35318';
+export const ANILIST_REDIRECT_URI = 'https://hayami.moe/pwa/link/anilist';
+
+/**
  * MyAnimeList OAuth Configuration (PKCE, public client)
  *
  * App type: "Other" with PKCE enabled.
@@ -86,5 +94,7 @@ export const hostPermissions = [
       'https://www.bilibili.com/*',
       'https://*.hdslb.com/*',
       'https://www.netflix.com/*',
-      'https://api.hayami.moe/*'
+      'https://api.hayami.moe/*',
+      'https://hayami.moe/*',
+      'https://anilist.co/*'
 ];
