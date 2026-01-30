@@ -14,13 +14,9 @@ function normalizeMode(value: unknown): 'inline' | 'popup' {
 export async function resolveNoCommentsMode(): Promise<'popup' | 'inline'> {
   try {
     const stored = await noCommentsModeItem.getValue();
-    const mode = normalizeMode(stored);
-    console.warn('[NoComments] WXT storage raw value:', stored, 'normalized:', mode);
-    console.log('[NoComments] WXT storage raw value:', stored, 'normalized:', mode);
-    return mode;
+    return normalizeMode(stored);
   } catch (e) {
     console.warn('[NoComments] Failed to read mode via wxt storage, falling back', e);
-    console.log('[NoComments] Failed to read mode via wxt storage, falling back', e);
   }
 
   try {
@@ -28,13 +24,10 @@ export async function resolveNoCommentsMode(): Promise<'popup' | 'inline'> {
     if (rawStorage?.get) {
       const raw = await rawStorage.get([STORAGE_KEY, LEGACY_KEY]);
       const mode = normalizeMode(raw?.[STORAGE_KEY] ?? raw?.[LEGACY_KEY]);
-      console.warn('[NoComments] chrome.storage values:', raw, 'normalized:', mode);
-      console.log('[NoComments] chrome.storage values:', raw, 'normalized:', mode);
       return mode;
     }
   } catch (e) {
     console.warn('[NoComments] Failed to read mode from chrome.storage', e);
-    console.log('[NoComments] Failed to read mode from chrome.storage', e);
   }
 
   return DEFAULT_MODE;

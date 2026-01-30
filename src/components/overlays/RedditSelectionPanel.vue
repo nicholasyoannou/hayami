@@ -38,7 +38,6 @@ onMounted(async () => {
     if (mode === 'inline') {
       const first = props.posts?.[0];
       if (first) {
-        console.warn('[NoComments] selection panel mounted in inline mode; auto-selecting first result');
         emit('select', first, 0);
       }
       emit('close');

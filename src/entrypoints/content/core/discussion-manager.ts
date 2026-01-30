@@ -808,9 +808,7 @@ async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?
 
   try {
     const mode = await resolveNoCommentsMode();
-    console.warn('[NoComments] core selection resolved mode:', mode, 'posts:', posts.length);
     if (mode === 'inline' && posts.length > 0) {
-      console.warn('[NoComments] inline mode set; auto-selecting first candidate to avoid popup', { title: posts[0]?.title });
       await displayDiscussionDependingOnMode(posts[0]);
       return;
     }

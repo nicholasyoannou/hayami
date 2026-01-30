@@ -857,6 +857,26 @@ function mapEpisodeWithSeasonsData(
     }
   }
 
+  // Continuous ordinals that overshoot both CR and mapper baselines (e.g., dub numbering leaps) can leave the
+  // season episode outside the cour length. Trim the previous-episode total to a single-cour span so we land
+  // back inside the matched season instead of giving up.
+  const maxReasonablePrevious = totalPreviousCrEpisodes + mapperEpisodeCount;
+  if (isSequenceNumberContinuous && mapperEpisodeCount >= 1 && episodeNumberToUse > maxReasonablePrevious) {
+    const adjustedPrevious = Math.min(episodeNumberToUse - 1, maxReasonablePrevious);
+    const seasonEpisode = episodeNumberToUse - adjustedPrevious;
+
+    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+      console.log('[Mapper Failover] Overshoot guard: trimmed previous total into cour span', {
+        episodeNumberToUse,
+        totalPreviousCrEpisodes,
+        mapperEpisodeCount,
+        adjustedPrevious,
+        seasonEpisode,
+      });
+      return seasonEpisode;
+    }
+  }
+
   if (isSequenceNumberContinuous) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {

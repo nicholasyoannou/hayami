@@ -39,9 +39,7 @@ export async function showSelectionUI(
 
   try {
     const mode = await resolveNoCommentsMode();
-    console.warn('[NoComments] selection-ui resolved mode:', mode, 'posts:', posts.length);
     if (mode === 'inline' && posts.length > 0) {
-      console.warn('[NoComments] inline mode set; auto-selecting first candidate to avoid popup', { title: posts[0]?.title });
       if (displayDiscussionDependingOnModeFn) {
         await displayDiscussionDependingOnModeFn(posts[0]);
       }
@@ -96,8 +94,6 @@ export async function showNoDiscussionMessage(animeName: string, episodeNumber: 
  * Shows popup version of no discussion message
  */
 function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
-  console.warn('[NoComments] selection-ui showNoDiscussionPopup mount');
-  console.log('[NoComments] selection-ui showNoDiscussionPopup mount');
   getUiManager().mountWithPropsFactory(RedditNoDiscussionPanel, ({ close }) => ({
     animeName,
     episodeNumber,
@@ -118,8 +114,6 @@ function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
  * Shows inline UI for selecting episode when no comments found
  */
 function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void {
-  console.warn('[NoComments] selection-ui showInlineNoCommentsUI mount');
-  console.log('[NoComments] selection-ui showInlineNoCommentsUI mount');
   // Reuse existing inline container if present (keeps top menu in place)
   const existing = document.getElementById('reddit-inline-discussion') as HTMLElement | null;
   removeCommentsSkeletonLoading();
