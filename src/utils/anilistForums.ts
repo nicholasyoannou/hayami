@@ -142,19 +142,14 @@ export async function fetchAniListThreads(
     return { status: 'auth_required' };
   }
 
-  const search = episode && Number.isFinite(episode)
-    ? `${animeTitle.trim()} Episode ${episode}`
-    : animeTitle.trim();
-
   const threadQuery = `
-    query ($search: String, $page: Int, $animeId: Int) {
+    query ($page: Int, $animeId: Int) {
       Page(page: $page, perPage: 25) {
         pageInfo {
           currentPage
           hasNextPage
         }
         threads(
-          search: $search
           categoryId: 5
           mediaCategoryId: $animeId
           sort: ID_DESC
@@ -178,7 +173,7 @@ export async function fetchAniListThreads(
     }
   `;
 
-  const variables = { search, page: 1, animeId: anilistId };
+  const variables = { page: 1, animeId: anilistId };
   const result = await graphqlRequest<{ data?: { Page?: any } }>(threadQuery, variables, token);
 
   if (!result.ok) {
