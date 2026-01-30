@@ -196,6 +196,7 @@ export function clearDiscussionCache(state: ContentState = getState()): void {
   state.discussionCache.disqus = undefined;
   state.discussionCache.youtube = undefined;
   state.discussionCache.mal = undefined;
+  state.discussionCache.anilist = undefined;
 }
 
 /**

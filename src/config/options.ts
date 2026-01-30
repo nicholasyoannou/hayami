@@ -11,6 +11,7 @@ export type DisplayModeOption = (typeof displayModeOptions)[number]['value'];
 export const commentProviderOptions = [
   { value: 'reddit', label: 'Reddit' },
   { value: 'disqus', label: 'Disqus' },
+  { value: 'anilist', label: 'AniList forums' },
   { value: 'mal', label: 'MyAnimeList' },
   { value: 'youtube', label: 'YouTube' },
 ] as const;

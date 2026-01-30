@@ -7,6 +7,7 @@ import { DisqusProvider } from './disqus-provider';
 import { RedditProvider } from './reddit-provider';
 import { YouTubeProvider } from './youtube-provider';
 import { MalProvider } from './mal-provider';
+import { AniListProvider } from './anilist-provider';
 import { handleProviderError } from '../utils/error-handler';
 
 // Provider instances (lazy-loaded)
@@ -29,6 +30,9 @@ function getProvider(provider: CommentProvider): any {
         break;
       case 'mal':
         providers.set(provider, new MalProvider());
+        break;
+      case 'anilist':
+        providers.set(provider, new AniListProvider());
         break;
       default:
         throw new Error(`Provider ${provider} not implemented`);

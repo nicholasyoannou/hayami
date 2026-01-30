@@ -6,6 +6,7 @@ export interface AnimeInfo {
   episodeName: string;
   releaseDate?: string;
   malId?: number | null;
+  anilistId?: number | null;
 }
 
 let cachedAnimeInfo: AnimeInfo | null = null;

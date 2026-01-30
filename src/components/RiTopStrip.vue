@@ -33,6 +33,12 @@
           MAL
         </div>
         <img 
+          v-else-if="currentProvider === 'anilist'"
+          class="h-5 opacity-80" 
+          :src="anilistLogoUrl" 
+          alt="anilist logo" 
+        />
+        <img 
           v-if="currentProvider === 'reddit'"
           class="h-5 opacity-80" 
           :src="redditTextUrl" 
@@ -207,7 +213,7 @@ interface DiscussionTab {
   active?: boolean;
 }
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal';
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist';
 
 interface MenuItem {
   id: Provider;
@@ -249,13 +255,15 @@ const menuWidth = ref(800);
 const logoWidth = ref(200);
 
 // Resolve asset URLs via the extension runtime so they work from the content script
-const redditLogoUrl = getRuntimeUrl('assets/topCommentMenu/reddit.svg');
-const redditTextUrl = getRuntimeUrl('assets/topCommentMenu/redditText.svg');
-const disqusLogoUrl = getRuntimeUrl('assets/topCommentMenu/disqusLogo.svg');
-const youtubeLogoUrl = getRuntimeUrl('assets/topCommentMenu/youtubeLogo.svg');
-const malLogoUrl = getRuntimeUrl('assets/topCommentMenu/malLogo.svg');
-const discussionIconUrl = getRuntimeUrl('assets/topCommentMenu/discussion.svg');
-const popoutDiscussionIconUrl = getRuntimeUrl('assets/topCommentMenu/popoutTab/discussion.svg');
+const logoBaseUrl = 'assets/topCommentMenu/';
+const redditLogoUrl = getRuntimeUrl(logoBaseUrl + 'reddit.svg');
+const redditTextUrl = getRuntimeUrl(logoBaseUrl + 'redditText.svg');
+const disqusLogoUrl = getRuntimeUrl(logoBaseUrl + 'disqusLogo.svg');
+const youtubeLogoUrl = getRuntimeUrl(logoBaseUrl + 'youtubeLogo.svg');
+const malLogoUrl = getRuntimeUrl(logoBaseUrl + 'malLogo.svg');
+const anilistLogoUrl = getRuntimeUrl(logoBaseUrl + 'anilistIcon.svg');
+const discussionIconUrl = getRuntimeUrl(logoBaseUrl + 'discussion.svg');
+const popoutDiscussionIconUrl = getRuntimeUrl(logoBaseUrl + 'popoutTab/discussion.svg');
 const upvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/upvoteFilled.svg');
 
 const menuItems = computed<MenuItem[]>(() => {
@@ -264,6 +272,7 @@ const menuItems = computed<MenuItem[]>(() => {
     { id: 'disqus', label: 'DISQUS', iconUrl: disqusLogoUrl },
     { id: 'youtube', label: 'YouTube', iconUrl: youtubeLogoUrl },
     { id: 'mal', label: 'MAL Forums', iconUrl: malLogoUrl },
+    { id: 'anilist', label: 'AniList', iconUrl: anilistLogoUrl },
   ];
   // Filter out the current provider from menu items (it's shown in the main logo position)
   return items.filter(item => item.id !== currentProvider.value);

@@ -14,7 +14,7 @@ import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal';
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist';
 
 interface Discussion {
   id: string;

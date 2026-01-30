@@ -140,6 +140,44 @@ export interface MalForumResult {
   nextPageUrl?: string | null;
 }
 
+// ==================== AniList Types ====================
+
+export interface AniListUser {
+  id?: number;
+  name?: string;
+  avatar?: string;
+}
+
+export interface AniListThread {
+  id: number | string;
+  title?: string;
+  replyCount?: number;
+  viewCount?: number;
+  createdAt?: number;
+  siteUrl?: string;
+  user?: AniListUser;
+}
+
+export interface AniListThreadComment {
+  id: number | string;
+  comment?: string;
+  createdAt?: number;
+  likeCount?: number;
+  user?: AniListUser;
+}
+
+export interface AniListForumResult {
+  status?: 'auth_required' | 'no_thread' | 'error' | 'ok';
+  threads?: AniListThread[];
+  selectedThread?: AniListThread;
+  comments?: AniListThreadComment[];
+  pageInfo?: {
+    currentPage?: number;
+    nextPage?: number | null;
+    hasNextPage?: boolean;
+  };
+}
+
 // ==================== Discussion Cache Types ====================
 
 export interface DiscussionCache {
@@ -162,11 +200,22 @@ export interface DiscussionCache {
     posts?: MalPost[];
     nextPageUrl?: string | null;
   };
+  anilist?: {
+    threads?: AniListThread[];
+    selectedThread?: AniListThread;
+    status?: string;
+    comments?: AniListThreadComment[];
+    pageInfo?: {
+      currentPage?: number;
+      nextPage?: number | null;
+      hasNextPage?: boolean;
+    };
+  };
 }
 
 // ==================== Provider Types ====================
 
-export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal';
+export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist';
 
 export interface ProviderContext {
   animeInfo: AnimeInfo | null;
