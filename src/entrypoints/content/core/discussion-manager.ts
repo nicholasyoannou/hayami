@@ -52,7 +52,7 @@ import { renderNoDiscussionPanel } from '../templates';
 import { removeCommentsSkeletonLoading } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
-import { commentsProviderItem } from '@/config/storage';
+import { commentsProviderItem, redditCommentScaleItem } from '@/config/storage';
 import { getContentScriptContext } from './content-script-context';
 import { getUiManager, type InlineDiscussionExposed } from './ui-manager';
 import { useDiscussionStore } from '@/store/discussion';
@@ -1279,6 +1279,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     normalizeRedditDiscussion(discussion);
     const currentState = state();
     const cache = currentState.discussionCache;
+    
+    // Load comment scale from storage
+    let commentScale = 1;
+    try {
+      commentScale = await redditCommentScaleItem.getValue();
+    } catch (error) {
+      console.warn('Failed to load comment scale, using default:', error);
+    }
+    
     // Cache the discussion data (not comments)
     cache.reddit = { ...discussion };
     
@@ -1425,6 +1434,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         providerContext: buildProviderContext(),
         redditCommentsKey: 0,
         initialLoading: true,
+        scale: commentScale,
       });
     } else {
       await manager.mount({
@@ -1437,6 +1447,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           providerContext: buildProviderContext(),
           redditCommentsKey: 0,
           initialLoading: true,
+          scale: commentScale,
         },
         styleId: 'hayami-inline-styles',
       });

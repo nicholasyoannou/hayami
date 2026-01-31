@@ -39,6 +39,7 @@ const props = defineProps<{
   initialLoading?: boolean;
   providerContext?: ProviderContext | null;
   redditCommentsKey?: number;
+  scale?: number;
 }>();
 
 const discussionStore = useDiscussionStore();
@@ -1013,13 +1014,14 @@ defineExpose({
           v-if="currentProvider === 'reddit' && !!discussionId"
           :key="`reddit-${discussionId}-${redditCommentsKey}`"
           :discussion-id="discussionId"
-          :link-fullname="postFullname"
+          :link-fullname="discussion.fullname || ''"
           :subreddit="discussion.subreddit"
           :is-archived="discussion.archived"
           :is-locked="discussion.locked"
           :initial-sort="commentSort"
           :search-query="searchQuery"
-          :empty-message="redditEmptyMessage"
+          :empty-message="emptyDiscussionMessage"
+          :scale="props.scale"
           ref="redditListRef"
           @comments-loaded="handleCommentsLoaded"
         />

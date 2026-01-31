@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData } from '@/utils/redditApi';
+import { redditCommentScaleItem } from '@/config/storage';
 
 const props = defineProps<{
   discussionId: string;
@@ -13,6 +14,7 @@ const props = defineProps<{
   initialSort?: 'best' | 'top' | 'new';
   searchQuery?: string;
   emptyMessage?: string;
+  scale?: number;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +28,29 @@ const error = ref<string | null>(null);
 const currentSort = ref(props.initialSort || 'best');
 const highlightIds = ref<Set<string>>(new Set());
 const rootMoreIds = ref<string[]>([]);
+
+// Scale functionality
+const commentScale = ref(1);
+
+// Load scale from storage
+onMounted(async () => {
+  try {
+    const storedScale = await redditCommentScaleItem.getValue();
+    if (storedScale) commentScale.value = storedScale;
+  } catch (error) {
+    console.warn('Failed to load comment scale:', error);
+  }
+});
+
+// Use prop scale if provided, otherwise use stored scale
+const effectiveScale = computed(() => props.scale ?? commentScale.value);
+
+// Scale styles
+const scaleStyles = computed(() => ({
+  transform: `scale(${effectiveScale.value})`,
+  transformOrigin: 'top left',
+  width: `${(1 / effectiveScale.value) * 100}%`
+}));
 
 // Pagination state
 const pageSize = 20;
@@ -270,7 +295,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="ri-comment-list">
+  <div class="ri-comment-list" :style="scaleStyles">
     <!-- Loading state -->
     <template v-if="isLoading">
       <div v-for="i in 6" :key="i" class="ri-skel">

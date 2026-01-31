@@ -14,6 +14,7 @@ import {
   imgchestApiKeyItem,
   imgurClientIdItem,
   noCommentsModeItem,
+  redditCommentScaleItem,
 } from '@/config/storage';
 import { getSentryFeedback, type SentryFeedbackClient } from '@/plugins/sentry';
 import backIcon from '@/assets/backIcon.svg';
@@ -35,6 +36,7 @@ const imgurClientId = ref<string>('');
 const imgchestApiKey = ref<string>('');
 const commentsProvider = ref<CommentProviderOption>('reddit');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
+const commentScale = ref<number>(1);
 const feedbackButton = ref<HTMLButtonElement | null>(null);
 const appInstance = getCurrentInstance()?.appContext.app;
 let feedbackForm: Awaited<ReturnType<NonNullable<SentryFeedbackClient>['createForm']>> | null = null;
@@ -46,6 +48,7 @@ onMounted(async () => {
   await loadNoCommentsMode();
   await loadImgurClientId();
   await loadImgchestApiKey();
+  await loadCommentScale();
 });
 
 async function loadDisplayMode() {
@@ -127,6 +130,15 @@ async function loadNoCommentsMode() {
   }
 }
 
+async function loadCommentScale() {
+  try {
+    const stored = await redditCommentScaleItem.getValue();
+    if (stored) commentScale.value = stored;
+  } catch (error) {
+    console.warn('Failed to load comment scale', error);
+  }
+}
+
 async function updateCommentsProvider(p: CommentProviderOption) {
   try {
     commentsProvider.value = p;
@@ -158,6 +170,13 @@ async function updateNoCommentsMode(mode: 'popup' | 'inline') {
   noCommentsMode.value = mode;
   await noCommentsModeItem.setValue(mode);
   successMessage.value = mode === 'popup' ? 'No comments mode set to Popup' : 'No comments mode set to Inline selection';
+  setTimeout(() => (successMessage.value = null), 1500);
+}
+
+async function updateCommentScale(scale: number) {
+  commentScale.value = scale;
+  await redditCommentScaleItem.setValue(scale);
+  successMessage.value = `Comment scale set to ${(scale * 100).toFixed(0)}%`;
   setTimeout(() => (successMessage.value = null), 1500);
 }
 
@@ -374,6 +393,25 @@ function handleAniListLogout() {
                   <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="commentsProvider" @change="(e) => updateCommentsProvider((e.target as HTMLSelectElement).value as CommentProviderOption)">
                     <option v-for="provider in commentProviderOptions" :key="provider.value" :value="provider.value" class="bg-[#1f2329]">{{ provider.label }}</option>
                   </select>
+                </div>
+
+                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                  <div>
+                    <p class="text-sm text-white/80">Comment scale</p>
+                    <p class="text-xs text-white/60">Size of embedded comment sections</p>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="0.9"
+                      max="1.3"
+                      step="0.05"
+                      :value="commentScale"
+                      @input="(e) => updateCommentScale(parseFloat((e.target as HTMLInputElement).value))"
+                      class="w-24"
+                    />
+                    <span class="text-sm font-semibold text-white/80 w-12">{{ (commentScale * 100).toFixed(0) }}%</span>
+                  </div>
                 </div>
 
                 <div class="space-y-2 rounded-2xl bg-white/5 px-4 py-3">

@@ -28,7 +28,7 @@ const progress = computed(() => {
   return ((currentStep.value + 1) / steps.length) * 100;
 });
 
-const isPreviewStep = computed(() => currentStep.value === 4);
+const isPreviewStep = computed(() => currentStep.value === 3);
 
 const platforms = [
   { id: 'reddit', name: 'Reddit', icon: getRuntimeUrl('assets/topCommentMenu/reddit.svg') },
@@ -53,15 +53,44 @@ onMounted(async () => {
 });
 
 watch(currentStep, (step) => {
-  if (step === 4) {
+  if (step === 3) {
     requestAnimationFrame(() => {
       window.scrollTo({ top: 0, behavior: 'auto' });
     });
   }
 });
 
+// Save comment scale when it changes
+watch(previewScale, (newScale) => {
+  saveCommentScale();
+});
+
+onMounted(async () => {
+  try {
+    const [storedImgur, storedImagechest, storedScale] = await Promise.all([
+      imgurClientIdItem.getValue(),
+      imgchestApiKeyItem.getValue(),
+      redditCommentScaleItem.getValue(),
+    ]);
+    if (storedImgur) imgurApiKey.value = storedImgur;
+    if (storedImagechest) imagechestApiKey.value = storedImagechest;
+    if (storedScale) previewScale.value = storedScale;
+  } catch (e) {
+    console.warn('Failed to load settings', e);
+  }
+});
+
 function handleAccountsUpdated(accounts: { reddit: boolean; youtube: boolean; mal: boolean; anilist: boolean }) {
   redditSelected.value = accounts.reddit;
+}
+
+// Save comment scale when changed
+async function saveCommentScale() {
+  try {
+    await redditCommentScaleItem.setValue(previewScale.value);
+  } catch (error) {
+    console.error('Failed to save comment scale:', error);
+  }
 }
 
 const steps = [
@@ -203,7 +232,7 @@ async function persistMediaKeys() {
           @accounts-updated="handleAccountsUpdated"
         />
         
-        <div v-if="currentStep === 4" class="reddit-full-preview">
+        <div v-if="currentStep === 3" class="reddit-full-preview">
           <div class="preview-header full">
             <div>
               <div class="preview-title">Reddit comments are mounted</div>
@@ -245,7 +274,7 @@ async function persistMediaKeys() {
           </div>
         </div>
 
-        <div v-if="currentStep === 5" class="keys-step">
+        <div v-if="currentStep === 4" class="keys-step">
           <div class="preview-header">
             <div>
               <div class="preview-title">Image hosting API keys</div>
