@@ -1,26 +1,6 @@
 <script lang="ts" setup>
 import { getCurrentInstance, onMounted, ref } from 'vue';
-import {
-  authenticateWithReddit,
-  isAuthenticated,
-  getStoredUsername,
-  getStoredProfilePic,
-  logout,
-} from '@/utils/redditAuth';
-import {
-  authenticateWithYouTube,
-  isYouTubeAuthenticated,
-  getStoredYouTubeUsername,
-  getStoredYouTubeProfilePic,
-  logoutYouTube,
-} from '@/utils/youtubeAuth';
-import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malAuth';
-import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilistAuth';
-import backIcon from '@/assets/backIcon.svg';
-import feedbackIcon from '@/assets/feedbackIcon.svg';
-import settingsIcon from '@/assets/settingsIcon.svg';
-import accountIcon from '@/assets/accountIcon.svg';
-import accountsIcon from '@/assets/accountsIcon.svg';
+import { useAccountManagement } from '@/composables/useAccountManagement';
 import {
   commentProviderOptions,
   displayModeOptions,
@@ -36,18 +16,17 @@ import {
   noCommentsModeItem,
 } from '@/config/storage';
 import { getSentryFeedback, type SentryFeedbackClient } from '@/plugins/sentry';
+import backIcon from '@/assets/backIcon.svg';
+import feedbackIcon from '@/assets/feedbackIcon.svg';
+import settingsIcon from '@/assets/settingsIcon.svg';
+import accountIcon from '@/assets/accountIcon.svg';
+import accountsIcon from '@/assets/accountsIcon.svg';
 
-const isLoggedIn = ref(false);
-const username = ref<string | null>(null);
-const profilePic = ref<string | null>(null);
-const isYouTubeLoggedIn = ref(false);
-const youtubeUsername = ref<string | null>(null);
-const youtubeProfilePic = ref<string | null>(null);
-const isLoading = ref(false);
+// Use shared account management
+const { accounts, refreshAllAccounts, getAccount, getAccountActions, anyAccountLoading } = useAccountManagement();
+
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
-const isMALLoggedIn = ref(false);
-const isAniListLoggedIn = ref(false);
 
 const currentView = ref<'home' | 'manage' | 'settings'>('home');
 const displayMode = ref<DisplayModeOption>('popup');
@@ -61,45 +40,13 @@ const appInstance = getCurrentInstance()?.appContext.app;
 let feedbackForm: Awaited<ReturnType<NonNullable<SentryFeedbackClient>['createForm']>> | null = null;
 
 onMounted(async () => {
-  await checkAuthStatus();
-  await checkYouTubeAuthStatus();
+  await refreshAllAccounts();
   await loadDisplayMode();
   await loadCommentsProvider();
   await loadNoCommentsMode();
   await loadImgurClientId();
   await loadImgchestApiKey();
-  await checkMALAuthStatus();
-  await checkAniListAuthStatus();
 });
-
-async function checkAuthStatus() {
-  isLoading.value = true;
-  try {
-    const authenticated = await isAuthenticated();
-    isLoggedIn.value = authenticated;
-    if (authenticated) {
-      username.value = await getStoredUsername();
-      profilePic.value = await getStoredProfilePic();
-    }
-  } catch (error) {
-    console.error('Error checking auth status:', error);
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-async function checkYouTubeAuthStatus() {
-  try {
-    const authenticated = await isYouTubeAuthenticated();
-    isYouTubeLoggedIn.value = authenticated;
-    if (authenticated) {
-      youtubeUsername.value = await getStoredYouTubeUsername();
-      youtubeProfilePic.value = await getStoredYouTubeProfilePic();
-    }
-  } catch (error) {
-    console.error('Error checking YouTube auth status:', error);
-  }
-}
 
 async function loadDisplayMode() {
   try {
@@ -119,7 +66,7 @@ async function loadImgurClientId() {
     const stored = await imgurClientIdItem.getValue();
     imgurClientId.value = stored || '';
   } catch (error) {
-    console.warn('Failed to load Imgur client ID', error);
+    console.warn('Failed to load Imgur Client ID', error);
   }
 }
 
@@ -197,7 +144,7 @@ async function updateDisplayMode(mode: DisplayModeOption) {
   displayMode.value = mode;
   await displayModeItem.setValue(mode);
   successMessage.value = 'Default display mode saved';
-  setTimeout(() => (successMessage.value = null), 2000);
+  setTimeout(() => (successMessage.value = null), 1500);
 }
 
 async function updateEmbedImages(enabled: boolean) {
@@ -240,181 +187,62 @@ async function openFeedbackForm() {
   }
 }
 
-async function handleLogin() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    const result = await authenticateWithReddit();
-    if (result.success) {
-      isLoggedIn.value = true;
-      username.value = result.username || null;
-      profilePic.value = await getStoredProfilePic();
-      successMessage.value = `Successfully logged in as u/${result.username}!`;
-    } else {
-      errorMessage.value = result.error || 'Authentication failed';
-    }
-  } catch (error) {
-    console.error('Login error:', error);
-    errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred';
-  } finally {
-    isLoading.value = false;
-  }
+// Helper functions to get account data from composable
+function getRedditAccount() {
+  return getAccount('reddit');
 }
 
-async function handleLogout() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    await logout();
-    isLoggedIn.value = false;
-    username.value = null;
-    profilePic.value = null;
-    successMessage.value = 'Successfully logged out';
-  } catch (error) {
-    console.error('Logout error:', error);
-    errorMessage.value = 'Failed to logout';
-  } finally {
-    isLoading.value = false;
-  }
+function getYouTubeAccount() {
+  return getAccount('youtube');
 }
 
-async function handleYouTubeLogin() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    const result = await authenticateWithYouTube();
-    if (result.success) {
-      isYouTubeLoggedIn.value = true;
-      youtubeUsername.value = result.username || null;
-      youtubeProfilePic.value = await getStoredYouTubeProfilePic();
-      successMessage.value = `Successfully logged in to YouTube as ${result.username}!`;
-    } else {
-      errorMessage.value = result.error || 'Authentication failed';
-    }
-  } catch (error) {
-    console.error('YouTube login error:', error);
-    errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred';
-  } finally {
-    isLoading.value = false;
-  }
+function getMALAccount() {
+  return getAccount('mal');
 }
 
-async function handleYouTubeLogout() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    await logoutYouTube();
-    // Clear local state after logout
-    isYouTubeLoggedIn.value = false;
-    youtubeUsername.value = null;
-    youtubeProfilePic.value = null;
-    // Refresh to ensure background state is cleared too
-    await checkYouTubeAuthStatus();
-    successMessage.value = 'Successfully logged out from YouTube';
-  } catch (error) {
-    console.error('YouTube logout error:', error);
-    errorMessage.value = 'Failed to logout from YouTube';
-    // Still clear local state even if logout fails
-    isYouTubeLoggedIn.value = false;
-    youtubeUsername.value = null;
-    youtubeProfilePic.value = null;
-  } finally {
-    isLoading.value = false;
-  }
+function getAniListAccount() {
+  return getAccount('anilist');
 }
 
-async function checkMALAuthStatus() {
-  try {
-    isMALLoggedIn.value = await isMALAuthenticated();
-  } catch (error) {
-    console.error('Error checking MAL auth status:', error);
-  }
+// Account action handlers
+function handleLogin() {
+  const actions = getAccountActions('reddit');
+  return actions.connect();
 }
 
-async function handleMALLogin() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    const result = await authenticateWithMAL();
-    if (result.success) {
-      isMALLoggedIn.value = true;
-      successMessage.value = 'Successfully connected to MyAnimeList';
-    } else {
-      errorMessage.value = result.error || 'Authentication failed';
-    }
-  } catch (error) {
-    console.error('MAL login error:', error);
-    errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred';
-  } finally {
-    isLoading.value = false;
-  }
+function handleLogout() {
+  const actions = getAccountActions('reddit');
+  return actions.disconnect();
 }
 
-async function handleMALLogout() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    await logoutMAL();
-    isMALLoggedIn.value = false;
-    successMessage.value = 'Disconnected from MyAnimeList';
-  } catch (error) {
-    console.error('MAL logout error:', error);
-    errorMessage.value = 'Failed to logout from MyAnimeList';
-  } finally {
-    isLoading.value = false;
-  }
+function handleYouTubeLogin() {
+  const actions = getAccountActions('youtube');
+  return actions.connect();
 }
 
-async function checkAniListAuthStatus() {
-  try {
-    isAniListLoggedIn.value = await isAniListAuthenticated();
-  } catch (error) {
-    console.error('Error checking AniList auth status:', error);
-  }
+function handleYouTubeLogout() {
+  const actions = getAccountActions('youtube');
+  return actions.disconnect();
 }
 
-async function handleAniListLogin() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    const result = await authenticateWithAniList();
-    if (result.success) {
-      successMessage.value = result.message || 'AniList login opened in a new tab. Complete it to finish connecting.';
-      setTimeout(() => {
-        checkAniListAuthStatus();
-      }, 2000);
-    } else {
-      errorMessage.value = result.error || 'Authentication failed';
-    }
-  } catch (error) {
-    console.error('AniList login error:', error);
-    errorMessage.value = error instanceof Error ? error.message : 'Unknown error occurred';
-  } finally {
-    isLoading.value = false;
-  }
+function handleMALLogin() {
+  const actions = getAccountActions('mal');
+  return actions.connect();
 }
 
-async function handleAniListLogout() {
-  isLoading.value = true;
-  errorMessage.value = null;
-  successMessage.value = null;
-  try {
-    await logoutAniList();
-    isAniListLoggedIn.value = false;
-    successMessage.value = 'Disconnected from AniList';
-  } catch (error) {
-    console.error('AniList logout error:', error);
-    errorMessage.value = 'Failed to logout from AniList';
-  } finally {
-    isLoading.value = false;
-  }
+function handleMALLogout() {
+  const actions = getAccountActions('mal');
+  return actions.disconnect();
+}
+
+function handleAniListLogin() {
+  const actions = getAccountActions('anilist');
+  return actions.connect();
+}
+
+function handleAniListLogout() {
+  const actions = getAccountActions('anilist');
+  return actions.disconnect();
 }
 </script>
 <template>
@@ -448,7 +276,7 @@ async function handleAniListLogout() {
         <button class="text-xs font-semibold text-emerald-100" @click="successMessage = null">Dismiss</button>
       </div>
 
-      <div v-if="isLoading" class="flex flex-col items-center justify-center gap-3 rounded-3xl bg-[#262b33] px-6 py-10 shadow-inner">
+      <div v-if="anyAccountLoading" class="flex flex-col items-center justify-center gap-3 rounded-3xl bg-[#262b33] px-6 py-10 shadow-inner">
         <div class="h-12 w-12 animate-spin rounded-full border-4 border-white/10 border-t-white"></div>
         <p class="text-sm text-white/80">Loading your session...</p>
       </div>
@@ -464,19 +292,19 @@ async function handleAniListLogout() {
               <div class="space-y-3 text-base text-white/90">
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ isLoggedIn ? `u/${username || 'your reddit'}` : 'Not connected' }}</div>
+                  <div class="truncate">{{ getRedditAccount()?.isConnected ? `u/${getRedditAccount()?.username || 'your reddit'}` : 'Not connected' }}</div>
                 </div>
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ isYouTubeLoggedIn ? `Google ${youtubeUsername || 'YouTube user'}` : 'Not linked' }}</div>
+                  <div class="truncate">{{ getYouTubeAccount()?.isConnected ? `Google ${getYouTubeAccount()?.username || 'YouTube user'}` : 'Not linked' }}</div>
                 </div>
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ isMALLoggedIn ? 'MyAnimeList connected' : 'Not connected' }}</div>
+                  <div class="truncate">{{ getMALAccount()?.isConnected ? 'MyAnimeList connected' : 'Not connected' }}</div>
                 </div>
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/anilistIcon.svg" alt="AniList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ isAniListLoggedIn ? 'AniList connected' : 'Not connected' }}</div>
+                  <div class="truncate">{{ getAniListAccount()?.isConnected ? 'AniList connected' : 'Not connected' }}</div>
                 </div>
               </div>
               <div class="mt-6 space-y-2">
@@ -582,11 +410,11 @@ async function handleAniListLogout() {
                     <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
                     <div>
                       <p class="text-sm text-white/70">Reddit</p>
-                      <p class="text-base font-semibold">{{ isLoggedIn ? `u/${username || 'connected'}` : 'Not connected' }}</p>
+                      <p class="text-base font-semibold">{{ getRedditAccount()?.isConnected ? `u/${getRedditAccount()?.username || 'connected'}` : 'Not connected' }}</p>
                     </div>
                   </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isLoggedIn ? handleLogout() : handleLogin()">
-                    {{ isLoggedIn ? 'Logout' : 'Login' }}
+                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="anyAccountLoading" @click="getRedditAccount()?.isConnected ? handleLogout() : handleLogin()">
+                    {{ getRedditAccount()?.isConnected ? 'Logout' : 'Login' }}
                   </button>
                 </div>
 
@@ -595,11 +423,11 @@ async function handleAniListLogout() {
                     <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
                     <div>
                       <p class="text-sm text-white/70">YouTube</p>
-                      <p class="text-base font-semibold">{{ isYouTubeLoggedIn ? (youtubeUsername || 'Connected') : 'Not linked' }}</p>
+                      <p class="text-base font-semibold">{{ getYouTubeAccount()?.isConnected ? (getYouTubeAccount()?.username || 'Connected') : 'Not linked' }}</p>
                     </div>
                   </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isYouTubeLoggedIn ? handleYouTubeLogout() : handleYouTubeLogin()">
-                    {{ isYouTubeLoggedIn ? 'Logout' : 'Connect' }}
+                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="anyAccountLoading" @click="getYouTubeAccount()?.isConnected ? handleYouTubeLogout() : handleYouTubeLogin()">
+                    {{ getYouTubeAccount()?.isConnected ? 'Logout' : 'Connect' }}
                   </button>
                 </div>
 
@@ -608,11 +436,11 @@ async function handleAniListLogout() {
                     <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
                     <div>
                       <p class="text-sm text-white/70">MyAnimeList</p>
-                      <p class="text-base font-semibold">{{ isMALLoggedIn ? 'Connected' : 'Not linked' }}</p>
+                      <p class="text-base font-semibold">{{ getMALAccount()?.isConnected ? 'Connected' : 'Not linked' }}</p>
                     </div>
                   </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isMALLoggedIn ? handleMALLogout() : handleMALLogin()">
-                    {{ isMALLoggedIn ? 'Logout' : 'Connect' }}
+                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="anyAccountLoading" @click="getMALAccount()?.isConnected ? handleMALLogout() : handleMALLogin()">
+                    {{ getMALAccount()?.isConnected ? 'Logout' : 'Connect' }}
                   </button>
                 </div>
 
@@ -621,11 +449,11 @@ async function handleAniListLogout() {
                     <img src="/assets/topCommentMenu/anilistIcon.svg" alt="AniList" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
                     <div>
                       <p class="text-sm text-white/70">AniList</p>
-                      <p class="text-base font-semibold">{{ isAniListLoggedIn ? 'Connected' : 'Not linked' }}</p>
+                      <p class="text-base font-semibold">{{ getAniListAccount()?.isConnected ? 'Connected' : 'Not linked' }}</p>
                     </div>
                   </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="isLoading" @click="isAniListLoggedIn ? handleAniListLogout() : handleAniListLogin()">
-                    {{ isAniListLoggedIn ? 'Logout' : 'Connect' }}
+                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="anyAccountLoading" @click="getAniListAccount()?.isConnected ? handleAniListLogout() : handleAniListLogin()">
+                    {{ getAniListAccount()?.isConnected ? 'Logout' : 'Connect' }}
                   </button>
                 </div>
               </div>

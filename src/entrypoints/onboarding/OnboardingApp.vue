@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { browser } from 'wxt/browser';
 import { RedditCommentList } from '@/components/comments';
 import { getRuntimeUrl } from '@/utils/runtime';
+import AccountManagement from '@/components/AccountManagement.vue';
 import {
   imgchestApiKeyItem,
   imgurClientIdItem,
@@ -36,12 +37,9 @@ const platforms = [
   { id: 'mal', name: 'MAL Forums', icon: getRuntimeUrl('assets/topCommentMenu/malLogo.svg') }
 ];
 
-const connectedPlatforms = ref<Set<string>>(new Set());
-const isConnecting = ref<string | null>(null);
-const redditSelected = computed(() => connectedPlatforms.value.has('reddit'));
+const redditSelected = ref(false);
 
 onMounted(async () => {
-  await checkPlatformStatus();
   try {
     const [storedImgur, storedImagechest] = await Promise.all([
       imgurClientIdItem.getValue(),
@@ -62,59 +60,8 @@ watch(currentStep, (step) => {
   }
 });
 
-async function checkPlatformStatus() {
-  try {
-    const [redditResult, youtubeResult, malResult] = await Promise.all([
-      browser.runtime.sendMessage({ action: 'hayami_checkAuth' }),
-      browser.runtime.sendMessage({ action: 'hayami_checkYouTubeAuth' }),
-      browser.runtime.sendMessage({ action: 'hayami_checkMALAuth' })
-    ]);
-    
-    connectedPlatforms.value = new Set();
-    if (redditResult?.authenticated) connectedPlatforms.value.add('reddit');
-    if (youtubeResult?.authenticated) connectedPlatforms.value.add('youtube');
-    // Disqus doesn't require authentication, so we can consider it always available
-    if (malResult?.authenticated) connectedPlatforms.value.add('mal');
-  } catch (error) {
-    console.error('Error checking platform status:', error);
-  }
-}
-
-async function handlePlatformClick(platformId: string) {
-  if (isConnecting.value) return;
-  
-  if (connectedPlatforms.value.has(platformId)) {
-    // Already connected - could show disconnect option or just skip
-    return;
-  }
-  
-  isConnecting.value = platformId;
-  
-  try {
-    if (platformId === 'reddit') {
-      const result = await browser.runtime.sendMessage({ action: 'hayami_authenticate' });
-      if (result?.success) {
-        connectedPlatforms.value.add('reddit');
-      }
-    } else if (platformId === 'youtube') {
-      const result = await browser.runtime.sendMessage({ action: 'hayami_authenticateYouTube' });
-      if (result?.success) {
-        connectedPlatforms.value.add('youtube');
-      }
-    } else if (platformId === 'disqus') {
-      // Disqus doesn't require authentication
-      connectedPlatforms.value.add('disqus');
-    } else if (platformId === 'mal') {
-      const result = await browser.runtime.sendMessage({ action: 'hayami_authenticateMAL' });
-      if (result?.success) {
-        connectedPlatforms.value.add('mal');
-      }
-    }
-  } catch (error) {
-    console.error(`Error connecting ${platformId}:`, error);
-  } finally {
-    isConnecting.value = null;
-  }
+function handleAccountsUpdated(accounts: { reddit: boolean; youtube: boolean; mal: boolean; anilist: boolean }) {
+  redditSelected.value = accounts.reddit;
 }
 
 const steps = [
@@ -251,23 +198,10 @@ async function persistMediaKeys() {
           <div class="marquee-fade-right"></div>
         </div>
         
-        <div v-if="currentStep === 2" class="platforms-grid">
-          <button
-            v-for="platform in platforms"
-            :key="platform.id"
-            class="platform-btn"
-            :class="{ 
-              connected: connectedPlatforms.has(platform.id),
-              connecting: isConnecting === platform.id
-            }"
-            @click="handlePlatformClick(platform.id)"
-            :disabled="isConnecting !== null"
-          >
-            <img :src="platform.icon" :alt="platform.name" class="platform-icon" />
-            <span class="platform-name">{{ platform.name }}</span>
-            <span v-if="connectedPlatforms.has(platform.id)" class="platform-check">✓</span>
-          </button>
-        </div>
+        <AccountManagement 
+          v-if="currentStep === 2" 
+          @accounts-updated="handleAccountsUpdated"
+        />
         
         <div v-if="currentStep === 4" class="reddit-full-preview">
           <div class="preview-header full">
@@ -627,96 +561,6 @@ async function persistMediaKeys() {
 
 .marquee-logo:hover {
   opacity: 1;
-}
-
-.platforms-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, auto));
-  gap: 10px;
-  margin: 0 0 32px 0;
-  max-height: 300px;
-  overflow-y: auto;
-  padding-right: 4px;
-}
-
-.platforms-grid::-webkit-scrollbar {
-  width: 6px;
-}
-
-.platforms-grid::-webkit-scrollbar-track {
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 3px;
-}
-
-.platforms-grid::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-}
-
-.platforms-grid::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.platform-btn {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px solid transparent;
-  border-radius: 20px;
-  background: rgba(40, 40, 50, 0.8);
-  color: white;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
-}
-
-.platform-btn:hover:not(:disabled) {
-  background: rgba(40, 40, 50, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-}
-
-.platform-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.platform-btn.connected {
-  background: rgba(40, 40, 50, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  color: white;
-}
-
-.platform-btn.connected:hover:not(:disabled) {
-  background: rgba(40, 40, 50, 1);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-}
-
-.platform-btn.connecting {
-  opacity: 0.7;
-  cursor: wait;
-}
-
-.platform-icon {
-  width: 24px;
-  height: 24px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
-
-.platform-name {
-  flex: 1;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.platform-check {
-  font-size: 16px;
-  font-weight: 600;
-  margin-left: 4px;
 }
 
 .modal-actions {
