@@ -4,6 +4,7 @@ import { browser } from 'wxt/browser';
 import { RedditCommentList } from '@/components/comments';
 import { getRuntimeUrl } from '@/utils/runtime';
 import AccountManagement from '@/components/AccountManagement.vue';
+import ApiKeyInput from '@/components/ApiKeyInput.vue';
 import {
   imgchestApiKeyItem,
   imgurClientIdItem,
@@ -96,33 +97,38 @@ async function saveCommentScale() {
 const steps = [
   {
     title: '🎉 Welcome to Hayami!',
-    content: "Hayami is a Chrome extension that brings episode discussions to you, straight underneath anime episodes or on the streaming platform your on. You can customize your experience to your liking, choosing what platforms you want to see discussions from, and how you want to display them. This onboarding will let you customize your experience to your liking.",
+    content: "Hayami brings episode discussions to you on the streaming platform your on. This onboarding allows you to set up Hayami to your liking.",
     icon: ''
   },
   {
     title: 'How Hayami works',
-    content: 'It works by using your social accounts to display comments from internet-wide episode discussions beneath the video player, via your connected accounts. You can choose what platforms you want to see discussions from, and how you want to display them. All your accounts are connected locally, so no data is sent to Hayami. The only thing Hayami\'s backends are mainly used for is to map the episode itself to the discussions.',
+    content: 'It works by using your social accounts to display comments from internet-wide episode discussions beneath the video player (or however you choose to display it). All your accounts are connected locally - Hayami\'s backends map the episode itself to the discussions themselves.',
     icon: ''
   },
   {
     title: '🔐 Connect your accounts',
-    content: 'What platforms do you want to connect? Select the ones you want to use - the first one you select will be the default shown.',
+    content: 'Connect the accounts for platforms you intend to view comments from.',
     icon: ''
   },
   {
-    title: '⚙️ Adjust Display Settings',
-    content: 'See how a Reddit thread will look beneath your player. Adjust text size and preview live.',
+    title: 'Adjust Display Settings',
+    content: 'Adjust the text size scaling if you prefer enlarged text. This is experimental, however, but settings can be changed at any time through Hayami settings.',
     icon: ''
   },
   {
-    title: '🔑 Image previews',
+    title: 'Image previews',
     content: 'Add Imgur and ImageChest API keys so image previews can work smoothly. You can skip if you do not use image previews.',
     icon: ''
   },
   {
-    title: 'Start Watching!',
-    content: 'Visit any Crunchyroll episode and the extension will automatically find and display discussion threads from r/anime.',
-    icon: '✨'
+    title: 'Regarding custom sites',
+    content: 'If you wish to add custom sites, right click, and click \'Configure site with Hayami\'. You can choose how you want the comments section mounted. Ensure you choose the anime name and episode number through this screen (ensuring that the episode number will be consistent). Upon doing so, the comments section should mount. If it doesn\'t, try refreshing.',
+    icon: ''
+  },
+  {
+    title: 'And last of all, feedback.',
+    content: 'If you want to leave feedback, you can do so through the extension popup, using the feedback icon at the very top. Don\'t hesitate to drop feedback by, as it helps continue improve Hayami. Thanks for using the extension!',
+    icon: ''
   }
 ];
 
@@ -190,7 +196,7 @@ async function persistMediaKeys() {
       <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
     
-    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep < 4, 'wide-step': currentStep === 4 }" v-if="!isComplete">
+    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep < 4, 'wide-step': currentStep === 3 }" v-if="!isComplete">
       <div class="modal-content">
         <div v-if="steps[currentStep].icon" class="step-icon">{{ steps[currentStep].icon }}</div>
         <h1 class="step-title">{{ steps[currentStep].title }}</h1>
@@ -233,13 +239,6 @@ async function persistMediaKeys() {
         />
         
         <div v-if="currentStep === 3" class="reddit-full-preview">
-          <div class="preview-header full">
-            <div>
-              <div class="preview-title">Reddit comments are mounted</div>
-              <div class="preview-subtitle">Live UI (no iframe): {{ redditPreviewUrl }}</div>
-            </div>
-            <span class="badge" :class="{ active: redditSelected }">{{ redditSelected ? 'Connected' : 'Connect Reddit to preview live' }}</span>
-          </div>
 
           <div class="slider-row inline">
             <label for="fontScale">Comment scale</label>
@@ -260,8 +259,7 @@ async function persistMediaKeys() {
               class="comment-section"
               :style="{
                 transform: `scale(${previewScale})`,
-                transformOrigin: 'top left',
-                width: `${(1 / previewScale) * 100}%`
+                transformOrigin: 'top left'
               }"
             >
               <RedditCommentList
@@ -283,25 +281,18 @@ async function persistMediaKeys() {
           </div>
 
           <div class="form-grid">
-            <label class="field">
-              <span class="field-label">Imgur Client ID</span>
-              <input
-                type="text"
-                v-model.trim="imgurApiKey"
-                placeholder="e.g. 123abc..."
-              />
-              <span class="field-hint">Find this in your Imgur app settings.</span>
-            </label>
-
-            <label class="field">
-              <span class="field-label">ImageChest API Key</span>
-              <input
-                type="text"
-                v-model.trim="imagechestApiKey"
-                placeholder="e.g. ich_xxx..."
-              />
-              <span class="field-hint">Available from your ImageChest account page.</span>
-            </label>
+            <ApiKeyInput
+              v-model="imgurApiKey"
+              label="Imgur Client ID"
+              placeholder="e.g. 123abc..."
+              type="text"
+            />
+            <ApiKeyInput
+              v-model="imagechestApiKey"
+              label="ImageChest API Key"
+              placeholder="e.g. ich_xxx..."
+              type="text"
+            />
           </div>
         </div>
         
@@ -318,7 +309,7 @@ async function persistMediaKeys() {
     
     <div class="onboarding-modal" v-else>
       <div class="modal-content">
-        <div class="step-icon">✅</div>
+        <div class="step-icon"></div>
         <h1 class="step-title">All Set!</h1>
         <p class="step-content">Opening settings to get you started...</p>
       </div>
@@ -742,10 +733,11 @@ async function persistMediaKeys() {
 
 .comment-section-wrapper {
   width: 100%;
+  height: 500px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: #0f1113;
-  overflow: visible;
+  overflow: auto;
   position: relative;
 }
 
@@ -754,6 +746,7 @@ async function persistMediaKeys() {
   min-height: 720px;
   padding: 18px;
   box-sizing: border-box;
+  transform-origin: top left;
 }
 
 .preview-grid {

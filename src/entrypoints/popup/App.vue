@@ -22,6 +22,7 @@ import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
 import accountIcon from '@/assets/accountIcon.svg';
 import accountsIcon from '@/assets/accountsIcon.svg';
+import ApiKeyInput from '@/components/ApiKeyInput.vue';
 
 // Use shared account management
 const { accounts, refreshAllAccounts, getAccount, getAccountActions, anyAccountLoading } = useAccountManagement();
@@ -268,7 +269,7 @@ function handleAniListLogout() {
   <div class="flex min-w-[420px] max-w-[600px] w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
       <header class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <img src="/icon/128.png" alt="Hayami" class="h-12 w-12 rounded-xl bg-white/5 p-1 shadow" />
+          <img src="/icon-128.png" alt="Hayami" class="h-12 w-12 rounded-xl bg-white/5 p-1 shadow" />
           <div class="text-lg font-semibold">Hayami</div>
         </div>
         <div class="flex items-center gap-3">
@@ -414,21 +415,23 @@ function handleAniListLogout() {
                   </div>
                 </div>
 
-                <div class="space-y-2 rounded-2xl bg-white/5 px-4 py-3">
-                  <label class="text-sm text-white/80">Imgur Client ID</label>
-                  <div class="flex gap-2">
-                    <input type="password" v-model="imgurClientId" autocomplete="off" spellcheck="false" class="flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30" placeholder="Enter Imgur Client ID" />
-                    <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" @click="saveImgurClientId">Save</button>
-                  </div>
-                </div>
+                <ApiKeyInput
+                  v-model="imgurClientId"
+                  label="Imgur Client ID"
+                  placeholder="Enter Imgur Client ID"
+                  :error="errorMessage?.includes('Imgur') ? errorMessage : undefined"
+                  :success="successMessage?.includes('Imgur') ? successMessage : undefined"
+                  @save="saveImgurClientId"
+                />
 
-                <div class="space-y-2 rounded-2xl bg-white/5 px-4 py-3">
-                  <label class="text-sm text-white/80">ImgChest API key</label>
-                  <div class="flex gap-2">
-                    <input type="password" v-model="imgchestApiKey" autocomplete="off" spellcheck="false" class="flex-1 rounded-lg bg-white/5 px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30" placeholder="Enter ImgChest API key" />
-                    <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" @click="saveImgchestApiKey">Save</button>
-                  </div>
-                </div>
+                <ApiKeyInput
+                  v-model="imgchestApiKey"
+                  label="ImgChest API key"
+                  placeholder="Enter ImgChest API key"
+                  :error="errorMessage?.includes('ImgChest') ? errorMessage : undefined"
+                  :success="successMessage?.includes('ImgChest') ? successMessage : undefined"
+                  @save="saveImgchestApiKey"
+                />
               </div>
             </div>
 
