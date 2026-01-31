@@ -492,9 +492,10 @@ const isReady = computed(() => !!editor.value);
 .editor-container {
   display: flex;
   flex-direction: column;
-  background: #0d1117;
+  background: #0F0F0F;
   border-radius: 12px;
   overflow: hidden;
+  border: 1px solid #FFFFFF33;
 }
 
 .toolbar {
@@ -502,7 +503,7 @@ const isReady = computed(() => !!editor.value);
   align-items: center;
   gap: 2px;
   padding: 6px 12px;
-  background: #0d1117;
+  background: #0F0F0F;
 }
 
 .icon-btn {
@@ -612,7 +613,7 @@ const isReady = computed(() => !!editor.value);
 .editor-area {
   min-height: 140px;
   padding: 12px 16px;
-  background: #0d1117;
+  background: #0F0F0F;
   color: #c9d1d9;
 }
 
@@ -672,8 +673,8 @@ const isReady = computed(() => !!editor.value);
   justify-content: flex-end;
   gap: 12px;
   padding: 12px 16px;
-  background: #0d1117;
-  border-top: 1px solid #30363d;
+  background: #0F0F0F;
+  /* border-top: 1px solid #30363d; */
 }
 
 .action-btn {
