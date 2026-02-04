@@ -1,8 +1,12 @@
 <script lang="ts" setup>
+import { onMounted, ref } from 'vue';
+import { commentProviderOptions, type CommentProviderOption } from '@/config/options';
+import { commentsProviderItem } from '@/config/storage';
 import { useAccountManagement } from '@/composables/useAccountManagement';
-import accountsIcon from '@/assets/accountsIcon.svg';
 
 const { accounts, getAccountActions } = useAccountManagement();
+
+const defaultProvider = ref<CommentProviderOption>('reddit');
 
 const emit = defineEmits<{
   accountsUpdated: [accounts: ConnectedAccounts];
@@ -13,6 +17,7 @@ interface ConnectedAccounts {
   youtube: boolean;
   mal: boolean;
   anilist: boolean;
+  disqus: boolean;
 }
 
 // Helper function to emit account updates
@@ -22,6 +27,7 @@ function emitAccountsUpdated() {
     youtube: accounts.value.find(acc => acc.id === 'youtube')?.isConnected || false,
     mal: accounts.value.find(acc => acc.id === 'mal')?.isConnected || false,
     anilist: accounts.value.find(acc => acc.id === 'anilist')?.isConnected || false,
+    disqus: accounts.value.find(acc => acc.id === 'disqus')?.isConnected || true,
   };
   emit('accountsUpdated', connectedAccounts);
 }
@@ -31,7 +37,9 @@ function handleAccountAction(accountId: string) {
   const actions = getAccountActions(accountId);
   const account = accounts.value.find(acc => acc.id === accountId);
   
-  if (account?.isConnected) {
+  if (!account?.requiresAuth) return;
+
+  if (account.isConnected) {
     actions.disconnect().then(() => {
       emitAccountsUpdated();
     });
@@ -41,6 +49,22 @@ function handleAccountAction(accountId: string) {
     });
   }
 }
+
+const isProviderOption = (providerId: string): providerId is CommentProviderOption =>
+  commentProviderOptions.some((option) => option.value === providerId);
+
+async function setDefault(providerId: string) {
+  if (!isProviderOption(providerId)) return;
+  defaultProvider.value = providerId;
+  await commentsProviderItem.setValue(providerId);
+}
+
+onMounted(async () => {
+  const stored = await commentsProviderItem.getValue();
+  if (isProviderOption(stored)) {
+    defaultProvider.value = stored;
+  }
+});
 </script>
 
 <template>
@@ -50,22 +74,38 @@ function handleAccountAction(accountId: string) {
         <div class="account-item-left">
           <img :src="account.icon" :alt="account.name" class="account-icon" />
           <div class="account-info">
-            <p class="account-provider">{{ account.name }}</p>
+            <div class="account-title-row">
+              <p class="account-provider">{{ account.name }}</p>
+              <span v-if="defaultProvider === account.id" class="default-pill">Default</span>
+            </div>
             <p class="account-status">
-              {{ account.isConnected ? 
-                (account.username ? `${account.username}` : 'Connected') : 
-                'Not connected' 
-              }}
+              {{ account.requiresAuth
+                ? (account.isConnected
+                    ? (account.username ? `${account.username}` : 'Connected')
+                    : 'Not connected')
+                : 'No login required' }}
             </p>
           </div>
         </div>
-        <button 
-          class="account-btn" 
-          :disabled="account.isLoading" 
-          @click="handleAccountAction(account.id)"
-        >
-          {{ account.isConnected ? 'Logout' : 'Connect' }}
-        </button>
+        <div class="account-actions">
+          <button 
+            v-if="account.requiresAuth"
+            class="account-btn" 
+            :disabled="account.isLoading" 
+            @click="handleAccountAction(account.id)"
+          >
+            {{ account.isConnected ? 'Logout' : 'Connect' }}
+          </button>
+          <button
+            class="default-btn"
+            :class="{ 'default-btn--active': defaultProvider === account.id }"
+            :disabled="defaultProvider === account.id"
+            @click="setDefault(account.id)"
+          >
+            <span v-if="defaultProvider === account.id">Default</span>
+            <span v-else>Make default</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -112,6 +152,12 @@ function handleAccountAction(accountId: string) {
   gap: 12px;
 }
 
+.account-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .account-icon {
   width: 36px;
   height: 36px;
@@ -140,6 +186,12 @@ function handleAccountAction(accountId: string) {
   margin: 0;
 }
 
+.account-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .account-btn {
   padding: 8px 16px;
   border-radius: 8px;
@@ -160,5 +212,42 @@ function handleAccountAction(accountId: string) {
 .account-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.default-btn {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.default-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.default-btn:disabled {
+  opacity: 0.8;
+  cursor: default;
+}
+
+.default-btn--active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(99, 102, 241, 0.5);
+}
+
+.default-pill {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.2);
+  color: #c7d2fe;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid rgba(99, 102, 241, 0.4);
 }
 </style>

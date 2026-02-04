@@ -111,7 +111,7 @@ const steps = [
     icon: ''
   },
   {
-    title: 'Adjust Display Settings',
+    title: 'Adjust display settings (Reddit)',
     content: 'Adjust the text size scaling if you prefer enlarged text. This is experimental, however, but settings can be changed at any time through Hayami settings.',
     icon: ''
   },
@@ -273,13 +273,6 @@ async function persistMediaKeys() {
         </div>
 
         <div v-if="currentStep === 4" class="keys-step">
-          <div class="preview-header">
-            <div>
-              <div class="preview-title">Image hosting API keys</div>
-              <div class="preview-subtitle">Optional: store Imgur and ImageChest keys for uploads.</div>
-            </div>
-          </div>
-
           <div class="form-grid">
             <ApiKeyInput
               v-model="imgurApiKey"

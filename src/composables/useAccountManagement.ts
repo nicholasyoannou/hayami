@@ -17,13 +17,14 @@ import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malA
 import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilistAuth';
 
 export interface Account {
-  id: 'reddit' | 'youtube' | 'mal' | 'anilist';
+  id: 'reddit' | 'youtube' | 'mal' | 'anilist' | 'disqus';
   name: string;
   icon: string;
   isConnected: boolean;
   username?: string | null;
   profilePic?: string | null;
   isLoading: boolean;
+  requiresAuth: boolean;
 }
 
 export interface AccountActions {
@@ -65,6 +66,17 @@ export function useAccountManagement() {
       username: null,
       profilePic: null,
       isLoading: false,
+      requiresAuth: true,
+    },
+    {
+      id: 'disqus',
+      name: 'Disqus',
+      icon: getRuntimeUrl('assets/topCommentMenu/disqusLogo.svg'),
+      isConnected: true,
+      username: null,
+      profilePic: null,
+      isLoading: false,
+      requiresAuth: false,
     },
     {
       id: 'youtube',
@@ -74,6 +86,7 @@ export function useAccountManagement() {
       username: null,
       profilePic: null,
       isLoading: false,
+      requiresAuth: true,
     },
     {
       id: 'mal',
@@ -83,6 +96,7 @@ export function useAccountManagement() {
       username: null,
       profilePic: null,
       isLoading: false,
+      requiresAuth: true,
     },
     {
       id: 'anilist',
@@ -92,6 +106,7 @@ export function useAccountManagement() {
       username: null,
       profilePic: null,
       isLoading: false,
+      requiresAuth: true,
     },
   ]);
 
@@ -337,6 +352,12 @@ export function useAccountManagement() {
           connect: connectAniList,
           disconnect: disconnectAniList,
           refresh: checkAniListAuth,
+        };
+      case 'disqus':
+        return {
+          connect: async () => {},
+          disconnect: async () => {},
+          refresh: async () => {},
         };
       default:
         throw new Error(`Unknown account ID: ${accountId}`);
