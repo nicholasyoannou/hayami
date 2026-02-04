@@ -44,10 +44,15 @@ async function openMapperForTab(tabId: number, url?: string): Promise<void> {
   }
 }
 
-function registerContextMenu(): void {
-  try { browser.contextMenus.remove(CONTEXT_MENU_ID); } catch {}
+async function registerContextMenu(): Promise<void> {
   try {
-    browser.contextMenus.create({
+    await browser.contextMenus.remove(CONTEXT_MENU_ID);
+  } catch {
+    // benign: menu may not exist yet
+  }
+
+  try {
+    await browser.contextMenus.create({
       id: CONTEXT_MENU_ID,
       title: 'Configure site with Hayami',
       contexts: ['page'],
@@ -62,7 +67,7 @@ export default defineBackground(() => {
 
   domainPermissionToggle();
 
-  registerContextMenu();
+  void registerContextMenu();
 
   browser.contextMenus.onClicked.addListener(async (info, tab) => {
     if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id || !tab.url) return;
@@ -82,7 +87,7 @@ export default defineBackground(() => {
 
   // Listen for extension installation
   browser.runtime.onInstalled.addListener(async (details) => {
-    registerContextMenu();
+    await registerContextMenu();
     if (details.reason === 'install') {
       console.log('Extension installed - opening onboarding');
       await browser.tabs.create({

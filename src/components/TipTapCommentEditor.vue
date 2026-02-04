@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 import StarterKit from '@tiptap/starter-kit';
+import CodeBlock from '@tiptap/extension-code-block';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
 import Link from '@tiptap/extension-link';
 import Superscript from '@tiptap/extension-superscript'
 import Strike from '@tiptap/extension-strike'
-import { Mark, markInputRule, markPasteRule, mergeAttributes } from '@tiptap/vue-3';
+import { Mark, markInputRule, markPasteRule, mergeAttributes } from '@tiptap/core';
+import type { CommandProps, RawCommands } from '@tiptap/core';
 import Placeholder from '@tiptap/extension-placeholder';
 import { Markdown } from '@tiptap/markdown';
 
@@ -66,27 +68,47 @@ const Spoiler = Mark.create({
     ]
   },
 
-    addCommands() {
-      return {
-        // This is the missing part!
-        toggleSpoiler: () => ({ commands }) => {
+  addCommands(): Partial<RawCommands> {
+    return {
+      toggleSpoiler:
+        () =>
+        ({ commands }: CommandProps) => {
           return commands.toggleMark(this.name)
         },
 
-        setSpoiler: () => ({ commands }) => {
+      setSpoiler:
+        () =>
+        ({ commands }: CommandProps) => {
           return commands.setMark(this.name)
         },
 
-        unsetSpoiler: () => ({ commands }) => {
+      unsetSpoiler:
+        () =>
+        ({ commands }: CommandProps) => {
           return commands.unsetMark(this.name)
         },
-      }
+    } as Partial<RawCommands>
   },
 })
 
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    spoiler: {
+      toggleSpoiler: () => ReturnType
+      setSpoiler: () => ReturnType
+      unsetSpoiler: () => ReturnType
+    }
+  }
+}
+
 const editor = useEditor({
   extensions: [
-    StarterKit.configure({}),
+    StarterKit.configure({
+      link: false,
+      strike: false,
+      codeBlock: false,
+    }),
+    CodeBlock,
     Link.configure({
       openOnClick: false,
       autolink: true,
@@ -227,7 +249,8 @@ function setLink() {
 function submit() {
   if (!editor.value) return;
   const json = editor.value.getJSON();
-  const md = editor.value.markdown.serialize(json).trim();
+  const mdSerializer = (editor.value as any).storage?.markdown;
+  const md = mdSerializer?.serialize ? mdSerializer.serialize(json).trim() : htmlToMarkdown(editor.value.getHTML());
   if (!md) return;
   console.log('Submitted Markdown:', md);
   console.log('Raw JSON document:', JSON.stringify(json, null, 2));
