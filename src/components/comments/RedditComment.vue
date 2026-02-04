@@ -19,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   reply: [comment: RedditComment];
   loadMore: [comment: RedditComment];
+  collapse: [commentId: string, collapsed: boolean];
 }>();
 
 const depth = computed(() => props.depth ?? 0);
@@ -192,6 +193,7 @@ onMounted(async () => {
 
 function toggleCollapse() {
   isCollapsed.value = !isCollapsed.value;
+  emit('collapse', props.comment.id, isCollapsed.value);
 }
 
 // Handle hover over children spine
@@ -610,7 +612,7 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
       </div>
       
       <!-- Reply input slot -->
-      <slot name="reply-editor"></slot>
+      <slot name="reply-editor" :comment="comment"></slot>
       
       <!-- Children -->
       <!-- Render children section if there are visible replies OR if there are more children to load -->
@@ -641,7 +643,12 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           :on-reply="onReply"
           :load-more-handler="loadMoreHandler"
           @reply="(c) => emit('reply', c)"
-        />
+          @collapse="(id, state) => emit('collapse', id, state)"
+        >
+          <template #reply-editor="slotProps">
+            <slot name="reply-editor" v-bind="slotProps" />
+          </template>
+        </RedditComment>
         
         <button 
           v-if="hasMoreReplies"

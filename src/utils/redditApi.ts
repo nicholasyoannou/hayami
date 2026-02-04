@@ -16,6 +16,8 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
   const safeHeaders = Object.assign({}, (init && (init as any).headers) || {}, { 'User-Agent': detectedUA });
   const safeInit: RequestInit = Object.assign({}, init || {}, { headers: safeHeaders });
 
+  console.debug('[extensionFetch] start', { url: input, mode: safeInit.mode, credentials: safeInit.credentials });
+
   // Try messaging the background first
   try {
     const payload = { action: 'hayami_proxyFetch', url: input, init: safeInit };
@@ -44,6 +46,7 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
 
     // If the background provided a proper proxied response, return it
     if (res && typeof res.ok !== 'undefined') {
+      console.debug('[extensionFetch] proxy ok', { url: input, status: res.status });
       return {
         ok: !!res.ok,
         status: Number(res.status) || 0,
@@ -55,7 +58,7 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
 
     // If messaging failed (res.__messagingError), attempt a single retry of proxy messaging
     if (res && res.__messagingError) {
-      console.warn('[extensionFetch] proxy messaging failed on first attempt:', res.message || res);
+      console.warn('[extensionFetch] proxy messaging failed on first attempt', { url: input, message: res.message || res });
       // Try one more time synchronously
       const retry = await new Promise<any>((resolve) => {
         let called2 = false;
@@ -73,9 +76,10 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
         setTimeout(() => { if (!called2) { console.warn('[extensionFetch] proxyFetch retry callback not called within 30s timeout'); resolve({ __messagingError: true, message: 'timeout' }); } }, 30000);
       });
       if (!(retry && typeof retry.ok !== 'undefined')) {
-        console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)');
+        console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)', { url: input });
       } else {
         // Use the successful retry result
+        console.debug('[extensionFetch] proxy retry ok', { url: input, status: retry.status });
         return {
           ok: !!retry.ok,
           status: Number(retry.status) || 0,
@@ -90,7 +94,11 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
   }
 
   // Fallback to direct fetch (may be blocked by CORS when called from content scripts)
+  console.debug('[extensionFetch] falling back to direct fetch', { url: input });
   const resp = await fetch(input, init);
+  // If fetch is blocked by CSP, this may throw or return opaque; log status/ok for debugging
+  console.debug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok, type: resp.type, redirected: resp.redirected });
+  console.debug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok });
   const ct = resp.headers.get('content-type') || '';
   let b: any;
   if (ct.includes('application/json')) b = await resp.json(); else b = await resp.text();
@@ -186,6 +194,7 @@ export interface RedditComment {
   edited?: boolean | number;
   /** User's vote on this comment: true=upvoted, false=downvoted, null=none */
   likes?: boolean | null;
+  parent_id?: string;
   author_flair_text?: string | null;
   author_flair_richtext?: Array<{
     e?: string; // 'emoji' or 'text'
@@ -743,6 +752,132 @@ function normalizeAvatarCdnUrl(url: string): string | null {
     } catch {
       return null;
     }
+  }
+}
+
+/**
+ * Checks if user is logged into Reddit for old.reddit.com API access
+ * This checks for modhash availability rather than OAuth token
+ */
+export async function isOldRedditAuthenticated(): Promise<boolean> {
+  try {
+    const modhash = await getModhash();
+    return modhash !== null;
+  } catch (error) {
+    console.error('Error checking old Reddit authentication:', error);
+    return false;
+  }
+}
+
+/**
+ * Gets the current user's modhash from old.reddit.com page HTML
+ * This is required for certain API actions like posting comments via old.reddit.com
+ */
+export async function getModhash(): Promise<string | null> {
+  try {
+    // Fetch the Reddit post page HTML to extract modhash
+    const testPostUrl = 'https://old.reddit.com/r/test/comments/1qscb7n/test_post_from_automation/';
+    
+    console.log('[getModhash] Fetching Reddit page to extract modhash:', testPostUrl);
+    const resp = await extensionFetch(testPostUrl, { credentials: 'include' });
+    
+    if (!resp.ok) {
+      console.log('[getModhash] Failed to fetch Reddit page:', resp.status);
+      return null;
+    }
+
+    const html = await resp.text();
+    console.log('[getModhash] Successfully fetched Reddit page HTML');
+    
+    // Extract modhash from the page's JavaScript config
+    const modhashMatch = html.match(/"modhash":\s*"([^"]+)"/);
+    if (modhashMatch && modhashMatch[1]) {
+      const modhash = modhashMatch[1];
+      console.log('[getModhash] Successfully extracted modhash from HTML');
+      return modhash;
+    }
+
+    console.warn('[getModhash] Could not find modhash in HTML');
+    return null;
+  } catch (error) {
+    console.error('Error fetching modhash from HTML:', error);
+    return null;
+  }
+}
+
+/**
+ * Submits a comment to Reddit using the old.reddit.com API endpoint
+ * This method uses form data and modhash authentication
+ * @param parentFullname - The fullname of the thing being replied to (e.g., t3_1qscb7n for posts, t1_xxx for comments)
+ * @param text - The comment text (markdown supported)
+ * @param subreddit - The subreddit name for the comment
+ */
+export async function submitCommentDirect(
+  parentFullname: string,
+  text: string,
+  subreddit: string
+): Promise<{ success: boolean; commentId?: string; error?: string }> {
+  try {
+    const modhash = await getModhash();
+    if (!modhash) {
+      return { success: false, error: 'Could not get modhash - not logged in to Reddit' };
+    }
+
+    // Generate a unique form ID
+    const formId = `form-${parentFullname}${Date.now()}`;
+    
+    const formData = new URLSearchParams();
+    formData.append('thing_id', parentFullname);
+    formData.append('text', text);
+    formData.append('id', `#${formId}`);
+    formData.append('r', subreddit);
+    formData.append('uh', modhash);
+    formData.append('renderstyle', 'html');
+
+    console.log('[submitCommentDirect] Posting to old.reddit.com with:', {
+      parentFullname,
+      text: text.substring(0, 100) + '...',
+      subreddit,
+      formId
+    });
+
+    const resp = await extensionFetch('https://old.reddit.com/api/comment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString(),
+      credentials: 'include',
+    } as any);
+
+    if (!resp.ok) {
+      const responseText = await resp.text();
+      console.error('[submitCommentDirect] Request failed:', resp.status, responseText);
+      return { success: false, error: `Request failed: ${resp.status} ${responseText}` };
+    }
+
+    const responseText = await resp.text();
+    console.log('[submitCommentDirect] Response:', responseText.substring(0, 500));
+
+    // Reddit returns HTML on success, we need to extract the comment ID
+    // Look for the comment data in the response
+    const commentIdMatch = responseText.match(/data-t1_id="([^"]+)"/);
+    if (commentIdMatch && commentIdMatch[1]) {
+      return { success: true, commentId: commentIdMatch[1] };
+    }
+
+    // If we can't extract the ID but got a 200 response, consider it successful
+    if (responseText.includes('success') || responseText.includes('comment')) {
+      return { success: true };
+    }
+
+    return { success: false, error: 'Unknown response format' };
+  } catch (error) {
+    console.error('Error submitting comment directly:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    };
   }
 }
 

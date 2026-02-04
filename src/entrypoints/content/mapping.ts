@@ -15,6 +15,7 @@
 import { AnimeInfo } from './types';
 import { findThreadForAnime } from '@/utils/disqusApi';
 import { extensionFetch } from '@/utils/redditApi';
+import { fetchHayami } from '@/utils/hayamiApi';
 import {
   parseMapperYear,
   getEpisodeAirYear,
@@ -131,7 +132,7 @@ export async function fetchAnimeMapperDataBySeriesName(
       isThirdPartySite: options?.isThirdPartySite,
       maxEpisodeCount: options?.maxEpisodeCount,
     });
-    const response = await fetch(url);
+    const response = await fetchHayami(url);
     if (!response.ok) {
       console.log('[Mapper] Series-name mapper returned non-OK status:', response.status, response.statusText);
       return null;
@@ -972,7 +973,7 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
     const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
     const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}`;
     console.log('[Mapper Failover] Querying mapper service URL:', url);
-    const response = await fetch(url);
+    const response = await fetchHayami(url);
 
     if (!response.ok) {
       console.log('[Mapper Failover] Mapper service returned non-OK status:', response.status, response.statusText);

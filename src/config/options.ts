@@ -17,3 +17,10 @@ export const commentProviderOptions = [
 ] as const;
 
 export type CommentProviderOption = (typeof commentProviderOptions)[number]['value'];
+
+export const redditEditorOptions = [
+  { value: 'editor', label: 'Rich editor' },
+  { value: 'markdown', label: 'Plain markdown box' },
+] as const;
+
+export type RedditEditorMode = (typeof redditEditorOptions)[number]['value'];

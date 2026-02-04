@@ -20,6 +20,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   reply: [comment: RedditCommentData];
   commentsLoaded: [count: number];
+  collapse: [commentId: string, collapsed: boolean];
 }>();
 
 const comments = ref<RedditCommentData[]>([]);
@@ -155,6 +156,10 @@ function loadMoreComments() {
 
 function handleReply(comment: RedditCommentData) {
   emit('reply', comment);
+}
+
+function handleCollapse(commentId: string, collapsed: boolean) {
+  emit('collapse', commentId, collapsed);
 }
 
 async function handleSortChange(sort: 'best' | 'top' | 'new') {
@@ -333,7 +338,12 @@ defineExpose({
         :highlight-ids="highlightIds"
         :load-more-handler="loadMoreForComment"
         @reply="handleReply"
-      />
+        @collapse="handleCollapse"
+      >
+        <template #reply-editor="slotProps">
+          <slot name="reply-editor" v-bind="slotProps" />
+        </template>
+      </RedditComment>
       
       <!-- Load more button (when no visible comments but rootMoreIds exist) -->
       <div v-if="visibleComments.length === 0 && rootMoreIds.length > 0 && !loadingMore" class="ri-load-more-container">

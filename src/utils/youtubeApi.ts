@@ -5,6 +5,7 @@
  */
 
 import { getYouTubeAccessToken } from './youtubeAuth';
+import { fetchHayami } from '@/utils/hayamiApi';
 
 export interface YouTubeComment {
   id: string;
@@ -238,7 +239,7 @@ export async function searchYouTubePlaylist(
       platform,
     });
 
-    const response = await fetch(
+    const response = await fetchHayami(
       `https://api.hayami.moe/anime/search?${params.toString()}`,
       {
         credentials: 'omit',

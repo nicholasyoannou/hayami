@@ -1,11 +1,13 @@
 <script lang="ts" setup>
-import { getCurrentInstance, onMounted, ref } from 'vue';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
 import { useAccountManagement } from '@/composables/useAccountManagement';
 import {
   commentProviderOptions,
   displayModeOptions,
+  redditEditorOptions,
   type CommentProviderOption,
   type DisplayModeOption,
+  type RedditEditorMode,
 } from '@/config/options';
 import {
   commentsProviderItem,
@@ -14,9 +16,9 @@ import {
   imgchestApiKeyItem,
   imgurClientIdItem,
   noCommentsModeItem,
+  redditEditorModeItem,
   redditCommentScaleItem,
 } from '@/config/storage';
-import { getSentryFeedback, type SentryFeedbackClient } from '@/plugins/sentry';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
@@ -36,11 +38,13 @@ const embedImages = ref<boolean>(false);
 const imgurClientId = ref<string>('');
 const imgchestApiKey = ref<string>('');
 const commentsProvider = ref<CommentProviderOption>('reddit');
+const redditEditorMode = ref<RedditEditorMode>('editor');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
 const commentScale = ref<number>(1);
 const feedbackButton = ref<HTMLButtonElement | null>(null);
-const appInstance = getCurrentInstance()?.appContext.app;
-let feedbackForm: Awaited<ReturnType<NonNullable<SentryFeedbackClient>['createForm']>> | null = null;
+const showFeedbackFrame = ref(false);
+const feedbackFrameUrl = 'https://hayami.moe/appFeedb/feedbackiframe?source=hayami-extension';
+const feedbackAllowedOrigins = ['https://hayami.moe'];
 
 onMounted(async () => {
   await refreshAllAccounts();
@@ -50,6 +54,15 @@ onMounted(async () => {
   await loadImgurClientId();
   await loadImgchestApiKey();
   await loadCommentScale();
+  await loadRedditEditorMode();
+
+  window.addEventListener('message', handleFeedbackMessage);
+  window.addEventListener('keydown', handleFeedbackKeydown);
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('message', handleFeedbackMessage);
+  window.removeEventListener('keydown', handleFeedbackKeydown);
 });
 
 async function loadDisplayMode() {
@@ -120,6 +133,17 @@ async function loadCommentsProvider() {
   }
 }
 
+async function loadRedditEditorMode() {
+  try {
+    const mode = await redditEditorModeItem.getValue();
+    if (redditEditorOptions.some((opt) => opt.value === mode)) {
+      redditEditorMode.value = mode;
+    }
+  } catch (error) {
+    console.warn('Failed to load Reddit editor mode', error);
+  }
+}
+
 async function loadNoCommentsMode() {
   try {
     const stored = await noCommentsModeItem.getValue();
@@ -181,29 +205,40 @@ async function updateCommentScale(scale: number) {
   setTimeout(() => (successMessage.value = null), 1500);
 }
 
-async function openFeedbackForm() {
-  if (!feedbackButton.value) {
-    return;
+async function updateRedditEditorMode(mode: RedditEditorMode) {
+  redditEditorMode.value = mode;
+  await redditEditorModeItem.setValue(mode);
+  successMessage.value = mode === 'editor' ? 'Rich editor enabled' : 'Plain markdown box enabled';
+  setTimeout(() => (successMessage.value = null), 1500);
+}
+
+function openFeedbackForm() {
+  if (!feedbackButton.value) return;
+  showFeedbackFrame.value = true;
+}
+
+function closeFeedbackForm() {
+  showFeedbackFrame.value = false;
+}
+
+function handleFeedbackMessage(event: MessageEvent) {
+  if (!feedbackAllowedOrigins.includes(event.origin)) return;
+  const data = event.data || {};
+
+  if (data?.type === 'hayami-feedback-submitted') {
+    successMessage.value = 'Thanks for the feedback!';
+    setTimeout(() => (successMessage.value = null), 2000);
+    closeFeedbackForm();
   }
 
-  try {
-    if (!feedbackForm) {
-      const feedbackClient = await getSentryFeedback(appInstance);
-      if (!feedbackClient) {
-        errorMessage.value = 'Feedback form is unavailable right now';
-        setTimeout(() => (errorMessage.value = null), 2000);
-        return;
-      }
+  if (data?.type === 'hayami-feedback-closed') {
+    closeFeedbackForm();
+  }
+}
 
-      feedbackForm = await feedbackClient.createForm({});
-      feedbackForm.appendToDom();
-    }
-
-    feedbackForm.open();
-  } catch (error) {
-    console.error('Failed to open feedback form', error);
-    errorMessage.value = 'Could not open feedback form';
-    setTimeout(() => (errorMessage.value = null), 2000);
+function handleFeedbackKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && showFeedbackFrame.value) {
+    closeFeedbackForm();
   }
 }
 
@@ -301,6 +336,28 @@ function handleAniListLogout() {
         <p class="text-sm text-white/80">Loading your session...</p>
       </div>
 
+      <div
+        v-if="showFeedbackFrame"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur"
+        role="dialog"
+        aria-modal="true"
+      >
+        <div class="relative w-[90vw] max-w-3xl h-[80vh] rounded-2xl bg-[#101218] shadow-2xl border border-white/10 overflow-hidden">
+          <button
+            class="absolute right-3 top-3 rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white hover:bg-white/20"
+            @click="closeFeedbackForm"
+          >
+            Close
+          </button>
+          <iframe
+            :src="feedbackFrameUrl"
+            class="h-full w-full border-0"
+            title="Feedback form"
+            allow="clipboard-write"
+          ></iframe>
+        </div>
+      </div>
+
       <template v-else>
         <transition name="fade" mode="out-in">
           <section v-if="currentView === 'home'" key="home" class="space-y-6">
@@ -393,6 +450,16 @@ function handleAniListLogout() {
                   </div>
                   <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="commentsProvider" @change="(e) => updateCommentsProvider((e.target as HTMLSelectElement).value as CommentProviderOption)">
                     <option v-for="provider in commentProviderOptions" :key="provider.value" :value="provider.value" class="bg-[#1f2329]">{{ provider.label }}</option>
+                  </select>
+                </div>
+
+                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                  <div>
+                    <p class="text-sm text-white/80">Reddit editor</p>
+                    <p class="text-xs text-white/60">Choose between rich editor or plain markdown box</p>
+                  </div>
+                  <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="redditEditorMode" @change="(e) => updateRedditEditorMode((e.target as HTMLSelectElement).value as RedditEditorMode)">
+                    <option v-for="mode in redditEditorOptions" :key="mode.value" :value="mode.value" class="bg-[#1f2329]">{{ mode.label }}</option>
                   </select>
                 </div>
 

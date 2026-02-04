@@ -17,6 +17,9 @@ import {
   searchCustomPosts, 
   extensionFetch 
 } from '@/utils/redditApi';
+import { fetchHayami } from '@/utils/hayamiApi';
+
+
 
 // Authentication utilities
 import { isAuthenticated } from '@/utils/redditAuth';
@@ -281,7 +284,7 @@ function setMalIdOnLastAnimeInfo(malId?: number | null): void {
 async function fetchAnimeMapperData(animeName: string): Promise<any | null> {
   try {
     const encodedName = encodeURIComponent(animeName);
-    const response = await fetch(`https://api.hayami.moe/anime/${encodedName}`);
+    const response = await fetchHayami(`https://api.hayami.moe/anime/${encodedName}`);
     
     if (!response.ok) {
       console.log('Mapper service returned non-OK status:', response.status);

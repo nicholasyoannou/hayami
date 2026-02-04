@@ -1,11 +1,23 @@
 import { defineConfig } from 'wxt';
 import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './src/config';
 import { hostPermissions } from './src/config';
+process.env.NODE_ENV = 'production';
+const filteredEntrypoints = process.env.NODE_ENV === 'production'
+  ? [
+      'background',
+      'content',
+      'hayamiPlus',
+      'onboarding',
+      'popup',
+      'pwa',
+    ]
+  : undefined;
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
+  filterEntrypoints: filteredEntrypoints,
   manifest: {
     name: 'Hayami',
     description: 'Bring communities to you through comments straight underneath anime episodes.',
@@ -23,7 +35,8 @@ export default defineConfig({
     optional_host_permissions: ['<all_urls>'],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
-      extension_pages: "script-src 'self'; object-src 'self'"
+      // Allow background/content extension pages to fetch Reddit APIs via proxy fetch.
+      extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' https: http:; frame-src 'self' https://hayami.moe;",
     },
     commands: {
       'open-site-mapper': {
@@ -40,7 +53,7 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    version: '0.0.3',
+    version: '0.0.4',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
@@ -54,7 +67,8 @@ export default defineConfig({
           'assets/*.svg',
           'assets/topCommentMenu/*.svg',
           'disqus-loader.js',
-          'popup.html'
+          'popup.html',
+          'hayamiPlus.html'
         ],
         matches: ['<all_urls>']
       }

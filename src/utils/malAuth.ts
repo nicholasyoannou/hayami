@@ -10,6 +10,7 @@
  */
 
 import { MAL_CLIENT_ID, MAL_REDIRECT_PATH, MAL_SCOPES, MAL_TOKEN_PROXY_URL } from '@/config';
+import { fetchHayami } from '@/utils/hayamiApi';
 
 const MAL_AUTH_ENDPOINT = 'https://myanimelist.net/v1/oauth2/authorize';
 const MAL_TOKEN_ENDPOINT = 'https://myanimelist.net/v1/oauth2/token';
@@ -148,7 +149,7 @@ async function exchangeViaProxy(body: Record<string, string>): Promise<MalTokenR
     console.warn('[MAL] Proxy URL not configured');
     return null;
   }
-  const resp = await fetch(MAL_TOKEN_PROXY_URL, {
+  const resp = await fetchHayami(MAL_TOKEN_PROXY_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

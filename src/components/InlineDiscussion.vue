@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
+import { computed, ref, watch, nextTick, onMounted, onUnmounted, reactive } from 'vue';
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
@@ -13,6 +13,7 @@ import { isAuthenticated, getStoredUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
+import { redditEditorModeItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist';
 
@@ -39,7 +40,6 @@ const props = defineProps<{
   initialLoading?: boolean;
   providerContext?: ProviderContext | null;
   redditCommentsKey?: number;
-  scale?: number;
 }>();
 
 const discussionStore = useDiscussionStore();
@@ -52,7 +52,11 @@ const searchQuery = ref('');
 const totalComments = ref(props.discussion.num_comments ?? 0);
 const redditListRef = ref<any>(null);
 const showTopReplyEditor = ref(false);
+const replyTarget = ref<{ id: string; author?: string; parentFullname: string } | null>(null);
+const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const isPostingTopComment = ref(false);
+const replyDrafts = reactive<Record<string, string>>({});
+replyDrafts.root = '';
 const redditEmptyMessage = computed(() => {
   // When no discussion thread was resolved, avoid showing a misleading empty-comments message.
   return isNoDiscussion.value ? 'No discussion thread found.' : undefined;
@@ -315,6 +319,24 @@ const redditUrl = computed(() => {
   return `https://www.reddit.com${permalink}`;
 });
 
+async function loadEditorMode() {
+  try {
+    const mode = await redditEditorModeItem.getValue();
+    redditEditorMode.value = mode === 'markdown' ? 'markdown' : 'editor';
+  } catch (error) {
+    console.warn('Failed to load Reddit editor mode', error);
+  }
+}
+
+const replyPlaceholder = computed(() => {
+  if (replyTarget.value?.author) {
+    return `Reply to u/${replyTarget.value.author}`;
+  }
+  return 'Add a public comment';
+});
+
+const isReplyingToComment = computed(() => !!replyTarget.value);
+
 const postFullname = computed(() => {
   // Prefer fullname if provided, otherwise construct from id
   if (props.discussion.fullname) {
@@ -523,6 +545,7 @@ async function handleShare() {
 
 function handleAddCommentClick() {
   if (isArchived.value || isNoDiscussion.value) return;
+  replyTarget.value = null;
   showTopReplyEditor.value = true;
   nextTick(() => {
     const host = document.getElementById('ri-top-reply-host');
@@ -530,7 +553,31 @@ function handleAddCommentClick() {
   });
 }
 
-async function handleTopCommentSubmit(text: string) {
+function handleReplyToComment(comment: RedditComment) {
+  if (isArchived.value || isNoDiscussion.value) return;
+  const fullname = comment.id?.startsWith('t1_') ? comment.id : `t1_${comment.id}`;
+  replyTarget.value = {
+    id: comment.id,
+    author: comment.author,
+    parentFullname: fullname,
+  };
+  showTopReplyEditor.value = true;
+  nextTick(() => {
+    const host = document.getElementById('ri-top-reply-host');
+    host?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+}
+
+function handleCommentCollapse(commentId: string, collapsed: boolean) {
+  if (!collapsed) return;
+  if (replyTarget.value?.id === commentId) {
+    showTopReplyEditor.value = false;
+    replyTarget.value = null;
+    replyDrafts[commentId] = '';
+  }
+}
+
+async function handleTopCommentSubmit(text: string, draftKey?: string) {
   const trimmed = text.trim();
   if (!trimmed) {
     toast.error('Comment cannot be empty');
@@ -546,7 +593,8 @@ async function handleTopCommentSubmit(text: string) {
 
   isPostingTopComment.value = true;
   try {
-    const res = await submitComment(postFullname.value, trimmed);
+    const parentFullname = replyTarget.value?.parentFullname || postFullname.value;
+    const res = await submitComment(parentFullname, trimmed);
     if (!res.success || !res.commentId) {
       toast.error(res.error || 'Failed to post comment');
       return;
@@ -564,11 +612,17 @@ async function handleTopCommentSubmit(text: string) {
       replies: [],
       permalink: `${props.discussion.permalink}?comment=${res.commentId}`,
       link_id: postFullname.value,
+      parent_id: parentFullname,
     };
+    const parentId = replyTarget.value?.id;
 
-    redditListRef.value?.addComment(newComment);
+    redditListRef.value?.addComment(newComment, parentId);
     totalComments.value = totalComments.value + 1;
     showTopReplyEditor.value = false;
+    replyTarget.value = null;
+    if (draftKey) {
+      replyDrafts[draftKey] = '';
+    }
     toast.success('Comment posted');
   } catch (err: any) {
     console.error('Failed to submit comment', err);
@@ -580,6 +634,17 @@ async function handleTopCommentSubmit(text: string) {
 
 function handleTopReplyCancel() {
   showTopReplyEditor.value = false;
+  if (replyTarget.value?.id) {
+    replyDrafts[replyTarget.value.id] = '';
+  } else {
+    replyDrafts.root = '';
+  }
+  replyTarget.value = null;
+}
+
+function handlePlainSubmit(draftKey: string) {
+  const text = replyDrafts[draftKey] || '';
+  void handleTopCommentSubmit(text, draftKey);
 }
 
 function handleCommentsLoaded(count: number) {
@@ -611,6 +676,7 @@ watch(() => isLoading.value, (newVal) => {
 });
 
 onMounted(() => {
+  void loadEditorMode();
   const manualSearchHandler = (ev: Event) => {
     const detail = (ev as CustomEvent)?.detail || {};
     const animeInfo = detail.animeInfo;
@@ -966,17 +1032,34 @@ defineExpose({
 
       <!-- Top reply host - only visible for Reddit provider -->
       <div
-        v-if="currentProvider === 'reddit' && !isArchived && showTopReplyEditor"
+        v-if="currentProvider === 'reddit' && !isArchived && showTopReplyEditor && !isReplyingToComment"
         id="ri-top-reply-host"
         class="ri-top-reply-container"
       >
-      
-        <TipTapCommentEditor
-          :disabled="isPostingTopComment"
-          placeholder="Add a public comment"
-          @submit="handleTopCommentSubmit"
-          @cancel="handleTopReplyCancel"
-        />
+        <template v-if="redditEditorMode === 'editor'">
+          <TipTapCommentEditor
+            :disabled="isPostingTopComment"
+            :placeholder="replyPlaceholder"
+            class="ri-reply-editor"
+            @submit="handleTopCommentSubmit"
+            @cancel="handleTopReplyCancel"
+          />
+        </template>
+        <template v-else>
+          <div class="ri-reply-editor ri-plain-editor">
+            <textarea
+              v-model="replyDrafts.root"
+              class="ri-plain-textarea"
+              :placeholder="replyPlaceholder"
+              :disabled="isPostingTopComment"
+              rows="4"
+            />
+            <div class="ri-plain-actions">
+              <button class="ri-plain-btn primary" :disabled="isPostingTopComment" @click="handlePlainSubmit('root')">Comment</button>
+              <button class="ri-plain-btn" @click="handleTopReplyCancel">Cancel</button>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Archived notice - only visible for Reddit provider -->
@@ -1014,17 +1097,45 @@ defineExpose({
           v-if="currentProvider === 'reddit' && !!discussionId"
           :key="`reddit-${discussionId}-${redditCommentsKey}`"
           :discussion-id="discussionId"
-          :link-fullname="discussion.fullname || ''"
+          :link-fullname="postFullname"
           :subreddit="discussion.subreddit"
           :is-archived="discussion.archived"
           :is-locked="discussion.locked"
           :initial-sort="commentSort"
           :search-query="searchQuery"
-          :empty-message="emptyDiscussionMessage"
-          :scale="props.scale"
+          :empty-message="redditEmptyMessage"
           ref="redditListRef"
           @comments-loaded="handleCommentsLoaded"
-        />
+          @reply="handleReplyToComment"
+          @collapse="handleCommentCollapse"
+        >
+          <template #reply-editor="{ comment }">
+            <TipTapCommentEditor
+              v-if="redditEditorMode === 'editor' && replyTarget?.id === comment.id && showTopReplyEditor"
+              :disabled="isPostingTopComment"
+              :placeholder="replyPlaceholder"
+              class="ri-reply-editor"
+              @submit="handleTopCommentSubmit"
+              @cancel="handleTopReplyCancel"
+            />
+            <div
+              v-else-if="redditEditorMode === 'markdown' && replyTarget?.id === comment.id && showTopReplyEditor"
+              class="ri-reply-editor ri-plain-editor"
+            >
+              <textarea
+                v-model="replyDrafts[comment.id]"
+                class="ri-plain-textarea"
+                :placeholder="replyPlaceholder"
+                :disabled="isPostingTopComment"
+                rows="4"
+              />
+              <div class="ri-plain-actions">
+                <button class="ri-plain-btn primary" :disabled="isPostingTopComment" @click="handlePlainSubmit(comment.id)">Comment</button>
+                <button class="ri-plain-btn" @click="handleTopReplyCancel">Cancel</button>
+              </div>
+            </div>
+          </template>
+        </RedditCommentList>
         <div v-else-if="currentProvider === 'reddit' && !isLoading && isNoDiscussion">
           <p class="text-center text-gray-500">No Reddit thread resolved.</p>
         </div>
@@ -1288,6 +1399,69 @@ defineExpose({
 }
 .styled-scroll::-webkit-scrollbar-track {
   background: #141414;
+}
+
+:deep(.ri-reply-focus) {
+  box-shadow: 0 0 0 2px #ff4500;
+  border-radius: 6px;
+  transition: box-shadow 0.2s ease;
+}
+
+:deep(.ri-reply-editor .tiptap) {
+  min-height: 96px;
+  padding: 6px 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.ri-reply-editor {
+  display: block;
+  margin-top: 18px;
+}
+
+.ri-plain-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ri-plain-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+  padding: 6px 8px;
+  background: #0f0f10;
+  color: #e5e5e5;
+  border: 1px solid #2d2f36;
+  border-radius: 10px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.ri-plain-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ri-plain-btn {
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid #2d2f36;
+  background: #1b1e24;
+  color: #e5e5e5;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.ri-plain-btn.primary {
+  background: #2f6feb;
+  border-color: #2f6feb;
+  color: #fff;
+}
+
+.ri-plain-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 @keyframes shimmer {

@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+    margin: 0;
+    min-height: 100vh;
+  }
+
+  #app {
+    @apply min-h-screen;
+  }
+}
+
+.test-page {
+  @apply min-h-screen bg-gray-50 p-4;
+}
+
+.test-header {
+  @apply bg-white p-6 rounded-lg mb-6 shadow-sm;
+}
+
+.test-header h1 {
+  @apply text-2xl font-bold text-gray-900 mb-2;
+}
+
+.test-header p {
+  @apply text-gray-600 mb-4;
+}
+
+.test-info {
+  @apply bg-gray-100 p-3 rounded text-xs font-mono break-all;
+}
+
+.test-content {
+  @apply bg-white rounded-lg overflow-hidden shadow-sm;
+}

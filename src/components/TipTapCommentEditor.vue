@@ -8,11 +8,7 @@ import Superscript from '@tiptap/extension-superscript'
 import Strike from '@tiptap/extension-strike'
 import { Mark, markInputRule, markPasteRule, mergeAttributes } from '@tiptap/vue-3';
 import Placeholder from '@tiptap/extension-placeholder';
-import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
-import { createLowlight, common } from 'lowlight';
 import { Markdown } from '@tiptap/markdown';
-
-const lowlight = createLowlight(common);
 
 const props = defineProps<{
   placeholder?: string;
@@ -54,7 +50,7 @@ const Spoiler = Mark.create({
   addInputRules() {
     return [
       markInputRule({
-        find: />\!(.*?)\!</, // matches >!text!<
+        find: />\!(.*?)\!</g, // matches >!text!< with global flag
         type: this.type,
         getAttributes: match => ({ text: match[1] }),
       }),
@@ -64,7 +60,7 @@ const Spoiler = Mark.create({
   addPasteRules() {
     return [
       markPasteRule({
-        find: />\!(.*?)\!</,
+        find: />\!(.*?)\!</g, // matches >!text!< with global flag
         type: this.type,
       }),
     ]
@@ -117,8 +113,6 @@ const editor = useEditor({
       },
     }),
     Spoiler,
-
-    CodeBlockLowlight.configure({ lowlight }),
     Markdown
   ],
 
@@ -238,7 +232,7 @@ function submit() {
   console.log('Submitted Markdown:', md);
   console.log('Raw JSON document:', JSON.stringify(json, null, 2));
 
-  // emit('submit', md);
+  emit('submit', md);
   editor.value.commands.clearContent();
 }
 
@@ -611,8 +605,8 @@ const isReady = computed(() => !!editor.value);
 }
 
 .editor-area {
-  min-height: 140px;
-  padding: 12px 16px;
+  min-height: 60px;
+  padding: 0px 10px;
   background: #0F0F0F;
   color: #c9d1d9;
 }

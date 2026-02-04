@@ -1,5 +1,5 @@
 import { storage } from '#imports';
-import type { CommentProviderOption, DisplayModeOption } from './options';
+import type { CommentProviderOption, DisplayModeOption, RedditEditorMode } from './options';
 
 // Canonical storage items for the extension (WXT storage wrapper)
 // All keys are prefixed with the storage area: local:, sync:, session:, managed:
@@ -7,6 +7,11 @@ import type { CommentProviderOption, DisplayModeOption } from './options';
 export const commentsProviderItem = storage.defineItem<CommentProviderOption>(
   'local:comments_provider',
   { fallback: 'reddit' }
+);
+
+export const redditEditorModeItem = storage.defineItem<RedditEditorMode>(
+  'local:reddit_editor_mode',
+  { fallback: 'editor' }
 );
 
 export const displayModeItem = storage.defineItem<DisplayModeOption>(

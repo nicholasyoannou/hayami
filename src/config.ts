@@ -83,6 +83,7 @@ export const MAL_TOKEN_PROXY_URL = 'https://api.hayami.moe/mal/token';
 
 export const hostPermissions = [
       'https://www.reddit.com/*',
+      'https://api.reddit.com/*',
       'https://oauth.reddit.com/*',
       '*://*.crunchyroll.com/*',
       'https://*.disqus.com/*',

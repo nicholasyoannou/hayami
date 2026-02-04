@@ -379,27 +379,55 @@ async function fetchSubredditAvatar(name?: string | null) {
   }
   isAvatarHydrating.value = true;
   try {
-    const apiUrl = `https://api.reddit.com/r/${encodeURIComponent(sub)}/about.json`;
     const webUrl = `https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`;
+    const apiUrl = `https://api.reddit.com/r/${encodeURIComponent(sub)}/about.json`;
 
     const doFetch = async (url: string) => {
+      console.log('[RiTopStrip] avatar doFetch start', { url });
       try {
         const resp = await extensionFetch(url, { credentials: 'omit' } as any);
-        if (!resp.ok) return null;
-        return resp.json();
+        console.log('[RiTopStrip] avatar doFetch extensionFetch result', { url, ok: resp?.ok, status: resp?.status });
+        if (resp.ok) {
+          try {
+            const json = await resp.json();
+            console.log('[RiTopStrip] avatar doFetch extensionFetch json ok', { url, hasJson: !!json });
+            return json;
+          } catch (parseErr) {
+            console.warn('[RiTopStrip] avatar fetch json parse error (extensionFetch)', { url, err: parseErr });
+            return null;
+          }
+        }
+
+        // Status 0 is what we see when host permission is missing or the extension reload is required.
+        console.warn('[RiTopStrip] avatar fetch non-ok via extensionFetch', { url, status: resp.status });
+        return null;
       } catch (e) {
-        // Fall back to plain fetch if extensionFetch fails
-        const resp = await fetch(url, { credentials: 'omit' });
-        if (!resp.ok) return null;
-        return resp.json();
+        console.warn('[RiTopStrip] avatar doFetch extensionFetch threw', { url, err: e });
+        return null;
       }
     };
 
-    const data = (await doFetch(apiUrl)) || (await doFetch(webUrl));
-    if (!data) return;
+    // Prefer the web endpoint (raw_json) first; fall back to api domain if needed
+    const dataFromWeb = await doFetch(webUrl);
+    const dataFromApi = dataFromWeb ? null : await doFetch(apiUrl);
+    const data = dataFromWeb || dataFromApi;
+    console.log('[RiTopStrip] avatar fetch raw data', {
+      sub,
+      triedWeb: true,
+      triedApi: !dataFromWeb,
+      hasWeb: !!dataFromWeb,
+      hasApi: !!dataFromApi,
+      webUrl,
+      apiUrl,
+    });
+    if (!data) {
+      console.warn('[RiTopStrip] avatar fetch returned no data', { sub, apiUrl, webUrl });
+      return;
+    }
     const iconImg = sanitizeIcon(data?.data?.icon_img);
     const communityIcon = sanitizeIcon(data?.data?.community_icon);
     const resolved = iconImg || communityIcon;
+    console.log('[RiTopStrip] avatar fetch result', { sub, iconImg, communityIcon, resolved, primaryColor: data?.data?.primary_color, keyColor: data?.data?.key_color });
     if (resolved) {
       avatarSrc.value = resolved;
     }
@@ -417,6 +445,7 @@ async function fetchSubredditAvatar(name?: string | null) {
 const handleAvatarError = () => {
   // Fallback to default subreddit icon if the provided URL fails
   if (avatarSrc.value !== defaultSubredditIconUrl) {
+    console.warn('[RiTopStrip] avatar load error, falling back', { current: avatarSrc.value });
     avatarSrc.value = defaultSubredditIconUrl;
   }
 };
@@ -453,6 +482,7 @@ watch(
       !hasRealAvatar &&
       state.name
     ) {
+      console.log('[RiTopStrip] triggering avatar hydration', state);
       void fetchSubredditAvatar(state.name);
     }
   },
