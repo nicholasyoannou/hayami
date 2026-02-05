@@ -97,13 +97,13 @@ onMounted(async () => {
             {{ account.isConnected ? 'Logout' : 'Connect' }}
           </button>
           <button
+            v-if="!(defaultProvider === account.id)"
             class="default-btn"
             :class="{ 'default-btn--active': defaultProvider === account.id }"
             :disabled="defaultProvider === account.id"
             @click="setDefault(account.id)"
           >
-            <span v-if="defaultProvider === account.id">Default</span>
-            <span v-else>Make default</span>
+            <span v-if="!(defaultProvider === account.id)">Make Default</span>
           </button>
         </div>
       </div>

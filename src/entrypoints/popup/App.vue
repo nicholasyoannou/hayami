@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { browser } from 'wxt/browser';
 import { useAccountManagement } from '@/composables/useAccountManagement';
 import {
   commentProviderOptions,
@@ -45,6 +46,7 @@ const feedbackButton = ref<HTMLButtonElement | null>(null);
 const showFeedbackFrame = ref(false);
 const feedbackFrameUrl = 'https://hayami.moe/appFeedb/feedbackiframe?source=hayami-extension';
 const feedbackAllowedOrigins = ['https://hayami.moe'];
+const hayamiPlusActive = ref(false);
 
 // Reset popup scroll when changing between views so each screen starts at the top
 watch(currentView, async () => {
@@ -66,14 +68,17 @@ onMounted(async () => {
   await loadImgchestApiKey();
   await loadCommentScale();
   await loadRedditEditorMode();
+  await loadHayamiPlusStatus();
 
   window.addEventListener('message', handleFeedbackMessage);
   window.addEventListener('keydown', handleFeedbackKeydown);
+  browser.storage.onChanged.addListener(handleStorageChange);
 });
 
 onBeforeUnmount(() => {
   window.removeEventListener('message', handleFeedbackMessage);
   window.removeEventListener('keydown', handleFeedbackKeydown);
+  browser.storage.onChanged.removeListener(handleStorageChange);
 });
 
 async function loadDisplayMode() {
@@ -175,6 +180,19 @@ async function loadCommentScale() {
   }
 }
 
+async function loadHayamiPlusStatus() {
+  try {
+    const result = (await browser.storage.sync.get(['hayamiPlusApiKey', 'hayamiPlusSubscriptionId'])) as {
+      hayamiPlusApiKey?: string;
+      hayamiPlusSubscriptionId?: string;
+    };
+    hayamiPlusActive.value = Boolean(result.hayamiPlusApiKey || result.hayamiPlusSubscriptionId);
+  } catch (error) {
+    console.warn('Failed to load Hayami Plus status', error);
+    hayamiPlusActive.value = false;
+  }
+}
+
 async function updateCommentsProvider(p: CommentProviderOption) {
   try {
     commentsProvider.value = p;
@@ -250,6 +268,16 @@ function handleFeedbackMessage(event: MessageEvent) {
 function handleFeedbackKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && showFeedbackFrame.value) {
     closeFeedbackForm();
+  }
+}
+
+function handleStorageChange(
+  changes: Record<string, browser.storage.StorageChange>,
+  areaName: browser.storage.StorageName,
+) {
+  if (areaName !== 'sync') return;
+  if ('hayamiPlusApiKey' in changes || 'hayamiPlusSubscriptionId' in changes) {
+    loadHayamiPlusStatus();
   }
 }
 
@@ -402,12 +430,12 @@ function handleAniListLogout() {
               </div>
             </div>
 
-            <div class="rounded-3xl bg-[#2b3038] px-6 py-6 text-center shadow-inner">
+            <div v-if="!hayamiPlusActive" class="rounded-3xl bg-[#2b3038] px-6 py-6 text-center shadow-inner">
               <div class="mb-2 flex items-center justify-center gap-2 text-lg font-semibold text-white">
                 <span>👍</span>
                 <span>Hayami?</span>
               </div>
-              <p class="text-sm text-white/80">Feel free to support the project (and gain some perks too) via <a class="underline" href="https://hayami.moe" target="_blank" rel="noreferrer">Hayami Plus</a>.</p>
+              <p class="text-sm text-white/80">Feel free to support the project (and gain some perks too) via <a class="underline" href="https://hayami.moe/plus" target="_blank" rel="noreferrer">Hayami Plus</a>.</p>
               <p class="mt-2 text-xs text-white/70">$1/monthly, direct API calls rather than IP-based-rate-limits, and allows further, continuous development. Hayami will always be free.</p>
             </div>
 
