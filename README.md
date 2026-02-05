@@ -1,5 +1,5 @@
 <!-- Center Hayami logo -->
-<p align="center">
+<p align="left">
   <img src=".github/hayamiLogo.png" alt="Hayami Logo" width="250"/>
 </p>
 
@@ -23,20 +23,20 @@ By use of this extension, you agree to the Hayami [Usage Policy](https://hayami.
       </tr>
     </thead>
     <tr>
-         <td><a href="https://www.crunchyroll.com/"><img src="https://www.google.com/s2/favicons?domain=https://www.crunchyroll.com/"> Crunchyroll</a></td>
-         <td><a href="https://www.reddit.com/r/anime/"><img src="https://www.google.com/s2/favicons?domain=https://www.reddit.com"> Reddit (r/anime)</a></td>
+         <td><img src="https://www.google.com/s2/favicons?domain=https://www.crunchyroll.com/"> <a href="https://www.crunchyroll.com/">Crunchyroll</a></td>
+         <td><img src="https://www.google.com/s2/favicons?domain=https://www.reddit.com"> <a href="https://www.reddit.com/r/anime/">Reddit (r/anime)</a></td>
       </tr>
       <tr>
-         <td><a href="https://www.netflix.com/"><img src="https://www.google.com/s2/favicons?domain=https://www.netflix.com"> Netflix</a></td>
-         <td><a href="https://disqus.com/"><img src="https://www.google.com/s2/favicons?domain=https://disqus.com"> Disqus</a></td>
+         <td><img src="https://www.google.com/s2/favicons?domain=https://www.netflix.com"> <a href="https://www.netflix.com/">Netflix</a></td>
+         <td><img src="https://www.google.com/s2/favicons?domain=https://disqus.com"> <a href="https://disqus.com/">Disqus</a></td>
       </tr>
       <tr>
       <td>+ Manually-added anime sites</td>
-      <td><a href="https://myanimelist.net/"><img src="https://www.google.com/s2/favicons?domain=https://myanimelist.net"> MyAnimeList</a></td>
+      <td><img src="https://www.google.com/s2/favicons?domain=https://myanimelist.net"> <a href="https://myanimelist.net/">MyAnimeList</a></td>
       </tr>
       <tr>
       <td></td>
-      <td><a href="https://youtube.com/"><img src="https://www.google.com/s2/favicons?domain=https://youtube.com"> YouTube</a></td>
+      <td><img src="https://www.google.com/s2/favicons?domain=https://youtube.com"> <a href="https://youtube.com/">YouTube</a></td>
   </table>
 
 ## What more can it do?
@@ -45,7 +45,6 @@ The usual stuff:
 
 - Automatic detection of anime and episode information on supported sites, fetching relevant discussion threads
 - Support for manually-added third-party websites, rendering Hayami how you like it (inline, replace, popup)*
-
 - Read and participate in episode discussions without leaving your anime platform
 - Switch between multiple discussion sources, at any time
 
