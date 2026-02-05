@@ -38,6 +38,7 @@ const displayMode = ref<DisplayModeOption>('popup');
 const embedImages = ref<boolean>(false);
 const imgurClientId = ref<string>('');
 const imgchestApiKey = ref<string>('');
+const hayamiPlusApiKey = ref<string>('');
 const commentsProvider = ref<CommentProviderOption>('reddit');
 const redditEditorMode = ref<RedditEditorMode>('editor');
 const noCommentsMode = ref<'popup' | 'inline'>('popup');
@@ -186,10 +187,33 @@ async function loadHayamiPlusStatus() {
       hayamiPlusApiKey?: string;
       hayamiPlusSubscriptionId?: string;
     };
+    hayamiPlusApiKey.value = result.hayamiPlusApiKey || '';
     hayamiPlusActive.value = Boolean(result.hayamiPlusApiKey || result.hayamiPlusSubscriptionId);
   } catch (error) {
     console.warn('Failed to load Hayami Plus status', error);
+    hayamiPlusApiKey.value = '';
     hayamiPlusActive.value = false;
+  }
+}
+
+async function saveHayamiPlusApiKey() {
+  try {
+    const trimmed = (hayamiPlusApiKey.value || '').trim();
+
+    if (trimmed) {
+      await browser.storage.sync.set({ hayamiPlusApiKey: trimmed });
+      successMessage.value = 'Hayami Plus API key saved';
+    } else {
+      await browser.storage.sync.remove(['hayamiPlusApiKey']);
+      successMessage.value = 'Hayami Plus API key cleared';
+    }
+
+    await loadHayamiPlusStatus();
+    setTimeout(() => (successMessage.value = null), 1500);
+  } catch (error) {
+    console.error('Failed to save Hayami Plus API key', error);
+    errorMessage.value = 'Failed to save Hayami Plus API key';
+    setTimeout(() => (errorMessage.value = null), 2000);
   }
 }
 
@@ -484,7 +508,7 @@ function handleAniListLogout() {
 
                 <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
                   <div>
-                    <p class="text-sm text-white/80">Initial comments provider</p>
+                    <p class="text-sm text-white/80">Default comments provider</p>
                     <p class="text-xs text-white/60">First provider loaded when opening the popup</p>
                   </div>
                   <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="commentsProvider" @change="(e) => updateCommentsProvider((e.target as HTMLSelectElement).value as CommentProviderOption)">
@@ -520,6 +544,15 @@ function handleAniListLogout() {
                     <span class="text-sm font-semibold text-white/80 w-12">{{ (commentScale * 100).toFixed(0) }}%</span>
                   </div>
                 </div>
+
+                <ApiKeyInput
+                  v-model="hayamiPlusApiKey"
+                  label="Hayami Plus API key"
+                  placeholder="Enter Hayami Plus API key"
+                  :error="errorMessage?.includes('Hayami Plus') ? errorMessage : undefined"
+                  :success="successMessage?.includes('Hayami Plus') ? successMessage : undefined"
+                  @save="saveHayamiPlusApiKey"
+                />
 
                 <ApiKeyInput
                   v-model="imgurClientId"
