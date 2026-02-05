@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import { browser } from 'wxt/browser';
 import { useAccountManagement } from '@/composables/useAccountManagement';
 import {
@@ -25,29 +25,298 @@ import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
 import accountIcon from '@/assets/accountIcon.svg';
 import accountsIcon from '@/assets/accountsIcon.svg';
+import generalIcon from '@/assets/settingsScreen/general.svg';
+import imagePreviewsIcon from '@/assets/settingsScreen/imagePreviews.svg';
+import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms.svg';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
 
+type SettingValueMap = {
+  displayMode: DisplayModeOption;
+  embedImages: boolean;
+  noCommentsMode: 'popup' | 'inline';
+  commentsProvider: CommentProviderOption;
+  redditEditorMode: RedditEditorMode;
+  commentScale: number;
+  imgurClientId: string;
+  imgchestApiKey: string;
+  hayamiPlusApiKey: string;
+};
+
+type SettingKey = keyof SettingValueMap;
+type SettingCategoryId = 'general' | 'image-previews' | 'provider';
+type SettingsScreen = 'menu' | 'category' | 'providers';
+type SettingsNavItem = {
+  id: SettingCategoryId | 'discussion-platforms';
+  label: string;
+  icon: string;
+  kind: 'settings' | 'providers';
+};
+type OptionEntry<T> = { value: T; label: string };
+
+type SettingDefinition<K extends SettingKey = SettingKey> = {
+  key: K;
+  type: 'select' | 'toggle' | 'segmented' | 'slider' | 'apiKey';
+  label: string;
+  description?: string;
+  category: SettingCategoryId;
+  providerId?: CommentProviderOption;
+  fallback: SettingValueMap[K];
+  load: () => Promise<SettingValueMap[K]>;
+  save: (value: SettingValueMap[K]) => Promise<void>;
+  successMessage: (value: SettingValueMap[K]) => string;
+  errorMessage?: string;
+  options?: OptionEntry<SettingValueMap[K]>[];
+  min?: number;
+  max?: number;
+  step?: number;
+  placeholder?: string;
+  formatValue?: (value: SettingValueMap[K]) => string;
+  onAfterLoad?: (value: SettingValueMap[K]) => void | Promise<void>;
+  onAfterSave?: (value: SettingValueMap[K]) => void | Promise<void>;
+};
+
+const providerIcons: Record<CommentProviderOption, string> = {
+  reddit: '/assets/topCommentMenu/reddit.svg',
+  disqus: '/assets/topCommentMenu/disqusLogo.svg',
+  anilist: '/assets/topCommentMenu/anilistIcon.svg',
+  mal: '/assets/topCommentMenu/malLogo.svg',
+  youtube: '/assets/topCommentMenu/youtubeLogo.svg',
+};
+
+const settingDefinitions: SettingDefinition[] = [
+    {
+    key: 'commentsProvider',
+    type: 'select',
+    category: 'general',
+    label: 'Default comments provider',
+    description: 'First provider loaded when opening the popup',
+    options: commentProviderOptions,
+    fallback: 'reddit',
+    load: async () => {
+      const value = await commentsProviderItem.getValue();
+      return commentProviderOptions.some((option) => option.value === value) ? value : 'reddit';
+    },
+    save: (value) => commentsProviderItem.setValue(value),
+    successMessage: () => 'Initial provider saved',
+    errorMessage: 'Failed to save Default comments provider',
+  },
+  {
+    key: 'displayMode',
+    type: 'select',
+    category: 'general',
+    label: 'Default display mode',
+    description: 'Used on manual override sites with no saved config',
+    options: displayModeOptions,
+    fallback: 'popup',
+    load: async () => {
+      const value = await displayModeItem.getValue();
+      return displayModeOptions.some((option) => option.value === value) ? value : 'popup';
+    },
+    save: (value) => displayModeItem.setValue(value),
+    successMessage: () => 'Default display mode saved',
+    errorMessage: 'Failed to save Default display mode',
+  },
+  {
+    key: 'noCommentsMode',
+    type: 'segmented',
+    category: 'general',
+    label: 'No comments mode',
+    description: 'Fallback when nothing is found',
+    options: [
+      { value: 'popup', label: 'Popup' },
+      { value: 'inline', label: 'Inline selection' },
+    ],
+    fallback: 'popup',
+    load: async () => {
+      const value = await noCommentsModeItem.getValue();
+      return value === 'inline' || value === 'popup' ? value : 'popup';
+    },
+    save: (value) => noCommentsModeItem.setValue(value),
+    successMessage: (value) =>
+      value === 'popup' ? 'No comments mode set to Popup' : 'No comments mode set to Inline selection',
+    errorMessage: 'Failed to save No comments mode',
+  },
+  {
+    key: 'commentScale',
+    type: 'slider',
+    category: 'general',
+    label: 'Comment scale',
+    description: 'Size of embedded comment sections',
+    min: 0.9,
+    max: 1.3,
+    step: 0.05,
+    formatValue: (value) => `${(Number(value) * 100).toFixed(0)}%`,
+    fallback: 1,
+    load: () => redditCommentScaleItem.getValue(),
+    save: (value) => redditCommentScaleItem.setValue(value),
+    successMessage: (value) => `Comment scale set to ${(Number(value) * 100).toFixed(0)}%`,
+    errorMessage: 'Failed to save Comment scale',
+  },
+  {
+    key: 'hayamiPlusApiKey',
+    type: 'apiKey',
+    category: 'general',
+    label: 'Hayami Plus API key',
+    placeholder: 'Enter Hayami Plus API key',
+    fallback: '',
+    load: async () => {
+      const result = (await browser.storage.sync.get(['hayamiPlusApiKey', 'hayamiPlusSubscriptionId'])) as {
+        hayamiPlusApiKey?: string;
+        hayamiPlusSubscriptionId?: string;
+      };
+      const value = result.hayamiPlusApiKey || '';
+      hayamiPlusActive.value = Boolean(result.hayamiPlusApiKey || result.hayamiPlusSubscriptionId);
+      return value;
+    },
+    save: async (value) => {
+      const trimmed = (value || '').trim();
+      if (trimmed) {
+        await browser.storage.sync.set({ hayamiPlusApiKey: trimmed });
+      } else {
+        await browser.storage.sync.remove(['hayamiPlusApiKey']);
+      }
+
+      const status = (await browser.storage.sync.get(['hayamiPlusApiKey', 'hayamiPlusSubscriptionId'])) as {
+        hayamiPlusApiKey?: string;
+        hayamiPlusSubscriptionId?: string;
+      };
+      hayamiPlusActive.value = Boolean(status.hayamiPlusApiKey || status.hayamiPlusSubscriptionId);
+    },
+    successMessage: (value) => (value ? 'Hayami Plus API key saved' : 'Hayami Plus API key cleared'),
+    errorMessage: 'Failed to save Hayami Plus API key',
+  },
+  {
+    key: 'embedImages',
+    type: 'toggle',
+    category: 'image-previews',
+    label: 'Image embeds',
+    description: 'Auto-embed Imgur links',
+    fallback: true,
+    load: () => embedImagesItem.getValue(),
+    save: (value) => embedImagesItem.setValue(value),
+    successMessage: (value) => (value ? 'Image embedding enabled' : 'Image embedding disabled'),
+    errorMessage: 'Failed to save Image embeds',
+  },
+  {
+    key: 'imgurClientId',
+    type: 'apiKey',
+    category: 'image-previews',
+    label: 'Imgur Client ID',
+    placeholder: 'Enter Imgur Client ID',
+    fallback: '',
+    load: async () => (await imgurClientIdItem.getValue()) || '',
+    save: async (value) => {
+      const trimmed = (value || '').trim();
+      await imgurClientIdItem.setValue(trimmed || null);
+    },
+    successMessage: (value) => (value ? 'Imgur Client ID saved' : 'Imgur Client ID cleared'),
+    errorMessage: 'Failed to save Imgur Client ID',
+  },
+  {
+    key: 'imgchestApiKey',
+    type: 'apiKey',
+    category: 'image-previews',
+    label: 'ImgChest API key',
+    placeholder: 'Enter ImgChest API key',
+    fallback: '',
+    load: async () => (await imgchestApiKeyItem.getValue()) || '',
+    save: async (value) => {
+      const trimmed = (value || '').trim();
+      await imgchestApiKeyItem.setValue(trimmed || null);
+    },
+    successMessage: (value) => (value ? 'ImgChest API key saved' : 'ImgChest API key cleared'),
+    errorMessage: 'Failed to save ImgChest API key',
+  },
+  {
+    key: 'redditEditorMode',
+    type: 'select',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Reddit editor',
+    description: 'Choose between rich editor or plain markdown box',
+    options: redditEditorOptions,
+    fallback: 'editor',
+    load: async () => {
+      const value = await redditEditorModeItem.getValue();
+      return redditEditorOptions.some((option) => option.value === value) ? value : 'editor';
+    },
+    save: (value) => redditEditorModeItem.setValue(value),
+    successMessage: (value) => (value === 'editor' ? 'Rich editor enabled' : 'Plain markdown box enabled'),
+    errorMessage: 'Failed to save Reddit editor',
+  },
+];
+
+const settingsCategories = [
+  {
+    id: 'general',
+    label: 'General',
+    icon: generalIcon,
+    settings: settingDefinitions.filter((setting) => setting.category === 'general'),
+  },
+  {
+    id: 'image-previews',
+    label: 'Image previews',
+    icon: imagePreviewsIcon,
+    settings: settingDefinitions.filter((setting) => setting.category === 'image-previews'),
+  },
+];
+
+const settingsNavItems: SettingsNavItem[] = [
+  ...settingsCategories.map((category) => ({
+    id: category.id,
+    label: category.label,
+    icon: category.icon,
+    kind: 'settings' as const,
+  })),
+  {
+    id: 'discussion-platforms',
+    label: 'Discussion platforms',
+    icon: discussionPlatformsIcon,
+    kind: 'providers',
+  },
+];
+
+const providerSections = commentProviderOptions.map((provider) => ({
+  id: provider.value,
+  label: provider.label,
+  icon: providerIcons[provider.value],
+  settings: settingDefinitions.filter(
+    (setting) => setting.category === 'provider' && setting.providerId === provider.value,
+  ),
+}));
+
+const settingValues = reactive<SettingValueMap>({
+  displayMode: 'popup',
+  embedImages: true,
+  noCommentsMode: 'popup',
+  commentsProvider: 'reddit',
+  redditEditorMode: 'editor',
+  commentScale: 1,
+  imgurClientId: '',
+  imgchestApiKey: '',
+  hayamiPlusApiKey: '',
+});
+
+const activeSettingsCategory = computed(() =>
+  settingsCategories.find((category) => category.id === selectedSettingsCategory.value),
+);
+
 // Use shared account management
-const { accounts, refreshAllAccounts, getAccount, getAccountActions, anyAccountLoading } = useAccountManagement();
+const { refreshAllAccounts, getAccount, getAccountActions, anyAccountLoading } = useAccountManagement();
 
 const errorMessage = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
 
 const currentView = ref<'home' | 'manage' | 'settings'>('home');
-const displayMode = ref<DisplayModeOption>('popup');
-const embedImages = ref<boolean>(false);
-const imgurClientId = ref<string>('');
-const imgchestApiKey = ref<string>('');
-const hayamiPlusApiKey = ref<string>('');
-const commentsProvider = ref<CommentProviderOption>('reddit');
-const redditEditorMode = ref<RedditEditorMode>('editor');
-const noCommentsMode = ref<'popup' | 'inline'>('popup');
-const commentScale = ref<number>(1);
+const selectedSettingsCategory = ref<SettingsNavItem['id']>('general');
+const settingsScreen = ref<SettingsScreen>('menu');
 const feedbackButton = ref<HTMLButtonElement | null>(null);
 const showFeedbackFrame = ref(false);
 const feedbackFrameUrl = 'https://hayami.moe/appFeedb/feedbackiframe?source=hayami-extension';
 const feedbackAllowedOrigins = ['https://hayami.moe'];
 const hayamiPlusActive = ref(false);
+let successTimer: number | undefined;
+let errorTimer: number | undefined;
 
 // Reset popup scroll when changing between views so each screen starts at the top
 watch(currentView, async () => {
@@ -58,18 +327,14 @@ watch(currentView, async () => {
   } else if (target) {
     target.scrollTop = 0;
   }
+  if (currentView.value === 'settings') {
+    settingsScreen.value = 'menu';
+  }
 });
 
 onMounted(async () => {
   await refreshAllAccounts();
-  await loadDisplayMode();
-  await loadCommentsProvider();
-  await loadNoCommentsMode();
-  await loadImgurClientId();
-  await loadImgchestApiKey();
-  await loadCommentScale();
-  await loadRedditEditorMode();
-  await loadHayamiPlusStatus();
+  await loadAllSettings();
 
   window.addEventListener('message', handleFeedbackMessage);
   window.addEventListener('keydown', handleFeedbackKeydown);
@@ -82,187 +347,65 @@ onBeforeUnmount(() => {
   browser.storage.onChanged.removeListener(handleStorageChange);
 });
 
-async function loadDisplayMode() {
+async function loadSetting(setting: SettingDefinition) {
   try {
-    const mode = await displayModeItem.getValue();
-    if (displayModeOptions.some((opt) => opt.value === mode)) {
-      displayMode.value = mode;
-    }
-    const enabled = await embedImagesItem.getValue();
-    embedImages.value = enabled;
-  } catch (error) {
-    console.warn('Failed to load display mode or embed images setting', error);
-  }
-}
-
-async function loadImgurClientId() {
-  try {
-    const stored = await imgurClientIdItem.getValue();
-    imgurClientId.value = stored || '';
-  } catch (error) {
-    console.warn('Failed to load Imgur Client ID', error);
-  }
-}
-
-async function saveImgurClientId() {
-  try {
-    const trimmed = (imgurClientId.value || '').trim();
-    await imgurClientIdItem.setValue(trimmed || null);
-    successMessage.value = 'Imgur Client ID saved';
-    setTimeout(() => (successMessage.value = null), 1500);
-  } catch (e) {
-    console.error('Failed to save Imgur Client ID', e);
-    errorMessage.value = 'Failed to save Imgur Client ID';
-    setTimeout(() => (errorMessage.value = null), 2000);
-  }
-}
-
-async function loadImgchestApiKey() {
-  try {
-    const stored = await imgchestApiKeyItem.getValue();
-    imgchestApiKey.value = stored || '';
-  } catch (error) {
-    console.warn('Failed to load ImgChest API key', error);
-  }
-}
-
-async function saveImgchestApiKey() {
-  try {
-    const trimmed = (imgchestApiKey.value || '').trim();
-    await imgchestApiKeyItem.setValue(trimmed || null);
-    successMessage.value = trimmed ? 'ImgChest API key saved' : 'ImgChest API key cleared';
-    setTimeout(() => (successMessage.value = null), 1500);
-  } catch (e) {
-    console.error('Failed to save ImgChest API key', e);
-    errorMessage.value = 'Failed to save ImgChest API key';
-    setTimeout(() => (errorMessage.value = null), 2000);
-  }
-}
-
-async function loadCommentsProvider() {
-  try {
-    const provider = await commentsProviderItem.getValue();
-    if (commentProviderOptions.some((opt) => opt.value === provider)) {
-      commentsProvider.value = provider;
+    const value = await setting.load();
+    settingValues[setting.key] = value ?? setting.fallback;
+    if (setting.onAfterLoad) {
+      await setting.onAfterLoad(settingValues[setting.key]);
     }
   } catch (error) {
-    console.warn('Failed to load comments provider', error);
+    console.warn(`Failed to load ${setting.label}`, error);
+    settingValues[setting.key] = setting.fallback;
   }
 }
 
-async function loadRedditEditorMode() {
+async function loadAllSettings() {
+  await Promise.all(settingDefinitions.map((setting) => loadSetting(setting)));
+}
+
+async function reloadSetting(key: SettingKey) {
+  const target = settingDefinitions.find((setting) => setting.key === key);
+  if (target) {
+    await loadSetting(target);
+  }
+}
+
+function showSuccess(message: string) {
+  if (successTimer) {
+    clearTimeout(successTimer);
+  }
+  successMessage.value = message;
+  successTimer = window.setTimeout(() => (successMessage.value = null), 1500);
+}
+
+function showError(message: string) {
+  if (errorTimer) {
+    clearTimeout(errorTimer);
+  }
+  errorMessage.value = message;
+  errorTimer = window.setTimeout(() => (errorMessage.value = null), 2000);
+}
+
+async function handleSettingChange(setting: SettingDefinition, value: SettingValueMap[SettingKey]) {
   try {
-    const mode = await redditEditorModeItem.getValue();
-    if (redditEditorOptions.some((opt) => opt.value === mode)) {
-      redditEditorMode.value = mode;
+    settingValues[setting.key] = value as SettingValueMap[typeof setting.key];
+    await setting.save(value as SettingValueMap[typeof setting.key]);
+    if (setting.onAfterSave) {
+      await setting.onAfterSave(value as SettingValueMap[typeof setting.key]);
     }
+    showSuccess(setting.successMessage(value as SettingValueMap[typeof setting.key]));
   } catch (error) {
-    console.warn('Failed to load Reddit editor mode', error);
+    console.error(`Failed to save ${setting.label}`, error);
+    showError(setting.errorMessage || `Failed to save ${setting.label}`);
+    await reloadSetting(setting.key);
   }
 }
 
-async function loadNoCommentsMode() {
-  try {
-    const stored = await noCommentsModeItem.getValue();
-    if (stored === 'inline' || stored === 'popup') {
-      noCommentsMode.value = stored;
-    }
-  } catch (error) {
-    console.warn('Failed to load no-comments mode', error);
-  }
-}
-
-async function loadCommentScale() {
-  try {
-    const stored = await redditCommentScaleItem.getValue();
-    if (stored) commentScale.value = stored;
-  } catch (error) {
-    console.warn('Failed to load comment scale', error);
-  }
-}
-
-async function loadHayamiPlusStatus() {
-  try {
-    const result = (await browser.storage.sync.get(['hayamiPlusApiKey', 'hayamiPlusSubscriptionId'])) as {
-      hayamiPlusApiKey?: string;
-      hayamiPlusSubscriptionId?: string;
-    };
-    hayamiPlusApiKey.value = result.hayamiPlusApiKey || '';
-    hayamiPlusActive.value = Boolean(result.hayamiPlusApiKey || result.hayamiPlusSubscriptionId);
-  } catch (error) {
-    console.warn('Failed to load Hayami Plus status', error);
-    hayamiPlusApiKey.value = '';
-    hayamiPlusActive.value = false;
-  }
-}
-
-async function saveHayamiPlusApiKey() {
-  try {
-    const trimmed = (hayamiPlusApiKey.value || '').trim();
-
-    if (trimmed) {
-      await browser.storage.sync.set({ hayamiPlusApiKey: trimmed });
-      successMessage.value = 'Hayami Plus API key saved';
-    } else {
-      await browser.storage.sync.remove(['hayamiPlusApiKey']);
-      successMessage.value = 'Hayami Plus API key cleared';
-    }
-
-    await loadHayamiPlusStatus();
-    setTimeout(() => (successMessage.value = null), 1500);
-  } catch (error) {
-    console.error('Failed to save Hayami Plus API key', error);
-    errorMessage.value = 'Failed to save Hayami Plus API key';
-    setTimeout(() => (errorMessage.value = null), 2000);
-  }
-}
-
-async function updateCommentsProvider(p: CommentProviderOption) {
-  try {
-    commentsProvider.value = p;
-    await commentsProviderItem.setValue(p);
-    successMessage.value = 'Initial provider saved';
-    setTimeout(() => (successMessage.value = null), 1500);
-  } catch (e) {
-    console.error('Failed to update comments provider', e);
-    errorMessage.value = 'Failed to save provider setting';
-    setTimeout(() => (errorMessage.value = null), 2000);
-  }
-}
-
-async function updateDisplayMode(mode: DisplayModeOption) {
-  displayMode.value = mode;
-  await displayModeItem.setValue(mode);
-  successMessage.value = 'Default display mode saved';
-  setTimeout(() => (successMessage.value = null), 1500);
-}
-
-async function updateEmbedImages(enabled: boolean) {
-  embedImages.value = enabled;
-  await embedImagesItem.setValue(enabled);
-  successMessage.value = enabled ? 'Image embedding enabled' : 'Image embedding disabled';
-  setTimeout(() => (successMessage.value = null), 1500);
-}
-
-async function updateNoCommentsMode(mode: 'popup' | 'inline') {
-  noCommentsMode.value = mode;
-  await noCommentsModeItem.setValue(mode);
-  successMessage.value = mode === 'popup' ? 'No comments mode set to Popup' : 'No comments mode set to Inline selection';
-  setTimeout(() => (successMessage.value = null), 1500);
-}
-
-async function updateCommentScale(scale: number) {
-  commentScale.value = scale;
-  await redditCommentScaleItem.setValue(scale);
-  successMessage.value = `Comment scale set to ${(scale * 100).toFixed(0)}%`;
-  setTimeout(() => (successMessage.value = null), 1500);
-}
-
-async function updateRedditEditorMode(mode: RedditEditorMode) {
-  redditEditorMode.value = mode;
-  await redditEditorModeItem.setValue(mode);
-  successMessage.value = mode === 'editor' ? 'Rich editor enabled' : 'Plain markdown box enabled';
-  setTimeout(() => (successMessage.value = null), 1500);
+function formatSliderValue(setting: SettingDefinition, value: SettingValueMap[SettingKey]) {
+  if (setting.type !== 'slider') return '';
+  if (setting.formatValue) return setting.formatValue(value);
+  return `${(Number(value) * 100).toFixed(0)}%`;
 }
 
 function openFeedbackForm() {
@@ -279,8 +422,7 @@ function handleFeedbackMessage(event: MessageEvent) {
   const data = event.data || {};
 
   if (data?.type === 'hayami-feedback-submitted') {
-    successMessage.value = 'Thanks for the feedback!';
-    setTimeout(() => (successMessage.value = null), 2000);
+    showSuccess('Thanks for the feedback!');
     closeFeedbackForm();
   }
 
@@ -301,7 +443,7 @@ function handleStorageChange(
 ) {
   if (areaName !== 'sync') return;
   if ('hayamiPlusApiKey' in changes || 'hayamiPlusSubscriptionId' in changes) {
-    loadHayamiPlusStatus();
+    reloadSetting('hayamiPlusApiKey');
   }
 }
 
@@ -467,111 +609,235 @@ function handleAniListLogout() {
           </section>
 
           <section v-else-if="currentView === 'settings'" key="settings" class="space-y-4">
-            <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
-              <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
-                <span class="text-2xl">⚙️</span>
-                <span>Settings</span>
-              </div>
-
-              <div class="space-y-3 text-white/90">
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div>
-                    <p class="text-sm text-white/80">Default display mode</p>
-                    <p class="text-xs text-white/60">Used on manual override sites with no saved config</p>
-                  </div>
-                  <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="displayMode" @change="(e) => updateDisplayMode((e.target as HTMLSelectElement).value as DisplayModeOption)">
-                    <option v-for="mode in displayModeOptions" :key="mode.value" :value="mode.value" class="bg-[#1f2329]">{{ mode.label }}</option>
-                  </select>
+            <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md text-white/90">
+              <template v-if="settingsScreen === 'menu'">
+                <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
+                  <img :src="generalIcon" alt="Settings" class="h-6 w-6 settings-icon" />
+                  <span>Settings</span>
                 </div>
 
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div>
-                    <p class="text-sm text-white/80">Image embeds</p>
-                    <p class="text-xs text-white/60">Auto-embed Imgur links</p>
-                  </div>
-                  <label class="relative inline-flex items-center">
-                    <input type="checkbox" class="peer sr-only" :checked="embedImages" @change="(e) => updateEmbedImages((e.target as HTMLInputElement).checked)" />
-                    <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                  </label>
+                <div class="rounded-2xl bg-white/5 p-3 space-y-2">
+                  <button
+                    v-for="item in settingsNavItems"
+                    :key="item.id"
+                    class="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-lg font-semibold transition hover:bg-white/10"
+                    @click="selectedSettingsCategory = item.id; settingsScreen = item.kind === 'providers' ? 'providers' : 'category'"
+                  >
+                    <img :src="item.icon" :alt="item.label" class="h-6 w-6 settings-icon" />
+                    <span>{{ item.label }}</span>
+                  </button>
                 </div>
+              </template>
 
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div>
-                    <p class="text-sm text-white/80">No comments mode</p>
-                    <p class="text-xs text-white/60">Fallback when nothing is found</p>
-                  </div>
-                  <div class="flex gap-2 text-sm font-semibold">
-                    <button class="rounded-lg px-3 py-2" :class="noCommentsMode === 'popup' ? 'bg-white/15' : 'bg-white/5'" @click="updateNoCommentsMode('popup')">Popup</button>
-                    <button class="rounded-lg px-3 py-2" :class="noCommentsMode === 'inline' ? 'bg-white/15' : 'bg-white/5'" @click="updateNoCommentsMode('inline')">Inline</button>
+              <template v-else-if="settingsScreen === 'category' && activeSettingsCategory">
+                <div class="mb-3 flex items-center justify-between">
+                  <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
+                    <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
+                    <span>Back</span>
+                  </button>
+                  <div class="flex items-center gap-2 text-lg font-semibold">
+                    <img :src="activeSettingsCategory.icon" :alt="activeSettingsCategory.label" class="h-6 w-6 settings-icon" />
+                    <span>{{ activeSettingsCategory.label }}</span>
                   </div>
                 </div>
 
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div>
-                    <p class="text-sm text-white/80">Default comments provider</p>
-                    <p class="text-xs text-white/60">First provider loaded when opening the popup</p>
+                <div class="space-y-3">
+                  <template v-for="setting in activeSettingsCategory.settings" :key="setting.key">
+                    <div class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-4 py-3">
+                      <div v-if="setting.type !== 'apiKey'" class="flex-1">
+                        <p class="text-sm text-white/80">{{ setting.label }}</p>
+                        <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
+                      </div>
+                      <div v-else-if="setting.description" class="flex-1">
+                        <p class="text-xs text-white/60">{{ setting.description }}</p>
+                      </div>
+                      <div class="shrink-0">
+                        <template v-if="setting.type === 'select'">
+                          <select
+                            class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
+                            :value="settingValues[setting.key]"
+                            @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
+                          >
+                            <option
+                              v-for="option in setting.options"
+                              :key="option.value"
+                              :value="option.value"
+                              class="bg-[#1f2329]"
+                            >
+                              {{ option.label }}
+                            </option>
+                          </select>
+                        </template>
+
+                        <template v-else-if="setting.type === 'toggle'">
+                          <label class="relative inline-flex items-center">
+                            <input
+                              type="checkbox"
+                              class="peer sr-only"
+                              :checked="Boolean(settingValues[setting.key])"
+                              @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
+                            />
+                            <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                          </label>
+                        </template>
+
+                        <template v-else-if="setting.type === 'segmented'">
+                          <div class="flex gap-2 text-sm font-semibold">
+                            <button
+                              v-for="option in setting.options"
+                              :key="option.value"
+                              class="rounded-lg px-3 py-2"
+                              :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
+                              @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
+                            >
+                              {{ option.label }}
+                            </button>
+                          </div>
+                        </template>
+
+                        <template v-else-if="setting.type === 'slider'">
+                          <div class="flex items-center gap-3">
+                            <input
+                              type="range"
+                              :min="setting.min"
+                              :max="setting.max"
+                              :step="setting.step"
+                              :value="settingValues[setting.key] as number"
+                              @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
+                              class="w-24"
+                            />
+                            <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
+                          </div>
+                        </template>
+
+                        <template v-else-if="setting.type === 'apiKey'">
+                          <ApiKeyInput
+                            v-model="settingValues[setting.key]"
+                            :label="setting.label"
+                            :placeholder="setting.placeholder"
+                            @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
+                          />
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </div>
+              </template>
+
+              <template v-else>
+                <div class="mb-3 flex items-center justify-between">
+                  <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
+                    <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
+                    <span>Back</span>
+                  </button>
+                  <div class="flex items-center gap-2 text-lg font-semibold">
+                    <img :src="discussionPlatformsIcon" alt="Discussion platforms" class="h-6 w-6 settings-icon" />
+                    <span>Discussion platforms</span>
                   </div>
-                  <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="commentsProvider" @change="(e) => updateCommentsProvider((e.target as HTMLSelectElement).value as CommentProviderOption)">
-                    <option v-for="provider in commentProviderOptions" :key="provider.value" :value="provider.value" class="bg-[#1f2329]">{{ provider.label }}</option>
-                  </select>
                 </div>
 
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div>
-                    <p class="text-sm text-white/80">Reddit editor</p>
-                    <p class="text-xs text-white/60">Choose between rich editor or plain markdown box</p>
+                <div class="space-y-3">
+                  <div
+                    v-for="provider in providerSections"
+                    :key="provider.id"
+                    class="space-y-3 rounded-xl bg-white/5 px-3 py-3"
+                  >
+                    <div class="flex items-center gap-3">
+                      <img
+                        v-if="provider.icon"
+                        :src="provider.icon"
+                        :alt="provider.label"
+                        class="h-7 w-7 rounded-lg bg-white/5 p-1"
+                      />
+                      <div class="text-base font-semibold text-white/90">{{ provider.label }}</div>
+                    </div>
+
+                    <div v-if="provider.settings.length" class="space-y-3">
+                      <template v-for="setting in provider.settings" :key="setting.key">
+                        <div class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-3 py-3">
+                          <div v-if="setting.type !== 'apiKey'" class="flex-1">
+                            <p class="text-sm text-white/80">{{ setting.label }}</p>
+                            <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
+                          </div>
+                          <div v-else-if="setting.description" class="flex-1">
+                            <p class="text-xs text-white/60">{{ setting.description }}</p>
+                          </div>
+                          <div class="shrink-0">
+                            <template v-if="setting.type === 'select'">
+                              <select
+                                class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
+                                :value="settingValues[setting.key]"
+                                @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
+                              >
+                                <option
+                                  v-for="option in setting.options"
+                                  :key="option.value"
+                                  :value="option.value"
+                                  class="bg-[#1f2329]"
+                                >
+                                  {{ option.label }}
+                                </option>
+                              </select>
+                            </template>
+
+                            <template v-else-if="setting.type === 'toggle'">
+                              <label class="relative inline-flex items-center">
+                                <input
+                                  type="checkbox"
+                                  class="peer sr-only"
+                                  :checked="Boolean(settingValues[setting.key])"
+                                  @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
+                                />
+                                <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                              </label>
+                            </template>
+
+                            <template v-else-if="setting.type === 'segmented'">
+                              <div class="flex gap-2 text-sm font-semibold">
+                                <button
+                                  v-for="option in setting.options"
+                                  :key="option.value"
+                                  class="rounded-lg px-3 py-2"
+                                  :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
+                                  @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
+                                >
+                                  {{ option.label }}
+                                </button>
+                              </div>
+                            </template>
+
+                            <template v-else-if="setting.type === 'slider'">
+                              <div class="flex items-center gap-3">
+                                <input
+                                  type="range"
+                                  :min="setting.min"
+                                  :max="setting.max"
+                                  :step="setting.step"
+                                  :value="settingValues[setting.key] as number"
+                                  @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
+                                  class="w-24"
+                                />
+                                <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
+                              </div>
+                            </template>
+
+                            <template v-else-if="setting.type === 'apiKey'">
+                              <ApiKeyInput
+                                v-model="settingValues[setting.key]"
+                                :label="setting.label"
+                                :placeholder="setting.placeholder"
+                                @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
+                              />
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+
+                    <p v-else class="text-xs text-white/60">No configurable settings yet.</p>
                   </div>
-                  <select class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30" :value="redditEditorMode" @change="(e) => updateRedditEditorMode((e.target as HTMLSelectElement).value as RedditEditorMode)">
-                    <option v-for="mode in redditEditorOptions" :key="mode.value" :value="mode.value" class="bg-[#1f2329]">{{ mode.label }}</option>
-                  </select>
                 </div>
-
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div>
-                    <p class="text-sm text-white/80">Comment scale</p>
-                    <p class="text-xs text-white/60">Size of embedded comment sections</p>
-                  </div>
-                  <div class="flex items-center gap-3">
-                    <input
-                      type="range"
-                      min="0.9"
-                      max="1.3"
-                      step="0.05"
-                      :value="commentScale"
-                      @input="(e) => updateCommentScale(parseFloat((e.target as HTMLInputElement).value))"
-                      class="w-24"
-                    />
-                    <span class="text-sm font-semibold text-white/80 w-12">{{ (commentScale * 100).toFixed(0) }}%</span>
-                  </div>
-                </div>
-
-                <ApiKeyInput
-                  v-model="hayamiPlusApiKey"
-                  label="Hayami Plus API key"
-                  placeholder="Enter Hayami Plus API key"
-                  :error="errorMessage?.includes('Hayami Plus') ? errorMessage : undefined"
-                  :success="successMessage?.includes('Hayami Plus') ? successMessage : undefined"
-                  @save="saveHayamiPlusApiKey"
-                />
-
-                <ApiKeyInput
-                  v-model="imgurClientId"
-                  label="Imgur Client ID"
-                  placeholder="Enter Imgur Client ID"
-                  :error="errorMessage?.includes('Imgur') ? errorMessage : undefined"
-                  :success="successMessage?.includes('Imgur') ? successMessage : undefined"
-                  @save="saveImgurClientId"
-                />
-
-                <ApiKeyInput
-                  v-model="imgchestApiKey"
-                  label="ImgChest API key"
-                  placeholder="Enter ImgChest API key"
-                  :error="errorMessage?.includes('ImgChest') ? errorMessage : undefined"
-                  :success="successMessage?.includes('ImgChest') ? successMessage : undefined"
-                  @save="saveImgchestApiKey"
-                />
-              </div>
+              </template>
             </div>
 
             <div class="pt-1 text-center text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
@@ -689,5 +955,9 @@ function handleAniListLogout() {
   75% {
     transform: translateY(-2px);
   }
+}
+
+.settings-icon {
+  filter: brightness(0) invert(1);
 }
 </style>
