@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue';
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useAccountManagement } from '@/composables/useAccountManagement';
 import {
   commentProviderOptions,
@@ -45,6 +45,17 @@ const feedbackButton = ref<HTMLButtonElement | null>(null);
 const showFeedbackFrame = ref(false);
 const feedbackFrameUrl = 'https://hayami.moe/appFeedb/feedbackiframe?source=hayami-extension';
 const feedbackAllowedOrigins = ['https://hayami.moe'];
+
+// Reset popup scroll when changing between views so each screen starts at the top
+watch(currentView, async () => {
+  await nextTick();
+  const target = document.scrollingElement || document.documentElement || document.body;
+  if (target?.scrollTo) {
+    target.scrollTo({ top: 0, behavior: 'auto' });
+  } else if (target) {
+    target.scrollTop = 0;
+  }
+});
 
 onMounted(async () => {
   await refreshAllAccounts();
