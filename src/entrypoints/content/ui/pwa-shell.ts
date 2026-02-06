@@ -2,6 +2,7 @@ import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { completeAniListImplicitGrant } from '@/utils/anilistAuth';
+import { completeMALRedirect } from '@/utils/malAuth';
 import { completeRedditRedirectCallback } from '@/utils/redditAuth';
 
 function resetPageChrome(): void {
@@ -175,6 +176,50 @@ async function handleRedditRedirect(ctx: ContentScriptContext): Promise<void> {
   });
 }
 
+async function handleMALRedirect(ctx: ContentScriptContext): Promise<void> {
+  resetPageChrome();
+  document.body.innerHTML = '';
+
+  const status = renderMessage('Completing MyAnimeList login...', 'Give us a second to save your session.');
+  document.body.append(status);
+
+  const result = await completeMALRedirect(window.location.href || '');
+
+  if (result.success) {
+    status.replaceWith(
+      renderMessage(
+        'MyAnimeList connected',
+        'You are all set! You can close this tab or head back to the Hayami popup.',
+        '#a5b4fc'
+      )
+    );
+
+    try {
+      await browser.runtime.sendMessage({ action: 'hayami_closeTab' });
+    } catch {}
+
+    try {
+      history.replaceState(null, '', `${window.location.origin}/pwa`);
+    } catch {}
+
+    setTimeout(() => {
+      window.location.href = `${window.location.origin}/pwa`;
+    }, 1200);
+  } else {
+    status.replaceWith(
+      renderMessage(
+        'MyAnimeList connection failed',
+        result.error || 'We could not complete the MyAnimeList login. Please try again.',
+        '#fca5a5'
+      )
+    );
+  }
+
+  ctx.onInvalidated(() => {
+    document.getElementById('hayami-pwa-shell')?.remove();
+  });
+}
+
 async function handleHayamiPlusRedirect(ctx: ContentScriptContext): Promise<void> {
   console.log('[HayamiPlus] Handling redirect for:', window.location.href);
   
@@ -247,6 +292,12 @@ export async function mountPwaShell(ctx: ContentScriptContext): Promise<void> {
   if (path.startsWith('/pwa/link/reddit')) {
     console.log('[PWA Shell] Handling Reddit redirect');
     await handleRedditRedirect(ctx);
+    return;
+  }
+
+  if (path.startsWith('/pwa/link/mal')) {
+    console.log('[PWA Shell] Handling MAL redirect');
+    await handleMALRedirect(ctx);
     return;
   }
 

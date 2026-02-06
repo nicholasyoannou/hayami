@@ -20,7 +20,7 @@ export default defineConfig({
   filterEntrypoints: filteredEntrypoints,
   manifest: {
     name: 'Hayami',
-    description: 'Bring communities to you through comments straight underneath anime episodes.',
+    description: 'Hayami aggregates forums and comments sections together bringing anime discussions right underneath streaming platforms to you.',
     permissions: [
       'identity',
       'storage',
@@ -35,7 +35,7 @@ export default defineConfig({
     optional_host_permissions: ['<all_urls>'],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
-      // Allow background/content extension pages to fetch Reddit APIs via proxy fetch.
+      // Allow background/content extension pages to fetch APIs via proxy fetch.
       extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' https: http:; frame-src 'self' https://hayami.moe;",
     },
     commands: {

@@ -268,8 +268,11 @@ export function useAccountManagement() {
     try {
       const result = await authenticateWithMAL();
       if (result.success) {
-        isMALLoggedIn.value = true;
-        updateAccountStates();
+        // MAL login completes after the redirect flow at /pwa/link/mal; poll shortly after.
+        setTimeout(() => {
+          checkMALAuth();
+          updateAccountStates();
+        }, 2000);
       }
     } catch (error) {
       console.error('MAL login error:', error);

@@ -9,11 +9,12 @@
  * 4. Refresh tokens with refresh_token when expired.
  */
 
-import { MAL_CLIENT_ID, MAL_REDIRECT_PATH, MAL_SCOPES, MAL_TOKEN_PROXY_URL } from '@/config';
+import { browser } from 'wxt/browser';
+import { MAL_CLIENT_ID, MAL_REDIRECT_URI, MAL_SCOPES, MAL_TOKEN_PROXY_URL } from '@/config';
 import { fetchHayami } from '@/utils/hayamiApi';
 
 const MAL_AUTH_ENDPOINT = 'https://myanimelist.net/v1/oauth2/authorize';
-const MAL_TOKEN_ENDPOINT = 'https://myanimelist.net/v1/oauth2/token';
+// Token endpoint handled via proxy to keep the client secret off the extension bundle.
 
 const STORAGE_KEYS = {
   accessToken: 'mal_access_token',
@@ -41,12 +42,6 @@ function generateRandomString(length = 64): string {
   return Array.from(array, (byte) => ('0' + byte.toString(16)).slice(-2)).join('');
 }
 
-function getRedirectUri(): string {
-  // chrome.identity.getRedirectURL appends a trailing slash automatically when a path is provided
-  // e.g., https://<ext>.chromiumapp.org/mal-auth/
-  return browser.identity.getRedirectURL(MAL_REDIRECT_PATH);
-}
-
 async function storeTokens(response: MalTokenResponse): Promise<void> {
   const expiryTime = Date.now() + response.expires_in * 1000;
   await browser.storage.local.set({
@@ -54,94 +49,6 @@ async function storeTokens(response: MalTokenResponse): Promise<void> {
     [STORAGE_KEYS.refreshToken]: response.refresh_token,
     [STORAGE_KEYS.tokenExpiry]: expiryTime,
   });
-}
-
-function parseHashParams(hash: string): Record<string, string> {
-  const params = new URLSearchParams(hash.replace(/^#/, ''));
-  const out: Record<string, string> = {};
-  for (const [k, v] of params.entries()) out[k] = v;
-  return out;
-}
-
-async function launchAuthFlow(redirectUri: string): Promise<{ responseUrl: string | null; redirectUsed: string }> {
-  const state = generateRandomString(32);
-  const codeVerifier = generateRandomString(64);
-
-  await browser.storage.local.set({
-    [STORAGE_KEYS.oauthState]: state,
-    [STORAGE_KEYS.codeVerifier]: codeVerifier,
-  });
-
-  const authUrl = new URL(MAL_AUTH_ENDPOINT);
-  authUrl.searchParams.set('response_type', 'code');
-  authUrl.searchParams.set('client_id', MAL_CLIENT_ID);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('state', state);
-  authUrl.searchParams.set('scope', MAL_SCOPES || 'read');
-  // MAL supports only plain PKCE per docs
-  authUrl.searchParams.set('code_challenge', codeVerifier);
-  authUrl.searchParams.set('code_challenge_method', 'plain');
-
-  console.log('[MAL] Launching auth flow:', authUrl.toString());
-
-  const responseUrl = await browser.identity
-    .launchWebAuthFlow({
-      url: authUrl.toString(),
-      interactive: true,
-    })
-    .catch((err) => {
-      console.warn('[MAL] launchWebAuthFlow error:', err);
-      throw err;
-    });
-
-  return { responseUrl, redirectUsed: redirectUri };
-}
-
-async function launchImplicitFlow(redirectUri: string): Promise<{ accessToken: string | null; expiresIn?: number; redirectUsed: string }> {
-  const state = generateRandomString(32);
-
-  const authUrl = new URL(MAL_AUTH_ENDPOINT);
-  authUrl.searchParams.set('response_type', 'token');
-  authUrl.searchParams.set('client_id', MAL_CLIENT_ID);
-  authUrl.searchParams.set('redirect_uri', redirectUri);
-  authUrl.searchParams.set('state', state);
-  authUrl.searchParams.set('scope', MAL_SCOPES || 'read');
-
-  console.log('[MAL] Launching implicit auth flow:', authUrl.toString());
-
-  const responseUrl = await browser.identity
-    .launchWebAuthFlow({
-      url: authUrl.toString(),
-      interactive: true,
-    })
-    .catch((err) => {
-      console.warn('[MAL] launchWebAuthFlow implicit error:', err);
-      throw err;
-    });
-
-  if (!responseUrl) {
-    return { accessToken: null, redirectUsed: redirectUri };
-  }
-
-  const urlObj = new URL(responseUrl);
-  const hash = urlObj.hash || '';
-  const hashParams = parseHashParams(hash);
-  const returnedState = hashParams['state'];
-  const accessToken = hashParams['access_token'] || null;
-  const expiresInStr = hashParams['expires_in'];
-  const expiresIn = expiresInStr ? Number(expiresInStr) : undefined;
-  const authError = hashParams['error'];
-
-  if (authError) {
-    return { accessToken: null, redirectUsed: redirectUri };
-  }
-
-  if (state !== returnedState) {
-    console.warn('[MAL] State mismatch in implicit flow');
-    return { accessToken: null, redirectUsed: redirectUri };
-  }
-
-  return { accessToken, expiresIn, redirectUsed: redirectUri };
 }
 
 async function exchangeViaProxy(body: Record<string, string>): Promise<MalTokenResponse | null> {
@@ -172,60 +79,71 @@ export async function authenticateWithMAL(): Promise<MalAuthResult> {
       return { success: false, error: 'MAL client ID is not configured' };
     }
 
-    const primaryRedirect = getRedirectUri();
-    const trailingRedirect = primaryRedirect.endsWith('/') ? null : `${primaryRedirect}/`;
-    const rootRedirect = `https://${browser.runtime.id}.chromiumapp.org/`;
-    const redirectCandidates = [primaryRedirect, trailingRedirect, rootRedirect].filter(Boolean) as string[];
-
-    // First, try implicit flow to avoid CORS on token endpoint
-    for (const candidate of redirectCandidates) {
-      try {
-        const imp = await launchImplicitFlow(candidate);
-        if (imp.accessToken) {
-          const expires = imp.expiresIn ?? 3600;
-          await storeTokens({ access_token: imp.accessToken, token_type: 'Bearer', expires_in: expires });
-          return { success: true };
-        }
-      } catch (err) {
-        console.warn(`[MAL] Implicit auth failed for redirect ${candidate}, trying next...`, err);
-      }
+    if (!MAL_REDIRECT_URI) {
+      return { success: false, error: 'MAL redirect URI is not configured' };
     }
 
-    // Fallback: code flow via proxy (server-side handles CORS)
-    let launchResult: { responseUrl: string | null; redirectUsed: string } | null = null;
-    let lastError: any = null;
+    const state = generateRandomString(32);
+    const codeVerifier = generateRandomString(64);
 
-    for (const candidate of redirectCandidates) {
-      try {
-        launchResult = await launchAuthFlow(candidate);
-        break;
-      } catch (err) {
-        lastError = err;
-        console.warn(`[MAL] Auth launch failed for redirect ${candidate}, trying next...`, err);
-      }
+    await browser.storage.local.set({
+      [STORAGE_KEYS.oauthState]: state,
+      [STORAGE_KEYS.codeVerifier]: codeVerifier,
+    });
+
+    const authUrl = new URL(MAL_AUTH_ENDPOINT);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('client_id', MAL_CLIENT_ID);
+    authUrl.searchParams.set('redirect_uri', MAL_REDIRECT_URI);
+    authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('scope', MAL_SCOPES || 'read');
+    authUrl.searchParams.set('code_challenge', codeVerifier);
+    authUrl.searchParams.set('code_challenge_method', 'plain');
+
+    const urlStr = authUrl.toString();
+
+    if (browser?.windows?.create) {
+      await browser.windows.create({
+        url: urlStr,
+        type: 'popup',
+        width: 520,
+        height: 760,
+        left: Math.round(window.screenX + (window.outerWidth - 520) / 2),
+        top: Math.round(window.screenY + (window.outerHeight - 760) / 2),
+      });
+    } else if (browser?.tabs?.create) {
+      await browser.tabs.create({ url: urlStr, active: true });
+    } else {
+      window.open(urlStr, '_blank', 'noopener');
     }
 
-    if (!launchResult) {
-      return {
-        success: false,
-        error:
-          'Authorization page could not be loaded. Verify the redirect URL in MAL app settings matches the extension ID.',
-      };
+    return {
+      success: true,
+      message: 'MAL login opened in a new tab. Complete it to finish connecting.',
+    };
+  } catch (error) {
+    console.error('MAL authentication error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Authentication failed. Please try again.' };
+  }
+}
+
+export async function completeMALRedirect(url: string): Promise<MalAuthResult> {
+  try {
+    if (!MAL_REDIRECT_URI) {
+      return { success: false, error: 'MAL redirect URI is not configured' };
     }
 
-    const { responseUrl, redirectUsed } = launchResult;
-
-    if (!responseUrl) {
-      return { success: false, error: 'Authorization was cancelled or could not be loaded' };
-    }
-
-    const url = new URL(responseUrl);
-    const code = url.searchParams.get('code');
-    const returnedState = url.searchParams.get('state');
-    const authError = url.searchParams.get('error');
+    const parsed = new URL(url);
+    const code = parsed.searchParams.get('code');
+    const returnedState = parsed.searchParams.get('state');
+    const authError = parsed.searchParams.get('error');
 
     if (authError) {
       return { success: false, error: `Authorization denied: ${authError}` };
+    }
+
+    if (!code) {
+      return { success: false, error: 'No authorization code returned from MAL' };
     }
 
     const { [STORAGE_KEYS.oauthState]: storedState, [STORAGE_KEYS.codeVerifier]: storedVerifier } =
@@ -234,20 +152,18 @@ export async function authenticateWithMAL(): Promise<MalAuthResult> {
     if (!storedState || returnedState !== storedState) {
       return { success: false, error: 'Security validation failed' };
     }
-    if (!code || !storedVerifier) {
-      return { success: false, error: 'No authorization code received' };
+    if (!storedVerifier) {
+      return { success: false, error: 'PKCE verifier missing; please retry login' };
     }
 
-    const tokenRes = await exchangeCodeForToken(code, storedVerifier, redirectUsed);
+    const tokenRes = await exchangeCodeForToken(code, storedVerifier, MAL_REDIRECT_URI);
     if (!tokenRes.success) return tokenRes;
 
-    // Cleanup transient values
     await browser.storage.local.remove([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
-
     return { success: true };
   } catch (error) {
-    console.error('MAL authentication error:', error);
-    return { success: false, error: error instanceof Error ? error.message : 'Authentication failed. Please try again.' };
+    console.error('MAL redirect completion error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Could not complete MAL login' };
   }
 }
 

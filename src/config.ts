@@ -67,12 +67,12 @@ export const ANILIST_REDIRECT_URI = 'https://hayami.moe/pwa/link/anilist';
  * MyAnimeList OAuth Configuration (PKCE, public client)
  *
  * App type: "Other" with PKCE enabled.
- * Redirect URI: https://<YOUR_EXTENSION_ID>.chromiumapp.org/mal-auth
+ * Redirect URI: https://hayami.moe/pwa/link/mal
  *
  * NOTE: Do NOT embed the client secret in the extension. PKCE is sufficient.
  */
 export const MAL_CLIENT_ID = '0f60d77af3199d3bfbb4a305d9070d1f';
-export const MAL_REDIRECT_PATH = 'mal-auth';
+export const MAL_REDIRECT_URI = 'https://hayami.moe/pwa/link/mal';
 export const MAL_SCOPES = 'read';
 
 /**
