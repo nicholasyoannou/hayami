@@ -7,10 +7,11 @@
  * 3. IMPORTANT: Choose "installed app" type (not script or web app)
  * 4. Set redirect URI to: https://<YOUR_EXTENSION_ID>.chromiumapp.org/
  * 5. Copy your client ID (shown under the app name)
- * 6. Replace the value below with your actual client ID
+ * 6. Enter this Client ID in the extension UI (Settings → Discussion platforms → Reddit)
  */
 
-export const REDDIT_CLIENT_ID = 'YOUR_REDDIT_CLIENT_ID';
+// Leave blank to browse Reddit without OAuth; users provide their own Client ID in Settings.
+export const REDDIT_CLIENT_ID = '';
 export const REDDIT_REDIRECT_URI = 'https://hayami.moe/pwa/link/reddit';
 
 /**

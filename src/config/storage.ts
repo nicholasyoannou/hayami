@@ -39,6 +39,11 @@ export const imgchestApiKeyItem = storage.defineItem<string | null>(
   { fallback: null }
 );
 
+export const redditClientIdItem = storage.defineItem<string | null>(
+  'local:reddit_client_id',
+  { fallback: null }
+);
+
 // Generic helpers for popup auth-less tokens
 export const onboardingCompleteItem = storage.defineItem<boolean>(
   'local:onboarding_complete',

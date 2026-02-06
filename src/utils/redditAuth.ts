@@ -8,15 +8,13 @@
  */
 
 import { REDDIT_CLIENT_ID, REDDIT_SCOPES, REDDIT_DURATION, REDDIT_REDIRECT_URI } from '@/config';
+import { redditClientIdItem } from '@/config/storage';
 
-// Validate configuration
-if (!REDDIT_CLIENT_ID || REDDIT_CLIENT_ID.length === 0) {
-  throw new Error('Reddit client ID is not configured. Please update config.ts');
-}
+const DEFAULT_CLIENT_ID = (REDDIT_CLIENT_ID || '').trim();
+const CLIENT_ID_REQUIRED_MESSAGE = 'Add your Reddit Client ID in Settings -> Discussion platforms -> Reddit before logging in.';
 
-// Reddit OAuth Configuration
-const REDDIT_CONFIG = {
-  clientId: REDDIT_CLIENT_ID,
+// Reddit OAuth base configuration (clientId is resolved at runtime)
+const REDDIT_CONFIG_BASE = {
   redirectUri: REDDIT_REDIRECT_URI,
   scope: REDDIT_SCOPES,
   duration: REDDIT_DURATION,
@@ -25,6 +23,24 @@ const REDDIT_CONFIG = {
   revokeEndpoint: 'https://www.reddit.com/api/v1/revoke_token',
   apiBase: 'https://oauth.reddit.com',
 };
+
+async function resolveClientId(): Promise<string | null> {
+  try {
+    const stored = await redditClientIdItem.getValue();
+    const trimmed = (stored || '').trim();
+    if (trimmed) return trimmed;
+  } catch (err) {
+    console.warn('Failed to read stored Reddit client ID', err);
+  }
+  const fallback = DEFAULT_CLIENT_ID;
+  return fallback ? fallback : null;
+}
+
+async function getRedditConfig(): Promise<(typeof REDDIT_CONFIG_BASE) & { clientId: string } | null> {
+  const clientId = await resolveClientId();
+  if (!clientId) return null;
+  return { ...REDDIT_CONFIG_BASE, clientId };
+}
 
 // Storage keys
 const STORAGE_KEYS = {
@@ -64,16 +80,24 @@ function generateState(): string {
  */
 export async function authenticateWithReddit(): Promise<RedditAuthResult> {
   try {
+    const config = await getRedditConfig();
+    if (!config) {
+      return {
+        success: false,
+        error: CLIENT_ID_REQUIRED_MESSAGE,
+      };
+    }
+
     const state = generateState();
     await browser.storage.local.set({ oauth_state: state });
 
-    const authUrl = new URL(REDDIT_CONFIG.authEndpoint);
-    authUrl.searchParams.set('client_id', REDDIT_CONFIG.clientId);
+    const authUrl = new URL(config.authEndpoint);
+    authUrl.searchParams.set('client_id', config.clientId);
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('state', state);
-    authUrl.searchParams.set('redirect_uri', REDDIT_CONFIG.redirectUri);
-    authUrl.searchParams.set('duration', REDDIT_CONFIG.duration);
-    authUrl.searchParams.set('scope', REDDIT_CONFIG.scope);
+    authUrl.searchParams.set('redirect_uri', config.redirectUri);
+    authUrl.searchParams.set('duration', config.duration);
+    authUrl.searchParams.set('scope', config.scope);
 
     const urlStr = authUrl.toString();
 
@@ -111,15 +135,20 @@ export async function authenticateWithReddit(): Promise<RedditAuthResult> {
  */
 export async function exchangeCodeForToken(code: string): Promise<RedditAuthResult> {
   try {
+    const config = await getRedditConfig();
+    if (!config) {
+      return { success: false, error: CLIENT_ID_REQUIRED_MESSAGE };
+    }
+
     const formData = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
-      redirect_uri: REDDIT_CONFIG.redirectUri,
+      redirect_uri: config.redirectUri,
     });
 
-    const basicAuth = btoa(`${REDDIT_CONFIG.clientId}:`);
+    const basicAuth = btoa(`${config.clientId}:`);
 
-    const response = await fetch(REDDIT_CONFIG.tokenEndpoint, {
+    const response = await fetch(config.tokenEndpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${basicAuth}`,
@@ -222,14 +251,20 @@ export async function getAccessToken(): Promise<string | null> {
  */
 async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   try {
+    const config = await getRedditConfig();
+    if (!config) {
+      console.error('Reddit client ID missing; cannot refresh token');
+      return null;
+    }
+
     const formData = new URLSearchParams({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     });
 
-    const basicAuth = btoa(`${REDDIT_CONFIG.clientId}:`);
+    const basicAuth = btoa(`${config.clientId}:`);
 
-    const response = await fetch(REDDIT_CONFIG.tokenEndpoint, {
+    const response = await fetch(config.tokenEndpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${basicAuth}`,
@@ -271,7 +306,7 @@ async function getRedditUsername(): Promise<string | null> {
       return null;
     }
 
-    const response = await fetch(`${REDDIT_CONFIG.apiBase}/api/v1/me`, {
+    const response = await fetch(`${REDDIT_CONFIG_BASE.apiBase}/api/v1/me`, {
       headers: {
         'Authorization': `bearer ${accessToken}`,
         'Accept': 'application/json',
@@ -376,14 +411,20 @@ export async function logout(): Promise<void> {
  */
 async function revokeToken(token: string, tokenType: string): Promise<void> {
   try {
+    const config = await getRedditConfig();
+    if (!config) {
+      console.error('Reddit client ID missing; cannot revoke token');
+      return;
+    }
+
     const formData = new URLSearchParams({
       token,
       token_type_hint: tokenType,
     });
 
-    const basicAuth = btoa(`${REDDIT_CONFIG.clientId}:`);
+    const basicAuth = btoa(`${config.clientId}:`);
 
-    await fetch(REDDIT_CONFIG.revokeEndpoint, {
+    await fetch(config.revokeEndpoint, {
       method: 'POST',
       headers: {
         'Authorization': `Basic ${basicAuth}`,
@@ -411,7 +452,7 @@ export async function makeRedditRequest<T>(
     }
 
     const makeRequest = async (token: string) => {
-      return fetch(`${REDDIT_CONFIG.apiBase}${endpoint}`, {
+      return fetch(`${REDDIT_CONFIG_BASE.apiBase}${endpoint}`, {
         ...options,
         headers: {
           ...options.headers,

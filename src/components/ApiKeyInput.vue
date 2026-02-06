@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
+import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 
 interface Props {
   modelValue?: string;
@@ -10,6 +11,7 @@ interface Props {
   loading?: boolean;
   error?: string;
   success?: string;
+  infoUrl?: string;
 }
 
 interface Emits {
@@ -24,7 +26,8 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
   loading: false,
   error: '',
-  success: ''
+  success: '',
+  infoUrl: undefined
 });
 
 const emit = defineEmits<Emits>();
@@ -49,7 +52,19 @@ const handleKeydown = (event: KeyboardEvent) => {
 
 <template>
   <div class="api-key-input">
-    <label class="api-key-input__label">{{ label }}</label>
+    <label class="api-key-input__label">
+      <span>{{ label }}</span>
+      <a
+        v-if="infoUrl"
+        :href="infoUrl"
+        target="_blank"
+        rel="noreferrer"
+        class="api-key-input__info"
+        aria-label="Open documentation"
+      >
+        <img :src="infoIcon" alt="info" class="api-key-input__info-icon" />
+      </a>
+    </label>
     <div class="api-key-input__container">
       <input
         :type="type"
@@ -94,6 +109,34 @@ const handleKeydown = (event: KeyboardEvent) => {
   font-size: 14px;
   color: rgba(255, 255, 255, 0.8);
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.api-key-input__info {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.65);
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 2px;
+  line-height: 18px;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.api-key-input__info:hover {
+  color: white;
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.api-key-input__info-icon {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .api-key-input__container {

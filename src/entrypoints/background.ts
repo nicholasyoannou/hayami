@@ -5,6 +5,96 @@ import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALA
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
 
+async function unregisterContentScriptsForHost(host: string): Promise<void> {
+  const scripting = (browser as any).scripting;
+  if (!scripting?.getRegisteredContentScripts || !scripting?.unregisterContentScripts) return;
+
+  try {
+    const scripts = await scripting.getRegisteredContentScripts();
+    const idsToRemove = (scripts || [])
+      .filter((script: any) => (script.matches || []).some((m: string) => m.includes(host)))
+      .map((script: any) => script.id)
+      .filter(Boolean);
+
+    if (idsToRemove.length > 0) {
+      for (const id of idsToRemove) {
+        try {
+          await scripting.unregisterContentScripts({ ids: [id] });
+        } catch {
+          // ignore missing ids
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('[background] Failed to unregister content scripts for host', host, error);
+  }
+}
+
+async function removeHostPermissionPatterns(patterns: string[]): Promise<{ pattern: string; removed: boolean; error?: string }[]> {
+  const permissions = browser.permissions;
+  if (!permissions?.remove) return patterns.map((pattern) => ({ pattern, removed: false, error: 'permissions.remove unavailable' }));
+
+  const results: { pattern: string; removed: boolean; error?: string }[] = [];
+  for (const pattern of patterns) {
+    await new Promise<void>((resolve) => {
+      try {
+        permissions.remove({ origins: [pattern] }, (removed) => {
+          const err = (browser as any).runtime?.lastError?.message;
+          results.push({ pattern, removed: Boolean(removed), error: err || undefined });
+          resolve();
+        });
+      } catch (error) {
+        results.push({ pattern, removed: false, error: error instanceof Error ? error.message : String(error) });
+        resolve();
+      }
+    });
+  }
+  return results;
+}
+
+async function purgeHostPermissionsForHost(host: string, origin?: string) {
+  const patterns = new Set<string>();
+  const add = (p?: string | null) => { if (p) patterns.add(p); };
+
+  // Derived patterns
+  add(origin ? `${origin}/*` : null);
+  add(`https://${host}/*`);
+  add(`http://${host}/*`);
+  add(`*://${host}/*`);
+  add(`https://*.${host}/*`);
+  add(`http://*.${host}/*`);
+  add(`*://*.${host}/*`);
+
+  // Collect any existing granted origins containing the host
+  try {
+    const all = await browser.permissions.getAll();
+    for (const o of all?.origins || []) {
+      if (o.includes(host)) add(o);
+    }
+  } catch {
+    // ignore
+  }
+
+  const removalResults = await removeHostPermissionPatterns([...patterns]);
+
+  let unregisterError: string | undefined;
+  try {
+    await unregisterContentScriptsForHost(host);
+  } catch (err) {
+    unregisterError = err instanceof Error ? err.message : String(err);
+  }
+
+  let remainingOrigins: string[] = [];
+  try {
+    const allAfter = await browser.permissions.getAll();
+    remainingOrigins = allAfter?.origins || [];
+  } catch {
+    // ignore
+  }
+
+  return { removalResults, unregisterError, remainingOrigins };
+}
+
 const POLL_RULE_ID = 99001;
 const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
 
@@ -196,6 +286,46 @@ export default defineBackground(() => {
       }
       sendResponse({ ok: true });
       return false;
+    }
+
+    if (message.action === 'hayami_unregister_scripts_for_host') {
+      (async () => {
+        try {
+          const host = message.host as string;
+          if (host) {
+            await unregisterContentScriptsForHost(host);
+          }
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_remove_host_access') {
+      (async () => {
+        try {
+          const origin = (message.origin as string) || '';
+          if (!origin) {
+            sendResponse({ ok: false, error: 'missing_origin' });
+            return;
+          }
+
+          let host: string;
+          try {
+            host = new URL(origin).host;
+          } catch {
+            host = origin;
+          }
+
+          const result = await purgeHostPermissionsForHost(host, origin);
+          sendResponse({ ok: true, ...result, host });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
     }
 
     // Handle other async messages

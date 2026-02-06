@@ -187,14 +187,16 @@ export function useAccountManagement() {
     
     try {
       const result = await authenticateWithReddit();
-      if (result.success) {
-        isLoggedIn.value = true;
-        username.value = result.username || null;
-        profilePic.value = await getStoredProfilePic();
-        updateAccountStates();
+      if (!result.success) {
+        throw new Error(result.error || 'Reddit login failed');
       }
+      isLoggedIn.value = true;
+      username.value = result.username || null;
+      profilePic.value = await getStoredProfilePic();
+      updateAccountStates();
     } catch (error) {
       console.error('Reddit login error:', error);
+      throw error;
     } finally {
       if (account) account.isLoading = false;
     }

@@ -70,7 +70,9 @@ function mountPopupFrame(ctx: ContentScriptContext): void {
   shell.style.zIndex = '2147483000';
 
   const iframe = document.createElement('iframe');
-  iframe.src = getRuntimeUrl('popup.html');
+  const search = window.location.search || '';
+  const hash = window.location.hash || '';
+  iframe.src = `${getRuntimeUrl('popup.html')}${search}${hash}`;
   iframe.allow = 'clipboard-read; clipboard-write';
   iframe.style.width = '100%';
   iframe.style.height = '100%';
