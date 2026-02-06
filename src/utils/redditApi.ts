@@ -598,13 +598,19 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
       .filter((t: any) => t && t.kind === 't1')
       .map((t: any) => {
         const d = t.data;
+        const legacyMeta = (!d.author || !d.created_utc) ? parseLegacyContentMeta(d.contentHTML || d.content || '') : null;
+        const createdUtc = typeof d.created_utc === 'number'
+          ? d.created_utc
+          : typeof legacyMeta?.createdUtc === 'number'
+            ? legacyMeta.createdUtc
+            : Math.round(Date.now() / 1000);
         const c: RedditComment = {
           id: d.id,
-          author: d.author,
-          body: d.body,
-          body_html: d.body_html,
-          score: d.score,
-          created_utc: d.created_utc,
+          author: d.author || legacyMeta?.author || '[deleted]',
+          body: d.body || d.contentText || '',
+          body_html: d.body_html || d.contentHTML || null,
+          score: typeof d.score === 'number' ? d.score : d.score_hidden ? 0 : Number(d.score) || 0,
+          created_utc: createdUtc,
           edited: d.edited,
           likes: d.likes,
           author_flair_text: d.author_flair_text || null,
@@ -666,12 +672,37 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
   }
 }
 
+function parseLegacyContentMeta(content: string): { author?: string; createdUtc?: number } | null {
+  if (!content) return null;
+  try {
+    const authorMatch = content.match(/data-author="([^"]+)"/);
+    const datetimeMatch = content.match(/datetime="([^"]+)"/);
+    const author = authorMatch ? authorMatch[1] : undefined;
+    let createdUtc: number | undefined;
+    if (datetimeMatch) {
+      const ms = Date.parse(datetimeMatch[1]);
+      if (!Number.isNaN(ms)) {
+        createdUtc = Math.round(ms / 1000);
+      }
+    }
+    return { author, createdUtc };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fetch a user's avatar (snoovatar or icon image)
  */
+const userAvatarCache = new Map<string, string | null>();
+
 export async function getUserAvatar(username: string): Promise<string | null> {
   try {
     if (!username) return null;
+    const cacheKey = username.toLowerCase();
+    if (userAvatarCache.has(cacheKey)) {
+      return userAvatarCache.get(cacheKey) || null;
+    }
     // Avoid hitting reddit.com/about for unauthenticated requests (this can spam /about and trigger 429).
     // Strategy:
     //  - If we have an OAuth token, use the authenticated API to fetch the user's about info.
@@ -684,23 +715,51 @@ export async function getUserAvatar(username: string): Promise<string | null> {
       const url = data?.snoovatar_img || data?.icon_img || null;
       if (!url) {
         // No avatar found, use default snoovatar background
-        return 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+        const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+        userAvatarCache.set(cacheKey, fallback);
+        return fallback;
       }
-      return normalizeAvatarCdnUrl(String(url));
+      const normalized = normalizeAvatarCdnUrl(String(url).replace(/&amp;/g, '&'));
+      userAvatarCache.set(cacheKey, normalized);
+      return normalized;
     }
 
     // No token: try to return a cached profile pic if present (avoid network calls)
     try {
       const stored = await browser.storage.local.get('reddit_profile_pic');
       const pic = stored?.reddit_profile_pic;
-      if (pic) return String(pic);
+      if (pic) {
+        const normalized = normalizeAvatarCdnUrl(String(pic));
+        userAvatarCache.set(cacheKey, normalized);
+        return normalized;
+      }
+    } catch {}
+
+    // No token and no stored avatar: try a public about.json using browser cookies/session
+    try {
+      const resp = await extensionFetch(
+        `https://www.reddit.com/user/${encodeURIComponent(username)}/about.json?raw_json=1`,
+        { credentials: 'include' } as any,
+      );
+      if (resp.ok) {
+        const data = await resp.json();
+        const url = data?.data?.snoovatar_img || data?.data?.icon_img;
+        if (url) {
+          const normalized = normalizeAvatarCdnUrl(String(url).replace(/&amp;/g, '&'));
+          userAvatarCache.set(cacheKey, normalized);
+          return normalized;
+        }
+      }
     } catch {}
 
     // Fallback: return Reddit's default snoovatar background image
-    return 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+    const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+    userAvatarCache.set(cacheKey, fallback);
+    return fallback;
   } catch (e) {
     // On error, return default snoovatar background
-    return 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+    const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+    return fallback;
   }
 }
 
