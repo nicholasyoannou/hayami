@@ -6,11 +6,13 @@ import {
   isYouTubeLink,
   extractYouTubeId,
 } from '@/composables/useImagePreview';
+import { browser } from 'wxt/browser';
 import { detectUserInUK } from '@/entrypoints/content/images/imgur';
 import { extensionFetch } from '@/utils/redditApi';
-import { imgchestApiKeyItem, imgurClientIdItem } from '@/config/storage';
+import { embedImagesItem, imgchestApiKeyItem, imgurClientIdItem } from '@/config/storage';
 
 let cachedImgchestApiKey: string | null | undefined;
+let embedImagesEnabled = true;
 
 async function getImgurClientId(): Promise<string | null> {
   try {
@@ -31,6 +33,19 @@ async function getImgchestApiKey(): Promise<string | null> {
     console.warn('[preview] Failed to read ImgChest API key', e);
     cachedImgchestApiKey = null;
     return null;
+  }
+}
+
+async function refreshEmbedImagesEnabled(preview: ReturnType<typeof useImagePreview>): Promise<void> {
+  try {
+    embedImagesEnabled = Boolean(await embedImagesItem.getValue());
+  } catch (e) {
+    console.warn('[preview] Failed to read embed images toggle', e);
+    embedImagesEnabled = true;
+  }
+
+  if (!embedImagesEnabled) {
+    preview.hidePreview();
   }
 }
 
@@ -94,8 +109,24 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   const preview = useImagePreview();
   const add = ctx.addEventListener.bind(ctx);
 
+  // initialize embed-images flag and keep in sync with storage
+  refreshEmbedImagesEnabled(preview);
+  const storageListener = (
+    changes: Record<string, browser.storage.StorageChange>,
+    areaName: browser.storage.StorageName,
+  ) => {
+    if (areaName !== 'local') return;
+    const changed = Object.keys(changes || {}).some((key) => key.includes('embed_images'));
+    if (changed) refreshEmbedImagesEnabled(preview);
+  };
+  browser.storage.onChanged.addListener(storageListener);
+
   // Hover preview for image anchors in rendered comments
   add(document, 'mouseover', async (ev) => {
+    if (!embedImagesEnabled) {
+      preview.hidePreview();
+      return;
+    }
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
     if (!a.closest('.ri-text')) return; // only inside comment bodies
@@ -329,7 +360,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   });
 
   add(document, 'mousemove', (ev) => {
-    if (!preview.isActive) return;
+    if (!embedImagesEnabled || !preview.isActive) return;
     preview.positionPreview(ev.clientX, ev.clientY);
   });
 
@@ -372,6 +403,8 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   // Click handler for YouTube & galleries
   add(document, 'click', (ev) => {
+    if (!embedImagesEnabled) return;
+
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
     if (!a.closest('.ri-text')) return;
@@ -397,5 +430,6 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   ctx.onInvalidated(() => {
     preview.cleanup();
+    browser.storage.onChanged.removeListener(storageListener);
   });
 }

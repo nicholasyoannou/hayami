@@ -84,7 +84,7 @@ const providerIcons: Record<CommentProviderOption, string> = {
 };
 
 const settingDefinitions: SettingDefinition[] = [
-    {
+  {
     key: 'commentsProvider',
     type: 'select',
     category: 'general',
@@ -189,13 +189,13 @@ const settingDefinitions: SettingDefinition[] = [
     key: 'embedImages',
     type: 'toggle',
     category: 'image-previews',
-    label: 'Image embeds',
-    description: 'Auto-embed Imgur links',
+    label: 'Enable image previews',
+    description: 'Hover to preview images and albums. Disable to turn previews off.',
     fallback: true,
     load: () => embedImagesItem.getValue(),
     save: (value) => embedImagesItem.setValue(value),
-    successMessage: (value) => (value ? 'Image embedding enabled' : 'Image embedding disabled'),
-    errorMessage: 'Failed to save Image embeds',
+    successMessage: (value) => (value ? 'Image previews enabled' : 'Image previews disabled'),
+    errorMessage: 'Failed to save Image previews',
   },
   {
     key: 'imgurClientId',
@@ -285,6 +285,9 @@ const providerSections = commentProviderOptions.map((provider) => ({
   ),
 }));
 
+const selectedProvider = ref<CommentProviderOption>(providerSections[0]?.id || commentProviderOptions[0].value);
+const activeProviderSection = computed(() => providerSections.find((provider) => provider.id === selectedProvider.value));
+
 const settingValues = reactive<SettingValueMap>({
   displayMode: 'popup',
   embedImages: true,
@@ -296,6 +299,8 @@ const settingValues = reactive<SettingValueMap>({
   imgchestApiKey: '',
   hayamiPlusApiKey: '',
 });
+
+const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));
 
 const activeSettingsCategory = computed(() =>
   settingsCategories.find((category) => category.id === selectedSettingsCategory.value),
@@ -435,6 +440,10 @@ function handleFeedbackKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape' && showFeedbackFrame.value) {
     closeFeedbackForm();
   }
+}
+
+function isSettingDisabled(setting: SettingDefinition) {
+  return setting.category === 'image-previews' && setting.key !== 'embedImages' && !imagePreviewsEnabled.value;
 }
 
 function handleStorageChange(
@@ -612,7 +621,7 @@ function handleAniListLogout() {
             <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md text-white/90">
               <template v-if="settingsScreen === 'menu'">
                 <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
-                  <img :src="generalIcon" alt="Settings" class="h-6 w-6 settings-icon" />
+                  <!-- <img :src="generalIcon" alt="Settings" class="h-6 w-6 settings-icon" /> -->
                   <span>Settings</span>
                 </div>
 
@@ -643,7 +652,10 @@ function handleAniListLogout() {
 
                 <div class="space-y-3">
                   <template v-for="setting in activeSettingsCategory.settings" :key="setting.key">
-                    <div class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-4 py-3">
+                    <div
+                      class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-4 py-3"
+                      :class="isSettingDisabled(setting) ? 'opacity-50 pointer-events-none' : ''"
+                    >
                       <div v-if="setting.type !== 'apiKey'" class="flex-1">
                         <p class="text-sm text-white/80">{{ setting.label }}</p>
                         <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
@@ -656,6 +668,7 @@ function handleAniListLogout() {
                           <select
                             class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
                             :value="settingValues[setting.key]"
+                            :disabled="isSettingDisabled(setting)"
                             @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
                           >
                             <option
@@ -703,6 +716,7 @@ function handleAniListLogout() {
                               :max="setting.max"
                               :step="setting.step"
                               :value="settingValues[setting.key] as number"
+                              :disabled="isSettingDisabled(setting)"
                               @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
                               class="w-24"
                             />
@@ -715,6 +729,7 @@ function handleAniListLogout() {
                             v-model="settingValues[setting.key]"
                             :label="setting.label"
                             :placeholder="setting.placeholder"
+                            :disabled="isSettingDisabled(setting)"
                             @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
                           />
                         </template>
@@ -736,24 +751,37 @@ function handleAniListLogout() {
                   </div>
                 </div>
 
-                <div class="space-y-3">
-                  <div
-                    v-for="provider in providerSections"
-                    :key="provider.id"
-                    class="space-y-3 rounded-xl bg-white/5 px-3 py-3"
-                  >
+                <div class="space-y-4">
+                  <div class="flex items-center gap-3 rounded-2xl bg-white/5 p-3">
+                    <label class="text-sm text-white/70">Choose platform</label>
+                    <select
+                      class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
+                      v-model="selectedProvider"
+                    >
+                      <option
+                        v-for="provider in providerSections"
+                        :key="provider.id"
+                        :value="provider.id"
+                        class="bg-[#1f2329]"
+                      >
+                        {{ provider.label }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div v-if="activeProviderSection" class="space-y-3 rounded-xl bg-white/5 px-3 py-3">
                     <div class="flex items-center gap-3">
                       <img
-                        v-if="provider.icon"
-                        :src="provider.icon"
-                        :alt="provider.label"
+                        v-if="activeProviderSection.icon"
+                        :src="activeProviderSection.icon"
+                        :alt="activeProviderSection.label"
                         class="h-7 w-7 rounded-lg bg-white/5 p-1"
                       />
-                      <div class="text-base font-semibold text-white/90">{{ provider.label }}</div>
+                      <div class="text-base font-semibold text-white/90">{{ activeProviderSection.label }}</div>
                     </div>
 
-                    <div v-if="provider.settings.length" class="space-y-3">
-                      <template v-for="setting in provider.settings" :key="setting.key">
+                    <div v-if="activeProviderSection.settings.length" class="space-y-3">
+                      <template v-for="setting in activeProviderSection.settings" :key="setting.key">
                         <div class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-3 py-3">
                           <div v-if="setting.type !== 'apiKey'" class="flex-1">
                             <p class="text-sm text-white/80">{{ setting.label }}</p>
@@ -834,8 +862,10 @@ function handleAniListLogout() {
                       </template>
                     </div>
 
-                    <p v-else class="text-xs text-white/60">No configurable settings yet.</p>
+                    <div v-else class="text-sm text-white/60">No settings available for this platform.</div>
                   </div>
+
+                  <div v-else class="rounded-xl bg-white/5 px-4 py-3 text-sm text-white/70">No discussion platforms available.</div>
                 </div>
               </template>
             </div>
