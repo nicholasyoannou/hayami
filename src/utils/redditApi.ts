@@ -5,6 +5,10 @@
 
 import { makeRedditRequest, getAccessToken } from './redditAuth';
 
+const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
+const devDebug = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.debug(...args); };
+const devLog = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.log(...args); };
+
 /**
  * Perform fetch via the extension background to avoid CORS from content scripts.
  * If messaging fails, fall back to window.fetch.
@@ -16,12 +20,12 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
   const safeHeaders = Object.assign({}, (init && (init as any).headers) || {}, { 'User-Agent': detectedUA });
   const safeInit: RequestInit = Object.assign({}, init || {}, { headers: safeHeaders });
 
-  console.debug('[extensionFetch] start', { url: input, mode: safeInit.mode, credentials: safeInit.credentials });
+  devDebug('[extensionFetch] start', { url: input, mode: safeInit.mode, credentials: safeInit.credentials });
 
   // Try messaging the background first
   try {
     const payload = { action: 'hayami_proxyFetch', url: input, init: safeInit };
-    console.debug('[extensionFetch] attempting hayami_proxyFetch via runtime message', { url: input });
+    devDebug('[extensionFetch] attempting hayami_proxyFetch via runtime message', { url: input });
     const res = await new Promise<any>((resolve) => {
       let called = false;
       try {
@@ -46,7 +50,7 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
 
     // If the background provided a proper proxied response, return it
     if (res && typeof res.ok !== 'undefined') {
-      console.debug('[extensionFetch] proxy ok', { url: input, status: res.status });
+      devDebug('[extensionFetch] proxy ok', { url: input, status: res.status });
       return {
         ok: !!res.ok,
         status: Number(res.status) || 0,
@@ -79,7 +83,7 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
         console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)', { url: input });
       } else {
         // Use the successful retry result
-        console.debug('[extensionFetch] proxy retry ok', { url: input, status: retry.status });
+        devDebug('[extensionFetch] proxy retry ok', { url: input, status: retry.status });
         return {
           ok: !!retry.ok,
           status: Number(retry.status) || 0,
@@ -94,11 +98,11 @@ export async function extensionFetch(input: string, init?: RequestInit): Promise
   }
 
   // Fallback to direct fetch (may be blocked by CORS when called from content scripts)
-  console.debug('[extensionFetch] falling back to direct fetch', { url: input });
+  devDebug('[extensionFetch] falling back to direct fetch', { url: input });
   const resp = await fetch(input, init);
   // If fetch is blocked by CSP, this may throw or return opaque; log status/ok for debugging
-  console.debug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok, type: resp.type, redirected: resp.redirected });
-  console.debug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok });
+  devDebug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok, type: resp.type, redirected: resp.redirected });
+  devDebug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok });
   const ct = resp.headers.get('content-type') || '';
   let b: any;
   if (ct.includes('application/json')) b = await resp.json(); else b = await resp.text();
@@ -396,7 +400,7 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
 
     if (token) {
       const endpoint = `/comments/${postId}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
-      console.log('[getPostComments] using authenticated request', { postId, sort: sortParam });
+      devLog('[getPostComments] using authenticated request', { postId, sort: sortParam });
       result = await makeRedditRequest<any[]>(endpoint);
     } else {
       // Public fetch from reddit.com; request more items/depth when possible
@@ -405,7 +409,7 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
   // Include credentials so a logged-in reddit session (cookies) can be used
   const resp = await extensionFetch(url, { credentials: 'include' } as any);
         if (resp.ok) {
-          console.log('[getPostComments] public fetch ok', { url });
+          devLog('[getPostComments] public fetch ok', { url });
           result = await resp.json();
         } else {
           console.warn('[getPostComments] public fetch non-ok', { status: resp.status, url });
@@ -497,7 +501,7 @@ function parseComments(children: any[]): RedditComment[] {
             if (Array.isArray(moreNode.data.children)) {
               comment.moreChildrenIds = moreNode.data.children;
             }
-            console.debug('[parseComments] Found more node for comment', comment.id, 'count:', moreNode.data.count, 'children:', moreNode.data.children);
+            devDebug('[parseComments] Found more node for comment', comment.id, 'count:', moreNode.data.count, 'children:', moreNode.data.children);
           }
           // Parse actual comment replies (filter out 'more' nodes, returns empty array if only 'more' node exists)
           comment.replies = parseComments(children);
@@ -512,7 +516,7 @@ function parseComments(children: any[]): RedditComment[] {
             comment.moreChildrenIds = moreData.children;
         }
           comment.replies = []; // No replies loaded yet
-          console.debug('[parseComments] Found direct more node for comment', comment.id, 'count:', moreData.count, 'children:', moreData.children);
+          devDebug('[parseComments] Found direct more node for comment', comment.id, 'count:', moreData.count, 'children:', moreData.children);
         }
         // Fallback: check for Listing structure without explicit kind check (for compatibility)
         else if (data.replies.data && data.replies.data.children && Array.isArray(data.replies.data.children)) {
@@ -527,7 +531,7 @@ function parseComments(children: any[]): RedditComment[] {
             if (Array.isArray(moreNode.data.children)) {
               comment.moreChildrenIds = moreNode.data.children;
             }
-            console.debug('[parseComments] Found more node (fallback) for comment', comment.id, 'count:', moreNode.data.count, 'children:', moreNode.data.children);
+            devDebug('[parseComments] Found more node (fallback) for comment', comment.id, 'count:', moreNode.data.count, 'children:', moreNode.data.children);
           }
           comment.replies = parseComments(children);
         }
@@ -535,7 +539,7 @@ function parseComments(children: any[]): RedditComment[] {
       
       // Debug: log if we find moreChildrenIds
       if (comment.moreChildrenIds && comment.moreChildrenIds.length > 0) {
-        console.debug('[parseComments] Found moreChildrenIds for comment', comment.id, ':', comment.moreChildrenIds.length, 'ids');
+        devDebug('[parseComments] Found moreChildrenIds for comment', comment.id, ':', comment.moreChildrenIds.length, 'ids');
       }
 
       return comment;
@@ -837,22 +841,22 @@ export async function getModhash(): Promise<string | null> {
     // Fetch the Reddit post page HTML to extract modhash
     const testPostUrl = 'https://old.reddit.com/r/test/comments/1qscb7n/test_post_from_automation/';
     
-    console.log('[getModhash] Fetching Reddit page to extract modhash:', testPostUrl);
+    devLog('[getModhash] Fetching Reddit page to extract modhash:', testPostUrl);
     const resp = await extensionFetch(testPostUrl, { credentials: 'include' });
     
     if (!resp.ok) {
-      console.log('[getModhash] Failed to fetch Reddit page:', resp.status);
+      devLog('[getModhash] Failed to fetch Reddit page:', resp.status);
       return null;
     }
 
     const html = await resp.text();
-    console.log('[getModhash] Successfully fetched Reddit page HTML');
+    devLog('[getModhash] Successfully fetched Reddit page HTML');
     
     // Extract modhash from the page's JavaScript config
     const modhashMatch = html.match(/"modhash":\s*"([^"]+)"/);
     if (modhashMatch && modhashMatch[1]) {
       const modhash = modhashMatch[1];
-      console.log('[getModhash] Successfully extracted modhash from HTML');
+      devLog('[getModhash] Successfully extracted modhash from HTML');
       return modhash;
     }
 
@@ -893,7 +897,7 @@ export async function submitCommentDirect(
     formData.append('uh', modhash);
     formData.append('renderstyle', 'html');
 
-    console.log('[submitCommentDirect] Posting to old.reddit.com with:', {
+    devLog('[submitCommentDirect] Posting to old.reddit.com with:', {
       parentFullname,
       text: text.substring(0, 100) + '...',
       subreddit,
@@ -916,7 +920,7 @@ export async function submitCommentDirect(
     }
 
     const responseText = await resp.text();
-    console.log('[submitCommentDirect] Response:', responseText.substring(0, 500));
+    devLog('[submitCommentDirect] Response:', responseText.substring(0, 500));
 
     // Reddit returns HTML on success, we need to extract the comment ID
     // Look for the comment data in the response
@@ -948,48 +952,58 @@ export async function submitCommentDirect(
  */
 export async function submitComment(
   parentFullname: string,
-  text: string
+  text: string,
+  subreddit?: string
 ): Promise<{ success: boolean; commentId?: string; error?: string }> {
   try {
     const token = await getAccessToken();
-    if (!token) {
+    if (token) {
+      // Use the fullname as-is; do NOT alter prefix (t3_ for posts, t1_ for comments)
+      const thingId = parentFullname;
+
+      const formData = new URLSearchParams();
+      formData.append('api_type', 'json');
+      formData.append('text', text);
+      formData.append('thing_id', thingId);
+
+      const resp = await extensionFetch('https://oauth.reddit.com/api/comment', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formData.toString(),
+      } as any);
+
+      if (!resp.ok) {
+        let msg = `Request failed: ${resp.status}`;
+        try { msg += ` ${await resp.text()}`; } catch {}
+        return { success: false, error: msg };
+      }
+
+      const result = await resp.json();
+
+      if (result.json && result.json.errors && result.json.errors.length > 0) {
+        return { success: false, error: result.json.errors[0][1] };
+      }
+
+      const commentData = result.json?.data?.things?.[0]?.data;
+      return {
+        success: true,
+        commentId: commentData?.id,
+      };
+    }
+
+    // No OAuth token: fall back to old.reddit.com if subreddit is available and user is logged in via cookies
+    if (!subreddit) {
       return { success: false, error: 'Not authenticated' };
     }
 
-    // Use the fullname as-is; do NOT alter prefix (t3_ for posts, t1_ for comments)
-    const thingId = parentFullname;
-
-    const formData = new URLSearchParams();
-    formData.append('api_type', 'json');
-    formData.append('text', text);
-    formData.append('thing_id', thingId);
-
-    const resp = await extensionFetch('https://oauth.reddit.com/api/comment', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString(),
-    } as any);
-
-    if (!resp.ok) {
-      let msg = `Request failed: ${resp.status}`;
-      try { msg += ` ${await resp.text()}`; } catch {}
-      return { success: false, error: msg };
+    const directResult = await submitCommentDirect(parentFullname, text, subreddit);
+    if (directResult.success) {
+      return directResult;
     }
-
-    const result = await resp.json();
-
-    if (result.json && result.json.errors && result.json.errors.length > 0) {
-      return { success: false, error: result.json.errors[0][1] };
-    }
-
-    const commentData = result.json?.data?.things?.[0]?.data;
-    return {
-      success: true,
-      commentId: commentData?.id,
-    };
+    return { success: false, error: directResult.error || 'Not authenticated' };
   } catch (error) {
     console.error('Error submitting comment:', error);
     return {
@@ -1060,7 +1074,7 @@ export function formatRedditDate(utcSeconds: number): string {
   const now = Math.floor(Date.now() / 1000); // Current time in seconds
   const diffSecs = now - utcSeconds;
   
-  console.log('formatRedditDate:', { utcSeconds, now, diffSecs, date: new Date(utcSeconds * 1000).toISOString() });
+  devLog('formatRedditDate:', { utcSeconds, now, diffSecs, date: new Date(utcSeconds * 1000).toISOString() });
   
   if (diffSecs < 60) {
     return 'just now';

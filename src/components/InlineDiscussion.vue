@@ -9,7 +9,7 @@ import { voteThing, submitComment, type RedditComment } from '@/utils/redditApi'
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
 import { extractEpisodeTableFromRedditSelftext } from '@/entrypoints/content/mapping';
-import { isAuthenticated, getStoredUsername } from '@/utils/redditAuth';
+import { getStoredUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
@@ -585,16 +585,11 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
   }
 
   if (isPostingTopComment.value) return;
-  const authed = await isAuthenticated();
-  if (!authed) {
-    toast.error('Reddit login required to comment.');
-    return;
-  }
 
   isPostingTopComment.value = true;
   try {
     const parentFullname = replyTarget.value?.parentFullname || postFullname.value;
-    const res = await submitComment(parentFullname, trimmed);
+    const res = await submitComment(parentFullname, trimmed, props.discussion.subreddit);
     if (!res.success || !res.commentId) {
       toast.error(res.error || 'Failed to post comment');
       return;

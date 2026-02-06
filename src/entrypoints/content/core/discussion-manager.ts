@@ -369,8 +369,39 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
       }
     }
     
-    // For unauthenticated requests, use the comments endpoint which works reliably
-    // The comments endpoint returns [postData, commentsData] where postData contains the post info
+    // For unauthenticated requests, prefer the lightweight info endpoint to avoid fetching comments twice
+    try {
+      const infoUrl = `https://www.reddit.com/api/info.json?id=t3_${encodeURIComponent(postId)}&raw_json=1`;
+      const resp = await extensionFetch(infoUrl, { credentials: 'include' } as any);
+      if (resp.ok) {
+        const result = await resp.json();
+        const postData = result?.data?.children?.[0]?.data;
+        if (postData) {
+          const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
+          debug.log('[fetchRedditPostFromUrl] Post fullname from info endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
+          return {
+            id: postData.id,
+            title: postData.title,
+            author: postData.author,
+            score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
+            num_comments: postData.num_comments,
+            created_utc: postData.created_utc,
+            permalink: postData.permalink,
+            url: postData.url,
+            archived: postData.archived,
+            locked: postData.locked,
+            subreddit: postData.subreddit,
+            subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
+            fullname: fullname, // t3_ prefixed fullname for voting
+            likes: postData.likes, // true=upvoted, false=downvoted, null=none
+          };
+        }
+      }
+    } catch (e) {
+      console.log('Error fetching post info via info endpoint:', e);
+    }
+
+    // Fallback: if info lookup fails, fall back to the comments endpoint
     try {
       const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?raw_json=1`;
       const resp = await extensionFetch(url, { credentials: 'include' } as any);
@@ -383,7 +414,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
             const postData = postListing.data.children[0].data;
             // Convert to format expected by displayDiscussionDependingOnMode
             const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-            console.log('[fetchRedditPostFromUrl] Post fullname from comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
+            debug.log('[fetchRedditPostFromUrl] Post fullname from comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
             return {
               id: postData.id,
               title: postData.title,

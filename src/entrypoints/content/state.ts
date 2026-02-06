@@ -229,7 +229,7 @@ export function cleanupAllState(state: ContentState = getState()): void {
 
 // Enable markdown debug logs by default (can be disabled via DevTools: window.RI_DEBUG_MARKDOWN=false) 
 try {
-  if (!(window as any).RI_DEBUG_MARKDOWN) {
+  if (import.meta.env.DEV && !(window as any).RI_DEBUG_MARKDOWN) {
     (window as any).RI_DEBUG_MARKDOWN = true;
     console.info('[ri-markdown] Debug logging enabled');
   }

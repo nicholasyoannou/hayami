@@ -10,6 +10,7 @@ export function escapeHtml(s: unknown) {
 export function markdownToHtml(text: string): string {
   const DEBUG = ((): boolean => {
     try {
+      if (import.meta.env.DEV) return true;
       if ((globalThis as any).RI_DEBUG_MARKDOWN === true) return true;
       if (typeof localStorage !== 'undefined' && localStorage.getItem('RI_DEBUG_MARKDOWN') === '1') return true;
     } catch {}
