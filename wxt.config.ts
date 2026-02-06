@@ -19,7 +19,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-vue'],
   filterEntrypoints: filteredEntrypoints,
   manifest: {
-    name: 'Hayami',
+    name: 'Hayami: Anime comments & discussions',
     description: 'Hayami aggregates forums and comments sections together bringing anime discussions right underneath streaming platforms to you.',
     permissions: [
       'identity',
