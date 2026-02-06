@@ -575,11 +575,10 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
         return { ok: r.ok, status: r.status, json: async () => await r.json() } as any;
       })();
     } else {
-      // Unauthenticated fallback: post to public reddit.com endpoint and
-      // include credentials so the browser session (cookies) can be used.
+      // Unauthenticated attempt: only hit oauth.reddit.com with cookies (no bearer).
       try {
         resp = await (async () => {
-          const r = await extensionFetch('https://www.reddit.com/api/morechildren', {
+          const r = await extensionFetch('https://oauth.reddit.com/api/morechildren', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/x-www-form-urlencoded',
@@ -602,14 +601,24 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
       .filter((t: any) => t && t.kind === 't1')
       .map((t: any) => {
         const d = t.data;
-        const legacyMeta = (!d.author || !d.created_utc) ? parseLegacyContentMeta(d.contentHTML || d.content || '') : null;
+        // Prefer the full legacy HTML fragment (content) so we can recover author/timestamp when the JSON fields are absent.
+        const legacyMeta = (!d.author || !d.created_utc) ? parseLegacyContentMeta(d.content || d.contentHTML || '') : null;
         const createdUtc = typeof d.created_utc === 'number'
           ? d.created_utc
           : typeof legacyMeta?.createdUtc === 'number'
             ? legacyMeta.createdUtc
             : Math.round(Date.now() / 1000);
+
+        // Normalize identifiers so we don't double-prefix t1_
+        const rawId = (d.id || '').replace(/^t1_/, '');
+        const fullname = d.name || (rawId ? `t1_${rawId}` : undefined);
+        const parentFullnameRaw = d.parent_id || d.parent || null;
+        const parentFullname = parentFullnameRaw
+          ? (String(parentFullnameRaw).startsWith('t') ? String(parentFullnameRaw) : `t1_${parentFullnameRaw}`)
+          : null;
+
         const c: RedditComment = {
-          id: d.id,
+          id: rawId,
           author: d.author || legacyMeta?.author || '[deleted]',
           body: d.body || d.contentText || '',
           body_html: d.body_html || d.contentHTML || null,
@@ -624,10 +633,12 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
           permalink: d.permalink,
           total_awards_received: d.total_awards_received,
           all_awardings: d.all_awardings,
-          link_id: d.link_id,
-        };
-        // Store parent_id for hierarchy reconstruction
-        (c as any).parent_id = d.parent_id;
+          link_id: d.link_id || d.link,
+        } as any;
+
+        // Preserve fullname for later mapping and parent linkage
+        (c as any).fullname = fullname;
+        (c as any).parent_id = parentFullname;
         // Nested replies may still be represented as more nodes; keep minimal recursion
         if (d.replies && typeof d.replies === 'object' && d.replies.data?.children) {
           const moreNode = d.replies.data.children.find((n: any) => n && n.kind === 'more');
@@ -647,7 +658,7 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
     
     // First pass: create a map of all comments by their fullname (t1_xxx)
     for (const comment of mapped) {
-      const fullname = `t1_${comment.id}`;
+      const fullname = (comment as any).fullname || `t1_${comment.id}`;
       commentMap.set(fullname, comment);
     }
     
@@ -679,8 +690,18 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
 function parseLegacyContentMeta(content: string): { author?: string; createdUtc?: number } | null {
   if (!content) return null;
   try {
-    const authorMatch = content.match(/data-author="([^"]+)"/);
-    const datetimeMatch = content.match(/datetime="([^"]+)"/);
+    // The legacy /api/morechildren payload often contains HTML-escaped strings.
+    const decoded = content
+      .replace(/&quot;/gi, '"')
+      .replace(/&#34;/gi, '"')
+      .replace(/&apos;/gi, "'")
+      .replace(/&#39;/gi, "'")
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&amp;/gi, '&');
+
+    const authorMatch = decoded.match(/data-author=["']([^"']+)["']/);
+    const datetimeMatch = decoded.match(/datetime=["']([^"']+)["']/);
     const author = authorMatch ? authorMatch[1] : undefined;
     let createdUtc: number | undefined;
     if (datetimeMatch) {
