@@ -8,6 +8,10 @@ import { makeRedditRequest, getAccessToken } from './redditAuth';
 const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
 const devDebug = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.debug(...args); };
 const devLog = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.log(...args); };
+const SUBREDDIT_ABOUT_CACHE_KEY = 'subreddit_about_cache_v1';
+const SUBREDDIT_ABOUT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // one week
+type SubredditAboutCache = Record<string, { fetchedAt: number; data: any }>;
+let subredditAboutCacheMemory: SubredditAboutCache | null = null;
 
 /**
  * Perform fetch via the extension background to avoid CORS from content scripts.
@@ -192,6 +196,7 @@ export interface RedditComment {
   id: string;
   author: string;
   body: string;
+  isMine?: boolean;
   body_html?: string;
   score: number;
   created_utc: number;
@@ -345,6 +350,80 @@ export async function searchAnimeDiscussion(
     console.error('Error searching anime discussion:', error);
     return [];
   }
+}
+
+async function loadSubredditAboutCache(): Promise<SubredditAboutCache> {
+  if (subredditAboutCacheMemory) return subredditAboutCacheMemory;
+  try {
+    const stored = await browser.storage.local.get(SUBREDDIT_ABOUT_CACHE_KEY);
+    const cache = (stored && stored[SUBREDDIT_ABOUT_CACHE_KEY]) || {};
+    subredditAboutCacheMemory = cache as SubredditAboutCache;
+    return subredditAboutCacheMemory;
+  } catch (e) {
+    devDebug('[subredditAboutCache] failed to load from storage', e);
+    subredditAboutCacheMemory = {};
+    return subredditAboutCacheMemory;
+  }
+}
+
+async function persistSubredditAboutCache(cache: SubredditAboutCache) {
+  subredditAboutCacheMemory = cache;
+  try {
+    await browser.storage.local.set({ [SUBREDDIT_ABOUT_CACHE_KEY]: cache });
+  } catch (e) {
+    devDebug('[subredditAboutCache] failed to persist to storage', e);
+  }
+}
+
+async function fetchSubredditAboutFromNetwork(subreddit: string): Promise<any | null> {
+  const sub = subreddit.trim().replace(/^r\//i, '');
+  if (!sub) return null;
+  const webUrl = `https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`;
+  const apiUrl = `https://api.reddit.com/r/${encodeURIComponent(sub)}/about.json`;
+
+  const doFetch = async (url: string) => {
+    try {
+      const resp = await extensionFetch(url, { credentials: 'omit' } as any);
+      if (resp.ok) {
+        try {
+          return await resp.json();
+        } catch (parseErr) {
+          devDebug('[subredditAbout] parse error', { url, err: parseErr });
+          return null;
+        }
+      }
+      devDebug('[subredditAbout] non-ok', { url, status: resp.status });
+      return null;
+    } catch (e) {
+      devDebug('[subredditAbout] fetch threw', { url, err: e });
+      return null;
+    }
+  };
+
+  // Prefer web endpoint (raw_json) first, then api.reddit.com
+  const dataFromWeb = await doFetch(webUrl);
+  if (dataFromWeb) return dataFromWeb;
+  return await doFetch(apiUrl);
+}
+
+export async function getSubredditAboutCached(subreddit: string): Promise<any | null> {
+  const key = (subreddit || '').trim().toLowerCase();
+  if (!key) return null;
+  const cache = await loadSubredditAboutCache();
+  const now = Date.now();
+  const entry = cache[key];
+  if (entry && now - entry.fetchedAt < SUBREDDIT_ABOUT_TTL_MS) {
+    return entry.data;
+  }
+
+  const fresh = await fetchSubredditAboutFromNetwork(key);
+  if (fresh) {
+    cache[key] = { fetchedAt: now, data: fresh };
+    void persistSubredditAboutCache(cache);
+    return fresh;
+  }
+
+  return entry?.data || null;
 }
 
 const subredditEmojiCache = new Map<string, Record<string, string>>();
@@ -720,6 +799,7 @@ function parseLegacyContentMeta(content: string): { author?: string; createdUtc?
  * Fetch a user's avatar (snoovatar or icon image)
  */
 const userAvatarCache = new Map<string, string | null>();
+const userAvatarInflight = new Map<string, Promise<string | null>>();
 
 export async function getUserAvatar(username: string): Promise<string | null> {
   try {
@@ -728,59 +808,69 @@ export async function getUserAvatar(username: string): Promise<string | null> {
     if (userAvatarCache.has(cacheKey)) {
       return userAvatarCache.get(cacheKey) || null;
     }
-    // Avoid hitting reddit.com/about for unauthenticated requests (this can spam /about and trigger 429).
-    // Strategy:
-    //  - If we have an OAuth token, use the authenticated API to fetch the user's about info.
-    //  - If we don't have a token, first check stored profile pic (from prior auth). If present, return it.
-    //  - Otherwise, return a randomly chosen Reddit default avatar URL (one of 1..7).
-    const token = await getAccessToken();
-    if (token) {
-      const about = await makeRedditRequest<any>(`/user/${encodeURIComponent(username)}/about.json`);
-      const data = about?.data || null;
-      const url = data?.snoovatar_img || data?.icon_img || null;
-      if (!url) {
-        // No avatar found, use default snoovatar background
-        const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
-        userAvatarCache.set(cacheKey, fallback);
-        return fallback;
-      }
-      const normalized = normalizeAvatarCdnUrl(String(url).replace(/&amp;/g, '&'));
-      userAvatarCache.set(cacheKey, normalized);
-      return normalized;
+    if (userAvatarInflight.has(cacheKey)) {
+      return await (userAvatarInflight.get(cacheKey) as Promise<string | null>);
     }
 
-    // No token: try to return a cached profile pic if present (avoid network calls)
-    try {
-      const stored = await browser.storage.local.get('reddit_profile_pic');
-      const pic = stored?.reddit_profile_pic;
-      if (pic) {
-        const normalized = normalizeAvatarCdnUrl(String(pic));
+    const fetchAvatar = async (): Promise<string | null> => {
+      // Avoid hitting reddit.com/about for unauthenticated requests (this can spam /about and trigger 429).
+      // Strategy:
+      //  - If we have an OAuth token, use the authenticated API to fetch the user's about info.
+      //  - If we don't have a token, first check stored profile pic (from prior auth). If present, return it.
+      //  - Otherwise, return a fallback snoovatar background.
+      const token = await getAccessToken();
+      if (token) {
+        const about = await makeRedditRequest<any>(`/user/${encodeURIComponent(username)}/about.json`);
+        const data = about?.data || null;
+        const url = data?.snoovatar_img || data?.icon_img || null;
+        if (!url) {
+          const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+          userAvatarCache.set(cacheKey, fallback);
+          return fallback;
+        }
+        const normalized = normalizeAvatarCdnUrl(String(url).replace(/&amp;/g, '&'));
         userAvatarCache.set(cacheKey, normalized);
         return normalized;
       }
-    } catch {}
 
-    // No token and no stored avatar: try a public about.json using browser cookies/session
-    try {
-      const resp = await extensionFetch(
-        `https://www.reddit.com/user/${encodeURIComponent(username)}/about.json?raw_json=1`,
-        { credentials: 'include' } as any,
-      );
-      if (resp.ok) {
-        const data = await resp.json();
-        const url = data?.data?.snoovatar_img || data?.data?.icon_img;
-        if (url) {
-          const normalized = normalizeAvatarCdnUrl(String(url).replace(/&amp;/g, '&'));
+      // No token: try to return a cached profile pic if present (avoid network calls)
+      try {
+        const stored = await browser.storage.local.get('reddit_profile_pic');
+        const pic = stored?.reddit_profile_pic;
+        if (pic) {
+          const normalized = normalizeAvatarCdnUrl(String(pic));
           userAvatarCache.set(cacheKey, normalized);
           return normalized;
         }
-      }
-    } catch {}
+      } catch {}
 
-    // Fallback: return Reddit's default snoovatar background image
-    const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
-    userAvatarCache.set(cacheKey, fallback);
-    return fallback;
+      // No token and no stored avatar: try a public about.json using browser cookies/session
+      try {
+        const resp = await extensionFetch(
+          `https://www.reddit.com/user/${encodeURIComponent(username)}/about.json?raw_json=1`,
+          { credentials: 'include' } as any,
+        );
+        if (resp.ok) {
+          const data = await resp.json();
+          const url = data?.data?.snoovatar_img || data?.data?.icon_img;
+          if (url) {
+            const normalized = normalizeAvatarCdnUrl(String(url).replace(/&amp;/g, '&'));
+            userAvatarCache.set(cacheKey, normalized);
+            return normalized;
+          }
+        }
+      } catch {}
+
+      const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
+      userAvatarCache.set(cacheKey, fallback);
+      return fallback;
+    };
+
+    const inflight = fetchAvatar().finally(() => {
+      userAvatarInflight.delete(cacheKey);
+    });
+    userAvatarInflight.set(cacheKey, inflight);
+    return await inflight;
   } catch (e) {
     // On error, return default snoovatar background
     const fallback = 'https://www.redditstatic.com/shreddit/assets/snoovatar-back-64x64px.png';
@@ -845,7 +935,7 @@ function normalizeAvatarCdnUrl(url: string): string | null {
  */
 export async function isOldRedditAuthenticated(): Promise<boolean> {
   try {
-    const modhash = await getModhash();
+    const { modhash } = await getModhash();
     return modhash !== null;
   } catch (error) {
     console.error('Error checking old Reddit authentication:', error);
@@ -857,17 +947,29 @@ export async function isOldRedditAuthenticated(): Promise<boolean> {
  * Gets the current user's modhash from old.reddit.com page HTML
  * This is required for certain API actions like posting comments via old.reddit.com
  */
-export async function getModhash(): Promise<string | null> {
+const modhashCache = {
+  modhash: null as string | null,
+  voteHash: null as string | null,
+  username: null as string | null,
+  fetchedAt: 0
+};
+const MODHASH_TTL_MS = 5 * 60 * 1000;
+
+export async function getModhash(): Promise<{ modhash: string | null; voteHash: string | null; username: string | null }> {
+  const now = Date.now();
+  if (modhashCache.modhash && now - modhashCache.fetchedAt < MODHASH_TTL_MS) {
+    return { modhash: modhashCache.modhash, voteHash: modhashCache.voteHash, username: modhashCache.username };
+  }
+
   try {
-    // Fetch the Reddit post page HTML to extract modhash
-    const testPostUrl = 'https://old.reddit.com/r/test/comments/1qscb7n/test_post_from_automation/';
-    
-    devLog('[getModhash] Fetching Reddit page to extract modhash:', testPostUrl);
-    const resp = await extensionFetch(testPostUrl, { credentials: 'include' });
-    
+    // Use the old.reddit homepage to avoid 404/redirect issues with hardcoded posts
+    const pageUrl = 'https://old.reddit.com/';
+    devLog('[getModhash] Fetching Reddit page to extract modhash:', pageUrl);
+
+    const resp = await extensionFetch(pageUrl, { credentials: 'include' });
     if (!resp.ok) {
       devLog('[getModhash] Failed to fetch Reddit page:', resp.status);
-      return null;
+      return { modhash: null, voteHash: null, username: null };
     }
 
     const html = await resp.text();
@@ -875,17 +977,27 @@ export async function getModhash(): Promise<string | null> {
     
     // Extract modhash from the page's JavaScript config
     const modhashMatch = html.match(/"modhash":\s*"([^"]+)"/);
-    if (modhashMatch && modhashMatch[1]) {
-      const modhash = modhashMatch[1];
-      devLog('[getModhash] Successfully extracted modhash from HTML');
-      return modhash;
+    const voteHashMatch = html.match(/"vote_hash":\s*"([^"]+)"/i);
+    const userMatch = html.match(/"logged":\s*"([^"]*)"/);
+    const modhash = modhashMatch?.[1] || null;
+    const voteHash = voteHashMatch?.[1] || null;
+    const username = userMatch?.[1] || null;
+    if (!modhash) {
+      console.warn('[getModhash] Could not find modhash in HTML');
     }
-
-    console.warn('[getModhash] Could not find modhash in HTML');
-    return null;
+    if (!voteHash) {
+      console.warn('[getModhash] Could not find vote_hash in HTML');
+    }
+    if (modhash) {
+      modhashCache.modhash = modhash;
+      modhashCache.voteHash = voteHash;
+      modhashCache.username = username;
+      modhashCache.fetchedAt = now;
+    }
+    return { modhash, voteHash, username };
   } catch (error) {
     console.error('Error fetching modhash from HTML:', error);
-    return null;
+    return { modhash: null, voteHash: null, username: null };
   }
 }
 
@@ -900,9 +1012,9 @@ export async function submitCommentDirect(
   parentFullname: string,
   text: string,
   subreddit: string
-): Promise<{ success: boolean; commentId?: string; error?: string }> {
+): Promise<{ success: boolean; commentId?: string; username?: string | null; error?: string }> {
   try {
-    const modhash = await getModhash();
+    const { modhash, voteHash, username } = await getModhash();
     if (!modhash) {
       return { success: false, error: 'Could not get modhash - not logged in to Reddit' };
     }
@@ -916,6 +1028,7 @@ export async function submitCommentDirect(
     formData.append('id', `#${formId}`);
     formData.append('r', subreddit);
     formData.append('uh', modhash);
+    if (voteHash) formData.append('vh', voteHash);
     formData.append('renderstyle', 'html');
 
     devLog('[submitCommentDirect] Posting to old.reddit.com with:', {
@@ -943,19 +1056,41 @@ export async function submitCommentDirect(
     const responseText = await resp.text();
     devLog('[submitCommentDirect] Response:', responseText.substring(0, 500));
 
-    // Reddit returns HTML on success, we need to extract the comment ID
-    // Look for the comment data in the response
+    // old.reddit can return HTML or a JSON-with-jquery payload; try both
+    // 1) HTML pattern
     const commentIdMatch = responseText.match(/data-t1_id="([^"]+)"/);
     if (commentIdMatch && commentIdMatch[1]) {
-      return { success: true, commentId: commentIdMatch[1] };
+      return { success: true, commentId: commentIdMatch[1], username };
     }
 
-    // If we can't extract the ID but got a 200 response, consider it successful
-    if (responseText.includes('success') || responseText.includes('comment')) {
-      return { success: true };
+    // 2) JSON jquery payload: look for the "things" attr call
+    try {
+      const json = JSON.parse(responseText);
+      if (Array.isArray(json?.jquery)) {
+        for (let i = 0; i < json.jquery.length; i++) {
+          const entry = json.jquery[i];
+          if (Array.isArray(entry) && entry[2] === 'attr' && entry[3] === 'things') {
+            const next = json.jquery[i + 1];
+            const nextVal = Array.isArray(next) ? next[3] : null;
+            const idCandidate = Array.isArray(nextVal) ? nextVal[0] : null;
+            if (typeof idCandidate === 'string' && idCandidate.startsWith('t1_')) {
+              return { success: true, commentId: idCandidate.replace(/^t1_/, ''), username };
+            }
+          }
+        }
+      }
+    } catch {
+      // Not JSON, ignore
     }
 
-    return { success: false, error: 'Unknown response format' };
+    // 3) Regex fallback to any t1_ id in the payload
+    const fallbackIdMatch = responseText.match(/"(t1_[a-z0-9]+)"/i);
+    if (fallbackIdMatch && fallbackIdMatch[1]) {
+      return { success: true, commentId: fallbackIdMatch[1].replace(/^t1_/, ''), username };
+    }
+
+    // If we can't extract the ID but got a 200 response, still surface success so we can optimistically render
+    return { success: true, commentId: undefined, username, error: 'Posted but could not parse comment id' };
   } catch (error) {
     console.error('Error submitting comment directly:', error);
     return {
@@ -975,7 +1110,7 @@ export async function submitComment(
   parentFullname: string,
   text: string,
   subreddit?: string
-): Promise<{ success: boolean; commentId?: string; error?: string }> {
+): Promise<{ success: boolean; commentId?: string; username?: string | null; error?: string }> {
   try {
     const token = await getAccessToken();
     if (token) {
@@ -1012,6 +1147,7 @@ export async function submitComment(
       return {
         success: true,
         commentId: commentData?.id,
+        username: commentData?.author || null,
       };
     }
 
@@ -1035,46 +1171,243 @@ export async function submitComment(
 }
 
 /**
- * Vote on a thing (post or comment). direction: 1 upvote, -1 downvote, 0 remove vote
+ * Edit a comment using OAuth when available, else fall back to old.reddit (cookie/modhash auth).
  */
-export async function voteThing(fullname: string, direction: 1 | 0 | -1): Promise<{ success: boolean; error?: string }> {
-  try {
-    const token = await getAccessToken();
-    if (!token) return { success: false, error: 'Not authenticated' };
+export async function editComment(
+  fullname: string,
+  text: string,
+  subreddit?: string
+): Promise<{ success: boolean; error?: string }> {
+  const token = await getAccessToken();
+  if (token) {
     const form = new URLSearchParams();
-    form.set('id', fullname);
-    form.set('dir', String(direction));
-    const resp = await extensionFetch('https://oauth.reddit.com/api/vote', {
+    form.set('thing_id', fullname);
+    form.set('text', text);
+    form.set('api_type', 'json');
+
+    const resp = await extensionFetch('https://oauth.reddit.com/api/editusertext', {
       method: 'POST',
       headers: {
         'Authorization': `bearer ${token}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       },
-      body: form.toString()
+      body: form.toString(),
+    } as any);
+
+    const raw = await resp.text();
+    if (!resp.ok) {
+      return { success: false, error: `Edit failed: ${resp.status} ${raw}` };
+    }
+    try {
+      const json = JSON.parse(raw);
+      if (json?.json?.errors?.length) {
+        return { success: false, error: String(json.json.errors[0]?.[1] || json.json.errors[0]) };
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+    return { success: true };
+  }
+
+  if (subreddit) {
+    return editCommentOld(fullname, text, subreddit);
+  }
+  return { success: false, error: 'Not authenticated' };
+}
+
+/**
+ * Delete a comment using OAuth when available, else fall back to old.reddit (cookie/modhash auth).
+ */
+export async function deleteComment(
+  fullname: string,
+  subreddit?: string
+): Promise<{ success: boolean; error?: string }> {
+  const token = await getAccessToken();
+  if (token) {
+    const form = new URLSearchParams();
+    form.set('id', fullname);
+    form.set('api_type', 'json');
+
+    const resp = await extensionFetch('https://oauth.reddit.com/api/del', {
+      method: 'POST',
+      headers: {
+        'Authorization': `bearer ${token}`,
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      },
+      body: form.toString(),
+    } as any);
+
+    const raw = await resp.text();
+    if (!resp.ok) {
+      return { success: false, error: `Delete failed: ${resp.status} ${raw}` };
+    }
+    try {
+      const json = JSON.parse(raw);
+      if (json?.json?.errors?.length) {
+        return { success: false, error: String(json.json.errors[0]?.[1] || json.json.errors[0]) };
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+    return { success: true };
+  }
+
+  if (subreddit) {
+    return deleteCommentOld(fullname, subreddit);
+  }
+  return { success: false, error: 'Not authenticated (missing subreddit for old.reddit fallback)' };
+}
+
+/**
+ * Delete a comment via old.reddit (cookie/modhash auth)
+ */
+export async function deleteCommentOld(fullname: string, subreddit: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { modhash } = await getModhash();
+    if (!modhash) return { success: false, error: 'Not logged in (no modhash)' };
+
+    const form = new URLSearchParams();
+    form.set('id', fullname);
+    form.set('executed', 'deleted');
+    form.set('r', subreddit);
+    form.set('uh', modhash);
+    form.set('renderstyle', 'html');
+
+    const resp = await extensionFetch('https://old.reddit.com/api/del', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+      credentials: 'include' as any,
+      body: form.toString(),
+    } as any);
+
+    if (!resp.ok) {
+      const txt = await resp.text();
+      return { success: false, error: `Delete failed: ${resp.status} ${txt}` };
+    }
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Delete failed' };
+  }
+}
+
+/**
+ * Edit a comment via old.reddit (cookie/modhash auth)
+ */
+export async function editCommentOld(fullname: string, text: string, subreddit: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { modhash } = await getModhash();
+    if (!modhash) return { success: false, error: 'Not logged in (no modhash)' };
+
+    const form = new URLSearchParams();
+    form.set('thing_id', fullname);
+    form.set('text', text);
+    form.set('id', `#form-${fullname}${Date.now()}`);
+    form.set('r', subreddit);
+    form.set('uh', modhash);
+    form.set('renderstyle', 'html');
+
+    const resp = await extensionFetch('https://old.reddit.com/api/editusertext', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+      credentials: 'include' as any,
+      body: form.toString(),
+    } as any);
+
+    if (!resp.ok) {
+      const txt = await resp.text();
+      return { success: false, error: `Edit failed: ${resp.status} ${txt}` };
+    }
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Edit failed' };
+  }
+}
+
+/**
+ * Vote on a thing (post or comment). direction: 1 upvote, -1 downvote, 0 remove vote
+ */
+export async function voteThing(fullname: string, direction: 1 | 0 | -1, subreddit?: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const token = await getAccessToken();
+    const form = new URLSearchParams();
+    form.set('id', fullname);
+    form.set('dir', String(direction));
+
+    // If authenticated, use OAuth vote endpoint
+    if (token) {
+      const resp = await extensionFetch('https://oauth.reddit.com/api/vote', {
+        method: 'POST',
+        headers: {
+          'Authorization': `bearer ${token}`,
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        },
+        body: form.toString()
+      } as any);
+      const responseText = await resp.text();
+      if (!resp.ok) {
+        return { success: false, error: `Vote failed: ${resp.status} ${responseText}` };
+      }
+      if (responseText) {
+        try {
+          const json = JSON.parse(responseText);
+          if (json.json && json.json.errors && json.json.errors.length > 0) {
+            const errorMsg = Array.isArray(json.json.errors[0]) 
+              ? json.json.errors[0].join(' ') 
+              : String(json.json.errors[0]);
+            return { success: false, error: errorMsg || 'Vote failed' };
+          }
+        } catch {
+          // non-JSON ok
+        }
+      }
+      return { success: true };
+    }
+
+    // Unauthenticated fallback: old.reddit vote endpoint (cookie-based)
+    if (subreddit) {
+      return editCommentOld(fullname, text, subreddit);
+    }
+    return { success: false, error: 'Not authenticated (missing subreddit for old.reddit fallback)' };
+    const { modhash, voteHash } = await getModhash();
+    if (!modhash) {
+      return { success: false, error: 'Vote failed (old.reddit): missing modhash; log in on old.reddit.com' };
+    }
+
+    const voteEventData = JSON.stringify({ page_type: 'self', sort: 'confidence' });
+
+    // Mirror old.reddit form: query string carries dir/id/sr, body repeats with auth tokens
+    const queryParams = new URLSearchParams();
+    queryParams.set('dir', String(direction));
+    queryParams.set('id', fullname);
+    queryParams.set('sr', subreddit);
+
+    const fallbackBody = new URLSearchParams();
+    fallbackBody.set('id', fullname);
+    fallbackBody.set('dir', String(direction));
+    fallbackBody.set('sr', subreddit);
+    fallbackBody.set('r', subreddit);
+    fallbackBody.set('renderstyle', 'html');
+    fallbackBody.set('isTrusted', 'true');
+    fallbackBody.set('vote_event_data', voteEventData);
+    fallbackBody.set('uh', modhash);
+    fallbackBody.set('vh', voteHash || modhash);
+
+    const resp = await extensionFetch(`https://old.reddit.com/api/vote?${queryParams.toString()}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      },
+      credentials: 'include' as any,
+      body: fallbackBody.toString()
     } as any);
     
-    // Read response body once
     const responseText = await resp.text();
-    
     if (!resp.ok) {
-      return { success: false, error: `Vote failed: ${resp.status} ${responseText}` };
+      const reason = resp.status === 403
+        ? 'Forbidden (old Reddit). Make sure you are logged in on old.reddit.com and that the browser can send Reddit cookies/third-party cookies.'
+        : responseText;
+      return { success: false, error: `Vote failed (old.reddit): ${resp.status} ${reason}` };
     }
-    
-    // Check response body for errors (Reddit API returns JSON even on success)
-    if (responseText) {
-      try {
-        const json = JSON.parse(responseText);
-        if (json.json && json.json.errors && json.json.errors.length > 0) {
-          const errorMsg = Array.isArray(json.json.errors[0]) 
-            ? json.json.errors[0].join(' ') 
-            : String(json.json.errors[0]);
-          return { success: false, error: errorMsg || 'Vote failed' };
-    }
-      } catch {
-        // If response isn't JSON, that's fine - 200 status means success
-      }
-    }
-    
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e?.message || 'Vote error' };

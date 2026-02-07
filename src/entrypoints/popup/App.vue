@@ -31,6 +31,7 @@ import generalIcon from '@/assets/settingsScreen/general.svg';
 import imagePreviewsIcon from '@/assets/settingsScreen/imagePreviews.svg';
 import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms.svg';
 import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
+import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
 
@@ -1082,7 +1083,7 @@ function handleAniListLogout() {
                           aria-label="View mapping info"
                           title="View mapping info"
                         >
-                          ℹ️
+                          <img :src="infoIcon" alt="Info" class="h-4 w-4" />
                         </button>
                         <button
                           class="rounded-full bg-rose-500/80 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-60"

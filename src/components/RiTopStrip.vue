@@ -201,7 +201,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getRuntimeUrl } from '@/utils/runtime';
-import { extensionFetch } from '@/utils/redditApi';
+import { getSubredditAboutCached } from '@/utils/redditApi';
 import 'css-ripple-effect';
 
 interface DiscussionTab {
@@ -379,49 +379,10 @@ async function fetchSubredditAvatar(name?: string | null) {
   }
   isAvatarHydrating.value = true;
   try {
-    const webUrl = `https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`;
-    const apiUrl = `https://api.reddit.com/r/${encodeURIComponent(sub)}/about.json`;
-
-    const doFetch = async (url: string) => {
-      console.log('[RiTopStrip] avatar doFetch start', { url });
-      try {
-        const resp = await extensionFetch(url, { credentials: 'omit' } as any);
-        console.log('[RiTopStrip] avatar doFetch extensionFetch result', { url, ok: resp?.ok, status: resp?.status });
-        if (resp.ok) {
-          try {
-            const json = await resp.json();
-            console.log('[RiTopStrip] avatar doFetch extensionFetch json ok', { url, hasJson: !!json });
-            return json;
-          } catch (parseErr) {
-            console.warn('[RiTopStrip] avatar fetch json parse error (extensionFetch)', { url, err: parseErr });
-            return null;
-          }
-        }
-
-        // Status 0 is what we see when host permission is missing or the extension reload is required.
-        console.warn('[RiTopStrip] avatar fetch non-ok via extensionFetch', { url, status: resp.status });
-        return null;
-      } catch (e) {
-        console.warn('[RiTopStrip] avatar doFetch extensionFetch threw', { url, err: e });
-        return null;
-      }
-    };
-
-    // Prefer the web endpoint (raw_json) first; fall back to api domain if needed
-    const dataFromWeb = await doFetch(webUrl);
-    const dataFromApi = dataFromWeb ? null : await doFetch(apiUrl);
-    const data = dataFromWeb || dataFromApi;
-    console.log('[RiTopStrip] avatar fetch raw data', {
-      sub,
-      triedWeb: true,
-      triedApi: !dataFromWeb,
-      hasWeb: !!dataFromWeb,
-      hasApi: !!dataFromApi,
-      webUrl,
-      apiUrl,
-    });
+    const data = await getSubredditAboutCached(sub);
+    console.log('[RiTopStrip] avatar fetch raw data (cached)', { sub, hasData: !!data });
     if (!data) {
-      console.warn('[RiTopStrip] avatar fetch returned no data', { sub, apiUrl, webUrl });
+      console.warn('[RiTopStrip] avatar fetch returned no data', { sub });
       return;
     }
     const iconImg = sanitizeIcon(data?.data?.icon_img);

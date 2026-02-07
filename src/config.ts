@@ -19,9 +19,10 @@ export const REDDIT_REDIRECT_URI = 'https://hayami.moe/pwa/link/reddit';
  * - identity: Access to user's identity (username)
  * - read: Read access to posts and comments
  * - submit: Ability to submit comments
+ * - edit: Ability to edit or delete your own content
  * - vote: Ability to upvote/downvote
  */
-export const REDDIT_SCOPES = 'identity read submit vote';
+export const REDDIT_SCOPES = 'identity read submit edit vote';
 
 /**
  * Token duration
@@ -86,6 +87,7 @@ export const hostPermissions = [
       'https://www.reddit.com/*',
       'https://api.reddit.com/*',
       'https://oauth.reddit.com/*',
+      'https://old.reddit.com/*',
       '*://*.crunchyroll.com/*',
       'https://*.disqus.com/*',
       'https://api.myanimelist.net/*',

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
-import { voteThing, getUserAvatar, formatRedditDate, type RedditComment } from '@/utils/redditApi';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { voteThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
 import { markdownToHtml, escapeHtml } from '@/utils/markdown';
 import { getContrastingTextColor } from '@/utils/color-utils';
 import { toast } from 'vue-sonner';
@@ -14,6 +14,8 @@ const props = defineProps<{
   highlightIds?: Set<string>;
   onReply?: (comment: RedditComment) => void;
   loadMoreHandler?: (commentId: string) => Promise<void>;
+  subreddit?: string;
+  currentUsername?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -36,11 +38,38 @@ const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
 const isVoting = ref(false);
 const showReplies = ref(true);
 const localReplies = ref<RedditComment[]>(props.comment.replies || []);
+const localBody = ref(props.comment.body);
+const localEdited = ref(props.comment.edited);
 const shareLabel = ref('Share');
 const isShareCopied = ref(false);
 const childrenHost = ref<HTMLElement | null>(null);
 const isSpineHover = ref(false);
 const showExpandAvatar = computed(() => depth.value === 0 && isCollapsed.value);
+const isDeleted = ref(false);
+const showOwnMenu = ref(false);
+const isEditing = ref(false);
+const editDraft = ref('');
+const isSavingEdit = ref(false);
+const isDeleting = ref(false);
+const currentUserLower = computed(() => props.currentUsername ? props.currentUsername.toLowerCase() : null);
+const isOwn = computed(() => {
+  if (props.comment.isMine) return true;
+  const authorRaw = props.comment.author || '';
+  if (!authorRaw) return false;
+  const author = authorRaw.replace(/^u\//i, '').trim().toLowerCase();
+  if (author === 'you') return true; // fallback when username not yet resolved
+  if (!currentUserLower.value) return false;
+  return author === currentUserLower.value;
+});
+
+function resolveSubreddit(): string | null {
+  if (props.subreddit) return props.subreddit;
+  const fromComment = (props.comment as any)?.subreddit;
+  if (typeof fromComment === 'string' && fromComment.trim()) return fromComment.trim();
+  const perm = props.comment.permalink || '';
+  const match = perm.match(/\/r\/([^/]+)/i);
+  return match?.[1] || null;
+}
 
 // Watch for external reply updates
 watch(() => props.comment.replies, (newReplies) => {
@@ -49,7 +78,10 @@ watch(() => props.comment.replies, (newReplies) => {
   }
 }, { deep: true });
 
-const isDisabled = computed(() => props.isArchived || props.isLocked || props.comment.author === '[deleted]');
+watch(() => props.comment.body, (b) => { localBody.value = b; });
+watch(() => props.comment.edited, (e) => { localEdited.value = e; });
+
+const isDisabled = computed(() => props.isArchived || props.isLocked || props.comment.author === '[deleted]' || isDeleted.value);
 const isHighlighted = computed(() => props.highlightIds?.has(props.comment.id) ?? false);
 const hasMoreChildren = computed(() => (props.comment.moreChildrenIds?.length || 0) > 0);
 const remainingChildrenCount = computed(() => props.comment.moreCount || props.comment.moreChildrenIds?.length || 0);
@@ -119,7 +151,10 @@ const flairHtml = computed(() => {
 
 // Render comment body as HTML
 const bodyHtml = computed(() => {
-  const raw = props.comment.body || '';
+  if (isDeleted.value) {
+    return '<em>[deleted]</em>';
+  }
+  const raw = localBody.value || '';
   if (!raw || raw === '[deleted]' || raw === '[removed]') {
     return `<em>${escapeHtml(raw || '[deleted]')}</em>`;
   }
@@ -189,6 +224,14 @@ onMounted(async () => {
       }
     }
   }
+});
+
+onMounted(() => {
+  document.addEventListener('click', closeOwnMenu);
+});
+
+onUnmounted(() => {
+  document.removeEventListener('click', closeOwnMenu);
 });
 
 function toggleCollapse() {
@@ -373,7 +416,7 @@ async function handleUpvote() {
   isVoting.value = true;
   try {
     const fullname = `t1_${props.comment.id}`;
-    const res = await voteThing(fullname, newDir);
+    const res = await voteThing(fullname, newDir, props.subreddit);
     
     if (!res.success) {
       // Revert
@@ -411,7 +454,7 @@ async function handleDownvote() {
   isVoting.value = true;
   try {
     const fullname = `t1_${props.comment.id}`;
-    const res = await voteThing(fullname, newDir);
+    const res = await voteThing(fullname, newDir, props.subreddit);
     
     if (!res.success) {
       // Revert
@@ -444,6 +487,84 @@ function handleReply() {
     props.onReply(props.comment);
   }
   emit('reply', props.comment);
+}
+
+function toggleOwnMenu(ev?: MouseEvent) {
+  if (ev) ev.stopPropagation();
+  showOwnMenu.value = !showOwnMenu.value;
+}
+
+function closeOwnMenu() {
+  showOwnMenu.value = false;
+}
+
+async function handleDeleteComment() {
+  if (isDisabled.value || isDeleting.value) return;
+  if (!confirm('Delete this comment?')) return;
+  const subreddit = resolveSubreddit();
+  if (!subreddit) {
+    toast.error('Cannot delete: missing subreddit context');
+    return;
+  }
+  isDeleting.value = true;
+  try {
+    const fullname = props.comment.id.startsWith('t1_') ? props.comment.id : `t1_${props.comment.id}`;
+    const res = await deleteComment(fullname, subreddit);
+    if (!res?.success) {
+      toast.error(res?.error || 'Failed to delete comment');
+      return;
+    }
+    localBody.value = '[deleted]';
+    isDeleted.value = true;
+    showOwnMenu.value = false;
+    toast.success('Comment deleted');
+  } catch (err: any) {
+    toast.error(err?.message || 'Failed to delete comment');
+  } finally {
+    isDeleting.value = false;
+  }
+}
+
+async function handleEditComment() {
+  if (isDisabled.value) return;
+  editDraft.value = localBody.value || '';
+  isEditing.value = true;
+  showOwnMenu.value = false;
+}
+
+async function handleSaveEdit() {
+  if (isSavingEdit.value) return;
+  const trimmed = (editDraft.value || '').trim();
+  if (!trimmed) {
+    toast.error('Comment cannot be empty');
+    return;
+  }
+  const subreddit = resolveSubreddit();
+  if (!subreddit) {
+    toast.error('Cannot edit: missing subreddit context');
+    return;
+  }
+  isSavingEdit.value = true;
+  try {
+    const fullname = props.comment.id.startsWith('t1_') ? props.comment.id : `t1_${props.comment.id}`;
+    const res = await editComment(fullname, trimmed, subreddit);
+    if (!res?.success) {
+      toast.error(res?.error || 'Failed to edit comment');
+      return;
+    }
+    localBody.value = trimmed;
+    localEdited.value = Math.floor(Date.now() / 1000);
+    isEditing.value = false;
+    toast.success('Comment updated');
+  } catch (err: any) {
+    toast.error(err?.message || 'Failed to edit comment');
+  } finally {
+    isSavingEdit.value = false;
+  }
+}
+
+function handleCancelEdit() {
+  isEditing.value = false;
 }
 
 function handleShare() {
@@ -557,7 +678,21 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
         <span v-if="editedText">{{ editedText }}</span>
       </div>
       
-      <div class="ri-text" ref="textContainerRef" v-html="bodyHtml"></div>
+      <div v-if="!isEditing" class="ri-text" ref="textContainerRef" v-html="bodyHtml"></div>
+      <div v-else class="ri-edit-box">
+        <textarea
+          v-model="editDraft"
+          class="ri-edit-textarea"
+          rows="5"
+          :disabled="isSavingEdit"
+        />
+        <div class="ri-edit-actions">
+          <button class="ri-plain-btn" :disabled="isSavingEdit" @click.stop="handleCancelEdit">Cancel</button>
+          <button class="ri-plain-btn primary" :disabled="isSavingEdit" @click.stop="handleSaveEdit">
+            {{ isSavingEdit ? 'Saving…' : 'Save' }}
+          </button>
+        </div>
+      </div>
       
       <div class="ri-actions">
         <div 
@@ -609,6 +744,21 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           <img class="ri-action-icon" :src="shareIconUrl" alt="share" />
           <span>{{ shareLabel }}</span>
         </button>
+
+        <div v-if="isOwn" class="ri-own-menu-wrapper">
+          <button
+            class="ri-action-btn ri-own-menu-btn"
+            :aria-expanded="showOwnMenu"
+            @click.stop="toggleOwnMenu"
+          >
+            <span class="ri-ellipsis" aria-hidden="true">...</span>
+            <span class="sr-only">More options</span>
+          </button>
+          <div v-if="showOwnMenu" class="ri-own-menu" @click.stop>
+            <button class="ri-own-menu-item" :disabled="isDisabled || isSavingEdit || isDeleting" @click.stop="handleEditComment">Edit</button>
+            <button class="ri-own-menu-item ri-own-menu-danger" :disabled="isDisabled || isDeleting" @click.stop="handleDeleteComment">{{ isDeleting ? 'Deleting…' : 'Delete' }}</button>
+          </div>
+        </div>
       </div>
       
       <!-- Reply input slot -->
@@ -682,5 +832,85 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
 .ri-avatar-expand {
   object-fit: contain;
   background: transparent;
+}
+
+.ri-actions {
+  position: relative;
+}
+
+.ri-own-menu-wrapper {
+  position: relative;
+}
+
+.ri-own-menu-btn {
+  width: 32px;
+  padding: 6px;
+}
+
+.ri-ellipsis {
+  display: inline-block;
+  letter-spacing: 2px;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.ri-own-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  display: flex;
+  flex-direction: column;
+  background: #0f0f0f;
+  border: 1px solid #2c2c2c;
+  border-radius: 8px;
+  min-width: 140px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+  z-index: 4;
+  padding: 4px;
+}
+
+.ri-own-menu-item {
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: #f5f5f5;
+}
+
+.ri-own-menu-item:hover:not(:disabled) {
+  background: #1f1f1f;
+}
+
+.ri-own-menu-item:disabled {
+  opacity: 0.5;
+}
+
+.ri-own-menu-danger {
+  color: #ff9a8b;
+}
+
+.ri-edit-box {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #2c2c2c;
+  border-radius: 8px;
+  background: #0f0f0f;
+}
+
+.ri-edit-textarea {
+  width: 100%;
+  background: #1a1a1a;
+  color: #f5f5f5;
+  border: 1px solid #2c2c2c;
+  border-radius: 6px;
+  padding: 8px;
+  font: inherit;
+  resize: vertical;
+}
+
+.ri-edit-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 </style>

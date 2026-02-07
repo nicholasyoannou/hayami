@@ -5,7 +5,7 @@ import { getRuntimeUrl } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
-import { voteThing, submitComment, type RedditComment } from '@/utils/redditApi';
+import { voteThing, submitComment, getModhash, type RedditComment } from '@/utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
 import { extractEpisodeTableFromRedditSelftext } from '@/entrypoints/content/mapping';
@@ -50,7 +50,10 @@ const isLoading = ref(props.initialLoading ?? discussionStore.isLoading);
 const commentSort = ref<'best' | 'top' | 'new'>('best');
 const searchQuery = ref('');
 const totalComments = ref(props.discussion.num_comments ?? 0);
+const hasCommentsLoaded = ref(false);
+const currentUsername = ref<string | null>(null);
 const redditListRef = ref<any>(null);
+const pendingLocalComments = ref<Array<{ comment: RedditComment; parentId?: string }>>([]);
 const showTopReplyEditor = ref(false);
 const replyTarget = ref<{ id: string; author?: string; parentFullname: string } | null>(null);
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
@@ -114,6 +117,7 @@ const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
   'idle'
 );
 const lastDiscussionId = ref<string | null>(props.discussion.id || props.discussion.fullname || null);
+const showDebugSkeletons = import.meta.env.DEV;
 
 function applyDiscussionUpdate(discussion: Discussion | undefined) {
   if (!discussion) return;
@@ -319,6 +323,20 @@ const redditUrl = computed(() => {
   return `https://www.reddit.com${permalink}`;
 });
 
+async function loadCurrentUsername() {
+  try {
+    const stored = await getStoredUsername();
+    if (stored) {
+      currentUsername.value = stored;
+      return;
+    }
+    const { username } = await getModhash();
+    if (username) currentUsername.value = username;
+  } catch (e) {
+    console.warn('Failed to load current username', e);
+  }
+}
+
 async function loadEditorMode() {
   try {
     const mode = await redditEditorModeItem.getValue();
@@ -437,7 +455,7 @@ async function handleUpvote(e?: Event) {
   
   try {
     console.log('Calling voteThing with fullname:', fullname, 'direction:', newDir);
-    const result = await voteThing(fullname, newDir);
+    const result = await voteThing(fullname, newDir, props.discussion.subreddit);
     console.log('voteThing result:', result);
     if (!result.success) {
       // Revert on failure
@@ -492,7 +510,7 @@ async function handleDownvote(e?: Event) {
   
   try {
     console.log('Calling voteThing with fullname:', fullname, 'direction:', newDir);
-    const result = await voteThing(fullname, newDir);
+    const result = await voteThing(fullname, newDir, props.discussion.subreddit);
     console.log('voteThing result:', result);
     if (!result.success) {
       // Revert on failure
@@ -595,11 +613,20 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
       return;
     }
 
-    const username = await getStoredUsername();
+    const username = res.username || await getStoredUsername();
+    if (username) {
+      currentUsername.value = username;
+      try {
+        await browser.storage.local.set({ reddit_username: username });
+      } catch (e) {
+        console.warn('Failed to persist reddit username', e);
+      }
+    }
     const now = Math.floor(Date.now() / 1000);
     const newComment: RedditComment = {
       id: res.commentId,
       author: username || 'you',
+      isMine: true,
       body: trimmed,
       score: 1,
       created_utc: now,
@@ -611,7 +638,32 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
     };
     const parentId = replyTarget.value?.id;
 
-    redditListRef.value?.addComment(newComment, parentId);
+    // Only queue if the list is not ready yet (e.g., initial mount)
+    if (!hasCommentsLoaded.value) {
+      pendingLocalComments.value.push({ comment: newComment, parentId });
+    }
+
+    const list = redditListRef.value;
+    if (list?.addComment) {
+      list.addComment(newComment, parentId);
+    }
+
+    // Refresh only if the comment is still missing after a short delay
+    if (list?.hasComment && !list.hasComment(newComment.id) && list.loadComments) {
+      const refreshDelayMs = 1800;
+      setTimeout(async () => {
+        try {
+          if (typeof list.hasComment === 'function' && !list.hasComment(newComment.id)) {
+            await list.loadComments(commentSort.value);
+            if (typeof list.hasComment === 'function' && !list.hasComment(newComment.id)) {
+              list.addComment(newComment, parentId);
+            }
+          }
+        } catch (e) {
+          console.warn('Refresh after comment post failed; keeping optimistic comment', e);
+        }
+      }, refreshDelayMs);
+    }
     totalComments.value = totalComments.value + 1;
     showTopReplyEditor.value = false;
     replyTarget.value = null;
@@ -649,6 +701,18 @@ function handleCommentsLoaded(count: number) {
   isLoading.value = false;
   discussionStore.clearLoading();
   clearNoDiscussionFlag();
+  hasCommentsLoaded.value = true;
+  // Apply any locally posted comments that were queued before the list was ready
+  const list = redditListRef.value;
+  if (pendingLocalComments.value.length && list?.addComment) {
+    const hasFn = typeof list.hasComment === 'function' ? list.hasComment : () => false;
+    for (const item of pendingLocalComments.value) {
+      if (!hasFn(item.comment.id)) {
+        list.addComment(item.comment, item.parentId);
+      }
+    }
+    pendingLocalComments.value = [];
+  }
 }
 
 function handleSortChange(e: Event) {
@@ -672,6 +736,7 @@ watch(() => isLoading.value, (newVal) => {
 
 onMounted(() => {
   void loadEditorMode();
+  void loadCurrentUsername();
   const manualSearchHandler = (ev: Event) => {
     const detail = (ev as CustomEvent)?.detail || {};
     const animeInfo = detail.animeInfo;
@@ -1074,7 +1139,7 @@ defineExpose({
       <div class="ri-comments" style="width: 100%; min-height: 100px;">
         <!-- Show skeletons while loading -->
         <div v-if="isLoading" class="ri-loading-skeletons">
-          <div style="color: #999; font-size: 12px; margin-bottom: 8px;">
+          <div v-if="showDebugSkeletons" style="color: #999; font-size: 12px; margin-bottom: 8px;">
             [DEBUG] Skeletons visible - isLoading={{ isLoading }}, provider={{ currentProvider }}
           </div>
           <div v-for="i in 6" :key="i" class="ri-skel">
@@ -1094,6 +1159,7 @@ defineExpose({
           :discussion-id="discussionId"
           :link-fullname="postFullname"
           :subreddit="discussion.subreddit"
+          :current-username="currentUsername"
           :is-archived="discussion.archived"
           :is-locked="discussion.locked"
           :initial-sort="commentSort"

@@ -24,6 +24,28 @@ async function getImgurClientId(): Promise<string | null> {
   }
 }
 
+async function fetchImgurAlbumViaExtension(albumId: string, clientId: string | null): Promise<string[]> {
+  const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (clientId) headers['Authorization'] = `Client-ID ${clientId}`;
+
+  try {
+    const resp = await extensionFetch(apiUrl, { headers } as any);
+    if (resp.ok) {
+      const j = await resp.json();
+      if (j?.data && Array.isArray(j.data.images)) {
+        return j.data.images.map((it: any) => it.link).filter(Boolean);
+      }
+    } else {
+      console.warn('[preview] Imgur album via extensionFetch non-ok', { status: resp.status });
+    }
+  } catch (e) {
+    console.warn('[preview] Imgur album via extensionFetch failed', e);
+  }
+
+  return [];
+}
+
 async function getImgchestApiKey(): Promise<string | null> {
   try {
     const raw = await imgchestApiKeyItem.getValue();
@@ -179,19 +201,14 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
               if (Array.isArray(j)) images = j.filter(Boolean).map(String);
             }
           } catch (e1) {
-            // Fall back to Imgur API
+            // ignore and fall through
+          }
+
+          // Fall back to Imgur API via background to avoid CORS preflight blocks
+          if (images.length === 0) {
             try {
-              const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
               const clientId = await getImgurClientId();
-              const headers: Record<string, string> = { Accept: 'application/json' };
-              if (clientId) headers['X-Imgur-Client-ID'] = clientId;
-              const r = await fetch(apiUrl, { headers });
-              if (r.ok) {
-                const j = await r.json();
-                if (j?.data && Array.isArray(j.data.images)) {
-                  images = j.data.images.map((it: any) => it.link).filter(Boolean);
-                }
-              }
+              images = await fetchImgurAlbumViaExtension(albumId, clientId);
             } catch (e2) {
               console.warn('[preview] Failed to fetch album:', e2);
             }

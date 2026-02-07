@@ -343,7 +343,7 @@ class UiManager {
         launcher.title = 'Open Hayami comments';
         launcher.setAttribute('aria-label', 'Open Hayami comments');
         const icon = document.createElement('img');
-        icon.src = browser.runtime.getURL('icon/48.png');
+        icon.src = browser.runtime.getURL('icons/hayamiLogo-wBg.png');
         icon.alt = 'Hayami comments';
         launcher.appendChild(icon);
         root.appendChild(launcher);

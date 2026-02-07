@@ -53,7 +53,7 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    version: '0.0.7',
+    version: '0.0.8',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
@@ -68,7 +68,8 @@ export default defineConfig({
           'assets/topCommentMenu/*.svg',
           'disqus-loader.js',
           'popup.html',
-          'hayamiPlus.html'
+          'hayamiPlus.html',
+          'icons/hayamiLogo-wBg.png',
         ],
         matches: ['<all_urls>']
       }

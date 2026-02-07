@@ -15,7 +15,8 @@ import {
   extractEpisodeNumber, 
   searchSeriesDiscussionsByDate, 
   searchCustomPosts, 
-  extensionFetch 
+  extensionFetch,
+  getSubredditAboutCached 
 } from '@/utils/redditApi';
 import { fetchHayami } from '@/utils/hayamiApi';
 
@@ -461,14 +462,10 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
 async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string | null; primaryColor: string | null }> {
   if (!subreddit) return { iconUrl: null, primaryColor: null };
   try {
-    const url = `https://www.reddit.com/r/${encodeURIComponent(subreddit)}/about.json?raw_json=1`;
-    // Use credential-omitted fetch to avoid CORS rejection on third-party pages
-    const resp = await extensionFetch(url, { credentials: 'omit' } as any);
-    if (resp.ok) {
-      const data = await resp.json();
-      // Prefer icon_img (usually square and stable); fall back to community_icon
-      const iconUrl = sanitizeRedditIconUrl(data?.data?.icon_img) || sanitizeRedditIconUrl(data?.data?.community_icon) || null;
-      const primaryColor = data?.data?.primary_color || data?.data?.key_color || null;
+    const about = await getSubredditAboutCached(subreddit);
+    if (about) {
+      const iconUrl = sanitizeRedditIconUrl(about?.data?.icon_img) || sanitizeRedditIconUrl(about?.data?.community_icon) || null;
+      const primaryColor = about?.data?.primary_color || about?.data?.key_color || null;
       return {
         iconUrl: iconUrl || null,
         primaryColor: (primaryColor && primaryColor.trim()) || null,

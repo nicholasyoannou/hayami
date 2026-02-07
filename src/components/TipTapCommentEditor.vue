@@ -45,8 +45,8 @@ const Spoiler = Mark.create({
   },
 
   renderHTML({ HTMLAttributes }) {
-        return ['code', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0]
-
+    // Render as a span so it doesn't serialize as inline code
+    return ['span', mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
   },
 
   addInputRules() {
@@ -175,6 +175,13 @@ function htmlToMarkdown(html: string): string {
     const children = Array.from(el.childNodes).map(processNode).join('');
 
     switch (tag) {
+      case 'span': {
+        const cls = el.getAttribute('class') || '';
+        if (cls.split(/\s+/).includes('spoiler')) {
+          return `>!${children}!<`;
+        }
+        return children;
+      }
       case 'strong':
       case 'b':
         return `**${children}**`;
@@ -248,12 +255,9 @@ function setLink() {
 
 function submit() {
   if (!editor.value) return;
-  const json = editor.value.getJSON();
-  const mdSerializer = (editor.value as any).storage?.markdown;
-  const md = mdSerializer?.serialize ? mdSerializer.serialize(json).trim() : htmlToMarkdown(editor.value.getHTML());
+  const md = htmlToMarkdown(editor.value.getHTML());
   if (!md) return;
   console.log('Submitted Markdown:', md);
-  console.log('Raw JSON document:', JSON.stringify(json, null, 2));
 
   emit('submit', md);
   editor.value.commands.clearContent();
@@ -743,17 +747,13 @@ const isReady = computed(() => !!editor.value);
 }
 
 .tiptap :deep(.spoiler) {
+  /* Match inline code styling so spoilers read like code blocks visually */
   background: #21262d;
   color: #79c0ff;
-  padding: 0.2em 0.4em;
+  padding: 2px 6px;
   border-radius: 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 0.95em;
-}
-
-/* Optional: small visual hint it's a spoiler (still very close to code) */
-.tiptap :deep(.spoiler) {
-  /* border: 1px solid #444; */          /* uncomment if you want a faint border */
   cursor: pointer;
 }
 

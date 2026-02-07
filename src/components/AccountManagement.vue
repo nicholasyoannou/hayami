@@ -6,6 +6,8 @@ import { useAccountManagement } from '@/composables/useAccountManagement';
 
 const { accounts, getAccountActions } = useAccountManagement();
 
+const props = defineProps<{ hideRedditConnect?: boolean }>();
+
 const defaultProvider = ref<CommentProviderOption>('reddit');
 
 const emit = defineEmits<{
@@ -79,17 +81,19 @@ onMounted(async () => {
               <span v-if="defaultProvider === account.id" class="default-pill">Default</span>
             </div>
             <p class="account-status">
-              {{ account.requiresAuth
-                ? (account.isConnected
-                    ? (account.username ? `${account.username}` : 'Connected')
-                    : 'Not connected')
-                : 'No login required' }}
+              {{ props.hideRedditConnect && account.id === 'reddit'
+                ? 'No login required'
+                : account.requiresAuth
+                  ? (account.isConnected
+                      ? (account.username ? `${account.username}` : 'Connected')
+                      : 'Not connected')
+                  : 'No login required' }}
             </p>
           </div>
         </div>
         <div class="account-actions">
           <button 
-            v-if="account.requiresAuth"
+            v-if="account.requiresAuth && !(props.hideRedditConnect && account.id === 'reddit')"
             class="account-btn" 
             :disabled="account.isLoading" 
             @click="handleAccountAction(account.id)"

@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData } from '@/utils/redditApi';
 import { redditCommentScaleItem } from '@/config/storage';
+import { getModhash } from '@/utils/redditApi';
 
 const props = defineProps<{
   discussionId: string;
@@ -15,6 +16,7 @@ const props = defineProps<{
   searchQuery?: string;
   emptyMessage?: string;
   scale?: number;
+  currentUsername?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -104,8 +106,29 @@ async function loadComments(sort: 'best' | 'top' | 'new' = 'best') {
   error.value = null;
   
   try {
+    let currentUser = props.currentUsername ? props.currentUsername.toLowerCase() : null;
+    if (!currentUser) {
+      try {
+        const { username } = await getModhash();
+        if (username) currentUser = username.toLowerCase();
+      } catch (err) {
+        console.warn('Could not resolve username for own-comment tagging', err);
+      }
+    }
+
     const result = await getPostComments(props.discussionId, sort);
-    comments.value = result.comments || [];
+    const currentUserFinal = currentUser;
+
+    function tagMine(list: RedditCommentData[]): RedditCommentData[] {
+      return list.map((c) => {
+        const author = (c.author || '').replace(/^u\//i, '').trim().toLowerCase();
+        const isMine = !!currentUserFinal && !!author && author === currentUserFinal;
+        const taggedReplies = Array.isArray(c.replies) ? tagMine(c.replies) : c.replies;
+        return { ...c, isMine, replies: taggedReplies } as RedditCommentData;
+      });
+    }
+
+    comments.value = tagMine(result.comments || []);
     rootMoreIds.value = Array.isArray(result.rootMoreChildrenIds) ? [...result.rootMoreChildrenIds] : [];
     renderedCount.value = Math.min(pageSize, comments.value.length);
     // hasMore should be true if there are more comments to show OR if there are rootMoreIds to fetch
@@ -277,7 +300,6 @@ defineExpose({
     if (!parentId) {
       // Top-level comment
       comments.value = [comment, ...comments.value];
-      highlightIds.value.add(comment.id);
     } else {
       // Find parent and add reply
       function addReply(list: RedditCommentData[]): boolean {
@@ -285,7 +307,6 @@ defineExpose({
           if (c.id === parentId) {
             c.replies = c.replies || [];
             c.replies.unshift(comment);
-            highlightIds.value.add(comment.id);
             return true;
           }
           if (c.replies && addReply(c.replies)) return true;
@@ -295,6 +316,16 @@ defineExpose({
       addReply(comments.value);
     }
     renderedCount.value = Math.min(renderedCount.value + 1, comments.value.length);
+  },
+  hasComment: (id: string) => {
+    const search = (list: RedditCommentData[]): boolean => {
+      for (const c of list) {
+        if (c.id === id) return true;
+        if (Array.isArray(c.replies) && search(c.replies)) return true;
+      }
+      return false;
+    };
+    return search(comments.value);
   }
 });
 </script>
@@ -331,6 +362,8 @@ defineExpose({
         v-for="comment in visibleComments"
         :key="comment.id"
         :comment="comment"
+        :subreddit="subreddit"
+        :current-username="props.currentUsername"
         :depth="0"
         :is-archived="isArchived"
         :is-locked="isLocked"

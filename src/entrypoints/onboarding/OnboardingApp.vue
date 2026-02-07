@@ -1,35 +1,20 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { browser } from 'wxt/browser';
-import { RedditCommentList } from '@/components/comments';
 import { getRuntimeUrl } from '@/utils/runtime';
 import AccountManagement from '@/components/AccountManagement.vue';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
-import {
-  imgchestApiKeyItem,
-  imgurClientIdItem,
-  onboardingCompleteItem,
-  redditCommentScaleItem,
-} from '@/config/storage';
-import '@/styles/reddit-inline.css';
+import { imgchestApiKeyItem, imgurClientIdItem, onboardingCompleteItem } from '@/config/storage';
+import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 
 const currentStep = ref(0);
 const isComplete = ref(false);
-const previewScale = ref(1);
 const imgurApiKey = ref('');
 const imagechestApiKey = ref('');
-
-const previewPostId = '108dj9x';
-const previewLinkFullname = 't3_108dj9x';
-const previewSubreddit = 'anime';
-
-const redditPreviewUrl = 'https://www.reddit.com/r/anime/comments/108dj9x/';
 
 const progress = computed(() => {
   return ((currentStep.value + 1) / steps.length) * 100;
 });
-
-const isPreviewStep = computed(() => currentStep.value === 3);
 
 const platforms = [
   { id: 'reddit', name: 'Reddit', icon: getRuntimeUrl('assets/topCommentMenu/reddit.svg') },
@@ -37,8 +22,6 @@ const platforms = [
   { id: 'disqus', name: 'Disqus', icon: getRuntimeUrl('assets/topCommentMenu/disqusLogo.svg') },
   { id: 'mal', name: 'MAL Forums', icon: getRuntimeUrl('assets/topCommentMenu/malLogo.svg') }
 ];
-
-const redditSelected = ref(false);
 
 onMounted(async () => {
   try {
@@ -53,46 +36,6 @@ onMounted(async () => {
   }
 });
 
-watch(currentStep, (step) => {
-  if (step === 3) {
-    requestAnimationFrame(() => {
-      window.scrollTo({ top: 0, behavior: 'auto' });
-    });
-  }
-});
-
-// Save comment scale when it changes
-watch(previewScale, (newScale) => {
-  saveCommentScale();
-});
-
-onMounted(async () => {
-  try {
-    const [storedImgur, storedImagechest, storedScale] = await Promise.all([
-      imgurClientIdItem.getValue(),
-      imgchestApiKeyItem.getValue(),
-      redditCommentScaleItem.getValue(),
-    ]);
-    if (storedImgur) imgurApiKey.value = storedImgur;
-    if (storedImagechest) imagechestApiKey.value = storedImagechest;
-    if (storedScale) previewScale.value = storedScale;
-  } catch (e) {
-    console.warn('Failed to load settings', e);
-  }
-});
-
-function handleAccountsUpdated(accounts: { reddit: boolean; youtube: boolean; mal: boolean; anilist: boolean }) {
-  redditSelected.value = accounts.reddit;
-}
-
-// Save comment scale when changed
-async function saveCommentScale() {
-  try {
-    await redditCommentScaleItem.setValue(previewScale.value);
-  } catch (error) {
-    console.error('Failed to save comment scale:', error);
-  }
-}
 
 const steps = [
   {
@@ -108,11 +51,6 @@ const steps = [
   {
     title: '🔐 Connect your accounts',
     content: 'Connect the accounts for platforms you intend to view comments from.',
-    icon: ''
-  },
-  {
-    title: 'Adjust display settings (Reddit)',
-    content: 'Adjust the text size scaling if you prefer enlarged text. This is experimental, however, but settings can be changed at any time through Hayami settings.',
     icon: ''
   },
   {
@@ -133,10 +71,7 @@ const steps = [
 ];
 
 function nextStep() {
-  if (currentStep.value === 4) {
-    // Persist the chosen scale when leaving the preview step
-    persistDisplayScale();
-  } else if (currentStep.value === 5) {
+  if (currentStep.value === 3) {
     persistMediaKeys();
   }
   if (currentStep.value < steps.length - 1) {
@@ -165,14 +100,6 @@ async function completeOnboarding() {
   }, 1500);
 }
 
-async function persistDisplayScale() {
-  try {
-    await redditCommentScaleItem.setValue(previewScale.value);
-  } catch (e) {
-    console.warn('Failed to persist reddit_comment_scale', e);
-  }
-}
-
 async function persistMediaKeys() {
   try {
     await Promise.all([
@@ -186,7 +113,7 @@ async function persistMediaKeys() {
 </script>
 
 <template>
-  <div class="onboarding-container" :class="{ 'scroll-step': isPreviewStep }">
+  <div class="onboarding-container">
     <div class="background-art">
       <div class="stars"></div>
       <div class="trees"></div>
@@ -196,10 +123,22 @@ async function persistMediaKeys() {
       <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
     
-    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep < 4, 'wide-step': currentStep === 3 }" v-if="!isComplete">
+    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep < 4 }" v-if="!isComplete">
       <div class="modal-content">
         <div v-if="steps[currentStep].icon" class="step-icon">{{ steps[currentStep].icon }}</div>
-        <h1 class="step-title">{{ steps[currentStep].title }}</h1>
+        <div class="step-title-row">
+          <h1 class="step-title">{{ steps[currentStep].title }}</h1>
+          <a
+            v-if="currentStep === 3"
+            class="step-title-info"
+            href="https://docs.hayami.moe/image-previews"
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open image preview docs"
+          >
+            <img :src="infoIcon" alt="info" />
+          </a>
+        </div>
         <p class="step-content">{{ steps[currentStep].content }}</p>
         
         <video 
@@ -233,46 +172,9 @@ async function persistMediaKeys() {
           <div class="marquee-fade-right"></div>
         </div>
         
-        <AccountManagement 
-          v-if="currentStep === 2" 
-          @accounts-updated="handleAccountsUpdated"
-        />
-        
-        <div v-if="currentStep === 3" class="reddit-full-preview">
+        <AccountManagement v-if="currentStep === 2" hide-reddit-connect />
 
-          <div class="slider-row inline">
-            <label for="fontScale">Comment scale</label>
-            <input
-              id="fontScale"
-              type="range"
-              min="0.9"
-              max="1.3"
-              step="0.05"
-              v-model.number="previewScale"
-            />
-            <span class="slider-value">{{ (previewScale * 100).toFixed(0) }}%</span>
-          </div>
-
-          <div class="comment-section-wrapper">
-            <div
-              id="reddit-inline-discussion"
-              class="comment-section"
-              :style="{
-                transform: `scale(${previewScale})`,
-                transformOrigin: 'top left'
-              }"
-            >
-              <RedditCommentList
-                :discussion-id="previewPostId"
-                :link-fullname="previewLinkFullname"
-                :subreddit="previewSubreddit"
-                initial-sort="top"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div v-if="currentStep === 4" class="keys-step">
+        <div v-if="currentStep === 3" class="keys-step">
           <div class="form-grid">
             <ApiKeyInput
               v-model="imgurApiKey"
@@ -287,9 +189,28 @@ async function persistMediaKeys() {
               type="text"
             />
           </div>
+          <img
+            class="preview-gif"
+            src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation2-ezgif.com-optimize.gif"
+            alt="Animated preview of image previews in Hayami"
+          />
         </div>
         
-        <div class="modal-actions" :class="{ floating: isPreviewStep }">
+        <div v-if="currentStep === 4" class="custom-sites-embed">
+          <img
+            src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation4.gif"
+            alt="Custom sites configuration preview"
+          />
+        </div>
+
+        <div v-if="currentStep === 5" class="feedback-embed">
+          <img
+            src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg"
+            alt="How to leave feedback in Hayami"
+          />
+        </div>
+        
+        <div class="modal-actions">
           <button v-if="currentStep > 0" @click="prevStep" class="btn btn-back">
             Back
           </button>
@@ -309,11 +230,6 @@ async function persistMediaKeys() {
     </div>
   </div>
 </template>
-
-<style>
-@import './reddit-inline-import.css';
-</style>
-
 <style scoped>
 .onboarding-container {
   position: fixed;
@@ -408,11 +324,6 @@ async function persistMediaKeys() {
   animation: fadeIn 0.4s ease-out;
 }
 
-.onboarding-modal.wide-step {
-  max-width: 1200px;
-  width: 98%;
-}
-
 .onboarding-modal.fixed-size {
   min-height: 500px;
   display: flex;
@@ -479,6 +390,35 @@ async function persistMediaKeys() {
   color: white;
   line-height: 1.3;
   text-align: left;
+}
+
+.step-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.step-title-info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: none;
+  background: transparent;
+  transform: translateY(-2px);
+  transition: transform 0.2s ease;
+}
+
+.step-title-info:hover {
+  transform: translateY(-1px);
+}
+
+.step-title-info img {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .step-content {
@@ -584,14 +524,6 @@ async function persistMediaKeys() {
   padding-top: 20px;
 }
 
-.modal-actions.floating {
-  position: sticky;
-  bottom: 0;
-  background: linear-gradient(180deg, rgba(30, 30, 40, 0) 0%, rgba(30, 30, 40, 0.95) 30%);
-  padding-top: 28px;
-  margin-top: 24px;
-}
-
 .btn {
   border-radius: 8px;
   font-weight: 600;
@@ -635,6 +567,48 @@ async function persistMediaKeys() {
   gap: 16px;
 }
 
+.preview-gif {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.custom-sites-embed {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.custom-sites-embed img {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.feedback-embed {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+
+.feedback-embed img {
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -672,192 +646,4 @@ async function persistMediaKeys() {
   color: rgba(255, 255, 255, 0.65);
 }
 
-.reddit-full-preview {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  position: relative;
-}
-
-.preview-header.full {
-  align-items: flex-start;
-}
-
-.slider-fab {
-  align-self: flex-end;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.05);
-  color: white;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.slider-fab:hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.35);
-}
-
-.slider-popup {
-  position: absolute;
-  top: 52px;
-  right: 12px;
-  padding: 12px 14px;
-  background: rgba(20, 20, 28, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 10px;
-  align-items: center;
-  z-index: 2;
-}
-
-.slider-popup input[type='range'] {
-  width: 100%;
-  accent-color: #5ba8ff;
-}
-
-.comment-section-wrapper {
-  width: 100%;
-  height: 500px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #0f1113;
-  overflow: auto;
-  position: relative;
-}
-
-.comment-section {
-  width: 100%;
-  min-height: 720px;
-  padding: 18px;
-  box-sizing: border-box;
-  transform-origin: top left;
-}
-
-.preview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
-  margin-top: 10px;
-}
-
-.preview-pane {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.preview-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: white;
-}
-
-.preview-subtitle {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.7);
-  word-break: break-all;
-}
-
-.badge {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.badge.active {
-  background: rgba(91, 168, 255, 0.15);
-  border-color: rgba(91, 168, 255, 0.4);
-  color: #9ed0ff;
-}
-
-.reddit-embed {
-  border: 0;
-  width: 100%;
-  height: 280px;
-  border-radius: 10px;
-  background: #0f1113;
-}
-
-.slider-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: 10px;
-  margin: 4px 0 8px 0;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.slider-row.inline {
-  margin: 12px 0 14px 0;
-}
-
-.slider-row input[type='range'] {
-  width: 100%;
-  accent-color: #5ba8ff;
-}
-
-.slider-value {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.8);
-}
-
-.comment-preview {
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.comment-item {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.comment-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.comment-text {
-  margin-top: 4px;
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.dots {
-  opacity: 0.6;
-}
-
-.author {
-  font-weight: 600;
-}
 </style>
