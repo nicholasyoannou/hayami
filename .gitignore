@@ -33,3 +33,4 @@ stats-*.json
 src/lib/chibi/malsync-pages.json
 /internal
 repomix-output.xml
+.env.submit

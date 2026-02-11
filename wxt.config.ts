@@ -20,6 +20,20 @@ export default defineConfig({
   filterEntrypoints: filteredEntrypoints,
   manifest: {
     name: 'Hayami: Anime comments & discussions',
+    icons: {
+      16: 'icon-16.png',
+      32: 'icon-32.png',
+      48: 'icon-48.png',
+      128: 'icon-128.png',
+    },
+    action: {
+      default_icon: {
+        16: 'icon-16.png',
+        32: 'icon-32.png',
+        48: 'icon-48.png',
+        128: 'icon-128.png',
+      },
+    },
     description: 'Hayami aggregates forums and comments sections together bringing anime discussions right underneath streaming platforms to you.',
     permissions: [
       'identity',
@@ -53,6 +67,13 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
+    browser_specific_settings: {
+      gecko: {
+        data_collection_permissions: {
+          required: ['none'],
+        },
+      },
+    },
     version: '0.0.8',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.

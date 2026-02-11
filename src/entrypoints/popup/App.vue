@@ -209,6 +209,7 @@ const settingDefinitions: SettingDefinition[] = [
     type: 'apiKey',
     category: 'image-previews',
     label: 'Imgur Client ID',
+    infoUrl: 'https://docs.hayami.moe/image-previews#how-to-get-an-imgur-api-key',
     placeholder: 'Enter Imgur Client ID',
     fallback: '',
     load: async () => (await imgurClientIdItem.getValue()) || '',
@@ -224,6 +225,7 @@ const settingDefinitions: SettingDefinition[] = [
     type: 'apiKey',
     category: 'image-previews',
     label: 'ImgChest API key',
+    infoUrl: 'https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key',
     placeholder: 'Enter ImgChest API key',
     fallback: '',
     load: async () => (await imgchestApiKeyItem.getValue()) || '',
@@ -1022,6 +1024,7 @@ function handleAniListLogout() {
                             v-model="settingValues[setting.key]"
                             :label="setting.label"
                             :placeholder="setting.placeholder"
+                            :info-url="setting.infoUrl"
                             :disabled="isSettingDisabled(setting)"
                             @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
                           />
