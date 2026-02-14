@@ -1916,7 +1916,11 @@ a {
 
 /* Aniwave thread styling */
 .aniwave-thread-root {
-  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+}
+
+.aniwave-thread-root * {
+  font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
 }
 
 .aniwave-thread {
@@ -1959,18 +1963,22 @@ a {
 .aniwave-comment {
   display: flex;
   gap: 12px;
-  background: #0f0f0f;
-  border: 1px solid #1c1c1c;
+  background: transparent;
+  border: none;
   border-radius: 10px;
-  padding: 12px;
+  --aniwave-depth: 0;
+  --aniwave-indent-base: 16px;
+  --aniwave-indent-step: 44px;
+  padding: 12px 44px 12px calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step));
   margin-bottom: 10px;
   position: relative;
+  box-shadow: none;
 }
 
 .aniwave-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
   object-fit: cover;
   background: #0b0f16;
 }
@@ -1992,21 +2000,39 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 2px;
 }
 
-.aniwave-author {
-  font-weight: 600;
-  color: #f3f4f6;
-}
-
-.aniwave-time {
+.aniwave-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
   color: #9ca3af;
   font-size: 12px;
 }
 
+.aniwave-author {
+  font-weight: 600;
+  color: #2e9fff;
+}
+
+.aniwave-time {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.aniwave-edited {
+  color: #9ca3af;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: lowercase;
+}
+
 .aniwave-message {
   color: #e5e7eb;
+  font-size: 15px;
   line-height: 1.5;
   word-break: break-word;
 }
@@ -2019,15 +2045,21 @@ a {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 12px;
   font-size: 12px;
   color: #cbd5e1;
+}
+
+.aniwave-score-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .aniwave-score {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   font-weight: 600;
   color: #22c55e;
 }
@@ -2036,47 +2068,112 @@ a {
   color: #f87171;
 }
 
-.aniwave-replies {
-  margin-top: 10px;
-  padding-left: 18px;
-  border-left: 2px solid #1f2937;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.aniwave-score-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(100%);
+  opacity: 0.6;
 }
+
+.aniwave-score-value {
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 500;
+}
+
 
 .aniwave-load-more-row {
-  text-align: center;
-  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
-.aniwave-load-more {
-  background: #1e1e1e;
-  color: #f5f5f5;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-weight: 600;
+.aniwave-load-more-row.is-loading {
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.aniwave-load-more-row.is-error {
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  color: #f87171;
 }
 
-.aniwave-load-more:hover {
-  background: #262626;
-  border-color: #333;
+.aniwave-loader-visual {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  color: #cbd5e1;
+}
+
+.aniwave-load-more-row.is-loading .aniwave-loader-visual {
+  display: flex;
+}
+
+.aniwave-loader-gif {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+}
+
+.aniwave-skeleton {
+  width: 100%;
+  display: none;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.aniwave-load-more-row.is-loading .aniwave-skeleton {
+  display: flex;
+}
+
+.aniwave-skeleton-line {
+  height: 10px;
+  width: 100%;
+  background: linear-gradient(90deg, #101010, #151515, #101010);
+  background-size: 200% 100%;
+  border-radius: 6px;
+  animation: aniwave-skeleton-pulse 1.3s ease-in-out infinite;
+}
+
+.aniwave-skeleton-line.short {
+  width: 50%;
+}
+
+@keyframes aniwave-skeleton-pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 .aniwave-toggle {
   position: absolute;
-  top: 10px;
+  top: 12px;
   right: 12px;
   background: none;
   border: none;
   color: rgba(255, 255, 255, 0.85) !important;
-  font-size: 18px;
+  font-size: 30px;
   line-height: 1;
   cursor: pointer;
-  padding: 2px 6px;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.aniwave-comment.is-hidden-by-parent {
+  display: none;
 }
 
 .aniwave-toggle:focus {
@@ -2084,7 +2181,7 @@ a {
 }
 
 .aniwave-comment.is-collapsed {
-  padding: 10px 12px;
+  padding: 10px 44px 10px calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step));
 }
 
 .aniwave-comment.is-collapsed .aniwave-message,

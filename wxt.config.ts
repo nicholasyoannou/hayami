@@ -85,6 +85,8 @@ export default defineConfig({
       {
         resources: [
           'assets/commentAssets/*.svg',
+          'assets/commentAssets/*/*.svg',
+          'assets/commentAssets/*/*.gif',
           'assets/*.svg',
           'assets/topCommentMenu/*.svg',
           'disqus-loader.js',
