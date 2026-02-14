@@ -81,6 +81,7 @@ export class AniwaveProvider extends BaseProvider {
         data.total
       );
       this.attachLoadMore(container, context);
+      this.attachCollapse(container);
       context.clearLoadingState('aniwave');
     } catch (error) {
       console.error('[Aniwave] render failed', error);
@@ -125,6 +126,7 @@ export class AniwaveProvider extends BaseProvider {
           data.total
         );
         this.attachLoadMore(container, context);
+        this.attachCollapse(container);
       } catch (err) {
         console.warn('[Aniwave] load more failed', err);
         context.toast.error('Unable to load more Aniwave comments');
@@ -132,6 +134,19 @@ export class AniwaveProvider extends BaseProvider {
         btn.textContent = 'Load more';
       }
     };
+  }
+
+  private attachCollapse(container: HTMLElement): void {
+    const toggles = Array.from(container.querySelectorAll<HTMLButtonElement>('.aniwave-toggle'));
+    toggles.forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const root = btn.closest('.aniwave-comment');
+        if (!root) return;
+        const collapsed = root.classList.toggle('is-collapsed');
+        btn.textContent = collapsed ? '+' : '−';
+      };
+    });
   }
 
   private async resolveDocId(animeName: string, episodeNumber: string | number | null): Promise<string | null> {
@@ -250,7 +265,6 @@ export class AniwaveProvider extends BaseProvider {
       (comment.created_at ? new Date(comment.created_at).toLocaleString() : '');
     const message = this.sanitizeMessage(comment.message || comment.raw_message || '');
     const replies = node.children.map((child) => this.renderCommentNode(child)).join('');
-    const badge = '<span class="aniwave-badge">Aniwave</span>';
     const score = `<span class="aniwave-score">▲ ${likes}</span>${
       dislikes ? `<span class="aniwave-score --down">▼ ${dislikes}</span>` : ''
     }`;
@@ -260,6 +274,7 @@ export class AniwaveProvider extends BaseProvider {
 
     return `
       <div class="aniwave-comment" data-id="${escapeHtml(String(comment.comment_id))}">
+        <button class="aniwave-toggle" type="button" aria-label="Toggle comment">−</button>
         ${avatarEl}
         <div class="aniwave-body">
           <div class="aniwave-header-row">
@@ -267,7 +282,7 @@ export class AniwaveProvider extends BaseProvider {
             ${created ? `<span class="aniwave-time">${escapeHtml(created)}</span>` : ''}
           </div>
           <div class="aniwave-message">${message}</div>
-          <div class="aniwave-actions">${badge}${score}</div>
+          <div class="aniwave-actions">${score}</div>
           ${replies ? `<div class="aniwave-replies">${replies}</div>` : ''}
         </div>
       </div>
