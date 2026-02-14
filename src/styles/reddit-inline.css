@@ -1913,3 +1913,163 @@ a {
   background: #0f0f0f;
   color: #ddd;
 }
+
+/* Aniwave thread styling */
+.aniwave-thread-root {
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.aniwave-thread {
+  background: #0f1118;
+  border: 1px solid #1f2733;
+  border-radius: 12px;
+  padding: 14px;
+  color: #e5e7eb;
+}
+
+.aniwave-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.aniwave-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.aniwave-meta {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.aniwave-loader,
+.aniwave-error,
+.aniwave-empty {
+  padding: 12px;
+  border-radius: 8px;
+  background: #111827;
+  border: 1px solid #1f2937;
+  color: #e5e7eb;
+}
+
+.aniwave-comment {
+  display: flex;
+  gap: 12px;
+  background: #111827;
+  border: 1px solid #1f2733;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.aniwave-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #0b0f16;
+}
+
+.aniwave-avatar.--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.aniwave-body {
+  flex: 1;
+}
+
+.aniwave-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.aniwave-author {
+  font-weight: 600;
+  color: #f3f4f6;
+}
+
+.aniwave-time {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.aniwave-message {
+  color: #e5e7eb;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.aniwave-message p {
+  margin: 0 0 6px;
+}
+
+.aniwave-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+.aniwave-badge {
+  padding: 2px 6px;
+  background: #1f2937;
+  border: 1px solid #2b3648;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-size: 11px;
+}
+
+.aniwave-score {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.aniwave-score.--down {
+  color: #f87171;
+}
+
+.aniwave-replies {
+  margin-top: 10px;
+  padding-left: 18px;
+  border-left: 2px solid #1f2937;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aniwave-load-more-row {
+  text-align: center;
+  margin-top: 12px;
+}
+
+.aniwave-load-more {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.aniwave-load-more:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -39,6 +39,12 @@
           alt="anilist logo" 
         />
         <img 
+          v-else-if="currentProvider === 'aniwave'"
+          class="h-5 opacity-80" 
+          :src="aniwaveLogoUrl" 
+          alt="aniwave logo" 
+        />
+        <img 
           v-if="currentProvider === 'reddit'"
           class="h-5 opacity-80" 
           :src="redditTextUrl" 
@@ -213,7 +219,7 @@ interface DiscussionTab {
   active?: boolean;
 }
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist';
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave';
 
 interface MenuItem {
   id: Provider;
@@ -262,6 +268,7 @@ const disqusLogoUrl = getRuntimeUrl(logoBaseUrl + 'disqusLogo.svg');
 const youtubeLogoUrl = getRuntimeUrl(logoBaseUrl + 'youtubeLogo.svg');
 const malLogoUrl = getRuntimeUrl(logoBaseUrl + 'malLogo.svg');
 const anilistLogoUrl = getRuntimeUrl(logoBaseUrl + 'anilistIcon.svg');
+const aniwaveLogoUrl = getRuntimeUrl(logoBaseUrl + 'aniwave.svg');
 const discussionIconUrl = getRuntimeUrl(logoBaseUrl + 'discussion.svg');
 const popoutDiscussionIconUrl = getRuntimeUrl(logoBaseUrl + 'popoutTab/discussion.svg');
 const upvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/upvoteFilled.svg');
@@ -273,6 +280,7 @@ const menuItems = computed<MenuItem[]>(() => {
     { id: 'youtube', label: 'YouTube', iconUrl: youtubeLogoUrl },
     { id: 'mal', label: 'MAL Forums', iconUrl: malLogoUrl },
     { id: 'anilist', label: 'AniList', iconUrl: anilistLogoUrl },
+    { id: 'aniwave', label: 'Aniwave', iconUrl: aniwaveLogoUrl },
   ];
   // Filter out the current provider from menu items (it's shown in the main logo position)
   return items.filter(item => item.id !== currentProvider.value);

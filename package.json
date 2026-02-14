@@ -31,6 +31,7 @@
     "webext-permission-toggle": "^6.0.1"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
     "@types/chrome": "^0.1.33",
     "@wxt-dev/module-vue": "^1.0.3",
     "autoprefixer": "^10.4.23",

@@ -178,6 +178,51 @@ export interface AniListForumResult {
   };
 }
 
+// ==================== Aniwave Types ====================
+
+export interface AniwaveAuthorAvatar {
+  cache?: string;
+  permalink?: string;
+}
+
+export interface AniwaveAuthor {
+  username?: string;
+  name?: string;
+  avatar?: {
+    small?: AniwaveAuthorAvatar;
+    cache?: string;
+    permalink?: string;
+  };
+}
+
+export interface AniwaveComment {
+  comment_id: string | number;
+  parent_id?: string | number | null;
+  docID?: string;
+  message?: string;
+  raw_message?: string;
+  likes?: number;
+  dislikes?: number;
+  points?: number;
+  depth?: number;
+  created_at?: string;
+  created_at_str?: string;
+  author?: AniwaveAuthor;
+}
+
+export interface AniwaveCommentsResponse {
+  platform?: string;
+  anime_slug?: string;
+  episode_number?: number;
+  is_dub?: boolean;
+  page?: number;
+  count?: number;
+  total?: number;
+  has_more?: boolean;
+  comments?: AniwaveComment[];
+  docID?: string;
+}
+
 // ==================== Discussion Cache Types ====================
 
 export interface DiscussionCache {
@@ -211,11 +256,18 @@ export interface DiscussionCache {
       hasNextPage?: boolean;
     };
   };
+  aniwave?: {
+    docId?: string;
+    episodeNumber?: string | number | null;
+    comments?: AniwaveComment[];
+    page?: number;
+    hasMore?: boolean;
+    total?: number;
+  };
 }
 
 // ==================== Provider Types ====================
-
-export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist';
+export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave';
 
 export interface ProviderContext {
   animeInfo: AnimeInfo | null;
@@ -224,7 +276,6 @@ export interface ProviderContext {
   getExternalCommentsContainer: () => HTMLElement | null;
   toast: typeof import('vue-sonner').toast;
 }
-
 // ==================== Mapper Types ====================
 
 export interface MapperResultItem {
