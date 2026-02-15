@@ -270,10 +270,15 @@ export interface DiscussionCache {
     total?: number;
     replyState?: Record<string, { page?: number; hasMore?: boolean; total?: number; loaded?: number }>;
   };
+  animecommunity?: {
+    malId?: number | null;
+    anilistId?: number | null;
+    episodeChapterNumber?: string | number | null;
+  };
 }
 
 // ==================== Provider Types ====================
-export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave';
+export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
 
 export interface ProviderContext {
   animeInfo: AnimeInfo | null;

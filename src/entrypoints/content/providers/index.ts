@@ -4,7 +4,7 @@
 
 import type { CommentProvider } from '../types/data';
 
-export const providers = ['reddit', 'disqus', 'youtube', 'mal', 'anilist', 'aniwave'] as CommentProvider[];
+export const providers = ['reddit', 'disqus', 'youtube', 'mal', 'anilist', 'aniwave', 'animecommunity'] as CommentProvider[];
 
 export * from './base-provider';
 export * from './provider-manager';
@@ -14,3 +14,4 @@ export { YouTubeProvider, setCurrentYouTubeVideo, getCurrentYouTubeVideo, setCur
 export { MalProvider } from './mal-provider';
 export { AniListProvider } from './anilist-provider';
 export { AniwaveProvider } from './aniwave-provider';
+export { AnimeCommunityProvider } from './anime-community-provider';

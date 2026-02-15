@@ -15,7 +15,7 @@ import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
 import { redditEditorModeItem } from '@/config/storage';
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave';
+type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
 
 interface Discussion {
   id: string;

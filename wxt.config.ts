@@ -1,6 +1,16 @@
 import { defineConfig } from 'wxt';
 import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './src/config';
 import { hostPermissions } from './src/config';
+
+const SANDBOX_CSP = [
+  "sandbox allow-scripts allow-forms allow-popups;",
+  "script-src 'self' https://theanimecommunity.com https://*.theanimecommunity.com;",
+  "connect-src 'self' https://theanimecommunity.com https://*.theanimecommunity.com;",
+  "img-src data: https://theanimecommunity.com https://*.theanimecommunity.com;",
+  "style-src 'self' 'unsafe-inline' https://theanimecommunity.com https://*.theanimecommunity.com https://fonts.googleapis.com;",
+  "font-src 'self' data: https://theanimecommunity.com https://*.theanimecommunity.com https://fonts.gstatic.com;",
+  "object-src 'none';",
+].join(' ');
 process.env.NODE_ENV = 'production';
 const filteredEntrypoints = process.env.NODE_ENV === 'production'
   ? [
@@ -49,8 +59,14 @@ export default defineConfig({
     optional_host_permissions: ['<all_urls>'],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
-      // Allow background/content extension pages to fetch APIs via proxy fetch.
+      // Extension pages cannot load remote scripts; keep scripts self-only. AnimeCommunity remote script is loaded
+      // inside its own sandboxed page with its own CSP below.
       extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' https: http:; frame-src 'self' https://hayami.moe;",
+      sandbox: SANDBOX_CSP,
+    },
+    sandbox: {
+      // Serve the AnimeCommunity shim as a sandboxed page so it can fetch and execute the remote embed script.
+      pages: ['animecommunity-embed.html'],
     },
     commands: {
       'open-site-mapper': {
@@ -92,7 +108,10 @@ export default defineConfig({
           'assets/topCommentMenu/*.png',
           'disqus-loader.js',
           'popup.html',
+          'animecommunity-embed.html',
+          'animecommunity-embed.js',
           'hayamiPlus.html',
+          'animecommunity-embed.html',
           'icons/hayamiLogo-wBg.png',
         ],
         matches: ['<all_urls>']
@@ -110,6 +129,13 @@ export default defineConfig({
           matches: [...hostPermissions],
           js: ["content-scripts/content.js"],
         });
+      }
+
+      // Force sandbox CSP into manifest.content_security_policy.sandbox for MV3 validation
+      if (!manifest.content_security_policy) manifest.content_security_policy = {} as any;
+      (manifest.content_security_policy as any).sandbox = SANDBOX_CSP;
+      if (manifest.sandbox && 'content_security_policy' in manifest.sandbox) {
+        delete (manifest.sandbox as any).content_security_policy;
       }
     },
   },

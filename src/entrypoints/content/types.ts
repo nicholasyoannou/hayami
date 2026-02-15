@@ -3,6 +3,7 @@ export type AnimeInfo = {
   episodeName: string;
   releaseDate?: string;
   malId?: number | null;
+  anilistId?: number | null;
 };
 
 // Re-export all types from data.ts

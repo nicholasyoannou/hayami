@@ -92,6 +92,8 @@ const providerIcons: Record<CommentProviderOption, string> = {
   anilist: '/assets/topCommentMenu/anilistIcon.svg',
   mal: '/assets/topCommentMenu/malLogo.svg',
   youtube: '/assets/topCommentMenu/youtubeLogo.svg',
+  aniwave: '/assets/topCommentMenu/aniwave.png',
+  animecommunity: '/assets/topCommentMenu/theAnimeCommunityTempLogo.png',
 };
 
 const settingDefinitions: SettingDefinition[] = [
