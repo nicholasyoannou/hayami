@@ -44,6 +44,16 @@ export const redditClientIdItem = storage.defineItem<string | null>(
   { fallback: null }
 );
 
+export const aniwaveAutoExpandAllItem = storage.defineItem<boolean>(
+  'local:aniwave_auto_expand_all',
+  { fallback: true }
+);
+
+export const aniwaveAutoExpandDepthItem = storage.defineItem<number>(
+  'local:aniwave_auto_expand_depth',
+  { fallback: 3 }
+);
+
 // Generic helpers for popup auth-less tokens
 export const onboardingCompleteItem = storage.defineItem<boolean>(
   'local:onboarding_complete',

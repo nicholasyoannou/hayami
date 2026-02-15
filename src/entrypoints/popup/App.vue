@@ -21,6 +21,8 @@ import {
   redditEditorModeItem,
   redditCommentScaleItem,
   redditClientIdItem,
+  aniwaveAutoExpandAllItem,
+  aniwaveAutoExpandDepthItem,
 } from '@/config/storage';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
@@ -46,6 +48,8 @@ type SettingValueMap = {
   imgchestApiKey: string;
   hayamiPlusApiKey: string;
   redditClientId: string;
+  aniwaveAutoExpandAll: boolean;
+  aniwaveAutoExpandDepth: number;
 };
 
 type SettingKey = keyof SettingValueMap;
@@ -270,6 +274,44 @@ const settingDefinitions: SettingDefinition[] = [
     successMessage: (value) => (value === 'editor' ? 'Rich editor enabled' : 'Plain markdown box enabled'),
     errorMessage: 'Failed to save Reddit editor',
   },
+  {
+    key: 'aniwaveAutoExpandAll',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'aniwave',
+    label: 'Auto-expand most replies',
+    description: 'Automatically load the first page of replies for each Aniwave comment.',
+    fallback: true,
+    load: async () => {
+      const value = await aniwaveAutoExpandAllItem.getValue();
+      return value !== false;
+    },
+    save: (value) => aniwaveAutoExpandAllItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Aniwave comments will auto-expand' : 'Aniwave auto-expand disabled'),
+    errorMessage: 'Failed to save Aniwave auto-expand setting',
+  },
+  {
+    key: 'aniwaveAutoExpandDepth',
+    type: 'slider',
+    category: 'provider',
+    providerId: 'aniwave',
+    label: 'Auto-load replies depth',
+    description: '0 = all depths. Otherwise limit how deep nested replies are auto-fetched.',
+    min: 0,
+    max: 6,
+    step: 1,
+    formatValue: (value) => (Number(value) === 0 ? 'All depths' : `${value} level${Number(value) === 1 ? '' : 's'}`),
+    fallback: 3,
+    load: async () => {
+      const raw = await aniwaveAutoExpandDepthItem.getValue();
+      const num = Math.floor(Number(raw));
+      if (!Number.isFinite(num) || num < 0) return 3;
+      return num;
+    },
+    save: (value) => aniwaveAutoExpandDepthItem.setValue(Math.max(0, Math.floor(Number(value) || 0))),
+    successMessage: (value) => (Number(value) === 0 ? 'Auto-loading replies at all depths' : `Auto-loading replies up to depth ${value}`),
+    errorMessage: 'Failed to save replies depth',
+  },
 ];
 
 const settingsCategories = [
@@ -337,6 +379,8 @@ const settingValues = reactive<SettingValueMap>({
   imgurClientId: '',
   imgchestApiKey: '',
   hayamiPlusApiKey: '',
+  aniwaveAutoExpandAll: true,
+  aniwaveAutoExpandDepth: 3,
 });
 
 const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));

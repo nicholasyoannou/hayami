@@ -1967,12 +1967,16 @@ a {
   border: none;
   border-radius: 10px;
   --aniwave-depth: 0;
-  --aniwave-indent-base: 16px;
-  --aniwave-indent-step: 44px;
+  --aniwave-indent-base: 24px;
+  --aniwave-indent-step: 60px;
   padding: 12px 44px 12px calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step));
   margin-bottom: 10px;
   position: relative;
   box-shadow: none;
+}
+
+.aniwave-comment[data-depth="0"] {
+  --aniwave-indent-base: 12px;
 }
 
 .aniwave-avatar {
@@ -2193,4 +2197,39 @@ a {
 .aniwave-load-more:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.aniwave-replies-footer {
+  margin-top: 10px;
+}
+
+.aniwave-load-replies {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f0f0f;
+  color: #cbd5e1;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.aniwave-load-replies:hover:not(:disabled) {
+  border-color: #2f3c52;
+  color: #ffffff;
+  background: #121622;
+}
+
+.aniwave-load-replies:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.aniwave-load-replies.is-error {
+  border-color: #f87171;
+  color: #f87171;
 }

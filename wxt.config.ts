@@ -89,6 +89,7 @@ export default defineConfig({
           'assets/commentAssets/*/*.gif',
           'assets/*.svg',
           'assets/topCommentMenu/*.svg',
+          'assets/topCommentMenu/*.png',
           'disqus-loader.js',
           'popup.html',
           'hayamiPlus.html',

@@ -205,6 +205,8 @@ export interface AniwaveComment {
   dislikes?: number;
   points?: number;
   depth?: number;
+  reply_count?: number;
+  replies_preview?: AniwaveComment[];
   created_at?: string;
   created_at_str?: string;
   author?: AniwaveAuthor;
@@ -220,7 +222,10 @@ export interface AniwaveCommentsResponse {
   total?: number;
   has_more?: boolean;
   comments?: AniwaveComment[];
+  replies?: AniwaveComment[];
   docID?: string;
+  parent_comment_id?: string | number;
+  sort?: string;
 }
 
 // ==================== Discussion Cache Types ====================
@@ -263,6 +268,7 @@ export interface DiscussionCache {
     page?: number;
     hasMore?: boolean;
     total?: number;
+    replyState?: Record<string, { page?: number; hasMore?: boolean; total?: number; loaded?: number }>;
   };
 }
 
