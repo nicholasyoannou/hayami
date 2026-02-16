@@ -1948,6 +1948,52 @@ a {
 .aniwave-meta {
   color: #9ca3af;
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.aniwave-meta-info {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  cursor: default;
+}
+
+.aniwave-meta-icon {
+  width: 16px;
+  height: 16px;
+  display: block;
+  object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(89%) sepia(6%) saturate(254%) hue-rotate(175deg) brightness(91%) contrast(87%);
+}
+
+.aniwave-meta-tooltip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translate(-50%, -4px);
+  padding: 8px 10px;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  color: #e5e7eb;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  z-index: 10;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.aniwave-meta-info:hover .aniwave-meta-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .aniwave-loader,
@@ -1969,7 +2015,8 @@ a {
   --aniwave-depth: 0;
   --aniwave-indent-base: 24px;
   --aniwave-indent-step: 60px;
-  padding: 12px 44px 12px calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step));
+  --aniwave-indent-max: 320px;
+  padding: 12px 44px 12px min(var(--aniwave-indent-max), calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step)));
   margin-bottom: 10px;
   position: relative;
   box-shadow: none;
@@ -2005,6 +2052,40 @@ a {
   align-items: center;
   gap: 8px;
   margin-bottom: 2px;
+}
+
+.aniwave-reply-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 8px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.aniwave-reply-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  line-height: 1;
+  color: #9ca3af;
+  font-family: "disqus-icons", "Noto Sans", sans-serif;
+}
+
+.icon-forward::before {
+  content: "\3e";
+  font-family: "disqus-icons", "Noto Sans", sans-serif;
+  font-weight: normal;
+  speak: none;
+  display: block;
+}
+
+.aniwave-reply-target {
+  color: #cbd5e1;
+  font-weight: 600;
 }
 
 .aniwave-meta-row {
@@ -2185,7 +2266,7 @@ a {
 }
 
 .aniwave-comment.is-collapsed {
-  padding: 10px 44px 10px calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step));
+  padding: 10px 44px 10px min(var(--aniwave-indent-max), calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step)));
 }
 
 .aniwave-comment.is-collapsed .aniwave-message,

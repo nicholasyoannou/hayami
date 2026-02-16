@@ -103,6 +103,8 @@ export default defineConfig({
           'assets/commentAssets/*.svg',
           'assets/commentAssets/*/*.svg',
           'assets/commentAssets/*/*.gif',
+          'assets/commentAssets/*/*.woff2',
+          'assets/settingsScreen/*.svg',
           'assets/*.svg',
           'assets/topCommentMenu/*.svg',
           'assets/topCommentMenu/*.png',

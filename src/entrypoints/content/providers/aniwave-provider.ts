@@ -28,11 +28,13 @@ export class AniwaveProvider extends BaseProvider {
   private loadMoreObserver: IntersectionObserver | null = null;
   private autoExpandAllEnabled = false;
   private autoExpandDepthLimit = 3;
+  private static iconFontInjected = false;
 
   private assets = {
     likeIcon: getRuntimeUrl('assets/commentAssets/disqus/like.svg'),
     dislikeIcon: getRuntimeUrl('assets/commentAssets/disqus/dislike.svg'),
     loaderGif: getRuntimeUrl('assets/commentAssets/disqus/loader.gif'),
+    infoIcon: getRuntimeUrl('assets/commentAssets/disqus/infoIcon.svg'),
   };
 
   cleanup(): void {
@@ -419,9 +421,11 @@ export class AniwaveProvider extends BaseProvider {
   ): string {
     const tree = this.buildCommentTree(comments);
     const flat = this.flattenTree(tree);
+    const commentIndex = new Map<string, AniwaveComment>();
+    comments.forEach((c) => commentIndex.set(String(c.comment_id), c));
     const rootCount = comments.filter((c) => c.parent_id === null || c.parent_id === undefined || c.parent_id === '' || c.parent_id === 0).length;
     const countText = typeof total === 'number' ? `${total} comments` : `${rootCount} comments`;
-    const body = flat.map((item) => this.renderCommentNode(item.node, item.depth)).join('');
+    const body = flat.map((item) => this.renderCommentNode(item.node, item.depth, commentIndex)).join('');
     const loadMore = hasMore
       ? `
         <div class="aniwave-load-more-row" data-aniwave-load-more>
@@ -436,7 +440,13 @@ export class AniwaveProvider extends BaseProvider {
       <div class="aniwave-thread">
         <div class="aniwave-header">
           <h2 class="aniwave-title">Comments - ${escapeHtml(animeName)}</h2>
-          <div class="aniwave-meta">Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave - Page ${page} - ${countText}</div>
+          <div class="aniwave-meta">
+            Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave - Page ${page} - ${countText}
+            <span class="aniwave-meta-info" aria-label="Aniwave comments are archived only (2016–2024)">
+              <img class="aniwave-meta-icon" src="${escapeHtml(this.assets.infoIcon)}" alt="Info" />
+              <span class="aniwave-meta-tooltip">Aniwave comments are archived only (2016–2024).</span>
+            </span>
+          </div>
         </div>
         <div class="aniwave-comments">${body || '<div class="aniwave-empty">No comments yet.</div>'}</div>
         ${loadMore}
@@ -512,6 +522,7 @@ export class AniwaveProvider extends BaseProvider {
     total?: number,
     options?: { showLoadMore?: boolean }
   ): void {
+    this.ensureIconFont();
     const animeName = context.animeInfo?.animeName || 'Aniwave';
     const episode = extractEpisodeNumber(context.animeInfo?.episodeName || '') || context.animeInfo?.episodeNumber || '';
     const shouldShowLoadMore = options?.showLoadMore !== false && this.hasMore;
@@ -659,83 +670,6 @@ export class AniwaveProvider extends BaseProvider {
     }
   }
 
-  private renderCommentNode(node: CommentNode, depth: number): string {
-    const { comment } = node;
-    const authorName = comment.author?.name || comment.author?.username || 'Anonymous';
-    const avatar =
-      (comment.author as any)?.avatar92 ||
-      comment.author?.avatar?.small?.cache ||
-      comment.author?.avatar?.cache ||
-      comment.author?.avatar?.permalink ||
-      '';
-    const likes = comment.likes ?? comment.points ?? 0;
-    const dislikes = comment.dislikes ?? 0;
-    const createdRaw = comment.created_at_str || comment.created_at || '';
-    const created = createdRaw ? this.formatRelativeTime(createdRaw) : '';
-    const editedAt = (comment as any).edited_at || (comment as any).updated_at;
-    const isEdited = Boolean((comment as any).edited || (comment as any).is_edited || editedAt);
-    const message = this.sanitizeMessage(comment.message || comment.raw_message || '');
-    const commentId = String(comment.comment_id);
-    const replyState = this.replyState.get(commentId);
-    const totalReplies = Number(replyState?.total ?? comment.reply_count ?? 0);
-    const loadedReplies = replyState?.loaded ?? this.countLoadedReplies(commentId);
-    const remainingReplies = Math.max(0, totalReplies - loadedReplies);
-    const hasMoreReplies = replyState?.hasMore || remainingReplies > 0;
-    const repliesCta = hasMoreReplies
-      ? `
-        <div class="aniwave-replies-footer">
-          <button
-            class="aniwave-load-replies"
-            type="button"
-            data-aniwave-load-replies
-            data-parent-id="${escapeHtml(commentId)}"
-            data-total="${totalReplies}"
-          >
-            ${remainingReplies > 0
-              ? `View ${remainingReplies} more ${remainingReplies === 1 ? 'reply' : 'replies'}`
-              : 'Load more replies'}
-          </button>
-        </div>
-      `
-      : '';
-    const score = `
-      <div class="aniwave-score-group">
-        <div class="aniwave-score">
-          <img class="aniwave-score-icon" src="${escapeHtml(this.assets.likeIcon)}" alt="Upvotes" />
-          <span class="aniwave-score-value">${likes}</span>
-        </div>
-        <div class="aniwave-score --down">
-          <img class="aniwave-score-icon" src="${escapeHtml(this.assets.dislikeIcon)}" alt="Downvotes" />
-          <span class="aniwave-score-value">${dislikes}</span>
-        </div>
-      </div>
-    `;
-    const avatarEl = avatar
-      ? `<img class="aniwave-avatar" src="${escapeHtml(avatar)}" alt="${escapeHtml(authorName)}" loading="lazy" />`
-      : `<div class="aniwave-avatar --placeholder">${escapeHtml(authorName[0] || '?')}</div>`;
-
-    return `
-      <div class="aniwave-comment" data-id="${escapeHtml(String(comment.comment_id))}" data-depth="${depth}" style="--aniwave-depth: ${depth};">
-        <button class="aniwave-toggle" type="button" aria-label="Toggle comment">−</button>
-        ${avatarEl}
-        <div class="aniwave-body">
-          <div class="aniwave-header-row">
-            <span class="aniwave-author">${escapeHtml(authorName)}</span>
-          </div>
-          ${created || isEdited ? `
-            <div class="aniwave-meta-row">
-              ${created ? `<span class="aniwave-time">${escapeHtml(created)}</span>` : ''}
-              ${isEdited ? `<span class="aniwave-edited">edited</span>` : ''}
-            </div>
-          ` : ''}
-          <div class="aniwave-message">${message}</div>
-          <div class="aniwave-actions">${score}</div>
-          ${repliesCta}
-        </div>
-      </div>
-    `;
-  }
-
   private formatRelativeTime(value: string): string {
     const parsedMs = this.parseTimestamp(value);
     if (Number.isNaN(parsedMs)) return value;
@@ -795,27 +729,136 @@ export class AniwaveProvider extends BaseProvider {
     return wrapper.innerHTML;
   }
 
-  private normalizeIncomingComments(comments: AniwaveComment[], forcedParentId?: string | number): AniwaveComment[] {
-    const result: AniwaveComment[] = [];
-
-    const walk = (items: AniwaveComment[], parentOverride?: string | number) => {
-      for (const item of items ?? []) {
-        const parentId = parentOverride !== undefined ? parentOverride : item.parent_id;
-        const normalized = parentId !== undefined && parentId !== null && parentId !== ''
-          ? { ...item, parent_id: parentId }
-          : item;
-
-        result.push(normalized);
-
-        if (item.replies_preview && item.replies_preview.length) {
-          walk(item.replies_preview, normalized.comment_id ?? item.comment_id);
-        }
-      }
-    };
-
-    walk(comments ?? [], forcedParentId);
-    return result;
+  private getAuthorDisplay(comment?: AniwaveComment | null): string {
+    if (!comment) return 'Anonymous';
+    return comment.author?.name || comment.author?.username || 'Anonymous';
   }
+
+  private renderCommentNode(
+    node: CommentNode,
+    depth: number,
+    commentIndex: Map<string, AniwaveComment>
+  ): string {
+    const { comment } = node;
+    const authorName = this.getAuthorDisplay(comment);
+    const parent = depth > 0 ? commentIndex.get(String(comment.parent_id ?? '')) : undefined;
+    const replyToName = depth > 0 ? this.getAuthorDisplay(parent) : '';
+    const avatar =
+      (comment.author as any)?.avatar92 ||
+      comment.author?.avatar?.small?.cache ||
+      comment.author?.avatar?.cache ||
+      comment.author?.avatar?.permalink ||
+      '';
+    const likes = comment.likes ?? comment.points ?? 0;
+    const dislikes = comment.dislikes ?? 0;
+    const createdRaw = comment.created_at_str || comment.created_at || '';
+    const created = createdRaw ? this.formatRelativeTime(createdRaw) : '';
+    const editedAt = (comment as any).edited_at || (comment as any).updated_at;
+    const isEdited = Boolean((comment as any).edited || (comment as any).is_edited || editedAt);
+    const message = this.sanitizeMessage(comment.message || comment.raw_message || '');
+    const commentId = String(comment.comment_id);
+    const replyState = this.replyState.get(commentId);
+    const totalReplies = Number(replyState?.total ?? comment.reply_count ?? 0);
+    const loadedReplies = replyState?.loaded ?? this.countLoadedReplies(commentId);
+    const remainingReplies = Math.max(0, totalReplies - loadedReplies);
+    const hasMoreReplies = replyState?.hasMore || remainingReplies > 0;
+    const repliesCta = hasMoreReplies
+      ? `
+        <div class="aniwave-replies-footer">
+          <button
+            class="aniwave-load-replies"
+            type="button"
+            data-aniwave-load-replies
+            data-parent-id="${escapeHtml(commentId)}"
+            data-total="${totalReplies}"
+          >
+            ${remainingReplies > 0
+              ? `View ${remainingReplies} more ${remainingReplies === 1 ? 'reply' : 'replies'}`
+              : 'Load more replies'}
+          </button>
+        </div>
+      `
+      : '';
+    const score = `
+      <div class="aniwave-score-group">
+        <div class="aniwave-score">
+          <img class="aniwave-score-icon" src="${escapeHtml(this.assets.likeIcon)}" alt="Upvotes" />
+          <span class="aniwave-score-value">${likes}</span>
+        </div>
+        <div class="aniwave-score --down">
+          <img class="aniwave-score-icon" src="${escapeHtml(this.assets.dislikeIcon)}" alt="Downvotes" />
+          <span class="aniwave-score-value">${dislikes}</span>
+        </div>
+      </div>
+    `;
+    const avatarEl = avatar
+      ? `<img class="aniwave-avatar" src="${escapeHtml(avatar)}" alt="${escapeHtml(authorName)}" loading="lazy" />`
+      : `<div class="aniwave-avatar --placeholder">${escapeHtml(authorName[0] || '?')}</div>`;
+
+    return `
+      <div class="aniwave-comment" data-id="${escapeHtml(String(comment.comment_id))}" data-depth="${depth}" style="--aniwave-depth: ${depth};">
+        <button class="aniwave-toggle" type="button" aria-label="Toggle comment">−</button>
+        ${avatarEl}
+        <div class="aniwave-body">
+          <div class="aniwave-header-row">
+            <span class="aniwave-author">${escapeHtml(authorName)}</span>
+            ${replyToName ? `
+              <span class="aniwave-reply-context">
+                <span class="aniwave-reply-icon icon-forward" aria-hidden="true"></span>
+                <span class="aniwave-reply-target">${escapeHtml(replyToName)}</span>
+              </span>
+            ` : ''}
+          </div>
+          ${created || isEdited ? `
+            <div class="aniwave-meta-row">
+              ${created ? `<span class="aniwave-time">${escapeHtml(created)}</span>` : ''}
+              ${isEdited ? `<span class="aniwave-edited">edited</span>` : ''}
+            </div>
+          ` : ''}
+          <div class="aniwave-message">${message}</div>
+          <div class="aniwave-actions">${score}</div>
+          ${repliesCta}
+        </div>
+      </div>
+    `;
+  }
+
+  private ensureIconFont(): void {
+    if (AniwaveProvider.iconFontInjected) return;
+    const fontUrl = getRuntimeUrl('assets/commentAssets/disqus/icons.woff2');
+    const style = document.createElement('style');
+    style.textContent = `
+      @font-face {
+        font-family: "disqus-icons";
+        src: url('${fontUrl}') format('woff2');
+        font-display: swap;
+      }
+    `;
+    document.head.appendChild(style);
+    AniwaveProvider.iconFontInjected = true;
+  }
+
+      private normalizeIncomingComments(comments: AniwaveComment[], forcedParentId?: string | number): AniwaveComment[] {
+        const result: AniwaveComment[] = [];
+
+        const walk = (items: AniwaveComment[], parentOverride?: string | number) => {
+          for (const item of items ?? []) {
+            const parentId = parentOverride !== undefined ? parentOverride : item.parent_id;
+            const normalized = parentId !== undefined && parentId !== null && parentId !== ''
+              ? { ...item, parent_id: parentId }
+              : item;
+
+            result.push(normalized);
+
+            if (item.replies_preview && item.replies_preview.length) {
+              walk(item.replies_preview, normalized.comment_id ?? item.comment_id);
+            }
+          }
+        };
+
+        walk(comments ?? [], forcedParentId);
+        return result;
+      }
 
   private ensureReplyStateForComments(comments: AniwaveComment[]): void {
     for (const comment of comments ?? []) {
