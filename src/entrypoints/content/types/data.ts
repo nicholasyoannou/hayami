@@ -207,6 +207,8 @@ export interface AniwaveComment {
   depth?: number;
   reply_count?: number;
   replies_preview?: AniwaveComment[];
+  replies?: AniwaveComment[];
+  author_avatar?: string | null;
   created_at?: string;
   created_at_str?: string;
   author?: AniwaveAuthor;
@@ -215,6 +217,7 @@ export interface AniwaveComment {
 export interface AniwaveCommentsResponse {
   platform?: string;
   anime_slug?: string;
+  anime_name?: string;
   episode_number?: number;
   is_dub?: boolean;
   page?: number;

@@ -9,7 +9,7 @@ import { fetchHayami } from '@/utils/hayamiApi';
 import { escapeHtml } from '@/utils/markdown';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { getRuntimeUrl } from '@/utils/runtime';
-import { aniwaveAutoExpandAllItem, aniwaveAutoExpandDepthItem } from '@/config/storage';
+import { aniwaveAutoExpandAllItem, aniwaveAutoExpandDepthItem, aniwaveHideReplyContextItem } from '@/config/storage';
 
 interface CommentNode {
   comment: AniwaveComment;
@@ -28,6 +28,8 @@ export class AniwaveProvider extends BaseProvider {
   private loadMoreObserver: IntersectionObserver | null = null;
   private autoExpandAllEnabled = false;
   private autoExpandDepthLimit = 3;
+  private hideReplyContext = false;
+  private apiAnimeName: string | null = null;
   private static iconFontInjected = false;
 
   private assets = {
@@ -49,6 +51,8 @@ export class AniwaveProvider extends BaseProvider {
     this.replyState.clear();
     this.autoExpandAllEnabled = false;
     this.autoExpandDepthLimit = 3;
+    this.hideReplyContext = false;
+    this.apiAnimeName = null;
   }
 
   async switchTo(context: ProviderContext): Promise<void> {
@@ -76,9 +80,11 @@ export class AniwaveProvider extends BaseProvider {
       this.currentDocId = docId;
       this.autoExpandAllEnabled = await this.shouldAutoExpandAll();
       this.autoExpandDepthLimit = await this.getAutoExpandDepthLimit();
+      this.hideReplyContext = await this.shouldHideReplyContext();
 
       const page = 1;
-      const data = await this.fetchComments(docId, page);
+      const data = await this.fetchComments(docId, page, this.autoExpandDepthLimit);
+      this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
       const normalized = this.normalizeIncomingComments(data.comments ?? []);
       this.comments = this.mergeComments([], normalized);
       this.currentPage = data.page ?? page;
@@ -125,11 +131,21 @@ export class AniwaveProvider extends BaseProvider {
     try {
       const value = await aniwaveAutoExpandDepthItem.getValue();
       const num = Math.floor(Number(value));
-      if (!Number.isFinite(num) || num < 0) return 3;
+      if (!Number.isFinite(num) || num < 1) return 3;
       return num;
     } catch (error) {
       console.warn('[Aniwave] failed to read auto-expand depth, defaulting to 3', error);
       return 3;
+    }
+  }
+
+  private async shouldHideReplyContext(): Promise<boolean> {
+    try {
+      const value = await aniwaveHideReplyContextItem.getValue();
+      return Boolean(value);
+    } catch (error) {
+      console.warn('[Aniwave] failed to read hide reply context preference, defaulting to disabled', error);
+      return false;
     }
   }
 
@@ -146,7 +162,9 @@ export class AniwaveProvider extends BaseProvider {
 
       try {
         const nextPage = this.currentPage + 1;
-        const data = await this.fetchComments(this.currentDocId, nextPage);
+        const data = await this.fetchComments(this.currentDocId, nextPage, this.autoExpandDepthLimit);
+        this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
+        this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
         this.currentPage = data.page ?? nextPage;
         this.hasMore = Boolean(data.has_more);
         const normalized = this.normalizeIncomingComments(data.comments ?? []);
@@ -308,11 +326,22 @@ export class AniwaveProvider extends BaseProvider {
         return null;
       }
       const data = await resp.json();
+      const matchedTitle = typeof data?.matched_title === 'string' && data.matched_title.trim() ? data.matched_title.trim() : null;
+      if (matchedTitle) {
+        this.apiAnimeName = matchedTitle;
+      }
       const docId = data?.matched_doc_id || data?.docID || data?.docId || data?.doc_id;
       if (docId) return String(docId);
 
       const results = Array.isArray(data?.results) ? data.results : [];
       const primary = results[0];
+      const primaryTitle =
+        (typeof primary?.matched_title === 'string' && primary.matched_title.trim()) ? primary.matched_title.trim() :
+        (typeof primary?.title === 'string' && primary.title.trim()) ? primary.title.trim() :
+        null;
+      if (primaryTitle && !this.apiAnimeName) {
+        this.apiAnimeName = primaryTitle;
+      }
       const episodes: Array<{ episode_number?: number | string; is_dub?: boolean; docID?: string; docId?: string; doc_id?: string; }> =
         (primary?.episodes as any) || [];
 
@@ -341,11 +370,16 @@ export class AniwaveProvider extends BaseProvider {
     return null;
   }
 
-  private async fetchComments(docId: string, page: number): Promise<AniwaveCommentsResponse> {
+  private async fetchComments(docId: string, page: number, depth?: number): Promise<AniwaveCommentsResponse> {
     const params = new URLSearchParams({
       docID: docId,
       page: String(page),
     });
+
+    const normalizedDepth = Number.isFinite(depth) && Number(depth) > 0 ? Math.floor(Number(depth)) : null;
+    if (normalizedDepth) {
+      params.set('depth', String(normalizedDepth));
+    }
 
     const resp = await this.fetchWithRateLimit(`https://api.hayami.moe/anime/comments?${params.toString()}`);
     if (!resp.ok) {
@@ -472,7 +506,7 @@ export class AniwaveProvider extends BaseProvider {
         fetchedPages += 1;
         const beforeCount = this.comments.length;
         const nextPage = this.currentPage + 1;
-        const data = await this.fetchComments(this.currentDocId, nextPage);
+        const data = await this.fetchComments(this.currentDocId, nextPage, this.autoExpandDepthLimit);
         this.currentPage = data.page ?? nextPage;
         this.hasMore = Boolean(data.has_more);
         total = data.total ?? total;
@@ -523,7 +557,7 @@ export class AniwaveProvider extends BaseProvider {
     options?: { showLoadMore?: boolean }
   ): void {
     this.ensureIconFont();
-    const animeName = context.animeInfo?.animeName || 'Aniwave';
+    const animeName = this.apiAnimeName || context.animeInfo?.animeName || 'Aniwave';
     const episode = extractEpisodeNumber(context.animeInfo?.episodeName || '') || context.animeInfo?.episodeNumber || '';
     const shouldShowLoadMore = options?.showLoadMore !== false && this.hasMore;
 
@@ -554,7 +588,7 @@ export class AniwaveProvider extends BaseProvider {
   }
 
   private async autoLoadFirstReplies(container: HTMLElement, context: ProviderContext): Promise<void> {
-    const maxRequests = this.autoExpandDepthLimit === 0 ? 200 : 20;
+    const maxRequests = 20;
     let requests = 0;
     let didMutate = false;
 
@@ -569,7 +603,7 @@ export class AniwaveProvider extends BaseProvider {
       if ((state.total ?? 0) <= 0) continue; // nothing to load
 
       const parentDepth = depthMap.get(parentId) ?? 0;
-      if (this.autoExpandDepthLimit > 0 && parentDepth + 1 > this.autoExpandDepthLimit) {
+      if (parentDepth + 1 > this.autoExpandDepthLimit) {
         continue;
       }
 
@@ -628,7 +662,7 @@ export class AniwaveProvider extends BaseProvider {
   }
 
   private async autoExpandAllReplies(context: ProviderContext): Promise<void> {
-    const maxRequests = this.autoExpandDepthLimit === 0 ? 300 : 50;
+    const maxRequests = 50;
     let requests = 0;
 
     const depthMap = this.computeDepthMap();
@@ -636,7 +670,7 @@ export class AniwaveProvider extends BaseProvider {
     const parentIds = Array.from(this.replyState.keys());
     for (const parentId of parentIds) {
       const parentDepth = depthMap.get(parentId) ?? 0;
-      if (this.autoExpandDepthLimit > 0 && parentDepth + 1 > this.autoExpandDepthLimit) {
+      if (parentDepth + 1 > this.autoExpandDepthLimit) {
         continue;
       }
 
@@ -734,6 +768,23 @@ export class AniwaveProvider extends BaseProvider {
     return comment.author?.name || comment.author?.username || 'Anonymous';
   }
 
+  private getAvatarUrl(comment: AniwaveComment): string {
+    const direct = comment.author_avatar;
+    if (direct) {
+      const trimmed = direct.replace(/^\/+/, '');
+      return `https://asset-serve.hayami.moe/aniw/avatars/${trimmed}`;
+    }
+
+    const author = comment.author as any;
+    return (
+      author?.avatar92 ||
+      author?.avatar?.small?.cache ||
+      author?.avatar?.cache ||
+      author?.avatar?.permalink ||
+      ''
+    );
+  }
+
   private renderCommentNode(
     node: CommentNode,
     depth: number,
@@ -742,13 +793,8 @@ export class AniwaveProvider extends BaseProvider {
     const { comment } = node;
     const authorName = this.getAuthorDisplay(comment);
     const parent = depth > 0 ? commentIndex.get(String(comment.parent_id ?? '')) : undefined;
-    const replyToName = depth > 0 ? this.getAuthorDisplay(parent) : '';
-    const avatar =
-      (comment.author as any)?.avatar92 ||
-      comment.author?.avatar?.small?.cache ||
-      comment.author?.avatar?.cache ||
-      comment.author?.avatar?.permalink ||
-      '';
+    const replyToName = depth > 0 && !this.hideReplyContext ? this.getAuthorDisplay(parent) : '';
+    const avatar = this.getAvatarUrl(comment);
     const likes = comment.likes ?? comment.points ?? 0;
     const dislikes = comment.dislikes ?? 0;
     const createdRaw = comment.created_at_str || comment.created_at || '';
@@ -761,7 +807,7 @@ export class AniwaveProvider extends BaseProvider {
     const totalReplies = Number(replyState?.total ?? comment.reply_count ?? 0);
     const loadedReplies = replyState?.loaded ?? this.countLoadedReplies(commentId);
     const remainingReplies = Math.max(0, totalReplies - loadedReplies);
-    const hasMoreReplies = replyState?.hasMore || remainingReplies > 0;
+    const hasMoreReplies = (replyState?.hasMore ?? false) || remainingReplies > 0;
     const repliesCta = hasMoreReplies
       ? `
         <div class="aniwave-replies-footer">
@@ -853,6 +899,10 @@ export class AniwaveProvider extends BaseProvider {
             if (item.replies_preview && item.replies_preview.length) {
               walk(item.replies_preview, normalized.comment_id ?? item.comment_id);
             }
+
+              if (item.replies && item.replies.length) {
+                walk(item.replies as AniwaveComment[], normalized.comment_id ?? item.comment_id);
+              }
           }
         };
 
@@ -864,15 +914,18 @@ export class AniwaveProvider extends BaseProvider {
     for (const comment of comments ?? []) {
       const parentId = String(comment.comment_id);
       const hasEntry = this.replyState.has(parentId);
-      const total = Number(comment.reply_count ?? comment.replies_preview?.length ?? 0);
+        const total = Number(comment.reply_count ?? comment.replies_preview?.length ?? comment.replies?.length ?? 0);
       if (!hasEntry && total > 0) {
         const loaded = this.countLoadedReplies(parentId);
         const normalizedTotal = Number.isNaN(total) ? loaded : total;
+        const hasMore = normalizedTotal > loaded;
+        // If the API already provided more replies than the depth limit would auto-load, allow load button.
+        const pageSeed = loaded > 0 ? 1 : 0;
         this.replyState.set(parentId, {
-          page: 0,
+          page: pageSeed,
           total: normalizedTotal,
           loaded,
-          hasMore: normalizedTotal > loaded,
+          hasMore,
         });
       }
     }
@@ -900,18 +953,18 @@ export class AniwaveProvider extends BaseProvider {
   private initializeReplyStateFromRoots(roots: AniwaveComment[]): void {
     for (const root of roots ?? []) {
       const parentId = String(root.comment_id);
-      const previewCount = root.replies_preview?.length ?? 0;
-      const total = Number(root.reply_count ?? previewCount ?? 0);
+        const previewCount = root.replies_preview?.length ?? root.replies?.length ?? 0;
+        const total = Number(root.reply_count ?? previewCount ?? 0);
       const existing = this.replyState.get(parentId);
       const loaded = this.countLoadedReplies(parentId);
 
       const normalizedTotal = Number.isNaN(total) ? loaded : total;
 
       this.replyState.set(parentId, {
-        page: existing?.page ?? 0,
+          page: existing?.page ?? (loaded > 0 ? 1 : 0),
         total: normalizedTotal,
         loaded,
-        hasMore: normalizedTotal > loaded,
+          hasMore: normalizedTotal > loaded,
       });
     }
   }
@@ -938,7 +991,9 @@ export class AniwaveProvider extends BaseProvider {
       if (!state) return;
       const loaded = this.countLoadedReplies(pid);
       const total = state.total ?? loaded;
-      this.replyState.set(pid, { ...state, loaded, hasMore: total > loaded });
+      // Keep page at least 1 when we already loaded some replies so the UI knows the first page is done.
+      const page = loaded > 0 ? Math.max(1, state.page ?? 0) : state.page ?? 0;
+      this.replyState.set(pid, { ...state, page, loaded, hasMore: total > loaded });
     });
   }
 

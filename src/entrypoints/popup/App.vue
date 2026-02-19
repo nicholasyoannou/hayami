@@ -23,6 +23,7 @@ import {
   redditClientIdItem,
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
+  aniwaveHideReplyContextItem,
 } from '@/config/storage';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
@@ -50,6 +51,7 @@ type SettingValueMap = {
   redditClientId: string;
   aniwaveAutoExpandAll: boolean;
   aniwaveAutoExpandDepth: number;
+  aniwaveHideReplyContext: boolean;
 };
 
 type SettingKey = keyof SettingValueMap;
@@ -298,21 +300,34 @@ const settingDefinitions: SettingDefinition[] = [
     category: 'provider',
     providerId: 'aniwave',
     label: 'Auto-load replies depth',
-    description: '0 = all depths. Otherwise limit how deep nested replies are auto-fetched.',
-    min: 0,
+    description: 'Limit how deep nested replies are auto-fetched.',
+    min: 1,
     max: 6,
     step: 1,
-    formatValue: (value) => (Number(value) === 0 ? 'All depths' : `${value} level${Number(value) === 1 ? '' : 's'}`),
+    formatValue: (value) => `${value} level${Number(value) === 1 ? '' : 's'}`,
     fallback: 3,
     load: async () => {
       const raw = await aniwaveAutoExpandDepthItem.getValue();
       const num = Math.floor(Number(raw));
-      if (!Number.isFinite(num) || num < 0) return 3;
+      if (!Number.isFinite(num) || num < 1) return 3;
       return num;
     },
-    save: (value) => aniwaveAutoExpandDepthItem.setValue(Math.max(0, Math.floor(Number(value) || 0))),
-    successMessage: (value) => (Number(value) === 0 ? 'Auto-loading replies at all depths' : `Auto-loading replies up to depth ${value}`),
+    save: (value) => aniwaveAutoExpandDepthItem.setValue(Math.max(1, Math.floor(Number(value) || 1))),
+    successMessage: (value) => `Auto-loading replies up to depth ${value}`,
     errorMessage: 'Failed to save replies depth',
+  },
+  {
+    key: 'aniwaveHideReplyContext',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'aniwave',
+    label: "Hide 'reply to' label",
+    description: 'Remove the reply target shown next to usernames in Aniwave threads.',
+    fallback: false,
+    load: async () => Boolean(await aniwaveHideReplyContextItem.getValue()),
+    save: (value) => aniwaveHideReplyContextItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? "'Reply to' labels hidden" : "'Reply to' labels shown"),
+    errorMessage: "Failed to update 'reply to' labels setting",
   },
 ];
 
@@ -383,6 +398,7 @@ const settingValues = reactive<SettingValueMap>({
   hayamiPlusApiKey: '',
   aniwaveAutoExpandAll: true,
   aniwaveAutoExpandDepth: 3,
+  aniwaveHideReplyContext: false,
 });
 
 const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));

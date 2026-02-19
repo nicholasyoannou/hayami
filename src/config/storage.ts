@@ -54,6 +54,11 @@ export const aniwaveAutoExpandDepthItem = storage.defineItem<number>(
   { fallback: 3 }
 );
 
+export const aniwaveHideReplyContextItem = storage.defineItem<boolean>(
+  'local:aniwave_hide_reply_context',
+  { fallback: false }
+);
+
 // Generic helpers for popup auth-less tokens
 export const onboardingCompleteItem = storage.defineItem<boolean>(
   'local:onboarding_complete',
