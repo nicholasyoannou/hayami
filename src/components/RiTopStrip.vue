@@ -26,12 +26,12 @@
           :src="youtubeLogoUrl" 
           alt="youtube logo" 
         />
-        <div
+        <img 
           v-else-if="currentProvider === 'mal'"
-          class="h-5 w-10 flex items-center justify-center rounded bg-[#223] text-xs font-bold text-[#cbd5ff] px-2"
-        >
-          MAL
-        </div>
+          class="h-5 opacity-80" 
+          :src="malLogoUrl" 
+          alt="MAL logo" 
+        />
         <img 
           v-else-if="currentProvider === 'anilist'"
           class="h-5 opacity-80" 

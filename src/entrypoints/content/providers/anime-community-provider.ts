@@ -14,6 +14,7 @@ export class AnimeCommunityProvider extends BaseProvider {
 
   private readonly scriptId = 'anime-community-script';
   private readonly containerId = 'anime-community-comment-section';
+  private heightAbort?: AbortController;
   private iframeRef: HTMLIFrameElement | null = null;
 
   async switchTo(context: ProviderContext): Promise<void> {
@@ -24,6 +25,10 @@ export class AnimeCommunityProvider extends BaseProvider {
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
     this.validateAnimeInfo(context.animeInfo);
+
+    this.heightAbort?.abort();
+    this.heightAbort = new AbortController();
+    const { signal } = this.heightAbort;
 
     try {
       const animeInfo = context.animeInfo as AnimeInfo;
@@ -41,8 +46,8 @@ export class AnimeCommunityProvider extends BaseProvider {
       iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation');
       iframe.setAttribute('referrerpolicy', 'no-referrer');
       iframe.style.width = '100%';
-      iframe.style.height = '100%';
-      iframe.style.minHeight = '100vh';
+      iframe.style.height = '320px';
+      iframe.style.minHeight = '240px';
       iframe.style.border = 'none';
       iframe.setAttribute('scrolling', 'no');
 
@@ -70,6 +75,18 @@ export class AnimeCommunityProvider extends BaseProvider {
       container.appendChild(iframe);
       this.iframeRef = iframe;
 
+      const onEmbedHeight = (event: MessageEvent) => {
+        if (!this.iframeRef || event.source !== this.iframeRef.contentWindow) return;
+        const payload = event.data as { type?: string; height?: unknown };
+        if (payload?.type !== 'animecommunity:height') return;
+        const next = Number(payload.height);
+        if (!Number.isFinite(next) || next <= 0) return;
+        const clamped = Math.min(Math.max(Math.ceil(next), 240), 5000);
+        this.iframeRef.style.height = `${clamped}px`;
+      };
+
+      window.addEventListener('message', onEmbedHeight, { signal });
+
       context.clearLoadingState('animecommunity');
     } catch (error) {
       console.error('[AnimeCommunity] Failed to render embed', error);
@@ -83,6 +100,8 @@ export class AnimeCommunityProvider extends BaseProvider {
       this.iframeRef.remove();
     }
     this.iframeRef = null;
+    this.heightAbort?.abort();
+    this.heightAbort = undefined;
     safeClear(document.getElementById(this.containerId) as HTMLElement | null);
     const external = document.querySelector('.ri-external-comments') as HTMLElement | null;
     if (external) {

@@ -29,6 +29,7 @@ export class AniwaveProvider extends BaseProvider {
   private autoExpandAllEnabled = false;
   private autoExpandDepthLimit = 3;
   private hideReplyContext = false;
+  private servedImages = new Map<string, string>();
   private apiAnimeName: string | null = null;
   private static iconFontInjected = false;
 
@@ -53,6 +54,7 @@ export class AniwaveProvider extends BaseProvider {
     this.autoExpandDepthLimit = 3;
     this.hideReplyContext = false;
     this.apiAnimeName = null;
+    this.servedImages.clear();
   }
 
   async switchTo(context: ProviderContext): Promise<void> {
@@ -84,6 +86,8 @@ export class AniwaveProvider extends BaseProvider {
 
       const page = 1;
       const data = await this.fetchComments(docId, page, this.autoExpandDepthLimit);
+      this.mergeServedImages(data.servedImages);
+      this.mergeServedImagesFromComments(data.comments);
       this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
       const normalized = this.normalizeIncomingComments(data.comments ?? []);
       this.comments = this.mergeComments([], normalized);
@@ -106,9 +110,6 @@ export class AniwaveProvider extends BaseProvider {
 
       this.renderAndBind(container, context, data.total, { showLoadMore: this.hasMore });
 
-      // If auto-expand is enabled, eagerly load the first page of replies for each root comment.
-      await this.autoLoadFirstReplies(container, context);
-
       context.clearLoadingState('aniwave');
     } catch (error) {
       console.error('[Aniwave] render failed', error);
@@ -120,10 +121,10 @@ export class AniwaveProvider extends BaseProvider {
   private async shouldAutoExpandAll(): Promise<boolean> {
     try {
       const value = await aniwaveAutoExpandAllItem.getValue();
-      return value !== false;
+      return value === true; // default off to prevent aggressive auto-loading
     } catch (error) {
-      console.warn('[Aniwave] failed to read auto-expand preference, defaulting to enabled', error);
-      return true;
+      console.warn('[Aniwave] failed to read auto-expand preference, defaulting to disabled', error);
+      return false;
     }
   }
 
@@ -163,6 +164,8 @@ export class AniwaveProvider extends BaseProvider {
       try {
         const nextPage = this.currentPage + 1;
         const data = await this.fetchComments(this.currentDocId, nextPage, this.autoExpandDepthLimit);
+        this.mergeServedImages(data.servedImages);
+        this.mergeServedImagesFromComments(data.comments);
         this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
         this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
         this.currentPage = data.page ?? nextPage;
@@ -281,6 +284,8 @@ export class AniwaveProvider extends BaseProvider {
         try {
           const nextPage = (this.replyState.get(parentId)?.page ?? 0) + 1;
           const data = await this.fetchReplies(parentId, nextPage);
+          this.mergeServedImages(data.servedImages);
+          this.mergeServedImagesFromComments(data.comments);
           const normalized = this.normalizeIncomingComments(data.comments ?? [], parentId);
 
           this.comments = this.mergeComments(this.comments, normalized);
@@ -442,7 +447,17 @@ export class AniwaveProvider extends BaseProvider {
   }
 
   private renderError(message: string): string {
-    return `<div class="aniwave-thread"><div class="aniwave-error">${escapeHtml(message)}</div></div>`;
+    return `
+      <div class="aniwave-thread">
+        <div class="aniwave-error">
+          ${escapeHtml(message)}
+          <span class="aniwave-meta-info" aria-label="Aniwave comments are archived only (2016–2024)">
+            <img class="aniwave-meta-icon" src="${escapeHtml(this.assets.infoIcon)}" alt="Info" />
+            <span class="aniwave-meta-tooltip">Aniwave comments are archived only (2016–2024).</span>
+          </span>
+        </div>
+      </div>
+    `;
   }
 
   private renderThread(
@@ -475,7 +490,7 @@ export class AniwaveProvider extends BaseProvider {
         <div class="aniwave-header">
           <h2 class="aniwave-title">Comments - ${escapeHtml(animeName)}</h2>
           <div class="aniwave-meta">
-            Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave - Page ${page} - ${countText}
+            Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave - ${countText}
             <span class="aniwave-meta-info" aria-label="Aniwave comments are archived only (2016–2024)">
               <img class="aniwave-meta-icon" src="${escapeHtml(this.assets.infoIcon)}" alt="Info" />
               <span class="aniwave-meta-tooltip">Aniwave comments are archived only (2016–2024).</span>
@@ -507,6 +522,8 @@ export class AniwaveProvider extends BaseProvider {
         const beforeCount = this.comments.length;
         const nextPage = this.currentPage + 1;
         const data = await this.fetchComments(this.currentDocId, nextPage, this.autoExpandDepthLimit);
+        this.mergeServedImages(data.servedImages);
+        this.mergeServedImagesFromComments(data.comments);
         this.currentPage = data.page ?? nextPage;
         this.hasMore = Boolean(data.has_more);
         total = data.total ?? total;
@@ -612,6 +629,8 @@ export class AniwaveProvider extends BaseProvider {
           requests += 1;
           const nextPage = (state.page ?? 0) + 1;
           const data = await this.fetchReplies(parentId, nextPage);
+          this.mergeServedImages(data.servedImages);
+          this.mergeServedImagesFromComments(data.comments);
           const normalized = this.normalizeIncomingComments(data.comments ?? [], parentId);
 
           this.comments = this.mergeComments(this.comments, normalized);
@@ -678,6 +697,8 @@ export class AniwaveProvider extends BaseProvider {
         requests += 1;
         const nextPage = (this.replyState.get(parentId)?.page ?? 0) + 1;
         const data = await this.fetchReplies(parentId, nextPage);
+        this.mergeServedImages(data.servedImages);
+        this.mergeServedImagesFromComments(data.comments);
         const normalized = this.normalizeIncomingComments(data.comments ?? [], parentId);
 
         this.comments = this.mergeComments(this.comments, normalized);
@@ -747,11 +768,14 @@ export class AniwaveProvider extends BaseProvider {
     }
   }
 
-  private sanitizeMessage(html: string): string {
-    if (!html) return '';
+  private sanitizeMessage(html: string): { html: string; hasInlineImage: boolean } {
+    if (!html) return { html: '', hasInlineImage: false };
+    const rewritten = this.rewriteServedImages(html);
     const wrapper = document.createElement('div');
-    wrapper.innerHTML = html;
+    wrapper.innerHTML = rewritten;
     wrapper.querySelectorAll('script,style').forEach((el) => el.remove());
+    let hasInlineImage = false;
+
     wrapper.querySelectorAll('*').forEach((el) => {
       Array.from(el.attributes).forEach((attr) => {
         const name = attr.name.toLowerCase();
@@ -760,29 +784,211 @@ export class AniwaveProvider extends BaseProvider {
         }
       });
     });
-    return wrapper.innerHTML;
+
+    // Rewrite anchors/images to proxy URLs; convert bare image anchors to inline <img>.
+    wrapper.querySelectorAll('a').forEach((a) => {
+      const href = a.getAttribute('href') || '';
+      if (href) {
+        const mapped = this.applyServedImage(href);
+        const looksImage = this.isLikelyImageUrl(mapped) || this.isLikelyImageUrl(href) || this.isLikelyImageUrl(a.getAttribute('title') || '');
+        if (looksImage) {
+          const img = document.createElement('img');
+          img.setAttribute('src', mapped);
+          img.setAttribute('loading', 'lazy');
+          a.replaceWith(img);
+          hasInlineImage = true;
+          return;
+        }
+        a.setAttribute('href', mapped);
+      }
+      a.setAttribute('rel', 'noopener noreferrer');
+      a.setAttribute('target', '_blank');
+    });
+
+    wrapper.querySelectorAll('img').forEach((img) => {
+      const src = img.getAttribute('src') || '';
+      if (src) {
+        img.setAttribute('src', this.applyServedImage(src));
+      }
+      img.setAttribute('loading', 'lazy');
+      hasInlineImage = true;
+    });
+
+    return { html: wrapper.innerHTML, hasInlineImage };
+  }
+
+  private normalizeUrlKey(url: string): string {
+    if (!url) return url;
+    const decoded = url.replace(/&amp;/g, '&').trim();
+    return decoded.replace(/["'<>]+$/g, '');
+  }
+
+  private rewriteServedImages(content: string): string {
+    if (!content) return content;
+    let result = content;
+    this.servedImages.forEach((served, original) => {
+      if (!original || !served) return;
+      const norm = this.normalizeUrlKey(original);
+      const variants = [original, norm, norm.replace(/&/g, '&amp;')];
+      variants.forEach((candidate) => {
+        const pattern = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(pattern, 'g');
+        result = result.replace(regex, served);
+      });
+    });
+    return result;
+  }
+
+  private isLikelyImageUrl(url: string): boolean {
+    return /\.(jpe?g|png|gif|webp|bmp|svg)(?:[?#].*)?$/i.test(url || '');
+  }
+
+  private isImageOnlyContent(html: string, plain: string): { imageUrl: string | null } {
+    const extractSoloImageUrl = (text: string): string | null => {
+      const trimmed = text.trim();
+      if (!trimmed) return null;
+      const match = trimmed.match(/^(https?:\/\/\S+)$/i);
+      if (!match) return null;
+      const candidate = match[1];
+      return this.isLikelyImageUrl(candidate) ? candidate : null;
+    };
+
+    // If plain text has extra words beyond the image URL, treat as mixed content.
+    const plainImageOnly = plain ? extractSoloImageUrl(plain) : null;
+    const hasPlainExtra = Boolean(plain && !plainImageOnly);
+
+    // Check HTML: single anchor linking to an image, with no other text AND no extra plain text.
+    if (html && !hasPlainExtra) {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = html;
+      const anchors = Array.from(wrapper.querySelectorAll('a'));
+      const textContent = (wrapper.textContent || '').trim();
+      const anchorText = anchors[0]?.textContent?.trim() || '';
+      const hasOther = Boolean(textContent && textContent !== anchorText);
+      if (anchors.length === 1 && !hasOther) {
+        const href = anchors[0].getAttribute('href') || '';
+        if (this.isLikelyImageUrl(href) || this.isLikelyImageUrl(anchors[0].getAttribute('title') || '')) {
+          return { imageUrl: this.applyServedImage(href) };
+        }
+      }
+    }
+
+    // Check plain: only an image URL with no extra text.
+    if (plainImageOnly) {
+      return { imageUrl: this.applyServedImage(plainImageOnly) };
+    }
+
+    return { imageUrl: null };
+  }
+
+  private mergeServedImages(map?: Record<string, string> | null): void {
+    if (!map) return;
+    for (const [original, served] of Object.entries(map)) {
+      if (original && served) {
+        const key = this.normalizeUrlKey(original);
+        this.servedImages.set(key, served);
+      }
+    }
+  }
+
+  private mergeServedImagesFromComments(comments?: AniwaveComment[] | null): void {
+    if (!comments || !comments.length) return;
+    const walk = (items?: AniwaveComment[]) => {
+      for (const c of items ?? []) {
+        if (c && typeof c === 'object') {
+          this.mergeServedImages((c as any).servedImages);
+          if (Array.isArray((c as any).replies_preview)) {
+            walk((c as any).replies_preview as AniwaveComment[]);
+          }
+          if (Array.isArray((c as any).replies)) {
+            walk((c as any).replies as AniwaveComment[]);
+          }
+        }
+      }
+    };
+    walk(comments);
+  }
+
+  private applyServedImage(url: string): string {
+    if (!url) return url;
+    const normalized = this.normalizeUrlKey(url);
+    const served = this.servedImages.get(normalized) || this.servedImages.get(url);
+    return served && served !== url ? served : url;
+  }
+
+  private linkifyPlainText(text: string): string {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    return escapeHtml(text).replace(urlRegex, (match) => {
+      const mapped = this.applyServedImage(match);
+      const safeUrl = escapeHtml(mapped);
+      return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${safeUrl}</a>`;
+    });
+  }
+
+  private extractImageUrls(comment: AniwaveComment, options?: { html?: string; plain?: string }): string[] {
+    const urls = new Set<string>();
+    const add = (url: string | null | undefined) => {
+      if (!url) return;
+      const mapped = this.applyServedImage(url);
+      if (!this.isLikelyImageUrl(mapped) && !this.isLikelyImageUrl(url)) return;
+      urls.add(mapped);
+    };
+
+    const fromText = (text?: string | null) => {
+      if (!text) return;
+      const regex = /(https?:\/\/[^\s'"<>]+?(?:\.(?:jpe?g|png|gif|webp|bmp|svg))(?:[^\s'"<>]*)?)/gi;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(text)) !== null) {
+        add(match[1]);
+      }
+    };
+
+    // Raw message scan (already rewritten if provided)
+    fromText(options?.plain ?? comment.raw_message);
+
+    // HTML scan (already rewritten if provided)
+    const htmlSource = options?.html ?? comment.message ?? '';
+    if (htmlSource) {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = htmlSource;
+      wrapper.querySelectorAll('a').forEach((a) => add(a.getAttribute('href')));
+      wrapper.querySelectorAll('img').forEach((img) => add(img.getAttribute('src')));
+    }
+
+    return Array.from(urls);
   }
 
   private getAuthorDisplay(comment?: AniwaveComment | null): string {
     if (!comment) return 'Anonymous';
-    return comment.author?.name || comment.author?.username || 'Anonymous';
+    const name = (comment.author?.name || '').trim();
+    const username = (comment.author?.username || '').trim();
+    return name || username || 'Anonymous';
   }
 
   private getAvatarUrl(comment: AniwaveComment): string {
     const direct = comment.author_avatar;
     if (direct) {
       const trimmed = direct.replace(/^\/+/, '');
-      return `https://asset-serve.hayami.moe/aniw/avatars/${trimmed}`;
+      const isNoAvatar = /noavatar/i.test(trimmed);
+      return isNoAvatar
+        ? 'https://asset-serve.hayami.moe/aniw/avatars/noavatar92.png'
+        : `https://asset-serve.hayami.moe/aniw/avatars/${trimmed}`;
     }
 
     const author = comment.author as any;
-    return (
+    const candidate = (
       author?.avatar92 ||
       author?.avatar?.small?.cache ||
       author?.avatar?.cache ||
       author?.avatar?.permalink ||
       ''
     );
+
+    if (!candidate || /noavatar/i.test(candidate)) {
+      return 'https://asset-serve.hayami.moe/aniw/avatars/noavatar92.png';
+    }
+
+    return candidate;
   }
 
   private renderCommentNode(
@@ -801,7 +1007,26 @@ export class AniwaveProvider extends BaseProvider {
     const created = createdRaw ? this.formatRelativeTime(createdRaw) : '';
     const editedAt = (comment as any).edited_at || (comment as any).updated_at;
     const isEdited = Boolean((comment as any).edited || (comment as any).is_edited || editedAt);
-    const message = this.sanitizeMessage(comment.message || comment.raw_message || '');
+    const rawHtml = this.rewriteServedImages(comment.message || '');
+    const rawPlain = this.rewriteServedImages(comment.raw_message || '');
+    const imageOnly = this.isImageOnlyContent(rawHtml, rawPlain);
+    const preparedHtml = imageOnly.imageUrl ? '' : (rawHtml || this.linkifyPlainText(rawPlain));
+    const sanitized = this.sanitizeMessage(preparedHtml);
+    const message = sanitized.html;
+    const attachments = imageOnly.imageUrl
+      ? [imageOnly.imageUrl]
+      : (sanitized.hasInlineImage ? [] : this.extractImageUrls(comment, { html: rawHtml, plain: rawPlain }));
+    const attachmentsHtml = attachments.length
+      ? `
+        <div class="aniwave-attachments">
+          ${attachments.map((url) => `
+            <a class="aniwave-attachment" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">
+              <img src="${escapeHtml(url)}" alt="Attached image" loading="lazy" />
+            </a>
+          `).join('')}
+        </div>
+      `
+      : '';
     const commentId = String(comment.comment_id);
     const replyState = this.replyState.get(commentId);
     const totalReplies = Number(replyState?.total ?? comment.reply_count ?? 0);
@@ -861,7 +1086,8 @@ export class AniwaveProvider extends BaseProvider {
               ${isEdited ? `<span class="aniwave-edited">edited</span>` : ''}
             </div>
           ` : ''}
-          <div class="aniwave-message">${message}</div>
+              <div class="aniwave-message">${message}</div>
+              ${attachmentsHtml}
           <div class="aniwave-actions">${score}</div>
           ${repliesCta}
         </div>
@@ -919,10 +1145,9 @@ export class AniwaveProvider extends BaseProvider {
         const loaded = this.countLoadedReplies(parentId);
         const normalizedTotal = Number.isNaN(total) ? loaded : total;
         const hasMore = normalizedTotal > loaded;
-        // If the API already provided more replies than the depth limit would auto-load, allow load button.
-        const pageSeed = loaded > 0 ? 1 : 0;
+        // Start at page 0; previews shouldn't advance pagination until a page is actually fetched.
         this.replyState.set(parentId, {
-          page: pageSeed,
+          page: 0,
           total: normalizedTotal,
           loaded,
           hasMore,
@@ -961,10 +1186,10 @@ export class AniwaveProvider extends BaseProvider {
       const normalizedTotal = Number.isNaN(total) ? loaded : total;
 
       this.replyState.set(parentId, {
-          page: existing?.page ?? (loaded > 0 ? 1 : 0),
+        page: existing?.page ?? 0,
         total: normalizedTotal,
         loaded,
-          hasMore: normalizedTotal > loaded,
+        hasMore: normalizedTotal > loaded,
       });
     }
   }
@@ -991,8 +1216,8 @@ export class AniwaveProvider extends BaseProvider {
       if (!state) return;
       const loaded = this.countLoadedReplies(pid);
       const total = state.total ?? loaded;
-      // Keep page at least 1 when we already loaded some replies so the UI knows the first page is done.
-      const page = loaded > 0 ? Math.max(1, state.page ?? 0) : state.page ?? 0;
+      // Preserve explicit page counter; previews should not bump it.
+      const page = Math.max(0, state.page ?? 0);
       this.replyState.set(pid, { ...state, page, loaded, hasMore: total > loaded });
     });
   }

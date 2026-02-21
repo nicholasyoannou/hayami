@@ -224,6 +224,7 @@ export interface AniwaveCommentsResponse {
   count?: number;
   total?: number;
   has_more?: boolean;
+  servedImages?: Record<string, string>;
   comments?: AniwaveComment[];
   replies?: AniwaveComment[];
   docID?: string;

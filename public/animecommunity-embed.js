@@ -9,6 +9,35 @@
     console.error('[AnimeCommunity Embed] Failed to parse config', e);
   }
 
+  const HEIGHT_EVENT = 'animecommunity:height';
+  const MIN_HEIGHT = 240;
+  const EXTRA_PADDING = 24;
+  let lastSentHeight = 0;
+
+  const getHost = () => document.getElementById('anime-community-comment-section');
+
+  function postHeight(height) {
+    const target = Math.max(Math.ceil(height + EXTRA_PADDING), MIN_HEIGHT);
+    if (Math.abs(target - lastSentHeight) < 1) return false;
+    lastSentHeight = target;
+    try {
+      window.parent?.postMessage({ type: HEIGHT_EVENT, height: target }, '*');
+      return true;
+    } catch (err) {
+      console.warn('[AnimeCommunity Embed] Failed to post height', err);
+      return false;
+    }
+  }
+
+  function measureAndSendHeight() {
+    const host = getHost();
+    if (!host) return false;
+    const rect = host.getBoundingClientRect();
+    const measured = rect.height || host.scrollHeight || host.offsetHeight || 0;
+    if (!Number.isFinite(measured) || measured <= 0) return false;
+    return postHeight(measured);
+  }
+
   // Attempt to force text/outline colors inside the widget shadow root using the provided config.
   function injectShadowTheme() {
     try {
@@ -70,10 +99,33 @@
     script.async = true;
     script.crossOrigin = 'anonymous';
     script.referrerPolicy = 'no-referrer';
+    script.onload = () => measureAndSendHeight();
     script.onerror = (err) => console.error('[AnimeCommunity Embed] Failed to load remote embed.js', err);
 
     document.head.appendChild(script);
   }
+
+  const host = getHost();
+
+  if (host && typeof ResizeObserver !== 'undefined') {
+    const hostObserver = new ResizeObserver(() => measureAndSendHeight());
+    hostObserver.observe(host);
+    const docObserver = new ResizeObserver(() => measureAndSendHeight());
+    docObserver.observe(document.documentElement);
+  }
+
+  window.addEventListener('load', () => {
+    setTimeout(() => measureAndSendHeight(), 50);
+  });
+
+  let heightAttempts = 0;
+  const heightPoll = setInterval(() => {
+    heightAttempts += 1;
+    const sent = measureAndSendHeight();
+    if ((sent && heightAttempts >= 6) || heightAttempts >= 30) {
+      clearInterval(heightPoll);
+    }
+  }, 500);
 
   loadEmbedViaScript();
 })();

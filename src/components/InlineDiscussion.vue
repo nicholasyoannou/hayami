@@ -26,6 +26,7 @@ interface Discussion {
   num_comments: number;
   archived?: boolean;
   locked?: boolean;
+  created_utc?: number;
   subreddit_icon_url?: string | null;
   subreddit_primary_color?: string | null;
   subreddit?: string;
@@ -978,8 +979,6 @@ defineExpose({
         </div>
         <div class="ri-meta" v-if="!isNoDiscussion">
           <span class="ri-author">u/{{ discussion.author }}</span>
-          <span class="ri-separator">•</span>
-          
           <div class="ri-post-actions" v-if="!isNoDiscussion">
             <button
               v-if="!isArchived"

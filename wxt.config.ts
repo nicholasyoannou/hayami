@@ -90,7 +90,7 @@ export default defineConfig({
         },
       },
     },
-    version: '0.0.8',
+    version: '0.0.81',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
