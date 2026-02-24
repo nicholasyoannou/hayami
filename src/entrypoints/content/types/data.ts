@@ -151,6 +151,7 @@ export interface AniListUser {
 export interface AniListThread {
   id: number | string;
   title?: string;
+  body?: string;
   replyCount?: number;
   viewCount?: number;
   createdAt?: number;

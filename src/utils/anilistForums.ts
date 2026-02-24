@@ -100,6 +100,7 @@ function normalizeThreads(rawThreads: any[] = []): AniListThread[] {
     .map((thread) => ({
       id: thread?.id ?? thread?.threadId ?? 'unknown',
       title: thread?.title || 'Untitled',
+      body: typeof thread?.body === 'string' ? thread.body : undefined,
       replyCount: typeof thread?.replyCount === 'number' ? thread.replyCount : undefined,
       viewCount: typeof thread?.viewCount === 'number' ? thread.viewCount : undefined,
       createdAt: typeof thread?.createdAt === 'number' ? thread.createdAt : undefined,
@@ -156,6 +157,7 @@ export async function fetchAniListThreads(
         ) {
           id
           title
+          body
           replyCount
           viewCount
           createdAt

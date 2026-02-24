@@ -12,9 +12,9 @@ import { escapeHtml } from '@/utils/markdown';
 function decodeEntities(str: string): string {
   if (!str) return '';
   try {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(str, 'text/html');
-    return doc.documentElement.textContent || '';
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = str;
+    return textarea.value;
   } catch (e) {
     console.error('Error decoding entities:', e);
     return str;
@@ -108,8 +108,30 @@ export function bbcodeToHtml(input: string): string {
     [/\[sup\](.*?)\[\/sup\]/gis, '<sup>$1</sup>'],
     [/\[size=([0-9]+)\](.*?)\[\/size\]/gis, '<span style="font-size:$1%;">$2</span>'],
     [/\[color=([#a-zA-Z0-9]+)\](.*?)\[\/color\]/gis, '<span style="color:$1;">$2</span>'],
-    [/\[quote(?:=[^\]]*)?\](.*?)\[\/quote\]/gis, '<blockquote>$1</blockquote>'],
-    [/\[spoiler(?:=[^\]]*)?\](.*?)\[\/spoiler\]/gis, '<details><summary>Spoiler</summary>$1</details>'],
+    [/\[quote(?:=([^\]]*))?\](.*?)\[\/quote\]/gis, (_m: string, attr: string, body: string) => {
+      const rawAttr = (attr || '').trim();
+      const author = rawAttr ? escapeHtml(rawAttr.split(/\s+message=/i)[0].trim()) : '';
+      const header = author ? `<div class="ri-mal-quote__header">${author} said:</div>` : '';
+      return `<blockquote class="ri-mal-quote">${header}<div class="ri-mal-quote__body">${body}</div></blockquote>`;
+    }],
+    [/\[spoiler(?:=([^\]]+))?\](.*?)\[\/spoiler\]/gis, (_m: string, label: string, body: string) => {
+      const spoilerLabel = label ? escapeHtml(String(label).trim()) : '';
+      let spoilerBody = body ?? '';
+
+      // If the body ends with <br> tags, move them outside the spoiler so stacked spoilers break onto new lines when hidden
+      let trailingBreaks = '';
+      const breakMatch = spoilerBody.match(/((?:<br\s*\/?>(?:\s*)?)+)$/i);
+      if (breakMatch) {
+        trailingBreaks = breakMatch[1];
+        spoilerBody = spoilerBody.slice(0, -trailingBreaks.length);
+      }
+
+      const inner = spoilerLabel
+        ? `<span class="ri-spoiler-group"><span class="ri-spoiler-label">${spoilerLabel}</span><span class="ri-spoiler md-spoiler-text">${spoilerBody}</span></span>`
+        : `<span class="ri-spoiler md-spoiler-text">${spoilerBody}</span>`;
+
+      return `${inner}${trailingBreaks}`;
+    }],
     [/\[url=(.+?)\](.*?)\[\/url\]/gis, '<a href="$1" target="_blank" rel="noopener">$2</a>'],
     [/\[url\](.*?)\[\/url\]/gis, '<a href="$1" target="_blank" rel="noopener">$1</a>'],
     [/\[list\](.*?)\[\/list\]/gis, '<ul>$1</ul>'],
@@ -142,34 +164,41 @@ export function bbcodeToHtml(input: string): string {
   // First, find divs with text-align:center that contain images
   const centeredDivPattern = /<div\s+[^>]*text-align\s*:\s*center[^>]*>([\s\S]*?)<\/div>/gi;
   out = out.replace(centeredDivPattern, (match: string, content: string) => {
-    // If this div contains an image, ensure the image is block-level and centered
-    if (/<img/.test(content)) {
-      // Replace images inside this centered div to be block-level with auto margins
+    const imgCount = (content.match(/<img/gi) || []).length;
+    if (!imgCount) return match;
+
+    // For a single image, keep the old block-centering to respect layout
+    if (imgCount === 1) {
       const updatedContent = content.replace(/<img([^>]*)>/gi, (imgMatch: string, imgAttrs: string) => {
         const hasStyle = /style\s*=\s*["']/.test(imgAttrs);
         if (hasStyle) {
-          // Append to existing style
           return imgMatch.replace(/style\s*=\s*["']([^"']*)["']/, (_styleMatch: string, existingStyle: string) => {
             let newStyle = existingStyle;
-            if (!/display\s*:\s*block/.test(newStyle)) {
-              newStyle += '; display:block';
-            }
-            if (!/margin\s*:\s*0\s+auto/.test(newStyle)) {
-              newStyle += '; margin:0 auto';
-            }
-            if (!/max-width\s*:\s*100%/.test(newStyle)) {
-              newStyle += '; max-width:100%';
-            }
+            if (!/display\s*:\s*block/.test(newStyle)) newStyle += '; display:block';
+            if (!/margin\s*:\s*0\s+auto/.test(newStyle)) newStyle += '; margin:0 auto';
+            if (!/max-width\s*:\s*100%/.test(newStyle)) newStyle += '; max-width:100%';
             return `style="${newStyle}"`;
           });
-        } else {
-          // Add new style attribute
-          return `<img${imgAttrs} style="display:block; margin:0 auto; max-width:100%;">`;
         }
+        return `<img${imgAttrs} style="display:block; margin:0 auto; max-width:100%">`;
       });
       return match.replace(content, updatedContent);
     }
-    return match;
+
+    // For multiple images in a centered block, keep them inline so they stay together
+    const updatedContent = content.replace(/<img([^>]*)>/gi, (imgMatch: string, imgAttrs: string) => {
+      const hasStyle = /style\s*=\s*["']/.test(imgAttrs);
+      if (hasStyle) {
+        return imgMatch.replace(/style\s*=\s*["']([^"']*)["']/, (_styleMatch: string, existingStyle: string) => {
+          let newStyle = existingStyle;
+          if (!/max-width\s*:\s*100%/.test(newStyle)) newStyle += '; max-width:100%';
+          if (!/max-height\s*:\s*200px/.test(newStyle)) newStyle += '; max-height:200px';
+          return `style="${newStyle}"`;
+        });
+      }
+      return `<img${imgAttrs} style="max-width:100%; max-height:200px; vertical-align:middle; margin:0 4px 4px 0;">`;
+    });
+    return match.replace(content, updatedContent);
   });
   
   return out;

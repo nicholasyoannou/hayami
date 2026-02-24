@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { AniListForumResult, AniListThreadComment } from '@/entrypoints/content/types/data';
 import { fetchAniListThreadComments } from '@/utils/anilistForums';
 import { escapeHtml } from '@/utils/markdown';
+import { detectUserInUK } from '@/entrypoints/content/images/imgur';
+import { getRuntimeUrl } from '@/utils/runtime';
 
 const props = defineProps<{
   result: AniListForumResult;
@@ -13,9 +15,34 @@ const props = defineProps<{
 const comments = ref<AniListThreadComment[]>(Array.isArray(props.result.comments) ? props.result.comments : []);
 const pageInfo = ref(props.result.pageInfo ?? { nextPage: null, hasNextPage: false });
 const loadingMore = ref(false);
+const loveHeartUrl = getRuntimeUrl('/assets/commentAssets/anilist/loveHeart.svg');
+const isUK = ref<boolean>((() => {
+  try {
+    return sessionStorage.getItem('ri-geo-uk') === 'true';
+  } catch {
+    return false;
+  }
+})());
 
 const selectedThread = computed(() => props.result.selectedThread);
 const threads = computed(() => Array.isArray(props.result.threads) ? props.result.threads : []);
+const combinedComments = computed(() => {
+  const base = Array.isArray(comments.value) ? comments.value : [];
+  const thread = selectedThread.value;
+  if (thread?.body) {
+    return [
+      {
+        id: `thread-${thread.id}-body`,
+        comment: thread.body,
+        createdAt: thread.createdAt,
+        likeCount: undefined,
+        user: thread.user,
+      } as AniListThreadComment,
+      ...base,
+    ];
+  }
+  return base;
+});
 const threadUrl = computed(() => {
   const thread = selectedThread.value;
   if (!thread) return '';
@@ -51,8 +78,50 @@ const formatTimestamp = (createdAt?: number): string => {
 
 const renderComment = (body?: string): string => {
   if (!body) return '';
-  const escaped = escapeHtml(body);
-  return escaped.replace(/\n/g, '<br>');
+
+  // AniList comments often use literal "\n" plus custom imgXX%(url) syntax
+  let normalized = body
+    .replace(/\r\n/g, '\n')
+    .replace(/\\n/g, '\n');
+
+  // Normalize HTML <img> or <a><img></a> into img100(url) tokens so they render
+  normalized = normalized.replace(/<a[^>]*href=["']([^"']+)["'][^>]*>\s*<img[^>]*src=["']([^"']+)["'][^>]*>\s*<\/a>/gi,
+    (_m, href, src) => `img100(${src || href})`);
+  normalized = normalized.replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi,
+    (_m, src) => `img100(${src})`);
+
+  const proxyImgur = (url: string) => {
+    if (!isUK.value) return url;
+    if (/^https?:\/\/i\.imgur\.com\//i.test(url)) {
+      return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
+    }
+    return url;
+  };
+
+  const parts: string[] = [];
+  // Support imgNN%(url) and imgNNN(url) (percent is optional, cap to 100%)
+  const imgPattern = /img(\d{1,4})%?\((https?:\/\/[^\s)]+)\)/gi;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = imgPattern.exec(normalized)) !== null) {
+    const [, widthRaw, url] = match;
+    parts.push(escapeHtml(normalized.slice(lastIndex, match.index)));
+
+    const widthNum = parseInt(widthRaw, 10) || 0;
+    const width = Math.min(Math.max(widthNum, 10), 100);
+    const safeUrl = escapeHtml(proxyImgur(url));
+
+    parts.push(
+      `<img src="${safeUrl}" loading="lazy" referrerpolicy="no-referrer" style="max-width:100%; width:${width}%; height:auto; border-radius:8px; display:inline-block; margin:6px 4px; vertical-align:middle;" />`,
+    );
+
+    lastIndex = imgPattern.lastIndex;
+  }
+
+  parts.push(escapeHtml(normalized.slice(lastIndex)));
+
+  return parts.join('').replace(/\n/g, '<br>');
 };
 
 let observer: IntersectionObserver | null = null;
@@ -79,6 +148,8 @@ async function loadMoreComments() {
 }
 
 onMounted(() => {
+  detectUserInUK().then((uk) => { isUK.value = uk; }).catch(() => {});
+
   if (pageInfo.value?.nextPage && props.threadId) {
     observer = new IntersectionObserver((entries) => {
       if (entries[0]?.isIntersecting && !loadingMore.value) {
@@ -149,13 +220,12 @@ watch(() => props.result.pageInfo, (newInfo) => {
       class="ri-anilist-posts-wrapper"
       style="padding:10px; background:#0d0d0d; border:1px solid #2b2b2b; border-radius:8px; margin-bottom:12px;"
     >
-      <div style="font-size:13px; color:#ccc; margin-bottom:8px;">Latest comments</div>
       <ul
         class="ri-anilist-posts"
-        style="padding-left:0; list-style:none; margin:0; color:#ddd; font-size:13px; line-height:1.5; position:relative;"
+        style="padding-left:0; list-style:none; margin:0; color:#ddd; font-size:14px; line-height:1.5; position:relative;"
       >
         <li
-          v-for="comment in comments"
+          v-for="comment in combinedComments"
           :key="comment.id"
           class="ri-anilist-post"
           style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #2a2a2a;"
@@ -170,14 +240,25 @@ watch(() => props.result.pageInfo, (newInfo) => {
             <div style="font-size:12px; color:#aaa;">
               {{ formatTimestamp(comment.createdAt) }}
             </div>
-            <div v-if="typeof comment.likeCount === 'number'" style="font-size:12px; color:#8ab4ff; margin-left:auto;">
-              ❤️ {{ comment.likeCount.toLocaleString() }}
+            <div
+              v-if="typeof comment.likeCount === 'number'"
+              class="ri-like"
+              style="margin-left:auto;"
+            >
+              {{ comment.likeCount.toLocaleString() }}
+              <span
+                class="ri-like-icon"
+                :style="{
+                  WebkitMask: `url(${loveHeartUrl}) center / contain no-repeat`,
+                  mask: `url(${loveHeartUrl}) center / contain no-repeat`,
+                }"
+              ></span>
             </div>
           </div>
           <div class="ri-anilist-post-body" v-html="renderComment(comment.comment)"></div>
         </li>
 
-        <li v-if="comments.length === 0" style="color:#aaa;">No comments loaded.</li>
+        <li v-if="combinedComments.length === 0" style="color:#aaa;">No comments loaded.</li>
 
         <template v-if="loadingMore">
           <li v-for="i in 3" :key="`skel-${i}`" style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #2a2a2a;">
@@ -225,7 +306,33 @@ watch(() => props.result.pageInfo, (newInfo) => {
 }
 
 .ri-anilist-post-body {
+  font-size: 14px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.ri-anilist-post-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: inline-block;
+  margin: 6px 0;
+  vertical-align: middle;
+}
+
+.ri-like {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: rgb(133, 150, 165);
+}
+
+.ri-like-icon {
+  width: 14px;
+  height: 14px;
+  background-color: rgb(133, 150, 165);
+  display: inline-block;
 }
 </style>

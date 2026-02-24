@@ -242,6 +242,37 @@ export class AniwaveProvider extends BaseProvider {
     }
   }
 
+  private captureCollapsedCommentIds(container: HTMLElement): Set<string> {
+    const ids = new Set<string>();
+    container.querySelectorAll<HTMLElement>('.aniwave-comment.is-collapsed').forEach((el) => {
+      const id = el.dataset.id;
+      if (id) ids.add(id);
+    });
+    return ids;
+  }
+
+  private restoreCollapsedComments(container: HTMLElement, collapsedIds: Set<string>): void {
+    if (!collapsedIds.size) return;
+    const comments = Array.from(container.querySelectorAll<HTMLElement>('.aniwave-comment'));
+    comments.forEach((commentEl) => {
+      const id = commentEl.dataset.id;
+      if (!id || !collapsedIds.has(id)) return;
+
+      const depth = Number(commentEl.dataset.depth || '0');
+      commentEl.classList.add('is-collapsed');
+      const toggle = commentEl.querySelector<HTMLButtonElement>('.aniwave-toggle');
+      if (toggle) toggle.textContent = '+';
+
+      let cursor = commentEl.nextElementSibling as HTMLElement | null;
+      while (cursor && cursor.classList.contains('aniwave-comment')) {
+        const cursorDepth = Number(cursor.dataset.depth || '0');
+        if (cursorDepth <= depth) break;
+        cursor.classList.add('is-hidden-by-parent');
+        cursor = cursor.nextElementSibling as HTMLElement | null;
+      }
+    });
+  }
+
   private attachCollapse(container: HTMLElement): void {
     const toggles = Array.from(container.querySelectorAll<HTMLButtonElement>('.aniwave-toggle'));
     toggles.forEach((btn) => {
@@ -577,6 +608,7 @@ export class AniwaveProvider extends BaseProvider {
     const animeName = this.apiAnimeName || context.animeInfo?.animeName || 'Aniwave';
     const episode = extractEpisodeNumber(context.animeInfo?.episodeName || '') || context.animeInfo?.episodeNumber || '';
     const shouldShowLoadMore = options?.showLoadMore !== false && this.hasMore;
+    const collapsedIds = this.captureCollapsedCommentIds(container);
 
     container.innerHTML = this.renderThread(
       animeName,
@@ -586,6 +618,8 @@ export class AniwaveProvider extends BaseProvider {
       this.currentPage,
       total
     );
+
+    this.restoreCollapsedComments(container, collapsedIds);
 
     if (shouldShowLoadMore) {
       this.attachLoadMore(container, context);

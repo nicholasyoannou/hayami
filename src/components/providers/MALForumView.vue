@@ -156,7 +156,6 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
       class="ri-mal-posts-wrapper" 
       style="padding:10px; background:#0d0d0d; border:1px solid #2b2b2b; border-radius:8px; margin-bottom:12px;"
     >
-      <div style="font-size:13px; color:#ccc; margin-bottom:8px;">Latest posts</div>
       <ul 
         class="ri-mal-posts" 
         style="padding-left:0; list-style:none; margin:0; color:#ddd; font-size:13px; line-height:1.5; position:relative;"
