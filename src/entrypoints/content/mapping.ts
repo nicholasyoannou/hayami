@@ -1372,6 +1372,15 @@ export async function tryMapperFailover(
     const seasonNumber = (episodeMetadata as any).season_number;
     const seasonSequenceNumber = (episodeMetadata as any).season_sequence_number;
     const effectiveSeasonNumber = seasonSequenceNumber ?? seasonNumber;
+    const rawAirDate =
+      (episodeMetadata as any).episode_air_date ||
+      (episodeMetadata as any).upload_date ||
+      (episodeMetadata as any).available_date;
+    const parsedAirDate = rawAirDate ? new Date(rawAirDate) : null;
+    const isAirDateReliable =
+      parsedAirDate instanceof Date &&
+      !Number.isNaN(parsedAirDate.getTime()) &&
+      parsedAirDate >= new Date('2022-03-01T00:00:00Z');
 
     // Allow episode_number = 0 (specials). Only fail when undefined/null.
     if (!seriesTitle || !seasonTitle || crEpisodeNumber === undefined || crEpisodeNumber === null) {
@@ -1435,8 +1444,7 @@ export async function tryMapperFailover(
       const bestCoversEpisode = bestEpisodesCount >= crEpisodeCeiling;
       const matchedCoversEpisode = matchedEpisodesCount >= crEpisodeCeiling;
       const scoreGain = bestSeason.score - matchedSeasonScore;
-      const rawAirYear = getEpisodeAirYear(episodeMetadata);
-      const airYearForEpisode = rawAirYear !== null && rawAirYear >= 2021 ? rawAirYear : null; // Ignore pre-2021 CR years.
+      const airYearForEpisode = isAirDateReliable && parsedAirDate ? parsedAirDate.getUTCFullYear() : null;
       const matchedYear = parseMapperYear(matchedCandidate?.year);
       const bestYear = parseMapperYear(bestCandidate?.year);
       const matchedAlignsAirYear = airYearForEpisode !== null && matchedYear === airYearForEpisode;
@@ -1512,6 +1520,16 @@ export async function tryMapperFailover(
       const crHasPart2 = hasPart2(seasonTitle);
       const mapperHasPart2 = hasPart2(matchedResult.anime_name);
 
+      const exactMatches = ((mapperResult as any).matched_results as any[])
+        .filter((m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0)
+        .map((m) => ({
+          idx: m.index,
+          year: parseMapperYear(m.year),
+          name: m.anime_name,
+          episodeCount: m.episode_count,
+        }))
+        .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
+
       // For season_number/sequence_number = 1, prefer the earliest exact-match season (by year) to avoid jumping to later cours.
       // Skip this preference when CR collapsed seasons (single CR season with a high absolute episode number),
       // otherwise we downgrade a correct later cour to the first season.
@@ -1519,21 +1537,33 @@ export async function tryMapperFailover(
       const absoluteEpisodePosition = sequenceNumber ?? crEpisodeNumber ?? 0;
       const looksCollapsedCr = Array.isArray(seasonsData) && seasonsData.length === 1 && absoluteEpisodePosition > ((matchedResult?.episode_count ?? 0) || 0);
       if (crSeasonNum === 1 && !looksCollapsedCr) {
-        const exacts = ((mapperResult as any).matched_results as any[])
-          .filter((m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0)
-          .map((m) => ({
-            idx: m.index,
-            year: parseMapperYear(m.year),
-            name: m.anime_name,
-          }))
-          .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
-
-        if (exacts.length > 0 && typeof exacts[0].idx === 'number' && exacts[0].idx !== matchedIndex) {
-          matchedIndex = exacts[0].idx;
+        if (exactMatches.length > 0 && typeof exactMatches[0].idx === 'number' && exactMatches[0].idx !== matchedIndex) {
+          matchedIndex = exactMatches[0].idx;
           console.log('[Mapper Failover] Season number=1; preferring earliest exact-match season', {
             previous: matchedResult?.index,
             next: matchedIndex,
-            chosenYear: exacts[0].year,
+            chosenYear: exactMatches[0].year,
+          });
+        }
+      }
+
+      const normalizedAirYear = isAirDateReliable && parsedAirDate ? parsedAirDate.getUTCFullYear() : null;
+      if (normalizedAirYear !== null && !looksCollapsedCr && exactMatches.length > 0) {
+        const exactAirYear = exactMatches.find((m) => m.year === normalizedAirYear);
+        const nearestPast = exactAirYear
+          ? null
+          : [...exactMatches]
+              .filter((m) => m.year !== null && m.year < normalizedAirYear)
+              .sort((a, b) => (b.year ?? -9999) - (a.year ?? -9999))[0];
+
+        const yearAligned = exactAirYear ?? nearestPast;
+        if (yearAligned && typeof yearAligned.idx === 'number' && yearAligned.idx !== matchedIndex) {
+          matchedIndex = yearAligned.idx;
+          console.log('[Mapper Failover] Aligning exact-match season to Crunchyroll air year', {
+            previous: matchedResult?.index,
+            next: matchedIndex,
+            airYear: normalizedAirYear,
+            chosenYear: yearAligned.year,
           });
         }
       }
