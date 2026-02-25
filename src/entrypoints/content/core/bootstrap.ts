@@ -22,7 +22,20 @@ import { matchChibiPage } from '../chibi';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { saveSeriesMapping } from '../mapping';
-import { getState, initState, destroyState, setDebounceTimer, setLastAnimeInfo, setLastProcessedKey } from '../state';
+import {
+  getState,
+  initState,
+  destroyState,
+  setDebounceTimer,
+  setLastAnimeInfo,
+  setLastProcessedKey,
+  clearDiscussionCache,
+  teardownRedditInfiniteScroll,
+  teardownYouTubeInfiniteScroll,
+  setActiveObserver,
+  setSearchInProgress,
+} from '../state';
+import { getUiManager } from './ui-manager';
 
 /**
  * Debounced watch page handler
@@ -81,6 +94,46 @@ export function ensureToaster(ctx: ContentScriptContext): void {
   ctx.onInvalidated(() => {
     try { toastApp.unmount(); } catch {}
   });
+}
+
+function resetUiAndState(shouldInit: boolean): void {
+  try {
+    getUiManager().unmount();
+  } catch (e) {
+    console.warn('[Bootstrap] Failed to unmount UI manager', e);
+  }
+
+  destroyState();
+
+  if (shouldInit) {
+    initState();
+  }
+}
+
+/**
+ * Soft reset used when navigating between watch pages in the SPA. Keeps the UI mounted
+ * but clears timers, observers, caches, and in-flight search flags so the next episode
+ * can render without a full tear-down.
+ */
+function softResetForWatchNavigation(): void {
+  const state = getState();
+
+  if (state.debounceTimer) {
+    clearTimeout(state.debounceTimer);
+    setDebounceTimer(undefined);
+  }
+
+  if (state.activeObserver) {
+    try { state.activeObserver.disconnect(); } catch {}
+    setActiveObserver(null);
+  }
+
+  teardownRedditInfiniteScroll(state);
+  teardownYouTubeInfiniteScroll(state);
+  clearDiscussionCache(state);
+
+  setSearchInProgress(false);
+  setLastProcessedKey(null);
 }
 
 /**
@@ -163,20 +216,26 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   ctx.addEventListener(window, 'wxt:locationchange', (event: { newUrl: URL }) => {
     const newUrl = event.newUrl?.href;
     debug.log('URL changed to:', newUrl);
-    if (isWatchPage(newUrl)) {
-      queueHandleWatchPage(ctx);
-    } else {
-      destroyState();
+    const onWatchPage = isWatchPage(newUrl);
+
+    if (!onWatchPage) {
+      resetUiAndState(false);
+      return;
     }
+
+    // Stay mounted between episode navigations to avoid visible reflows; only clear
+    // ephemeral state so the next episode can render cleanly.
+    softResetForWatchNavigation();
+    queueHandleWatchPage(ctx);
   });
 
   wirePreviewHandlers(ctx);
   setupYouTubeModalListener();
   setupGalleryModalListener();
 
-  ctx.addEventListener(window, 'beforeunload', () => destroyState());
+  ctx.addEventListener(window, 'beforeunload', () => resetUiAndState(false));
 
   ctx.onInvalidated(() => {
-    destroyState();
+    resetUiAndState(false);
   });
 }
