@@ -618,7 +618,10 @@
   height: 26px;
   border-radius: 50%;
   background: #2c2c2c;
-  flex-shrink: 0;
+  display: block; /* avoid inline-img baseline gap that shifts content on load */
+  flex: 0 0 26px; /* hard-reserve width during image load */
+  min-width: 26px;
+  min-height: 26px;
   object-fit: cover;
   margin-right: 8px;
 }
@@ -632,6 +635,9 @@
 .ri-comment.depth-0 > .ri-avatar {
   width: 28px;
   height: 28px;
+  flex-basis: 28px;
+  min-width: 28px;
+  min-height: 28px;
   margin-left: -11px; /* final left shift; trunk at 3px passes through center */
 }
 
