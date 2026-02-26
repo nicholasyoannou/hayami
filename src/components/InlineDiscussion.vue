@@ -8,7 +8,7 @@ import TipTapCommentEditor from './TipTapCommentEditor.vue';
 import { voteThing, submitComment, getModhash, type RedditComment } from '@/utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
-import { extractEpisodeTableFromRedditSelftext } from '@/entrypoints/content/mapping';
+import { extractEpisodeTableFromRedditSelftext, fetchAnimeMapperDataBySeriesName } from '@/entrypoints/content/mapping';
 import { getStoredUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
@@ -148,6 +148,20 @@ const manualEpisodeLoading = ref(false);
 const manualEpisodeError = ref<string | null>(null);
 const manualEpisodeSelected = ref<number | null>(null);
 const manualEpisodeContext = ref<{ animeName?: string; crEpisodeNum?: number | null }>({ animeName: undefined, crEpisodeNum: null });
+const manualEpisodeResolvedName = ref<string | null>(null);
+const wrongAnimeOpen = ref(false);
+const wrongAnimeQuery = ref('');
+const wrongAnimeResults = ref<any[]>([]);
+const wrongAnimeLoading = ref(false);
+const wrongAnimeError = ref<string | null>(null);
+
+// Strip obvious episode/discussion suffixes before querying Hayami.
+function cleanSeriesForMapper(name?: string): string | undefined {
+  if (!name) return undefined;
+  // Split off discussion separators, then drop trailing episode markers.
+  const first = name.split('•')[0].split('|')[0].trim();
+  return first.replace(/episode\s*\d+.*/i, '').trim();
+}
 
 // Disqus search modal state
 const disqusSearchOpen = ref(false);
@@ -179,6 +193,11 @@ function openManualSearchModal(
   manualEpisodeOptions.value = [];
   manualEpisodeError.value = null;
   manualEpisodeSelected.value = null;
+  manualEpisodeResolvedName.value = null;
+  wrongAnimeOpen.value = false;
+  wrongAnimeQuery.value = '';
+  wrongAnimeResults.value = [];
+  wrongAnimeError.value = null;
   manualEpisodeContext.value = {
     animeName: context?.animeName,
     crEpisodeNum: context?.crEpisodeNum ?? null,
@@ -209,16 +228,54 @@ async function runManualSearch() {
 async function loadEpisodeOptions() {
   manualEpisodeLoading.value = true;
   manualEpisodeError.value = null;
+  manualEpisodeOptions.value = [];
+  manualEpisodeResolvedName.value = null;
+  wrongAnimeError.value = null;
+  wrongAnimeResults.value = [];
   try {
-    const data = await extractEpisodeTableFromRedditSelftext(redditUrl.value, manualEpisodeContext.value.animeName);
-    if (!data || !data.tableMap || data.tableMap.size === 0) {
-      manualEpisodeOptions.value = [];
-      manualEpisodeError.value = 'No episode list found for this post.';
-      return;
+    let populatedFromMapper = false;
+
+    // Prefer Hayami mapper episodes when we know the anime name.
+    const cleanedSeries = cleanSeriesForMapper(manualEpisodeContext.value.animeName);
+    if (cleanedSeries) {
+      const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, 'reddit');
+      if (mapper && Array.isArray((mapper as any).results) && (mapper as any).results.length > 0) {
+        const results: any[] = (mapper as any).results;
+        const preferred: number[] = [];
+        const matchedIdx = typeof (mapper as any).matched_result?.index === 'number' ? (mapper as any).matched_result.index : null;
+        if (matchedIdx !== null) preferred.push(matchedIdx);
+        preferred.push(...results.map((_, idx) => idx));
+
+        for (const idx of Array.from(new Set(preferred))) {
+          const res = results[idx];
+          const eps = res?.episodes;
+          if (eps && typeof eps === 'object' && Object.keys(eps).length > 0) {
+            manualEpisodeOptions.value = Object.entries(eps)
+              .map(([k, url]) => ({ episode: Number.parseInt(k, 10), url }))
+              .filter((row) => Number.isFinite(row.episode) && !!row.url)
+              .sort((a, b) => a.episode - b.episode);
+            populatedFromMapper = manualEpisodeOptions.value.length > 0;
+            manualEpisodeResolvedName.value = typeof res?.anime_name === 'string' ? res.anime_name : cleanedSeries;
+            if (populatedFromMapper) {
+              break;
+            }
+          }
+        }
+      }
     }
-    manualEpisodeOptions.value = Array.from(data.tableMap.entries())
-      .map(([episode, url]) => ({ episode, url }))
-      .sort((a, b) => a.episode - b.episode);
+
+    // Fallback to Reddit selftext table extraction when mapper data is unavailable.
+    if (!populatedFromMapper) {
+      const data = await extractEpisodeTableFromRedditSelftext(redditUrl.value, manualEpisodeContext.value.animeName);
+      if (!data || !data.tableMap || data.tableMap.size === 0) {
+        manualEpisodeError.value = 'No episode list found (mapper/selftext).';
+        return;
+      }
+      manualEpisodeOptions.value = Array.from(data.tableMap.entries())
+        .map(([episode, url]) => ({ episode, url }))
+        .sort((a, b) => a.episode - b.episode);
+      manualEpisodeResolvedName.value = manualEpisodeContext.value.animeName || null;
+    }
 
     if (manualEpisodeContext.value.crEpisodeNum && manualEpisodeSelected.value === null) {
       const candidate = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeContext.value.crEpisodeNum);
@@ -229,6 +286,49 @@ async function loadEpisodeOptions() {
   } finally {
     manualEpisodeLoading.value = false;
   }
+}
+
+function openWrongAnimeForm() {
+  wrongAnimeOpen.value = true;
+  wrongAnimeQuery.value = '';
+  wrongAnimeResults.value = [];
+  wrongAnimeError.value = null;
+}
+
+async function searchWrongAnime() {
+  const q = wrongAnimeQuery.value.trim();
+  if (!q) {
+    wrongAnimeError.value = 'Enter a title to search.';
+    return;
+  }
+  wrongAnimeLoading.value = true;
+  wrongAnimeError.value = null;
+  wrongAnimeResults.value = [];
+  try {
+    const cleaned = cleanSeriesForMapper(q) || q;
+    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, 'reddit');
+    const results: any[] = (mapper as any)?.results || [];
+    wrongAnimeResults.value = Array.isArray(results) ? results : [];
+    if (wrongAnimeResults.value.length === 0) {
+      wrongAnimeError.value = 'No matches found via Hayami.';
+    }
+  } catch (e: any) {
+    wrongAnimeError.value = e?.message || 'Search failed.';
+  } finally {
+    wrongAnimeLoading.value = false;
+  }
+}
+
+function selectWrongAnime(result: any) {
+  if (!result) return;
+  const name = typeof result?.anime_name === 'string' ? result.anime_name : wrongAnimeQuery.value.trim();
+  manualEpisodeContext.value.animeName = name;
+  manualEpisodeResolvedName.value = name;
+  wrongAnimeOpen.value = false;
+  wrongAnimeResults.value = [];
+  wrongAnimeError.value = null;
+  wrongAnimeQuery.value = name;
+  void loadEpisodeOptions();
 }
 
 function setManualDialogTab(tab: 'search' | 'episode') {
@@ -1299,6 +1399,48 @@ defineExpose({
             <div v-if="manualEpisodeContext.crEpisodeNum" class="mt-1 text-[#8dd4ff] text-xs">
               Detected current episode: Episode {{ manualEpisodeContext.crEpisodeNum }}
             </div>
+            <div class="mt-2 flex items-start justify-between text-xs text-[#8dd4ff] gap-2">
+              <span class="flex-1 break-words leading-snug">Anime: {{ manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown' }}</span>
+              <button class="ml-3 text-[#ffd166] hover:text-[#ffe8a1] whitespace-nowrap" @click="openWrongAnimeForm">Wrong anime?</button>
+            </div>
+          </div>
+
+          <div v-if="wrongAnimeOpen" class="rounded-lg border border-[#2f2f2f] bg-[#0f0f0f] p-3 text-xs text-white/80 space-y-2">
+            <div class="text-[#ccc]">Search Hayami for the correct series.</div>
+            <div class="flex gap-2">
+              <input
+                v-model="wrongAnimeQuery"
+                @keyup.enter="searchWrongAnime"
+                class="flex-1 bg-[#0b0b0b] border border-[#2f2f2f] rounded-lg px-3 py-2 text-xs text-white outline-none"
+                type="text"
+                placeholder="Type a series title"
+              />
+              <button
+                class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-xs whitespace-nowrap"
+                @click="searchWrongAnime"
+                :disabled="wrongAnimeLoading"
+              >
+                {{ wrongAnimeLoading ? 'Searching…' : 'Search' }}
+              </button>
+            </div>
+            <div v-if="wrongAnimeError" class="text-red-400">{{ wrongAnimeError }}</div>
+            <div v-else-if="wrongAnimeLoading" class="text-[#ccc]">Searching…</div>
+            <ul v-else-if="wrongAnimeResults.length" class="space-y-2 max-h-[180px] overflow-y-auto styled-scroll">
+              <li
+                v-for="(item, idx) in wrongAnimeResults"
+                :key="idx"
+                class="p-2 border border-[#262626] rounded-lg bg-[#0b0b0b] flex items-center justify-between gap-2"
+              >
+                <div class="text-xs text-white/90">{{ item?.anime_name || 'Unknown title' }}</div>
+                <button
+                  class="px-2 py-1 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded text-[11px] whitespace-nowrap"
+                  @click="selectWrongAnime(item)"
+                >
+                  Select
+                </button>
+              </li>
+            </ul>
+            <div v-else class="text-[#777]">No results yet. Run a search.</div>
           </div>
 
           <div v-if="manualEpisodeLoading" class="text-sm text-[#ccc]">Loading episode list…</div>

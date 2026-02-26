@@ -1733,6 +1733,9 @@ export async function tryMapperFailover(
         ? crEpisodeNumber
         : (sequenceNumber ?? crEpisodeNumber);
       const seasonNumForSlice = effectiveSeasonNumber || seasonNumber || 1;
+      const currentCrSeasonEpisodes = seasonsData.find(
+        (s) => (s.season_sequence_number || s.season_number || 0) === seasonNumForSlice,
+      )?.number_of_episodes || 0;
       const ordered = ((mapperResult as any).results || [])
         .filter((r: any) => r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0 && r?.year !== 'movies')
         .map((r: any, idx: number) => ({
@@ -1821,6 +1824,19 @@ export async function tryMapperFailover(
       }
 
       seasonEpisode = mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, (mapperResult as any).results, matchedIndex);
+      const overranCrSeason = currentCrSeasonEpisodes > 0 && (crEpisodeNumber ?? 0) > currentCrSeasonEpisodes;
+      const overranMatchedSeason = crEpisodeNumber > Object.keys(matchedSeason?.episodes || {}).length;
+      if (forcedSeasonEpisode !== null && seasonEpisode !== null && (overranCrSeason || overranMatchedSeason)) {
+        console.log('[Mapper Failover] Preferring slice-derived episode due to CR overrun', {
+          seasonEpisode,
+          forcedSeasonEpisode,
+          crEpisodeNumber,
+          sequenceNumber,
+          currentCrSeasonEpisodes,
+          matchedSeasonCount: Object.keys(matchedSeason?.episodes || {}).length,
+        });
+        seasonEpisode = forcedSeasonEpisode;
+      }
       if (seasonEpisode === null && forcedSeasonEpisode !== null) {
         seasonEpisode = forcedSeasonEpisode;
       }
