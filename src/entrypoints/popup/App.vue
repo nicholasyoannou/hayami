@@ -19,6 +19,7 @@ import {
   imgurClientIdItem,
   noCommentsModeItem,
   redditEditorModeItem,
+  redditShowFlairsItem,
   redditCommentScaleItem,
   redditClientIdItem,
   aniwaveAutoExpandAllItem,
@@ -44,6 +45,7 @@ type SettingValueMap = {
   noCommentsMode: 'popup' | 'inline';
   commentsProvider: CommentProviderOption;
   redditEditorMode: RedditEditorMode;
+  redditShowFlairs: boolean;
   commentScale: number;
   imgurClientId: string;
   imgchestApiKey: string;
@@ -279,6 +281,22 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save Reddit editor',
   },
   {
+    key: 'redditShowFlairs',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Show user flairs',
+    description: 'Display Reddit user flairs next to usernames.',
+    fallback: true,
+    load: async () => {
+      const value = await redditShowFlairsItem.getValue();
+      return value !== false;
+    },
+    save: async (value) => redditShowFlairsItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Reddit flairs shown' : 'Reddit flairs hidden'),
+    errorMessage: 'Failed to update flair visibility',
+  },
+  {
     key: 'aniwaveAutoExpandAll',
     type: 'toggle',
     category: 'provider',
@@ -391,6 +409,7 @@ const settingValues = reactive<SettingValueMap>({
   noCommentsMode: 'popup',
   commentsProvider: 'reddit',
   redditEditorMode: 'editor',
+  redditShowFlairs: true,
   redditClientId: '',
   commentScale: 1,
   imgurClientId: '',

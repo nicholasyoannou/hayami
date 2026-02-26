@@ -14,6 +14,11 @@ export const redditEditorModeItem = storage.defineItem<RedditEditorMode>(
   { fallback: 'editor' }
 );
 
+export const redditShowFlairsItem = storage.defineItem<boolean>(
+  'local:reddit_show_flairs',
+  { fallback: true }
+);
+
 export const displayModeItem = storage.defineItem<DisplayModeOption>(
   'local:display_mode',
   { fallback: 'popup' }

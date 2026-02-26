@@ -17,6 +17,7 @@ const props = defineProps<{
   emptyMessage?: string;
   scale?: number;
   currentUsername?: string | null;
+  showFlairs?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -370,6 +371,7 @@ defineExpose({
         :emoji-map="emojiMap"
         :highlight-ids="highlightIds"
         :load-more-handler="loadMoreForComment"
+        :show-flairs="props.showFlairs"
         @reply="handleReply"
         @collapse="handleCollapse"
       >

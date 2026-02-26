@@ -31,6 +31,7 @@ export class AniwaveProvider extends BaseProvider {
   private hideReplyContext = false;
   private servedImages = new Map<string, string>();
   private apiAnimeName: string | null = null;
+  private apiEpisodeNumber: number | null = null;
   private static iconFontInjected = false;
 
   private assets = {
@@ -54,6 +55,7 @@ export class AniwaveProvider extends BaseProvider {
     this.autoExpandDepthLimit = 3;
     this.hideReplyContext = false;
     this.apiAnimeName = null;
+    this.apiEpisodeNumber = null;
     this.servedImages.clear();
   }
 
@@ -89,6 +91,7 @@ export class AniwaveProvider extends BaseProvider {
       this.mergeServedImages(data.servedImages);
       this.mergeServedImagesFromComments(data.comments);
       this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
+      this.apiEpisodeNumber = data.episode_number ?? this.apiEpisodeNumber;
       const normalized = this.normalizeIncomingComments(data.comments ?? []);
       this.comments = this.mergeComments([], normalized);
       this.currentPage = data.page ?? page;
@@ -100,7 +103,7 @@ export class AniwaveProvider extends BaseProvider {
 
       context.discussionCache.aniwave = {
         docId,
-        episodeNumber: episodeNumber || null,
+        episodeNumber: this.apiEpisodeNumber ?? episodeNumber ?? null,
         comments: this.comments,
         page: this.currentPage,
         hasMore: this.hasMore,
@@ -150,6 +153,13 @@ export class AniwaveProvider extends BaseProvider {
     }
   }
 
+  private setApiEpisodeNumber(value: number | string | null | undefined): void {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      this.apiEpisodeNumber = parsed;
+    }
+  }
+
   private attachLoadMore(container: HTMLElement, context: ProviderContext): void {
     this.cleanupLoadMoreObserver();
 
@@ -167,7 +177,7 @@ export class AniwaveProvider extends BaseProvider {
         this.mergeServedImages(data.servedImages);
         this.mergeServedImagesFromComments(data.comments);
         this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
-        this.apiAnimeName = data.anime_name || this.apiAnimeName || null;
+        this.apiEpisodeNumber = data.episode_number ?? this.apiEpisodeNumber;
         this.currentPage = data.page ?? nextPage;
         this.hasMore = Boolean(data.has_more);
         const normalized = this.normalizeIncomingComments(data.comments ?? []);
@@ -182,6 +192,7 @@ export class AniwaveProvider extends BaseProvider {
           context.discussionCache.aniwave.page = this.currentPage;
           context.discussionCache.aniwave.hasMore = this.hasMore;
           context.discussionCache.aniwave.total = data.total ?? context.discussionCache.aniwave.total;
+          context.discussionCache.aniwave.episodeNumber = this.apiEpisodeNumber ?? context.discussionCache.aniwave.episodeNumber;
           context.discussionCache.aniwave.replyState = Object.fromEntries(this.replyState);
         }
 
@@ -392,11 +403,19 @@ export class AniwaveProvider extends BaseProvider {
           : null;
 
         const chosen = match || episodes.find((ep) => ep.is_dub === false) || episodes[0];
+        if (chosen?.episode_number !== undefined) {
+          this.setApiEpisodeNumber(chosen.episode_number);
+        } else if (epNumber !== null) {
+          this.setApiEpisodeNumber(epNumber);
+        }
         const candidate = chosen?.docID || chosen?.docId || chosen?.doc_id;
         if (candidate) return String(candidate);
       }
 
       if (primary) {
+        if ((primary as any).episode_number !== undefined) {
+          this.setApiEpisodeNumber((primary as any).episode_number);
+        }
         const fallback = primary.docID || primary.docId || (primary as any).doc_id;
         if (fallback) return String(fallback);
       }
@@ -421,7 +440,11 @@ export class AniwaveProvider extends BaseProvider {
     if (!resp.ok) {
       throw new Error(`Aniwave comments request failed: ${resp.status}`);
     }
-    return (await resp.json()) as AniwaveCommentsResponse;
+    const json = (await resp.json()) as AniwaveCommentsResponse;
+    if (json.episode_number !== undefined) {
+      this.setApiEpisodeNumber(json.episode_number);
+    }
+    return json;
   }
 
   private async fetchWithRateLimit(url: string): Promise<Response> {
@@ -555,6 +578,7 @@ export class AniwaveProvider extends BaseProvider {
         const data = await this.fetchComments(this.currentDocId, nextPage, this.autoExpandDepthLimit);
         this.mergeServedImages(data.servedImages);
         this.mergeServedImagesFromComments(data.comments);
+        this.apiEpisodeNumber = data.episode_number ?? this.apiEpisodeNumber;
         this.currentPage = data.page ?? nextPage;
         this.hasMore = Boolean(data.has_more);
         total = data.total ?? total;
@@ -572,6 +596,7 @@ export class AniwaveProvider extends BaseProvider {
           context.discussionCache.aniwave.page = this.currentPage;
           context.discussionCache.aniwave.hasMore = this.hasMore;
           context.discussionCache.aniwave.total = total ?? context.discussionCache.aniwave.total;
+          context.discussionCache.aniwave.episodeNumber = this.apiEpisodeNumber ?? context.discussionCache.aniwave.episodeNumber;
           context.discussionCache.aniwave.replyState = Object.fromEntries(this.replyState);
         }
 
@@ -606,7 +631,10 @@ export class AniwaveProvider extends BaseProvider {
   ): void {
     this.ensureIconFont();
     const animeName = this.apiAnimeName || context.animeInfo?.animeName || 'Aniwave';
-    const episode = extractEpisodeNumber(context.animeInfo?.episodeName || '') || context.animeInfo?.episodeNumber || '';
+    const episode = this.apiEpisodeNumber
+      ?? extractEpisodeNumber(context.animeInfo?.episodeName || '')
+      ?? context.animeInfo?.episodeNumber
+      ?? '';
     const shouldShowLoadMore = options?.showLoadMore !== false && this.hasMore;
     const collapsedIds = this.captureCollapsedCommentIds(container);
 

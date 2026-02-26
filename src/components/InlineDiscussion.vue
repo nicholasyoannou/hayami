@@ -13,7 +13,7 @@ import { getStoredUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
 
@@ -58,6 +58,7 @@ const pendingLocalComments = ref<Array<{ comment: RedditComment; parentId?: stri
 const showTopReplyEditor = ref(false);
 const replyTarget = ref<{ id: string; author?: string; parentFullname: string } | null>(null);
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
+const redditShowFlairs = ref(true);
 const isPostingTopComment = ref(false);
 const replyDrafts = reactive<Record<string, string>>({});
 replyDrafts.root = '';
@@ -444,6 +445,16 @@ async function loadEditorMode() {
     redditEditorMode.value = mode === 'markdown' ? 'markdown' : 'editor';
   } catch (error) {
     console.warn('Failed to load Reddit editor mode', error);
+  }
+}
+
+async function loadFlairVisibility() {
+  try {
+    const value = await redditShowFlairsItem.getValue();
+    redditShowFlairs.value = value !== false;
+  } catch (error) {
+    console.warn('Failed to load Reddit flair visibility', error);
+    redditShowFlairs.value = true;
   }
 }
 
@@ -837,6 +848,7 @@ watch(() => isLoading.value, (newVal) => {
 
 onMounted(() => {
   void loadEditorMode();
+  void loadFlairVisibility();
   void loadCurrentUsername();
   const manualSearchHandler = (ev: Event) => {
     const detail = (ev as CustomEvent)?.detail || {};
@@ -1261,6 +1273,7 @@ defineExpose({
           :current-username="currentUsername"
           :is-archived="discussion.archived"
           :is-locked="discussion.locked"
+          :show-flairs="redditShowFlairs"
           :initial-sort="commentSort"
           :search-query="searchQuery"
           :empty-message="redditEmptyMessage"

@@ -16,6 +16,7 @@ const props = defineProps<{
   loadMoreHandler?: (commentId: string) => Promise<void>;
   subreddit?: string;
   currentUsername?: string | null;
+  showFlairs?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -52,6 +53,7 @@ const editDraft = ref('');
 const isSavingEdit = ref(false);
 const isDeleting = ref(false);
 const currentUserLower = computed(() => props.currentUsername ? props.currentUsername.toLowerCase() : null);
+const showFlairs = computed(() => props.showFlairs !== false);
 const isOwn = computed(() => {
   if (props.comment.isMine) return true;
   const authorRaw = props.comment.author || '';
@@ -108,10 +110,11 @@ const awardsCount = computed(() => {
 
 const timestampText = computed(() => formatRedditDate(props.comment.created_utc));
 const timestampTitle = computed(() => new Date(props.comment.created_utc * 1000).toLocaleString());
-const editedText = computed(() => props.comment.edited ? ' • Edited' : '');
+const editedText = computed(() => props.comment.edited ? 'Edited' : '');
 
 // Render flair - use inline styles like DOM version for consistent emoji sizing
 const flairHtml = computed(() => {
+  if (!showFlairs.value) return '';
   const c = props.comment;
   if (!c.author_flair_text && (!c.author_flair_richtext || c.author_flair_richtext.length === 0)) {
     return '';
@@ -204,24 +207,34 @@ const downvoteIconUrl = getRuntimeUrl('assets/commentAssets/downvote.svg');
 const downvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/downvoteFilled.svg');
 const replyIconUrl = getRuntimeUrl('assets/commentAssets/reply.svg');
 const shareIconUrl = getRuntimeUrl('assets/commentAssets/share.svg');
+const stickiedIconUrl = getRuntimeUrl('assets/commentAssets/reddit/stickied.svg');
 
 // Avatar cache (shared across instances via module scope would be better, but this works)
 const avatarCache = new Map<string, string | null>();
 
+const pickDeletedAvatar = () => {
+  const n = Math.floor(Math.random() * 7) + 1;
+  return `https://www.redditstatic.com/avatars/defaults/v2/avatar_default_${n}.png`;
+};
+
 onMounted(async () => {
   // Load avatar
   const author = props.comment.author;
-  if (author && author !== '[deleted]') {
-    if (avatarCache.has(author)) {
-      avatarUrl.value = avatarCache.get(author) || null;
-    } else {
-      try {
-        const url = await getUserAvatar(author);
-        avatarCache.set(author, url || null);
-        avatarUrl.value = url || null;
-      } catch {
-        avatarCache.set(author, null);
-      }
+  if (!author) return;
+  if (author === '[deleted]') {
+    avatarUrl.value = pickDeletedAvatar();
+    return;
+  }
+
+  if (avatarCache.has(author)) {
+    avatarUrl.value = avatarCache.get(author) || null;
+  } else {
+    try {
+      const url = await getUserAvatar(author);
+      avatarCache.set(author, url || null);
+      avatarUrl.value = url || null;
+    } catch {
+      avatarCache.set(author, null);
     }
   }
 });
@@ -673,9 +686,18 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
     <div class="ri-body">
       <div class="ri-line1">
         <span class="ri-username">u/{{ comment.author }}</span>
+        <span v-if="comment.distinguished === 'moderator'" class="ri-mod-badge">MOD</span>
         <span v-if="flairHtml" v-html="flairHtml"></span>
+        <span
+          v-if="comment.stickied"
+          class="ri-stickied"
+          :style="{ '--ri-stickied-icon': `url('${stickiedIconUrl}')` }"
+        >
+          <span class="ri-stickied-icon" aria-hidden="true"></span>
+          <span class="ri-stickied-label">Stickied comment</span>
+        </span>
         <span class="ri-timestamp" :title="timestampTitle">{{ timestampText }}</span>
-        <span v-if="editedText">{{ editedText }}</span>
+        <span v-if="editedText" class="ri-edited">{{ editedText }}</span>
       </div>
       
       <div v-if="!isEditing" class="ri-text" ref="textContainerRef" v-html="bodyHtml"></div>
@@ -740,8 +762,9 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           class="ri-action-btn ri-share-btn"
           :class="{ 'ri-copied': isShareCopied }"
           @click.stop="handleShare"
+          :style="{ '--ri-share-icon': `url('${shareIconUrl}')` }"
         >
-          <img class="ri-action-icon" :src="shareIconUrl" alt="share" />
+          <span class="ri-action-icon ri-share-icon" aria-hidden="true"></span>
           <span>{{ shareLabel }}</span>
         </button>
 
@@ -792,6 +815,7 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           :highlight-ids="highlightIds"
           :on-reply="onReply"
           :load-more-handler="loadMoreHandler"
+          :show-flairs="showFlairs"
           @reply="(c) => emit('reply', c)"
           @collapse="(id, state) => emit('collapse', id, state)"
         >
