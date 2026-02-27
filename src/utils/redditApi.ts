@@ -233,8 +233,15 @@ export interface RedditComment {
   children?: string[]; // For "more" placeholders
 }
 
-// Sort options we accept for comment listing
-export type RedditCommentSort = 'best' | 'top' | 'new' | 'confidence' | 'controversial';
+// Sort options we accept for comment listing (includes legacy aliases like "best")
+export type RedditCommentSort =
+  | 'confidence'
+  | 'top'
+  | 'new'
+  | 'old'
+  | 'controversial'
+  | 'qa'
+  | 'best';
 
 // Result shape returned by getPostComments
 export interface RedditCommentsResult {
@@ -468,12 +475,27 @@ export async function getSubredditEmojiMap(subreddit: string): Promise<Record<st
   }
 }
 
-export async function getPostComments(postId: string, sort: RedditCommentSort = 'best'): Promise<RedditCommentsResult> {
+export async function getPostComments(postId: string, sort: RedditCommentSort = 'confidence'): Promise<RedditCommentsResult> {
   try {
     if (!postId) {
       return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
     }
-    const sortParam = sort === 'best' ? 'confidence' : sort;
+    const sortParam = (() => {
+      switch (sort) {
+        case 'best':
+          return 'confidence';
+        case 'qa':
+          return 'qa';
+        case 'old':
+        case 'top':
+        case 'new':
+        case 'controversial':
+        case 'confidence':
+          return sort;
+        default:
+          return 'confidence';
+      }
+    })();
     const token = await getAccessToken();
     let result: any[] | null = null;
 

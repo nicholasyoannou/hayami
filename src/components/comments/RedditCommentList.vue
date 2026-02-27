@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
-import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData } from '@/utils/redditApi';
+import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
 import { redditCommentScaleItem } from '@/config/storage';
 import { getModhash } from '@/utils/redditApi';
 
@@ -12,7 +12,7 @@ const props = defineProps<{
   isArchived?: boolean;
   isLocked?: boolean;
   emojiMap?: Record<string, string>;
-  initialSort?: 'best' | 'top' | 'new';
+  initialSort?: RedditCommentSort;
   searchQuery?: string;
   emptyMessage?: string;
   scale?: number;
@@ -29,7 +29,7 @@ const emit = defineEmits<{
 const comments = ref<RedditCommentData[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
-const currentSort = ref(props.initialSort || 'best');
+const currentSort = ref<RedditCommentSort>(props.initialSort || 'confidence');
 const highlightIds = ref<Set<string>>(new Set());
 const rootMoreIds = ref<string[]>([]);
 
@@ -102,7 +102,7 @@ const visibleComments = computed(() => {
   return filteredComments.value.slice(0, renderedCount.value);
 });
 
-async function loadComments(sort: 'best' | 'top' | 'new' = 'best') {
+async function loadComments(sort: RedditCommentSort = 'confidence') {
   isLoading.value = true;
   error.value = null;
   
@@ -186,7 +186,7 @@ function handleCollapse(commentId: string, collapsed: boolean) {
   emit('collapse', commentId, collapsed);
 }
 
-async function handleSortChange(sort: 'best' | 'top' | 'new') {
+async function handleSortChange(sort: RedditCommentSort) {
   if (sort === currentSort.value) return;
   currentSort.value = sort;
   await loadComments(sort);

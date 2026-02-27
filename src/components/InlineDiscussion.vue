@@ -5,7 +5,7 @@ import { getRuntimeUrl } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
-import { voteThing, submitComment, getModhash, type RedditComment } from '@/utils/redditApi';
+import { voteThing, submitComment, getModhash, type RedditComment, type RedditCommentSort } from '@/utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
 import { extractEpisodeTableFromRedditSelftext, fetchAnimeMapperDataBySeriesName } from '@/entrypoints/content/mapping';
@@ -13,7 +13,7 @@ import { getStoredUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditDefaultSortItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
 
@@ -48,7 +48,7 @@ const providerContextRef = computed(() => props.providerContext ?? null);
 const providerHook = useProvider((props.provider || 'reddit') as Provider, providerContextRef);
 const currentProvider = providerHook.activeProvider;
 const isLoading = ref(props.initialLoading ?? discussionStore.isLoading);
-const commentSort = ref<'best' | 'top' | 'new'>('best');
+const commentSort = ref<RedditCommentSort>('confidence');
 const searchQuery = ref('');
 const totalComments = ref(props.discussion.num_comments ?? 0);
 const hasCommentsLoaded = ref(false);
@@ -62,6 +62,25 @@ const redditShowFlairs = ref(true);
 const isPostingTopComment = ref(false);
 const replyDrafts = reactive<Record<string, string>>({});
 replyDrafts.root = '';
+const loadDefaultSort = async () => {
+  try {
+    const stored = await redditDefaultSortItem.getValue();
+    commentSort.value = normalizeCommentSort(stored);
+  } catch (error) {
+    console.warn('Failed to load Reddit default sort', error);
+    commentSort.value = 'confidence';
+  }
+};
+const normalizeCommentSort = (sort: string): RedditCommentSort => {
+  const lower = (sort || '').toLowerCase();
+  if (lower === 'best' || lower === 'confidence') return 'confidence';
+  if (lower === 'controversial') return 'controversial';
+  if (lower === 'old') return 'old';
+  if (lower === 'qa' || lower === 'q&a') return 'qa';
+  if (lower === 'top') return 'top';
+  if (lower === 'new') return 'new';
+  return 'confidence';
+};
 const redditEmptyMessage = computed(() => {
   // When no discussion thread was resolved, avoid showing a misleading empty-comments message.
   return isNoDiscussion.value ? 'No discussion thread found.' : undefined;
@@ -239,7 +258,7 @@ async function loadEpisodeOptions() {
     // Prefer Hayami mapper episodes when we know the anime name.
     const cleanedSeries = cleanSeriesForMapper(manualEpisodeContext.value.animeName);
     if (cleanedSeries) {
-      const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, 'reddit');
+      const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, 'reddit', { preserveSeasonSuffix: true });
       if (mapper && Array.isArray((mapper as any).results) && (mapper as any).results.length > 0) {
         const results: any[] = (mapper as any).results;
         const preferred: number[] = [];
@@ -307,7 +326,7 @@ async function searchWrongAnime() {
   wrongAnimeResults.value = [];
   try {
     const cleaned = cleanSeriesForMapper(q) || q;
-    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, 'reddit');
+    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, 'reddit', { preserveSeasonSuffix: true });
     const results: any[] = (mapper as any)?.results || [];
     wrongAnimeResults.value = Array.isArray(results) ? results : [];
     if (wrongAnimeResults.value.length === 0) {
@@ -829,7 +848,7 @@ function handleCommentsLoaded(count: number) {
 
 function handleSortChange(e: Event) {
   const select = e.target as HTMLSelectElement;
-  commentSort.value = select.value as 'best' | 'top' | 'new';
+  commentSort.value = normalizeCommentSort(select.value);
 }
 
 function handleSearchInput(e: Event) {
@@ -849,6 +868,7 @@ watch(() => isLoading.value, (newVal) => {
 onMounted(() => {
   void loadEditorMode();
   void loadFlairVisibility();
+  void loadDefaultSort();
   void loadCurrentUsername();
   const manualSearchHandler = (ev: Event) => {
     const detail = (ev as CustomEvent)?.detail || {};
@@ -1034,7 +1054,7 @@ onUnmounted(() => {
 // Expose methods for content script to call - must be after function definitions
 function updateSortOptions(provider: Provider, currentSort: string) {
   if (provider === 'reddit') {
-    commentSort.value = currentSort as 'best' | 'top' | 'new';
+    commentSort.value = normalizeCommentSort(currentSort);
   }
 }
 
@@ -1184,9 +1204,12 @@ defineExpose({
             :value="commentSort"
             @change="handleSortChange"
           >
-            <option value="best">Best</option>
+            <option value="confidence">Best</option>
             <option value="top">Top</option>
+            <option value="controversial">Controversial</option>
             <option value="new">New</option>
+            <option value="old">Old</option>
+            <option value="qa">Q&amp;A</option>
           </select>
         </div>
         <div class="ri-search">

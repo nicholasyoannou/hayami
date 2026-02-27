@@ -6,9 +6,11 @@ import {
   commentProviderOptions,
   displayModeOptions,
   redditEditorOptions,
+  redditSortOptions,
   type CommentProviderOption,
   type DisplayModeOption,
   type RedditEditorMode,
+  type RedditSortOption,
 } from '@/config/options';
 import {
   commentsProviderItem,
@@ -22,6 +24,7 @@ import {
   redditShowFlairsItem,
   redditCommentScaleItem,
   redditClientIdItem,
+  redditDefaultSortItem,
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
@@ -45,6 +48,7 @@ type SettingValueMap = {
   noCommentsMode: 'popup' | 'inline';
   commentsProvider: CommentProviderOption;
   redditEditorMode: RedditEditorMode;
+  redditDefaultSort: RedditSortOption;
   redditShowFlairs: boolean;
   commentScale: number;
   imgurClientId: string;
@@ -279,6 +283,23 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => redditEditorModeItem.setValue(value),
     successMessage: (value) => (value === 'editor' ? 'Rich editor enabled' : 'Plain markdown box enabled'),
     errorMessage: 'Failed to save Reddit editor',
+  },
+  {
+    key: 'redditDefaultSort',
+    type: 'select',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Default Reddit sort',
+    description: 'Sorting applied when loading Reddit comments by default.',
+    options: redditSortOptions,
+    fallback: 'confidence',
+    load: async () => {
+      const value = await redditDefaultSortItem.getValue();
+      return redditSortOptions.some((option) => option.value === value) ? value : 'confidence';
+    },
+    save: async (value) => redditDefaultSortItem.setValue(value),
+    successMessage: (value) => `Default Reddit sort set to ${redditSortOptions.find((o) => o.value === value)?.label || value}`,
+    errorMessage: 'Failed to save Reddit default sort',
   },
   {
     key: 'redditShowFlairs',

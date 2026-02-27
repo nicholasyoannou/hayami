@@ -1,5 +1,5 @@
 import { storage } from '#imports';
-import type { CommentProviderOption, DisplayModeOption, RedditEditorMode } from './options';
+import type { CommentProviderOption, DisplayModeOption, RedditEditorMode, RedditSortOption } from './options';
 
 // Canonical storage items for the extension (WXT storage wrapper)
 // All keys are prefixed with the storage area: local:, sync:, session:, managed:
@@ -74,6 +74,12 @@ export const onboardingCompleteItem = storage.defineItem<boolean>(
 export const redditCommentScaleItem = storage.defineItem<number>(
   'local:reddit_comment_scale',
   { fallback: 1 }
+);
+
+// Reddit default sort preference
+export const redditDefaultSortItem = storage.defineItem<RedditSortOption>(
+  'local:reddit_default_sort',
+  { fallback: 'confidence' }
 );
 
 // Site mapper custom mappings per origin

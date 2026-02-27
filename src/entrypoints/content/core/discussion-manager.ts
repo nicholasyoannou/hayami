@@ -16,7 +16,8 @@ import {
   searchSeriesDiscussionsByDate, 
   searchCustomPosts, 
   extensionFetch,
-  getSubredditAboutCached 
+  getSubredditAboutCached,
+  type RedditCommentSort,
 } from '@/utils/redditApi';
 import { fetchHayami } from '@/utils/hayamiApi';
 
@@ -56,7 +57,7 @@ import { renderNoDiscussionPanel } from '../templates';
 import { removeCommentsSkeletonLoading } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
-import { commentsProviderItem, redditCommentScaleItem } from '@/config/storage';
+import { commentsProviderItem, redditCommentScaleItem, redditDefaultSortItem } from '@/config/storage';
 import { getContentScriptContext } from './content-script-context';
 import { getUiManager, type InlineDiscussionExposed } from './ui-manager';
 import { useDiscussionStore } from '@/store/discussion';
@@ -1318,6 +1319,24 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     } catch (error) {
       console.warn('Failed to load comment scale, using default:', error);
     }
+
+    // Load default Reddit sort preference
+    const normalizeSort = (sort: string): RedditCommentSort => {
+      const lower = (sort || '').toLowerCase();
+      if (lower === 'best' || lower === 'confidence') return 'confidence';
+      if (lower === 'controversial') return 'controversial';
+      if (lower === 'old') return 'old';
+      if (lower === 'qa' || lower === 'q&a') return 'qa';
+      if (lower === 'top') return 'top';
+      if (lower === 'new') return 'new';
+      return 'confidence';
+    };
+    let storedRedditSort: RedditCommentSort = 'confidence';
+    try {
+      storedRedditSort = normalizeSort(await redditDefaultSortItem.getValue());
+    } catch (error) {
+      console.warn('Failed to load Reddit default sort, using confidence:', error);
+    }
     
     // Cache the discussion data (not comments)
     cache.reddit = { ...discussion };
@@ -1349,7 +1368,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     }
 
     // Build container first so we can show skeletons while loading
-    let currentSort: 'best' | 'top' | 'new' = 'best';
+    let currentSort: RedditCommentSort = storedRedditSort;
     let activeProvider: CommentProvider = preferredProvider;
     const manager = getUiManager();
 

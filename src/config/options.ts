@@ -26,3 +26,14 @@ export const redditEditorOptions = [
 ] as const;
 
 export type RedditEditorMode = (typeof redditEditorOptions)[number]['value'];
+
+export const redditSortOptions = [
+  { value: 'confidence', label: 'Best' },
+  { value: 'top', label: 'Top' },
+  { value: 'controversial', label: 'Controversial' },
+  { value: 'new', label: 'New' },
+  { value: 'old', label: 'Old' },
+  { value: 'qa', label: 'Q&A' },
+] as const;
+
+export type RedditSortOption = (typeof redditSortOptions)[number]['value'];
