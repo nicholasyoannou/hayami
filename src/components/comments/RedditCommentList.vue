@@ -18,6 +18,7 @@ const props = defineProps<{
   scale?: number;
   currentUsername?: string | null;
   showFlairs?: boolean;
+  flairPosition?: 'inline' | 'below';
 }>();
 
 const emit = defineEmits<{
@@ -48,6 +49,8 @@ onMounted(async () => {
 
 // Use prop scale if provided, otherwise use stored scale
 const effectiveScale = computed(() => props.scale ?? commentScale.value);
+
+const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
 
 // Scale styles
 const scaleStyles = computed(() => ({
@@ -372,6 +375,7 @@ defineExpose({
         :highlight-ids="highlightIds"
         :load-more-handler="loadMoreForComment"
         :show-flairs="props.showFlairs"
+        :flair-position="flairPosition"
         @reply="handleReply"
         @collapse="handleCollapse"
       >

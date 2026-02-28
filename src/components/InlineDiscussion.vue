@@ -13,7 +13,7 @@ import { getStoredUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem, redditDefaultSortItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
 
@@ -59,6 +59,7 @@ const showTopReplyEditor = ref(false);
 const replyTarget = ref<{ id: string; author?: string; parentFullname: string } | null>(null);
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
+const redditFlairPosition = ref<'inline' | 'below'>('inline');
 const isPostingTopComment = ref(false);
 const replyDrafts = reactive<Record<string, string>>({});
 replyDrafts.root = '';
@@ -477,6 +478,16 @@ async function loadFlairVisibility() {
   }
 }
 
+async function loadFlairPosition() {
+  try {
+    const value = await redditFlairPositionItem.getValue();
+    redditFlairPosition.value = value === 'below' ? 'below' : 'inline';
+  } catch (error) {
+    console.warn('Failed to load Reddit flair position', error);
+    redditFlairPosition.value = 'inline';
+  }
+}
+
 const replyPlaceholder = computed(() => {
   if (replyTarget.value?.author) {
     return `Reply to u/${replyTarget.value.author}`;
@@ -868,6 +879,7 @@ watch(() => isLoading.value, (newVal) => {
 onMounted(() => {
   void loadEditorMode();
   void loadFlairVisibility();
+  void loadFlairPosition();
   void loadDefaultSort();
   void loadCurrentUsername();
   const manualSearchHandler = (ev: Event) => {
@@ -1297,6 +1309,7 @@ defineExpose({
           :is-archived="discussion.archived"
           :is-locked="discussion.locked"
           :show-flairs="redditShowFlairs"
+          :flair-position="redditFlairPosition"
           :initial-sort="commentSort"
           :search-query="searchQuery"
           :empty-message="redditEmptyMessage"

@@ -768,6 +768,17 @@
   vertical-align: middle;
 }
 
+.ri-flair-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.ri-line1--flair-below {
+  margin-bottom: 2px;
+}
+
 .ri-timestamp {
   color: #818384;
   font-size: 12px;

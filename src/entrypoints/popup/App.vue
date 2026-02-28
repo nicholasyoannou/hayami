@@ -7,10 +7,12 @@ import {
   displayModeOptions,
   redditEditorOptions,
   redditSortOptions,
+  redditFlairPositionOptions,
   type CommentProviderOption,
   type DisplayModeOption,
   type RedditEditorMode,
   type RedditSortOption,
+  type RedditFlairPositionOption,
 } from '@/config/options';
 import {
   commentsProviderItem,
@@ -22,6 +24,7 @@ import {
   noCommentsModeItem,
   redditEditorModeItem,
   redditShowFlairsItem,
+  redditFlairPositionItem,
   redditCommentScaleItem,
   redditClientIdItem,
   redditDefaultSortItem,
@@ -50,6 +53,7 @@ type SettingValueMap = {
   redditEditorMode: RedditEditorMode;
   redditDefaultSort: RedditSortOption;
   redditShowFlairs: boolean;
+  redditFlairPosition: RedditFlairPositionOption;
   commentScale: number;
   imgurClientId: string;
   imgchestApiKey: string;
@@ -318,6 +322,23 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to update flair visibility',
   },
   {
+    key: 'redditFlairPosition',
+    type: 'select',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Flair position',
+    description: 'Choose whether user flairs sit inline or on a separate row.',
+    options: redditFlairPositionOptions,
+    fallback: 'inline',
+    load: async () => {
+      const value = await redditFlairPositionItem.getValue();
+      return value === 'below' ? 'below' : 'inline';
+    },
+    save: async (value) => redditFlairPositionItem.setValue(value === 'below' ? 'below' : 'inline'),
+    successMessage: (value) => (value === 'below' ? 'Flairs moved below username' : 'Flairs shown inline'),
+    errorMessage: 'Failed to update flair position',
+  },
+  {
     key: 'aniwaveAutoExpandAll',
     type: 'toggle',
     category: 'provider',
@@ -431,6 +452,7 @@ const settingValues = reactive<SettingValueMap>({
   commentsProvider: 'reddit',
   redditEditorMode: 'editor',
   redditShowFlairs: true,
+  redditFlairPosition: 'inline',
   redditClientId: '',
   commentScale: 1,
   imgurClientId: '',

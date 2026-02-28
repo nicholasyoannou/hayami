@@ -1,5 +1,11 @@
 import { storage } from '#imports';
-import type { CommentProviderOption, DisplayModeOption, RedditEditorMode, RedditSortOption } from './options';
+import type {
+  CommentProviderOption,
+  DisplayModeOption,
+  RedditEditorMode,
+  RedditSortOption,
+  RedditFlairPositionOption,
+} from './options';
 
 // Canonical storage items for the extension (WXT storage wrapper)
 // All keys are prefixed with the storage area: local:, sync:, session:, managed:
@@ -17,6 +23,11 @@ export const redditEditorModeItem = storage.defineItem<RedditEditorMode>(
 export const redditShowFlairsItem = storage.defineItem<boolean>(
   'local:reddit_show_flairs',
   { fallback: true }
+);
+
+export const redditFlairPositionItem = storage.defineItem<RedditFlairPositionOption>(
+  'local:reddit_flair_position',
+  { fallback: 'inline' }
 );
 
 export const displayModeItem = storage.defineItem<DisplayModeOption>(

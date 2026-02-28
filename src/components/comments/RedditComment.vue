@@ -17,6 +17,7 @@ const props = defineProps<{
   subreddit?: string;
   currentUsername?: string | null;
   showFlairs?: boolean;
+  flairPosition?: 'inline' | 'below';
 }>();
 
 const emit = defineEmits<{
@@ -54,6 +55,8 @@ const isSavingEdit = ref(false);
 const isDeleting = ref(false);
 const currentUserLower = computed(() => props.currentUsername ? props.currentUsername.toLowerCase() : null);
 const showFlairs = computed(() => props.showFlairs !== false);
+const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
+const isFlairBelow = computed(() => flairPosition.value === 'below');
 const isOwn = computed(() => {
   if (props.comment.isMine) return true;
   const authorRaw = props.comment.author || '';
@@ -684,10 +687,10 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
     <div v-else class="ri-avatar ri-avatar-placeholder" @click.stop="toggleCollapse"></div>
     
     <div class="ri-body">
-      <div class="ri-line1">
+      <div class="ri-line1" :class="{ 'ri-line1--flair-below': isFlairBelow }">
         <span class="ri-username">u/{{ comment.author }}</span>
         <span v-if="comment.distinguished === 'moderator'" class="ri-mod-badge">MOD</span>
-        <span v-if="flairHtml" v-html="flairHtml"></span>
+        <span v-if="flairHtml && !isFlairBelow" v-html="flairHtml"></span>
         <span
           v-if="comment.stickied"
           class="ri-stickied"
@@ -699,6 +702,7 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
         <span class="ri-timestamp" :title="timestampTitle">{{ timestampText }}</span>
         <span v-if="editedText" class="ri-edited">{{ editedText }}</span>
       </div>
+      <div v-if="flairHtml && isFlairBelow" class="ri-flair-row" v-html="flairHtml"></div>
       
       <div v-if="!isEditing" class="ri-text" ref="textContainerRef" v-html="bodyHtml"></div>
       <div v-else class="ri-edit-box">
@@ -816,6 +820,7 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           :on-reply="onReply"
           :load-more-handler="loadMoreHandler"
           :show-flairs="showFlairs"
+          :flair-position="flairPosition"
           @reply="(c) => emit('reply', c)"
           @collapse="(id, state) => emit('collapse', id, state)"
         >

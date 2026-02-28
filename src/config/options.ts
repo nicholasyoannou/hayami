@@ -37,3 +37,10 @@ export const redditSortOptions = [
 ] as const;
 
 export type RedditSortOption = (typeof redditSortOptions)[number]['value'];
+
+export const redditFlairPositionOptions = [
+  { value: 'inline', label: 'Inline with username' },
+  { value: 'below', label: 'Below username' },
+] as const;
+
+export type RedditFlairPositionOption = (typeof redditFlairPositionOptions)[number]['value'];
