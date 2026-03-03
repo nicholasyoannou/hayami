@@ -114,6 +114,15 @@ export function setLastProcessedKey(key: string | null): void {
   state.lastProcessedKey = key;
 }
 
+export function setHayamiDocIdOnLastAnimeInfo(docId: string | null): void {
+  const state = getState();
+  if (!state.lastAnimeInfo) return;
+  state.lastAnimeInfo = {
+    ...state.lastAnimeInfo,
+    hayamiDocId: docId ?? null,
+  };
+}
+
 export function setActiveObserver(observer: MutationObserver | null): void {
   const state = getState();
   state.activeObserver = observer;

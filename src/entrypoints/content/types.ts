@@ -4,6 +4,7 @@ export type AnimeInfo = {
   releaseDate?: string;
   malId?: number | null;
   anilistId?: number | null;
+  hayamiDocId?: string | null;
 };
 
 // Re-export all types from data.ts

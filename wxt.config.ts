@@ -16,6 +16,7 @@ const filteredEntrypoints = process.env.NODE_ENV === 'production'
   ? [
       'background',
       'content',
+      'hayami-handshake',
       'hayamiPlus',
       'onboarding',
       'popup',
@@ -51,6 +52,7 @@ export default defineConfig({
       'cookies',
       'scripting',
       'activeTab',
+      'tabs',
       'contextMenus',
       'declarativeNetRequest'
     ],
@@ -74,6 +76,12 @@ export default defineConfig({
           default: 'Ctrl+Shift+H'
         },
         description: 'Open Hayami site mapper'
+      },
+      'capture-screenshot': {
+        suggested_key: {
+          default: 'Ctrl+Shift+S'
+        },
+        description: 'Capture a screenshot of the current tab'
       }
     },
     oauth2: {
@@ -90,7 +98,7 @@ export default defineConfig({
         },
       },
     },
-    version: '0.0.8.1',
+    version: '0.0.82',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL

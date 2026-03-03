@@ -165,13 +165,30 @@ export default defineBackground(() => {
   });
 
   browser.commands.onCommand.addListener(async (command) => {
-    if (command !== 'open-site-mapper') return;
-    try {
-      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-      if (!tab?.id || !tab.url) return;
-      await openMapperForTab(tab.id, tab.url);
-    } catch (e) {
-      console.warn('Site mapper command failed', e);
+    if (command === 'open-site-mapper') {
+      try {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id || !tab.url) return;
+        await openMapperForTab(tab.id, tab.url);
+      } catch (e) {
+        console.warn('Site mapper command failed', e);
+      }
+      return;
+    }
+
+    if (command === 'capture-screenshot') {
+      try {
+        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) return;
+        try {
+          const dataUrl = await browser.tabs.captureVisibleTab(undefined, { format: 'png' });
+          await browser.tabs.sendMessage(tab.id, { action: 'hayami_screenshot_ready', dataUrl });
+        } catch (err) {
+          await browser.tabs.sendMessage(tab.id, { action: 'hayami_screenshot_error', error: err instanceof Error ? err.message : String(err) });
+        }
+      } catch (e) {
+        console.warn('Screenshot command failed', e);
+      }
     }
   });
 
@@ -278,6 +295,8 @@ export default defineBackground(() => {
       })();
       return true;
     }
+
+    // Screenshot capture is handled via browser command using activeTab; no per-origin permission flow needed.
 
     if (message.action === 'hayami_closeTab') {
       const tabId = sender.tab?.id;

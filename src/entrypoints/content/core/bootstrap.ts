@@ -18,6 +18,7 @@ import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo } from '../ui/site-mapper';
 import { setupSiteMapperHotkey, loadCustomMappingForOrigin } from '../ui/site-mapper';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
+import { setupScreenshotHotkey } from '../ui/screenshot-hotkey';
 import { matchChibiPage } from '../chibi';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/redditApi';
@@ -159,6 +160,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
   debug.log('Hayami extension loaded');
   ensureToaster(ctx);
+  setupScreenshotHotkey(ctx);
   setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
 
   if (customMapping || hasWatchUrl) {

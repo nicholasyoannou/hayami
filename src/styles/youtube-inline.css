@@ -19,6 +19,12 @@
 .ri-youtube-avatar {
   width: 40px !important;
   height: 40px !important;
+  flex: 0 0 40px !important; /* Reserve space so the image load doesn't squeeze layout */
+  min-width: 40px !important;
+  min-height: 40px !important;
+  border-radius: 50% !important;
+  object-fit: cover !important; /* Keep profile pictures square without distortion */
+  display: block !important;
   align-self: flex-start !important; /* Align to top of comment */
   margin-top: 0 !important;
   margin-right: 12px !important; /* Add padding between profile pic and comment */

@@ -1226,9 +1226,19 @@ export async function tryMapperFailover(
           .filter(r => r.hasEpisodes && r.year !== null)
           .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
 
+        // If any mapper entry already has this exact episode key, skip conversion to avoid remapping
+        const hasDirectEpisodeMatch = results.some((r) => {
+          const eps = r?.episodes;
+          if (!eps || typeof eps !== 'object') return false;
+          return Object.keys(eps).some((k) => {
+            const num = Number.parseInt(k, 10);
+            return desiredKeys.has(k) || desiredKeys.has(num);
+          });
+        });
+
         // Check if episode number exceeds available episodes (continuous numbering indicator)
         const totalEpisodes = orderedResults.reduce((sum, r) => sum + r.episodeCount, 0);
-        const needsConversion = episodeFromInfo > totalEpisodes || orderedResults.length > 1;
+        const needsConversion = !hasDirectEpisodeMatch && (episodeFromInfo > totalEpisodes || orderedResults.length > 1);
 
         if (needsConversion) {
           // Try to find which season the continuous episode number falls into
