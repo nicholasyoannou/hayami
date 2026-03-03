@@ -9,7 +9,7 @@ import {
 import { browser } from 'wxt/browser';
 import { detectUserInUK } from '@/entrypoints/content/images/imgur';
 import { extensionFetch } from '@/utils/redditApi';
-import { embedImagesItem, imgchestApiKeyItem, imgurClientIdItem } from '@/config/storage';
+import { DEFAULT_IMGUR_CLIENT_ID, embedImagesItem, imgchestApiKeyItem, imgurClientIdItem } from '@/config/storage';
 
 let cachedImgchestApiKey: string | null | undefined;
 let embedImagesEnabled = true;
@@ -17,10 +17,11 @@ let embedImagesEnabled = true;
 async function getImgurClientId(): Promise<string | null> {
   try {
     const raw = await imgurClientIdItem.getValue();
-    return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
+    if (typeof raw === 'string' && raw.trim()) return raw.trim();
+    return DEFAULT_IMGUR_CLIENT_ID;
   } catch (e) {
     console.warn('[preview] Failed to read Imgur Client ID', e);
-    return null;
+    return DEFAULT_IMGUR_CLIENT_ID;
   }
 }
 

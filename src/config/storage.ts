@@ -45,6 +45,8 @@ export const embedImagesItem = storage.defineItem<boolean>(
   { fallback: true }
 );
 
+export const DEFAULT_IMGUR_CLIENT_ID = '546c25a59c58ad7';
+
 export const imgurClientIdItem = storage.defineItem<string | null>(
   'local:imgur_client_id',
   { fallback: null }
