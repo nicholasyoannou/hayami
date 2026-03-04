@@ -362,6 +362,19 @@ export async function getStoredUsername(): Promise<string | null> {
 }
 
 /**
+ * Gets the current Reddit username, preferring stored value and then OAuth /api/v1/me.
+ */
+export async function getCurrentUsername(): Promise<string | null> {
+  const stored = await getStoredUsername();
+  if (stored) return stored;
+
+  const token = await getAccessToken();
+  if (!token) return null;
+
+  return await getRedditUsername();
+}
+
+/**
  * Gets the stored Reddit profile picture URL
  */
 export async function getStoredProfilePic(): Promise<string | null> {

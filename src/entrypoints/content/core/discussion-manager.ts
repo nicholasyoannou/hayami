@@ -24,7 +24,7 @@ import { fetchHayami } from '@/utils/hayamiApi';
 
 
 // Authentication utilities
-import { isAuthenticated } from '@/utils/redditAuth';
+import { isAuthenticated, getStoredUsername } from '@/utils/redditAuth';
 
 // Markdown & text utilities
 import { escapeHtml } from '@/utils/markdown';
@@ -337,15 +337,14 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
     
     // Check if user is authenticated
     const authenticated = await isAuthenticated();
-    
-    // Try to get post info from /api/info endpoint (works when authenticated)
+
     if (authenticated) {
+      // Authenticated mode should only use OAuth endpoints.
       try {
         const { makeRedditRequest } = await import('@/utils/redditAuth');
         const infoResponse = await makeRedditRequest<any>(`/api/info.json?id=t3_${postId}`);
         if (infoResponse && infoResponse.data && infoResponse.data.children && infoResponse.data.children.length > 0) {
           const postData = infoResponse.data.children[0].data;
-          // Convert to format expected by displayDiscussionDependingOnMode
           const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
           console.log('[fetchRedditPostFromUrl] Post fullname from API:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
           return {
@@ -362,13 +361,49 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
             subreddit: postData.subreddit,
             subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
             subreddit_primary_color: (postData.primary_color && postData.primary_color.trim()) || (postData.key_color && postData.key_color.trim()) || null,
-            fullname: fullname, // t3_ prefixed fullname for voting
-            likes: postData.likes, // true=upvoted, false=downvoted, null=none
+            fullname: fullname,
+            likes: postData.likes,
           };
         }
+
+        const commentsResponse = await makeRedditRequest<any[]>(`/comments/${encodeURIComponent(postId)}.json?raw_json=1`);
+        if (Array.isArray(commentsResponse) && commentsResponse.length > 0) {
+          const postData = commentsResponse[0]?.data?.children?.[0]?.data;
+          if (postData) {
+            const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
+            debug.log('[fetchRedditPostFromUrl] Post fullname from OAuth comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
+            return {
+              id: postData.id,
+              title: postData.title,
+              author: postData.author,
+              score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
+              num_comments: postData.num_comments,
+              created_utc: postData.created_utc,
+              permalink: postData.permalink,
+              url: postData.url,
+              archived: postData.archived,
+              locked: postData.locked,
+              subreddit: postData.subreddit,
+              subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
+              fullname: fullname,
+              likes: postData.likes,
+            };
+          }
+        }
       } catch (e) {
-        console.log('Error fetching post info via /api/info:', e);
+        console.log('Error fetching post info via OAuth endpoints:', e);
       }
+
+      return {
+        id: postId,
+        title: 'Episode Discussion',
+        author: 'unknown',
+        score: 0,
+        num_comments: 0,
+        created_utc: Math.floor(Date.now() / 1000),
+        permalink: redditUrl.replace('https://www.reddit.com', ''),
+        url: redditUrl,
+      };
     }
     
     // For unauthenticated requests, prefer the lightweight info endpoint to avoid fetching comments twice
@@ -401,6 +436,20 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
       }
     } catch (e) {
       console.log('Error fetching post info via info endpoint:', e);
+    }
+
+    const storedOAuthUsername = await getStoredUsername();
+    if (storedOAuthUsername) {
+      return {
+        id: postId,
+        title: 'Episode Discussion',
+        author: 'unknown',
+        score: 0,
+        num_comments: 0,
+        created_utc: Math.floor(Date.now() / 1000),
+        permalink: redditUrl.replace('https://www.reddit.com', ''),
+        url: redditUrl,
+      };
     }
 
     // Fallback: if info lookup fails, fall back to the comments endpoint

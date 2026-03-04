@@ -15,6 +15,7 @@
 import { AnimeInfo } from './types';
 import { findThreadForAnime } from '@/utils/disqusApi';
 import { extensionFetch } from '@/utils/redditApi';
+import { getAccessToken, getStoredUsername, makeRedditRequest } from '@/utils/redditAuth';
 import { fetchHayami } from '@/utils/hayamiApi';
 import {
   parseMapperYear,
@@ -156,14 +157,46 @@ export async function extractEpisodeTableFromRedditSelftext(
   mapperUrl: string,
   seriesName?: string,
 ): Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> {
-  const postIdMatch = mapperUrl.match(/comments\/([a-z0-9]+)\//i);
-  const postId = postIdMatch?.[1] || mapperUrl;
+  const postIdMatch = mapperUrl.match(/comments\/([a-z0-9]+)/i);
+  const postId = postIdMatch?.[1] || null;
+  const cacheKey = postId || mapperUrl;
 
   try {
-    const cached = redditSelftextCache.get(postId);
-    const fetchUrl = mapperUrl.endsWith('.json') ? mapperUrl : `${mapperUrl.replace(/\/?$/, '')}.json`;
-    const data = cached || (await (await extensionFetch(fetchUrl)).json());
-    redditSelftextCache.set(postId, data);
+    const cached = redditSelftextCache.get(cacheKey);
+    let data = cached;
+
+    if (!data) {
+      const token = await getAccessToken();
+      const storedOAuthUsername = await getStoredUsername();
+
+      // Prefer OAuth-by-post-id path to avoid public permalink JSON fetches.
+      if (postId && token) {
+        data = await makeRedditRequest<any[]>(`/comments/${encodeURIComponent(postId)}.json?raw_json=1`);
+      }
+
+      // Try oauth host with cookies as a fallback for ID-based lookups.
+      if (!data && postId) {
+        try {
+          const oauthUrl = `https://oauth.reddit.com/comments/${encodeURIComponent(postId)}.json?raw_json=1`;
+          const resp = await extensionFetch(oauthUrl, { credentials: 'include' } as any);
+          if (resp.ok) {
+            data = await resp.json();
+          }
+        } catch {
+          // continue to final fallback below
+        }
+      }
+
+      // Public fallback only when no postId can be extracted.
+      // If postId exists, avoid permalink-based www.reddit.com JSON fetches entirely.
+      if (!data && !postId) {
+        const fetchUrl = mapperUrl.endsWith('.json') ? mapperUrl : `${mapperUrl.replace(/\/?$/, '')}.json`;
+        data = await (await extensionFetch(fetchUrl)).json();
+      }
+    }
+
+    if (!data) return null;
+    redditSelftextCache.set(cacheKey, data);
 
     const post = Array.isArray(data) ? data[0]?.data?.children?.[0]?.data : data?.data?.children?.[0]?.data;
     const selftext: string | undefined = post?.selftext;

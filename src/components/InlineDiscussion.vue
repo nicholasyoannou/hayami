@@ -5,11 +5,11 @@ import { getRuntimeUrl } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
-import { voteThing, submitComment, getModhash, type RedditComment, type RedditCommentSort } from '@/utils/redditApi';
+import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
 import { extractEpisodeTableFromRedditSelftext, fetchAnimeMapperDataBySeriesName } from '@/entrypoints/content/mapping';
-import { getStoredUsername } from '@/utils/redditAuth';
+import { getCurrentUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
@@ -447,12 +447,7 @@ const redditUrl = computed(() => {
 
 async function loadCurrentUsername() {
   try {
-    const stored = await getStoredUsername();
-    if (stored) {
-      currentUsername.value = stored;
-      return;
-    }
-    const { username } = await getModhash();
+    const username = await getCurrentUsername();
     if (username) currentUsername.value = username;
   } catch (e) {
     console.warn('Failed to load current username', e);

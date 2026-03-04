@@ -3,7 +3,7 @@
  * for Crunchyroll episodes
  */
 
-import { makeRedditRequest, getAccessToken } from './redditAuth';
+import { makeRedditRequest, getAccessToken, getStoredUsername } from './redditAuth';
 
 const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
 const devDebug = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.debug(...args); };
@@ -497,6 +497,8 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
       }
     })();
     const token = await getAccessToken();
+    const storedOAuthUsername = await getStoredUsername();
+    const hasOAuthIdentity = !!(token || storedOAuthUsername);
     let result: any[] | null = null;
 
     if (token) {
@@ -504,7 +506,27 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
       devLog('[getPostComments] using authenticated request', { postId, sort: sortParam });
       result = await makeRedditRequest<any[]>(endpoint);
     } else {
-      // Public fetch from reddit.com; request more items/depth when possible
+      // If OAuth identity exists but token is currently unavailable, prefer oauth host with cookies and
+      // avoid falling through to public www.reddit.com comments endpoint.
+      if (hasOAuthIdentity) {
+        try {
+          const oauthUrl = `https://oauth.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
+          const oauthResp = await extensionFetch(oauthUrl, { credentials: 'include' } as any);
+          if (oauthResp.ok) {
+            devLog('[getPostComments] oauth-cookie fetch ok', { oauthUrl });
+            result = await oauthResp.json();
+          } else {
+            console.warn('[getPostComments] oauth-cookie fetch non-ok', { status: oauthResp.status, oauthUrl });
+            return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
+          }
+        } catch (e) {
+          console.warn('[getPostComments] oauth-cookie fetch threw', e);
+          return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
+        }
+      }
+
+      // Public fetch from reddit.com only for truly unauthenticated sessions.
+      if (!hasOAuthIdentity) {
       try {
         const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&depth=5&limit=500&raw_json=1`;
   // Include credentials so a logged-in reddit session (cookies) can be used
@@ -517,6 +539,7 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
         }
       } catch (e) {
         console.warn('[getPostComments] public fetch threw', e);
+      }
       }
     }
 

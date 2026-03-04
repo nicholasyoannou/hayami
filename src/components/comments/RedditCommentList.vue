@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
 import { redditCommentScaleItem } from '@/config/storage';
-import { getModhash } from '@/utils/redditApi';
+import { getCurrentUsername } from '@/utils/redditAuth';
 
 const props = defineProps<{
   discussionId: string;
@@ -113,7 +113,7 @@ async function loadComments(sort: RedditCommentSort = 'confidence') {
     let currentUser = props.currentUsername ? props.currentUsername.toLowerCase() : null;
     if (!currentUser) {
       try {
-        const { username } = await getModhash();
+        const username = await getCurrentUsername();
         if (username) currentUser = username.toLowerCase();
       } catch (err) {
         console.warn('Could not resolve username for own-comment tagging', err);
