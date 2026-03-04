@@ -477,8 +477,14 @@ export async function getSubredditEmojiMap(subreddit: string): Promise<Record<st
 
 export async function getPostComments(postId: string, sort: RedditCommentSort = 'confidence'): Promise<RedditCommentsResult> {
   try {
+    const emptyResult = (): RedditCommentsResult => ({
+      comments: [],
+      rootMoreChildrenIds: [],
+      linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}`,
+    });
+
     if (!postId) {
-      return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
+      return emptyResult();
     }
     const sortParam = (() => {
       switch (sort) {
@@ -501,51 +507,59 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
     const hasOAuthIdentity = !!(token || storedOAuthUsername);
     let result: any[] | null = null;
 
+    const tryOauthCookieFetch = async () => {
+      try {
+        const oauthUrl = `https://oauth.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
+        const oauthResp = await extensionFetch(oauthUrl, { credentials: 'include' } as any);
+        if (oauthResp.ok) {
+          devLog('[getPostComments] oauth-cookie fetch ok', { oauthUrl });
+          return await oauthResp.json();
+        }
+        console.warn('[getPostComments] oauth-cookie fetch non-ok', { status: oauthResp.status, oauthUrl });
+      } catch (e) {
+        console.warn('[getPostComments] oauth-cookie fetch threw', e);
+      }
+      return null;
+    };
+
     if (token) {
       const endpoint = `/comments/${postId}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
       devLog('[getPostComments] using authenticated request', { postId, sort: sortParam });
       result = await makeRedditRequest<any[]>(endpoint);
+      if (!result && hasOAuthIdentity) {
+        result = await tryOauthCookieFetch();
+      }
     } else {
       // If OAuth identity exists but token is currently unavailable, prefer oauth host with cookies and
       // avoid falling through to public www.reddit.com comments endpoint.
       if (hasOAuthIdentity) {
-        try {
-          const oauthUrl = `https://oauth.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&limit=50&raw_json=1`;
-          const oauthResp = await extensionFetch(oauthUrl, { credentials: 'include' } as any);
-          if (oauthResp.ok) {
-            devLog('[getPostComments] oauth-cookie fetch ok', { oauthUrl });
-            result = await oauthResp.json();
-          } else {
-            console.warn('[getPostComments] oauth-cookie fetch non-ok', { status: oauthResp.status, oauthUrl });
-            return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
-          }
-        } catch (e) {
-          console.warn('[getPostComments] oauth-cookie fetch threw', e);
-          return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
+        result = await tryOauthCookieFetch();
+        if (!result) {
+          return emptyResult();
         }
       }
 
       // Public fetch from reddit.com only for truly unauthenticated sessions.
       if (!hasOAuthIdentity) {
-      try {
-        const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&depth=5&limit=500&raw_json=1`;
-  // Include credentials so a logged-in reddit session (cookies) can be used
-  const resp = await extensionFetch(url, { credentials: 'include' } as any);
-        if (resp.ok) {
-          devLog('[getPostComments] public fetch ok', { url });
-          result = await resp.json();
-        } else {
-          console.warn('[getPostComments] public fetch non-ok', { status: resp.status, url });
+        try {
+          const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&depth=5&limit=500&raw_json=1`;
+          // Include credentials so a logged-in reddit session (cookies) can be used
+          const resp = await extensionFetch(url, { credentials: 'include' } as any);
+          if (resp.ok) {
+            devLog('[getPostComments] public fetch ok', { url });
+            result = await resp.json();
+          } else {
+            console.warn('[getPostComments] public fetch non-ok', { status: resp.status, url });
+          }
+        } catch (e) {
+          console.warn('[getPostComments] public fetch threw', e);
         }
-      } catch (e) {
-        console.warn('[getPostComments] public fetch threw', e);
-      }
       }
     }
 
     if (!result || result.length < 2) {
       console.warn('[getPostComments] result missing or too short', { hasResult: !!result, length: result?.length, postId });
-      return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
+      return emptyResult();
     }
 
     // Reddit returns an array where [0] is the post, [1] is comments
@@ -569,7 +583,11 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
     return { comments, rootMoreChildrenIds, linkFullname };
   } catch (error) {
     console.error('Error fetching post comments:', error);
-    return { comments: [], rootMoreChildrenIds: [], linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}` };
+    return {
+      comments: [],
+      rootMoreChildrenIds: [],
+      linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}`,
+    };
   }
 }
 
@@ -1415,10 +1433,10 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1, subredd
     }
 
     // Unauthenticated fallback: old.reddit vote endpoint (cookie-based)
-    if (subreddit) {
-      return editCommentOld(fullname, text, subreddit);
+    if (!subreddit) {
+      return { success: false, error: 'Not authenticated (missing subreddit for old.reddit fallback)' };
     }
-    return { success: false, error: 'Not authenticated (missing subreddit for old.reddit fallback)' };
+
     const { modhash, voteHash } = await getModhash();
     if (!modhash) {
       return { success: false, error: 'Vote failed (old.reddit): missing modhash; log in on old.reddit.com' };
@@ -1441,7 +1459,7 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1, subredd
     fallbackBody.set('isTrusted', 'true');
     fallbackBody.set('vote_event_data', voteEventData);
     fallbackBody.set('uh', modhash);
-    fallbackBody.set('vh', voteHash || modhash);
+    fallbackBody.set('vh', voteHash ?? modhash);
 
     const resp = await extensionFetch(`https://old.reddit.com/api/vote?${queryParams.toString()}`, {
       method: 'POST',

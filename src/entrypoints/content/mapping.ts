@@ -15,7 +15,7 @@
 import { AnimeInfo } from './types';
 import { findThreadForAnime } from '@/utils/disqusApi';
 import { extensionFetch } from '@/utils/redditApi';
-import { getAccessToken, getStoredUsername, makeRedditRequest } from '@/utils/redditAuth';
+import { getAccessToken, makeRedditRequest } from '@/utils/redditAuth';
 import { fetchHayami } from '@/utils/hayamiApi';
 import {
   parseMapperYear,
@@ -167,7 +167,6 @@ export async function extractEpisodeTableFromRedditSelftext(
 
     if (!data) {
       const token = await getAccessToken();
-      const storedOAuthUsername = await getStoredUsername();
 
       // Prefer OAuth-by-post-id path to avoid public permalink JSON fetches.
       if (postId && token) {
@@ -965,6 +964,7 @@ function mapEpisodeWithSeasonsData(
   }
 
   if (
+    typeof crEpisodeNumber === 'number' &&
     crEpisodeNumber >= 1 &&
     crEpisodeNumber <= mapperEpisodeCount &&
     crEpisodeNumber <= currentCrSeasonEpisodes
@@ -1779,7 +1779,15 @@ export async function tryMapperFailover(
       const currentCrSeasonEpisodes = seasonsData.find(
         (s) => (s.season_sequence_number || s.season_number || 0) === seasonNumForSlice,
       )?.number_of_episodes || 0;
-      const ordered = ((mapperResult as any).results || [])
+      type OrderedSliceMeta = {
+        idx: number;
+        episodeCount: number;
+        name: string;
+        year: number | null;
+        hasZero: boolean;
+      };
+
+      const ordered: OrderedSliceMeta[] = ((mapperResult as any).results || [])
         .filter((r: any) => r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0 && r?.year !== 'movies')
         .map((r: any, idx: number) => ({
           idx,
@@ -1788,7 +1796,7 @@ export async function tryMapperFailover(
           year: parseMapperYear(r.year),
           hasZero: Object.prototype.hasOwnProperty.call(r.episodes, '0'),
         }))
-        .sort((a, b) => {
+        .sort((a: OrderedSliceMeta, b: OrderedSliceMeta) => {
           const yearDiff = (a.year ?? 9999) - (b.year ?? 9999);
           if (yearDiff !== 0) return yearDiff;
           const sequelDiff = (isSequelTitle(a.name) ? 1 : -1) - (isSequelTitle(b.name) ? 1 : -1);
@@ -1837,7 +1845,7 @@ export async function tryMapperFailover(
             seasonNumForSlice,
             episodeWithinSeason,
             seasonsData,
-            ordered.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: o.hasZero })),
+            ordered.map((o: OrderedSliceMeta) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: o.hasZero })),
           )
         : null;
 
@@ -1895,6 +1903,8 @@ export async function tryMapperFailover(
       }
     }
 
+    const hasZero = Object.prototype.hasOwnProperty.call(matchedSeason.episodes, '0');
+
     if (seasonEpisode === null && (episodeMetadata as any)?.episode_number === 0 && hasZero) {
       seasonEpisode = 0;
     }
@@ -1908,7 +1918,6 @@ export async function tryMapperFailover(
       return null;
     }
 
-    const hasZero = Object.prototype.hasOwnProperty.call(matchedSeason.episodes, '0');
     const keyCandidates: (string | number)[] = [];
 
     if (hasZero) {
