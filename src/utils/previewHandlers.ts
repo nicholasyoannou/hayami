@@ -124,6 +124,66 @@ async function fetchImgchestAlbumImages(albumId: string): Promise<string[]> {
   return [];
 }
 
+function parsePostimgUrl(rawUrl: string): { kind: 'gallery' | 'single'; id: string } | null {
+  try {
+    const u = new URL(rawUrl);
+    if (!/^(?:www\.)?postimg\.cc$/i.test(u.hostname)) return null;
+
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length === 2 && parts[0].toLowerCase() === 'gallery' && /^[\w-]{4,64}$/.test(parts[1])) {
+      return { kind: 'gallery', id: parts[1] };
+    }
+
+    if (parts.length === 1 && /^[A-Za-z0-9]{5,20}$/.test(parts[0])) {
+      return { kind: 'single', id: parts[0] };
+    }
+  } catch {
+    // ignore malformed URLs
+  }
+
+  return null;
+}
+
+function extractPostimgImageUrls(html: string): string[] {
+  // postimg pages include direct media links under i.postimg.cc; extract and de-duplicate in source order
+  const text = html.replace(/\\\//g, '/');
+  const re = /https?:\/\/i\.postimg\.cc\/[A-Za-z0-9_-]+\/[^\s'"<>]+?\.(?:png|jpe?g|gif|webp|bmp|svg)(?:\?[^\s'"<>]*)?/gi;
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const url = m[0].trim();
+    if (!seen.has(url)) {
+      seen.add(url);
+      out.push(url);
+    }
+  }
+
+  return out;
+}
+
+async function fetchPostimgImages(pageUrl: string): Promise<string[]> {
+  try {
+    const resp = await extensionFetch(pageUrl, {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+    } as any);
+
+    if (!resp.ok) {
+      console.warn('[preview] Postimg request failed', pageUrl, resp.status);
+      return [];
+    }
+
+    const html = await resp.text();
+    if (!html || typeof html !== 'string') return [];
+
+    return extractPostimgImageUrls(html);
+  } catch (e) {
+    console.warn('[preview] Postimg fetch failed', e);
+    return [];
+  }
+}
+
 /**
  * Wires up all image preview and YouTube modal handlers
  * Automatically cleaned up through ctx lifecycle
@@ -178,11 +238,29 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       console.debug('[preview] Album link detected:', href, 'data-ri-images:', ds, 'parsed:', multi);
     }
     
-    // If no data-ri-images, check if it's an imgur link that needs fetching on-demand
+    // If no data-ri-images, check if it's a host link that needs fetching on-demand
     if (!multi) {
+      const postimgMatch = parsePostimgUrl(href);
+      if (postimgMatch) {
+        console.debug(`[preview] Fetching Postimg ${postimgMatch.kind} on-demand:`, postimgMatch.id);
+        try {
+          ensurePreviewStarted(); // show spinner immediately
+          const images = await fetchPostimgImages(href);
+          if (images.length > 0) {
+            multi = postimgMatch.kind === 'single' ? [images[0]] : images;
+            console.debug(`[preview] Postimg ${postimgMatch.kind} resolved to`, multi.length, 'images');
+            a.setAttribute('data-ri-images', JSON.stringify(multi));
+          } else {
+            console.warn(`[preview] Postimg ${postimgMatch.kind} returned no images`);
+          }
+        } catch (e) {
+          console.warn(`[preview] Postimg ${postimgMatch.kind} fetch failed:`, e);
+        }
+      }
       // Check for imgur album: imgur.com/a/<id>
-      const albumMatch = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
-      if (albumMatch) {
+      else {
+        const albumMatch = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
+        if (albumMatch) {
         console.debug('[preview] Fetching album on-demand:', albumMatch[1]);
         try {
           const albumId = albumMatch[1];
@@ -224,11 +302,11 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
         } catch (e) {
           console.warn('[preview] Album fetch failed:', e);
         }
-      }
-      // Check for direct imgur link: imgur.com/<id>
-      else {
-        const imgchestAlbumMatch = href.match(/^https?:\/\/(?:www\.)?imgchest\.com\/(?:a|p)\/([\w-]+)/i);
-        if (imgchestAlbumMatch) {
+        }
+        // Check for direct imgur link: imgur.com/<id>
+        else {
+          const imgchestAlbumMatch = href.match(/^https?:\/\/(?:www\.)?imgchest\.com\/(?:a|p)\/([\w-]+)/i);
+          if (imgchestAlbumMatch) {
           console.debug('[preview] Fetching ImgChest album on-demand:', imgchestAlbumMatch[1]);
           try {
             ensurePreviewStarted(); // show spinner immediately
@@ -243,9 +321,9 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
           } catch (e) {
             console.warn('[preview] ImgChest album fetch failed:', e);
           }
-        } else {
-          const directMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.com\/(\w+)(?:\.\w+)?$/i);
-          if (directMatch) {
+          } else {
+            const directMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.com\/(\w+)(?:\.\w+)?$/i);
+            if (directMatch) {
             const id = directMatch[1];
             // Skip if it's 'a' or 'gallery' (those are albums)
             if (id.toLowerCase() !== 'a' && id.toLowerCase() !== 'gallery') {
@@ -350,6 +428,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
               } catch (e) {
                 console.warn('[preview] Imgur direct link fetch failed:', e);
               }
+            }
             }
           }
         }

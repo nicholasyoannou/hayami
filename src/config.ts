@@ -94,6 +94,8 @@ export const hostPermissions = [
       'https://myanimelist.net/*',
       'https://api.imgchest.com/*',
       'https://imgchest.com/*',
+      'https://postimg.cc/*',
+      'https://*.postimg.cc/*',
       'https://api.bilibili.com/*',
       'https://www.bilibili.com/*',
       'https://*.hdslb.com/*',

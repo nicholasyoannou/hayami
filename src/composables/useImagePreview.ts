@@ -4,10 +4,109 @@ import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
  * Manages image hover preview state and behavior
  */
 export function useImagePreview() {
+  const styleId = 'hayami-preview-styles';
+  let stylesInjected = false;
   let imgPreviewEl: HTMLImageElement | null = null;
   let imgPreviewHost: HTMLDivElement | null = null;
   let previewActiveHref: string | null = null;
   let imgPreviewSpinner: HTMLDivElement | null = null;
+
+  const ensurePreviewStyles = () => {
+    if (stylesInjected || document.getElementById(styleId)) return;
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = `
+.ri-img-tooltip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: #111;
+  border: 1px solid #2c2c2c;
+  border-radius: 8px;
+  padding: 6px 4px;
+  box-sizing: border-box;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  z-index: 2147483606;
+  display: none;
+  max-width: 40vw;
+  max-height: 50vh;
+  transition: opacity 140ms ease, transform 140ms ease;
+  overflow: hidden;
+}
+.ri-img-tooltip img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+.ri-img-tooltip:not(.loading) img {
+  opacity: 1;
+  transform: scale(1);
+}
+.ri-img-tooltip:not(.loading) {
+  padding: 0;
+  border: none;
+}
+.ri-img-dots {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 12px;
+  z-index: 10000;
+}
+.ri-img-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.4);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.ri-img-dot-more {
+  width: 6px;
+  height: 6px;
+  background: rgba(255,255,255,0.2);
+  cursor: default;
+  pointer-events: none;
+}
+.ri-img-dot:hover {
+  background: rgba(255,255,255,0.6);
+  transform: scale(1.2);
+}
+.ri-img-dot.active {
+  background: rgba(255,255,255,1);
+  transform: scale(1.3);
+}
+.ri-img-tooltip.loading {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  min-width: 140px;
+  min-height: 100px;
+}
+.ri-img-tooltip .ri-img-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.12);
+  border-top-color: rgba(255,255,255,0.95);
+  animation: ri-spin 1s linear infinite;
+}
+@keyframes ri-spin { to { transform: rotate(360deg); } }
+`;
+    (document.head || document.documentElement).appendChild(style);
+    stylesInjected = true;
+  };
 
   // Gallery state
   let galleryImages: string[] | null = null;
@@ -174,9 +273,13 @@ export function useImagePreview() {
   }
 
   function initializePreview(multi: string[] | null, href: string): void {
+    ensurePreviewStyles();
     if (!imgPreviewHost) {
       imgPreviewHost = document.createElement('div');
       imgPreviewHost.className = 'ri-img-tooltip';
+      // Minimal fallback so host still layers above page even if CSS fails to load
+      imgPreviewHost.style.position = 'absolute';
+      imgPreviewHost.style.zIndex = '2147483606';
       imgPreviewHost.tabIndex = -1; // enable focus so key events work even before user clicks
       document.body.appendChild(imgPreviewHost);
     }
@@ -200,6 +303,13 @@ export function useImagePreview() {
     if (!imgPreviewSpinner) {
       imgPreviewSpinner = document.createElement('div');
       imgPreviewSpinner.className = 'ri-img-spinner';
+      // Minimal inline fallback so the spinner is visible even if CSS fails to load on manual sites
+      imgPreviewSpinner.style.width = '28px';
+      imgPreviewSpinner.style.height = '28px';
+      imgPreviewSpinner.style.borderRadius = '50%';
+      imgPreviewSpinner.style.border = '2px solid rgba(255,255,255,0.12)';
+      imgPreviewSpinner.style.borderTopColor = 'rgba(255,255,255,0.95)';
+      imgPreviewSpinner.style.animation = 'ri-spin 1s linear infinite';
     }
     if (imgPreviewEl) imgPreviewEl.style.display = 'none';
     if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner);
