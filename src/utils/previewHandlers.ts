@@ -536,15 +536,16 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       ev.preventDefault();
       // Emit event for parent to handle gallery modal
       window.dispatchEvent(new CustomEvent('crunchyroll-comments:gallery-modal', { detail: { images: multi } }));
-    } else if (isImageLink(href)) {
-      if (isImgurUrl(href)) {
-        const targetUrl = transformImgurFrontendUrl(href, imgurFrontendProvider);
-        if (targetUrl !== href) {
-          ev.preventDefault();
-          window.open(targetUrl, '_blank', 'noopener,noreferrer');
-          return;
-        }
+    } else if (isImgurUrl(href)) {
+      const targetUrl = transformImgurFrontendUrl(href, imgurFrontendProvider);
+      if (targetUrl !== href) {
+        ev.preventDefault();
+        window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        return;
       }
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    } else if (isImageLink(href)) {
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     }

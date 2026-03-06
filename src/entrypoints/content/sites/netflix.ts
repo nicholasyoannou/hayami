@@ -1,11 +1,17 @@
 import { resolveNetflixEpisodeInfo, getNetflixAnimeInfo } from '../net/netflix-client';
 import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata } from '../adapters/types';
-import { matchByHost } from './matchers';
+import type { SiteProviderDefinition } from './provider-definition';
+import { buildLocationMatcher } from './provider-definition';
 
-export const netflixMatchers = [/\.netflix\.com$/i, /^netflix\.com$/i];
+export const netflixUrlMatchPatterns = [
+  '*://*.netflix.com/watch/*',
+  '*://netflix.com/watch/*',
+];
+
+const matchesNetflixLocation = buildLocationMatcher(netflixUrlMatchPatterns);
 
 function matchesNetflixHost(location: Location): boolean {
-  return matchByHost(netflixMatchers, location);
+  return matchesNetflixLocation(location);
 }
 
 export const netflixAdapter: SiteAdapter = {
@@ -51,3 +57,17 @@ export const netflixAdapter: SiteAdapter = {
 export async function detectNetflixAnimeInfo() {
   return getNetflixAnimeInfo();
 }
+
+export const netflixSiteDefinition: SiteProviderDefinition = {
+  id: 'netflix',
+  name: 'netflix',
+  domain: 'https://www.netflix.com',
+  languages: ['English'],
+  type: 'anime',
+  database: 'netflix',
+  urls: {
+    match: netflixUrlMatchPatterns,
+  },
+  adapter: netflixAdapter,
+  detect: detectNetflixAnimeInfo,
+};

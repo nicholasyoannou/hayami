@@ -1,50 +1,40 @@
 import type { AnimeInfo } from '../types';
 import type { SiteAdapter } from '../adapters/types';
 import {
-  crunchyrollAdapter,
-  crunchyrollMatchers,
-  detectCrunchyrollAnimeInfo,
+  crunchyrollSiteDefinition,
 } from './crunchyroll';
-import { netflixAdapter, netflixMatchers, detectNetflixAnimeInfo } from './netflix';
-import { matchByHost } from './matchers';
+import { netflixSiteDefinition } from './netflix';
+import { definitionMatchesLocation, SiteProviderDefinition } from './provider-definition';
 
 export type SiteDefinition = {
   id: string;
-  matchers: Array<RegExp | ((location: Location) => boolean)>;
   adapter: SiteAdapter;
   detect: () => Promise<AnimeInfo | null>;
+  definition: SiteProviderDefinition;
 };
 
-function matchLocation(matchers: SiteDefinition['matchers'], location: Location): boolean {
-  return matchers.some((m) => {
-    if (typeof m === 'function') return m(location);
-    return matchByHost([m], location);
-  });
+function toSiteDefinition(definition: SiteProviderDefinition): SiteDefinition {
+  return {
+    id: definition.id,
+    adapter: definition.adapter,
+    detect: definition.detect,
+    definition,
+  };
 }
 
 export const siteDefinitions: SiteDefinition[] = [
-  {
-    id: 'netflix',
-    matchers: netflixMatchers,
-    adapter: netflixAdapter,
-    detect: detectNetflixAnimeInfo,
-  },
-  {
-    id: 'crunchyroll',
-    matchers: crunchyrollMatchers,
-    adapter: crunchyrollAdapter,
-    detect: detectCrunchyrollAnimeInfo,
-  },
+  toSiteDefinition(netflixSiteDefinition),
+  toSiteDefinition(crunchyrollSiteDefinition),
 ];
 
 export function getSiteDetectorsForLocation(location: Location): Array<{ id: string; detect: () => Promise<AnimeInfo | null> }> {
   return siteDefinitions
-    .filter((def) => matchLocation(def.matchers, location))
+    .filter((def) => definitionMatchesLocation(def.definition, location))
     .map((def) => ({ id: def.id, detect: def.detect }));
 }
 
 export function isSupportedLocation(location: Location): boolean {
-  return siteDefinitions.some((def) => matchLocation(def.matchers, location));
+  return siteDefinitions.some((def) => definitionMatchesLocation(def.definition, location));
 }
 
 export function getAdapters(): SiteAdapter[] {
@@ -52,5 +42,5 @@ export function getAdapters(): SiteAdapter[] {
 }
 
 export function findAdapter(location: Location = window.location): SiteAdapter | null {
-  return siteDefinitions.find((def) => matchLocation(def.matchers, location))?.adapter ?? null;
+  return siteDefinitions.find((def) => definitionMatchesLocation(def.definition, location))?.adapter ?? null;
 }

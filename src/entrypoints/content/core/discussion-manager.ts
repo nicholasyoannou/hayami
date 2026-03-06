@@ -30,7 +30,7 @@ import { isAuthenticated, getStoredUsername } from '@/utils/redditAuth';
 import { escapeHtml } from '@/utils/markdown';
 
 // Disqus API
-import { findThreadForAnime } from '@/utils/disqusApi';
+import { findThreadForAnime, findThreadByLink } from '@/utils/disqusApi';
 
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
@@ -617,7 +617,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           if (!releaseToday) {
             const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
             if (mappedDisqusUrl) {
-              const mappedThread = buildDisqusThreadFromUrl(mappedDisqusUrl, animeInfo);
+              const mappedThread = (await findThreadByLink(animeInfo, mappedDisqusUrl)) || buildDisqusThreadFromUrl(mappedDisqusUrl);
               if (mappedThread) {
                 cache.disqus = { thread: mappedThread };
                 await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
@@ -1275,7 +1275,7 @@ function mountLoadingShell(): void {
   }
 }
 
-function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any | null {
+function buildDisqusThreadFromUrl(threadUrl: string): any | null {
   if (!threadUrl) return null;
   const safeUrl = threadUrl.trim();
   let slug = '';
@@ -1284,14 +1284,11 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any
   } catch {
     slug = safeUrl.split('/').filter(Boolean).pop() || '';
   }
-  const titleBase = animeInfo?.animeName || 'Discussion';
-  const episodePart = animeInfo?.episodeName ? ` - ${animeInfo.episodeName}` : '';
-  const title = `${titleBase}${episodePart}`.trim();
   const identifier = slug || safeUrl;
 
   return {
-    title,
-    clean_title: title,
+    title: '',
+    clean_title: '',
     link: safeUrl,
     id: identifier,
     identifier,
@@ -1300,12 +1297,40 @@ function buildDisqusThreadFromUrl(threadUrl: string, animeInfo?: AnimeInfo): any
   };
 }
 
+function hasResolvedDisqusTitle(thread: any): boolean {
+  if (!thread) return false;
+  return !!(String(thread.clean_title || '').trim() || String(thread.title || '').trim());
+}
+
 async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
   const currentState = state();
   const cache = currentState.discussionCache;
   const cacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
+
+  let finalThread = thread;
+  if (!hasResolvedDisqusTitle(finalThread) && finalThread?.link) {
+    try {
+      const hydrated = await findThreadByLink(animeInfo, String(finalThread.link));
+      if (hydrated) {
+        finalThread = {
+          ...finalThread,
+          ...hydrated,
+          title: String(hydrated?.title || finalThread?.title || ''),
+          clean_title: String(hydrated?.clean_title || hydrated?.title || finalThread?.clean_title || ''),
+        };
+        console.log('[Disqus] Hydrated cached thread title before render', {
+          title: finalThread?.title,
+          clean_title: finalThread?.clean_title,
+          link: finalThread?.link,
+        });
+      }
+    } catch (e) {
+      console.warn('[Disqus] Failed to hydrate Disqus thread by link before caching', e);
+    }
+  }
+
   // Cache the thread for Vue-side render
-  cache.disqus = { thread, animeKey: cacheKey || undefined };
+  cache.disqus = { thread: finalThread, animeKey: cacheKey || undefined };
 
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container

@@ -18,6 +18,36 @@ function normalizeTitle(text: string): string {
     .trim();
 }
 
+function decodeBasicHtmlEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+function extractDiscussionTitleFromHtml(html: string): string | null {
+  if (!html) return null;
+
+  const ogMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i)
+    || html.match(/<meta\s+content=["']([^"']+)["']\s+property=["']og:title["']/i);
+  const rawOg = ogMatch?.[1] ? decodeBasicHtmlEntities(ogMatch[1]).trim() : '';
+
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const rawTitle = titleMatch?.[1] ? decodeBasicHtmlEntities(titleMatch[1]).trim() : '';
+
+  const candidate = rawOg || rawTitle;
+  if (!candidate) return null;
+
+  // Keep only the discussion title segment.
+  return candidate
+    .replace(/\s*[\-|\u2013|\u2014]\s*disqus\s*$/i, '')
+    .replace(/^disqus\s*[\-|\u2013|\u2014]\s*/i, '')
+    .trim() || null;
+}
+
 function scoreThreadForAnime(animeInfo: { animeName: string; episodeName?: string }, thread: any): number {
   const animeNameNorm = normalizeTitle(animeInfo.animeName || '');
   const episodeNum = parseEpisodeNumber(animeInfo.episodeName || '');
@@ -225,6 +255,212 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
 }
 
 /**
+ * Finds a Disqus thread by canonical URL for the current anime window.
+ * Uses the same date window strategy as thread search to avoid broad, noisy scans.
+ */
+export async function findThreadByLink(
+  animeInfo: { animeName: string; episodeName?: string; releaseDate?: string },
+  threadUrl: string,
+  forum = 'channel-discussanime'
+): Promise<any | null> {
+  try {
+    const rawUrl = String(threadUrl || '').trim();
+    if (!rawUrl) return null;
+
+    let sinceTs = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
+    if (animeInfo.releaseDate) {
+      const parsed = Date.parse(animeInfo.releaseDate);
+      if (!Number.isNaN(parsed)) {
+        const releaseDate = new Date(parsed);
+        releaseDate.setDate(releaseDate.getDate() - 1);
+        releaseDate.setHours(0, 0, 0, 0);
+        sinceTs = Math.floor(releaseDate.getTime() / 1000);
+      }
+    }
+
+    const toCanonical = (input: string): string => {
+      const value = String(input || '').trim();
+      if (!value) return '';
+      try {
+        const u = new URL(value);
+        return `${u.origin}${u.pathname}`.replace(/\/+$/, '').toLowerCase();
+      } catch {
+        return value.replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+      }
+    };
+
+    const extractSlug = (input: string): string => {
+      try {
+        const u = new URL(input);
+        return (u.pathname.split('/').filter(Boolean).pop() || '').toLowerCase();
+      } catch {
+        return (input.split(/[?#]/)[0].split('/').filter(Boolean).pop() || '').toLowerCase();
+      }
+    };
+
+    const wantedCanonical = toCanonical(rawUrl);
+    const wantedSlug = extractSlug(rawUrl);
+    console.log('[DisqusApi][findThreadByLink] search start', {
+      rawUrl,
+      wantedCanonical,
+      wantedSlug,
+      animeName: animeInfo?.animeName,
+      episodeName: animeInfo?.episodeName,
+      releaseDate: animeInfo?.releaseDate,
+      forum,
+    });
+    if (!wantedCanonical && !wantedSlug) return null;
+
+    const threads = await listThreadsForForumSince(forum, sinceTs);
+    console.log('[DisqusApi][findThreadByLink] fetched threads', threads?.length || 0);
+
+    if (Array.isArray(threads) && threads.length > 0) {
+      for (const t of threads) {
+        const candidateCanonical = toCanonical(String(t?.link || ''));
+        if (candidateCanonical && wantedCanonical && candidateCanonical === wantedCanonical) {
+          console.log('[DisqusApi][findThreadByLink] canonical match', {
+            matchedCanonical: candidateCanonical,
+            id: t?.id,
+            title: t?.title,
+            clean_title: t?.clean_title,
+            link: t?.link,
+            slug: t?.slug,
+          });
+          return t;
+        }
+      }
+
+      for (const t of threads) {
+        const candidateSlug = String(t?.slug || '').toLowerCase() || extractSlug(String(t?.link || ''));
+        if (candidateSlug && wantedSlug && candidateSlug === wantedSlug) {
+          console.log('[DisqusApi][findThreadByLink] slug match', {
+            matchedSlug: candidateSlug,
+            id: t?.id,
+            title: t?.title,
+            clean_title: t?.clean_title,
+            link: t?.link,
+            slug: t?.slug,
+          });
+          return t;
+        }
+      }
+    }
+
+    console.log('[DisqusApi][findThreadByLink] no match', {
+      wantedCanonical,
+      wantedSlug,
+      sampleCandidates: (Array.isArray(threads) ? threads.slice(0, 5) : []).map((t) => ({
+        id: t?.id,
+        title: t?.title,
+        clean_title: t?.clean_title,
+        link: t?.link,
+        slug: t?.slug,
+      })),
+    });
+
+    // Fallback: query the thread directly by URL so we can recover title metadata
+    // even when it is outside of the timeline window used above.
+    try {
+      const key = await getDisqusPublicApiKey();
+      if (!key) {
+        console.log('[DisqusApi][findThreadByLink] details lookup skipped: missing API key');
+        return null;
+      }
+
+      const linkCandidates = Array.from(new Set([
+        rawUrl,
+        rawUrl.replace(/\/+$/, ''),
+        `${rawUrl.replace(/\/+$/, '')}/`,
+      ].filter(Boolean)));
+
+      for (const linkCandidate of linkCandidates) {
+        const detailsUrl = `https://disqus.com/api/3.0/threads/details.json?forum=${encodeURIComponent(forum)}&thread:link=${encodeURIComponent(linkCandidate)}&api_key=${encodeURIComponent(key)}`;
+        const detailsRes = await crProxyFetch(detailsUrl, { credentials: 'include' } as any);
+        if (!detailsRes || !detailsRes.ok) {
+          console.log('[DisqusApi][findThreadByLink] details lookup response not ok', {
+            linkCandidate,
+            status: detailsRes?.status,
+          });
+          continue;
+        }
+
+        const detailsJson = await detailsRes.json();
+        const detailsThread = detailsJson?.response;
+        if (detailsThread) {
+          console.log('[DisqusApi][findThreadByLink] details lookup match', {
+            linkCandidate,
+            id: detailsThread?.id,
+            title: detailsThread?.title,
+            clean_title: detailsThread?.clean_title,
+            link: detailsThread?.link,
+            slug: detailsThread?.slug,
+          });
+          return detailsThread;
+        }
+
+        console.log('[DisqusApi][findThreadByLink] details lookup empty response', {
+          linkCandidate,
+          code: detailsJson?.code,
+        });
+      }
+    } catch (detailsError) {
+      console.warn('[DisqusApi][findThreadByLink] details lookup failed', detailsError);
+    }
+
+    // Final fallback: fetch the discussion HTML page and extract its title.
+    try {
+      const linkCandidates = Array.from(new Set([
+        rawUrl,
+        rawUrl.replace(/\/+$/, ''),
+        `${rawUrl.replace(/\/+$/, '')}/`,
+      ].filter(Boolean)));
+
+      for (const linkCandidate of linkCandidates) {
+        const pageRes = await crProxyFetch(linkCandidate, { credentials: 'include' } as any);
+        if (!pageRes || !pageRes.ok) {
+          console.log('[DisqusApi][findThreadByLink] html fallback response not ok', {
+            linkCandidate,
+            status: pageRes?.status,
+          });
+          continue;
+        }
+
+        const html = await pageRes.text();
+        const extractedTitle = extractDiscussionTitleFromHtml(html);
+        if (extractedTitle) {
+          const synthetic = {
+            id: wantedSlug || linkCandidate,
+            identifier: wantedSlug || linkCandidate,
+            title: extractedTitle,
+            clean_title: extractedTitle,
+            link: linkCandidate,
+            slug: wantedSlug || undefined,
+            forum,
+          };
+          console.log('[DisqusApi][findThreadByLink] html fallback title extracted', {
+            linkCandidate,
+            extractedTitle,
+            id: synthetic.id,
+          });
+          return synthetic;
+        }
+
+        console.log('[DisqusApi][findThreadByLink] html fallback no title extracted', {
+          linkCandidate,
+        });
+      }
+    } catch (htmlFallbackError) {
+      console.warn('[DisqusApi][findThreadByLink] html fallback failed', htmlFallbackError);
+    }
+
+    return null;
+  } catch (e) {
+    console.warn('Error finding Disqus thread by link', e);
+    return null;
+  }
+}
+
+/**
  * List candidate Disqus threads for an anime and return them sorted by relevance score.
  */
 export async function searchThreadsForAnime(
@@ -267,4 +503,4 @@ export async function searchThreadsForAnime(
   }
 }
 
-export default { getDisqusPublicApiKey, listThreadsForForumSince, findThreadForAnime };
+export default { getDisqusPublicApiKey, listThreadsForForumSince, findThreadForAnime, findThreadByLink };

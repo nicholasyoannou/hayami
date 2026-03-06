@@ -6,12 +6,18 @@ import {
   getCrunchyrollAccessToken,
 } from '../net/crunchyroll-client';
 import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata } from '../adapters/types';
-import { matchByHost } from './matchers';
+import type { SiteProviderDefinition } from './provider-definition';
+import { buildLocationMatcher } from './provider-definition';
 
-export const crunchyrollMatchers = [/\.crunchyroll\.com$/i, /crunchyroll\.com$/i];
+export const crunchyrollUrlMatchPatterns = [
+  '*://*.crunchyroll.com/watch/*',
+  '*://crunchyroll.com/watch/*',
+];
+
+const matchesCrunchyrollLocation = buildLocationMatcher(crunchyrollUrlMatchPatterns);
 
 function matchesCrunchyrollHost(location: Location): boolean {
-  return matchByHost(crunchyrollMatchers, location);
+  return matchesCrunchyrollLocation(location);
 }
 
 export const crunchyrollAdapter: SiteAdapter = {
@@ -97,3 +103,17 @@ export async function detectCrunchyrollAnimeInfo() {
     return null;
   }
 }
+
+export const crunchyrollSiteDefinition: SiteProviderDefinition = {
+  id: 'crunchyroll',
+  name: 'crunchyroll',
+  domain: 'https://www.crunchyroll.com',
+  languages: ['English'],
+  type: 'anime',
+  database: 'crunchyroll',
+  urls: {
+    match: crunchyrollUrlMatchPatterns,
+  },
+  adapter: crunchyrollAdapter,
+  detect: detectCrunchyrollAnimeInfo,
+};

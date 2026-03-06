@@ -83,7 +83,15 @@ export function transformImgurFrontendUrl(rawUrl: string, provider: ImgurFronten
     if (!isImgurHost(parsed.hostname)) return rawUrl;
 
     const base = IMGUR_FRONTEND_BASES[provider];
-    const path = parsed.pathname || '/';
+    let path = parsed.pathname || '/';
+
+    // Frontends generally expect /<id> for i.imgur.com media links, not /<id>.<ext>.
+    if (/^i\.imgur\.com$/i.test(parsed.hostname)) {
+      const firstSegment = path.split('/').filter(Boolean)[0] || '';
+      const idOnly = firstSegment.replace(/\.[a-z0-9]+$/i, '');
+      if (idOnly) path = `/${idOnly}`;
+    }
+
     return `${base}${path}${parsed.search || ''}${parsed.hash || ''}`;
   } catch {
     return rawUrl;
