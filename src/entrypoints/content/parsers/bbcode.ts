@@ -21,17 +21,26 @@ function decodeEntities(str: string): string {
   }
 }
 
-/**
- * Detects if the user is likely in the UK (for imgur proxying)
- */
-function isLikelyUk(): boolean {
+function getImgurCdnMode(): 'imgur' | 'duckduckgo' | 'flyimg' {
   try {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-    if (tz.toLowerCase().includes('london')) return true;
-    const lang = (navigator.language || '').toLowerCase();
-    if (lang === 'en-gb') return true;
+    const value = sessionStorage.getItem('ri-imgur-ods');
+    if (value === 'duckduckgo' || value === 'flyimg' || value === 'imgur') return value;
   } catch {}
-  return false;
+  return 'imgur';
+}
+
+function rewriteImgurByCdnMode(url: string): string {
+  if (!/imgur\.com/i.test(url)) return url;
+
+  const mode = getImgurCdnMode();
+  if (mode === 'duckduckgo') {
+    return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
+  }
+  if (mode === 'flyimg') {
+    return `https://demo.flyimg.io/upload/q_100/${url}`;
+  }
+
+  return url;
 }
 
 /**
@@ -46,12 +55,10 @@ export function bbcodeToHtml(input: string): string {
 
   // Handle [img ...]...[/img] with optional align/width/height/title/alt
   out = out.replace(/\[img([^\]]*)\](.*?)\[\/img\]/gis, (_m, attrStr, rawSrc) => {
-    // If the inner content is already HTML (e.g., decoded div/a/img), just center-wrap it and proxy imgur if UK
+    // If the inner content is already HTML (e.g., decoded div/a/img), center-wrap and rewrite imgur by CDN mode.
     let src = rawSrc.trim();
     if (/^</.test(src)) {
-      if (isLikelyUk()) {
-        src = src.replace(/https?:\/\/i?\.?imgur\.com\/\S+/gi, (match: string) => `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(match)}`);
-      }
+      src = src.replace(/https?:\/\/i?\.?imgur\.com\/\S+/gi, (match: string) => rewriteImgurByCdnMode(match));
       return `<div style="text-align:center; width:100%;">${src}</div>`;
     }
 
@@ -73,11 +80,7 @@ export function bbcodeToHtml(input: string): string {
       const titleMatch = attrs.match(/title\s*=\s*["']?([^"']+)["']?/i);
       if (titleMatch) title = titleMatch[1];
     }
-    // UK users need imgur proxied
-    let finalSrc = src;
-    if (isLikelyUk() && /imgur\.com/i.test(src)) {
-      finalSrc = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(src)}`;
-    }
+    const finalSrc = rewriteImgurByCdnMode(src);
 
     const styles: string[] = ['max-width:100%;border-radius:4px;'];
     if (width) styles.push(`width:${width}px`);

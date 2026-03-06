@@ -19,6 +19,8 @@ import {
   displayModeItem,
   customSiteMappingsItem,
   embedImagesItem,
+  imgurFrontendItem,
+  imgurOdsItem,
   imgchestApiKeyItem,
   imgurClientIdItem,
   noCommentsModeItem,
@@ -31,7 +33,10 @@ import {
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
+  type ImgurFrontendOption,
+  type ImgurOdsOption,
 } from '@/config/storage';
+import { initializeImgurRegionDefaultsOnce } from '@/entrypoints/content/images/imgur';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
@@ -48,6 +53,8 @@ import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/
 type SettingValueMap = {
   displayMode: DisplayModeOption;
   embedImages: boolean;
+  imgurFrontend: ImgurFrontendOption;
+  imgurOds: ImgurOdsOption;
   noCommentsMode: 'popup' | 'inline';
   commentsProvider: CommentProviderOption;
   redditEditorMode: RedditEditorMode;
@@ -96,6 +103,7 @@ type SettingDefinition<K extends SettingKey = SettingKey> = {
   formatValue?: (value: SettingValueMap[K]) => string;
   onAfterLoad?: (value: SettingValueMap[K]) => void | Promise<void>;
   onAfterSave?: (value: SettingValueMap[K]) => void | Promise<void>;
+  advanced?: boolean;
 };
 
 const providerIcons: Record<CommentProviderOption, string> = {
@@ -221,6 +229,48 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => embedImagesItem.setValue(value),
     successMessage: (value) => (value ? 'Image previews enabled' : 'Image previews disabled'),
     errorMessage: 'Failed to save Image previews',
+  },
+  {
+    key: 'imgurFrontend',
+    type: 'select',
+    category: 'image-previews',
+    label: 'Imgur frontend',
+    description: 'Which frontend opens when clicking Imgur links in comments.',
+    options: [
+      { value: 'imgur', label: 'imgur (default)' },
+      { value: 'nerdvpn', label: 'nerdvpn' },
+      { value: 'bcow', label: 'bcow' },
+    ],
+    fallback: 'imgur',
+    load: async () => {
+      const value = await imgurFrontendItem.getValue();
+      return value === 'nerdvpn' || value === 'bcow' || value === 'imgur' ? value : 'imgur';
+    },
+    save: (value) => imgurFrontendItem.setValue(value),
+    successMessage: (value) => `Imgur frontend set to ${value}`,
+    errorMessage: 'Failed to save Imgur frontend',
+    advanced: true,
+  },
+  {
+    key: 'imgurOds',
+    type: 'select',
+    category: 'image-previews',
+    label: 'Imgur CDN',
+    description: 'How direct Imgur images are delivered in previews.',
+    options: [
+      { value: 'imgur', label: 'Imgur' },
+      { value: 'duckduckgo', label: 'DuckDuckGo' },
+      { value: 'flyimg', label: 'flyimg' },
+    ],
+    fallback: 'imgur',
+    load: async () => {
+      const value = await imgurOdsItem.getValue();
+      return value === 'duckduckgo' || value === 'flyimg' || value === 'imgur' ? value : 'imgur';
+    },
+    save: (value) => imgurOdsItem.setValue(value),
+    successMessage: (value) => `Imgur ODS set to ${value}`,
+    errorMessage: 'Failed to save Imgur ODS',
+    advanced: true,
   },
   {
     key: 'imgurClientId',
@@ -448,6 +498,8 @@ const activeProviderSection = computed(() => providerSections.find((provider) =>
 const settingValues = reactive<SettingValueMap>({
   displayMode: 'popup',
   embedImages: true,
+  imgurFrontend: 'imgur',
+  imgurOds: 'imgur',
   noCommentsMode: 'popup',
   commentsProvider: 'reddit',
   redditEditorMode: 'editor',
@@ -468,6 +520,13 @@ const redditClientConfigured = computed(() => Boolean((settingValues.redditClien
 
 const activeSettingsCategory = computed(() =>
   settingsCategories.find((category) => category.id === selectedSettingsCategory.value),
+);
+const imagePreviewAdvancedExpanded = ref(false);
+const activeCategoryPrimarySettings = computed(() =>
+  (activeSettingsCategory.value?.settings || []).filter((setting) => !setting.advanced),
+);
+const activeCategoryAdvancedSettings = computed(() =>
+  (activeSettingsCategory.value?.settings || []).filter((setting) => Boolean(setting.advanced)),
 );
 
 const customSiteMappings = ref<CustomSiteMapping[]>([]);
@@ -511,6 +570,7 @@ watch(currentView, async () => {
 
 onMounted(async () => {
   await refreshAllAccounts();
+  await initializeImgurRegionDefaultsOnce();
   await loadAllSettings();
   await loadCustomSiteMappings();
   await applyInitialRouteParams();
@@ -1070,7 +1130,7 @@ function handleAniListLogout() {
                 </div>
 
                 <div class="space-y-3">
-                  <template v-for="setting in activeSettingsCategory.settings" :key="setting.key">
+                  <template v-for="setting in activeCategoryPrimarySettings" :key="setting.key">
                     <div
                       class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-4 py-3"
                       :class="isSettingDisabled(setting) ? 'opacity-50 pointer-events-none' : ''"
@@ -1156,6 +1216,108 @@ function handleAniListLogout() {
                       </div>
                     </div>
                   </template>
+
+                  <div
+                    v-if="activeSettingsCategory.id === 'image-previews' && activeCategoryAdvancedSettings.length"
+                    class="rounded-xl bg-white/5 px-4 py-3"
+                  >
+                    <button
+                      class="flex w-full items-center justify-between text-left text-sm font-semibold text-white/85"
+                      @click="imagePreviewAdvancedExpanded = !imagePreviewAdvancedExpanded"
+                    >
+                      <span>Advanced</span>
+                      <span class="text-xs text-white/60">{{ imagePreviewAdvancedExpanded ? 'Hide' : 'Expand' }}</span>
+                    </button>
+
+                    <div v-if="imagePreviewAdvancedExpanded" class="mt-3 space-y-3">
+                      <template v-for="setting in activeCategoryAdvancedSettings" :key="setting.key">
+                        <div
+                          class="flex items-start justify-between gap-3 rounded-xl bg-black/15 px-4 py-3"
+                          :class="isSettingDisabled(setting) ? 'opacity-50 pointer-events-none' : ''"
+                        >
+                          <div v-if="setting.type !== 'apiKey'" class="flex-1">
+                            <p class="text-sm text-white/80">{{ setting.label }}</p>
+                            <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
+                          </div>
+                          <div v-else-if="setting.description" class="flex-1">
+                            <p class="text-xs text-white/60">{{ setting.description }}</p>
+                          </div>
+                          <div class="shrink-0">
+                            <template v-if="setting.type === 'select'">
+                              <select
+                                class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
+                                :value="settingValues[setting.key]"
+                                :disabled="isSettingDisabled(setting)"
+                                @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
+                              >
+                                <option
+                                  v-for="option in setting.options"
+                                  :key="option.value"
+                                  :value="option.value"
+                                  class="bg-[#1f2329]"
+                                >
+                                  {{ option.label }}
+                                </option>
+                              </select>
+                            </template>
+
+                            <template v-else-if="setting.type === 'toggle'">
+                              <label class="relative inline-flex items-center">
+                                <input
+                                  type="checkbox"
+                                  class="peer sr-only"
+                                  :checked="Boolean(settingValues[setting.key])"
+                                  @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
+                                />
+                                <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                              </label>
+                            </template>
+
+                            <template v-else-if="setting.type === 'segmented'">
+                              <div class="flex gap-2 text-sm font-semibold">
+                                <button
+                                  v-for="option in setting.options"
+                                  :key="option.value"
+                                  class="rounded-lg px-3 py-2"
+                                  :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
+                                  @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
+                                >
+                                  {{ option.label }}
+                                </button>
+                              </div>
+                            </template>
+
+                            <template v-else-if="setting.type === 'slider'">
+                              <div class="flex items-center gap-3">
+                                <input
+                                  type="range"
+                                  :min="setting.min"
+                                  :max="setting.max"
+                                  :step="setting.step"
+                                  :value="settingValues[setting.key] as number"
+                                  :disabled="isSettingDisabled(setting)"
+                                  @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
+                                  class="w-24"
+                                />
+                                <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
+                              </div>
+                            </template>
+
+                            <template v-else-if="setting.type === 'apiKey'">
+                              <ApiKeyInput
+                                v-model="settingValues[setting.key]"
+                                :label="setting.label"
+                                :placeholder="setting.placeholder"
+                                :info-url="setting.infoUrl"
+                                :disabled="isSettingDisabled(setting)"
+                                @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
+                              />
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
                 </div>
               </template>
 

@@ -52,6 +52,24 @@ export const imgurClientIdItem = storage.defineItem<string | null>(
   { fallback: null }
 );
 
+export type ImgurFrontendOption = 'imgur' | 'nerdvpn' | 'bcow';
+export type ImgurOdsOption = 'imgur' | 'duckduckgo' | 'flyimg';
+
+export const imgurFrontendItem = storage.defineItem<ImgurFrontendOption>(
+  'local:imgur_frontend',
+  { fallback: 'imgur' }
+);
+
+export const imgurOdsItem = storage.defineItem<ImgurOdsOption>(
+  'local:imgur_ods',
+  { fallback: 'imgur' }
+);
+
+export const imgurRegionDefaultsInitializedItem = storage.defineItem<boolean>(
+  'local:imgur_region_defaults_initialized',
+  { fallback: false }
+);
+
 export const imgchestApiKeyItem = storage.defineItem<string | null>(
   'local:imgchest_api_key',
   { fallback: null }

@@ -1,4 +1,12 @@
 import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ImgurOdsOption } from '@/config/storage';
+import { applyImgurOdsUrl } from '@/entrypoints/content/images/imgur';
+
+let currentImgurOdsProvider: ImgurOdsOption = 'imgur';
+
+function setImgurOdsProvider(provider: ImgurOdsOption): void {
+  currentImgurOdsProvider = provider;
+}
 
 /**
  * Manages image hover preview state and behavior
@@ -323,9 +331,7 @@ export function useImagePreview() {
     try {
       galleryImages = multi.map((u) => {
         try {
-          return /^https?:\/\/i\.imgur\.com\//i.test(u)
-            ? `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(u)}`
-            : u;
+          return applyImgurOdsUrl(u, currentImgurOdsProvider);
         } catch {
           return u;
         }
@@ -431,12 +437,7 @@ function isImageLink(href: string): boolean {
 }
 
 function proxifyImageUrl(href: string): string {
-  try {
-    if (/^https?:\/\/i\.imgur\.com\//i.test(href)) {
-      return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(href)}`;
-    }
-  } catch {}
-  return href;
+  return applyImgurOdsUrl(href, currentImgurOdsProvider);
 }
 
 function isYouTubeLink(href: string): boolean {
@@ -459,4 +460,4 @@ function extractYouTubeId(href: string): string | null {
   return null;
 }
 
-export { isImageLink, proxifyImageUrl, isYouTubeLink, extractYouTubeId };
+export { isImageLink, proxifyImageUrl, isYouTubeLink, extractYouTubeId, setImgurOdsProvider };

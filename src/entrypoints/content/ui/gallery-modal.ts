@@ -35,7 +35,7 @@ export function openImageGalleryModal(images: string[]): void {
   const content = document.createElement('div');
   content.className = 'ri-fullscreen-content';
 
-  // Convert to proxied URLs only when needed (imgur UK workaround)
+  // Convert to proxied URLs only when needed
   const proxiedImages = images.map((u) => proxifyImageUrl(u));
 
   // Add all images as placeholders; we will hydrate them in small batches

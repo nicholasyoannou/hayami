@@ -3,8 +3,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { AniListForumResult, AniListThreadComment } from '@/entrypoints/content/types/data';
 import { fetchAniListThreadComments } from '@/utils/anilistForums';
 import { escapeHtml } from '@/utils/markdown';
-import { detectUserInUK } from '@/entrypoints/content/images/imgur';
 import { getRuntimeUrl } from '@/utils/runtime';
+import { imgurOdsItem, type ImgurOdsOption } from '@/config/storage';
 
 const props = defineProps<{
   result: AniListForumResult;
@@ -16,13 +16,7 @@ const comments = ref<AniListThreadComment[]>(Array.isArray(props.result.comments
 const pageInfo = ref(props.result.pageInfo ?? { nextPage: null, hasNextPage: false });
 const loadingMore = ref(false);
 const loveHeartUrl = getRuntimeUrl('/assets/commentAssets/anilist/loveHeart.svg');
-const isUK = ref<boolean>((() => {
-  try {
-    return sessionStorage.getItem('ri-geo-uk') === 'true';
-  } catch {
-    return false;
-  }
-})());
+const imgurOds = ref<ImgurOdsOption>('imgur');
 
 const selectedThread = computed(() => props.result.selectedThread);
 const threads = computed(() => Array.isArray(props.result.threads) ? props.result.threads : []);
@@ -91,9 +85,13 @@ const renderComment = (body?: string): string => {
     (_m, src) => `img100(${src})`);
 
   const proxyImgur = (url: string) => {
-    if (!isUK.value) return url;
     if (/^https?:\/\/i\.imgur\.com\//i.test(url)) {
-      return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
+      if (imgurOds.value === 'duckduckgo') {
+        return `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
+      }
+      if (imgurOds.value === 'flyimg') {
+        return `https://demo.flyimg.io/upload/q_100/${url}`;
+      }
     }
     return url;
   };
@@ -148,7 +146,12 @@ async function loadMoreComments() {
 }
 
 onMounted(() => {
-  detectUserInUK().then((uk) => { isUK.value = uk; }).catch(() => {});
+  imgurOdsItem.getValue().then((value) => {
+    imgurOds.value = value;
+    try { sessionStorage.setItem('ri-imgur-ods', value); } catch {}
+  }).catch(() => {
+    imgurOds.value = 'imgur';
+  });
 
   if (pageInfo.value?.nextPage && props.threadId) {
     observer = new IntersectionObserver((entries) => {

@@ -2,13 +2,25 @@
  * Imgur image handling utilities
  * - Proxies i.imgur.com links through DuckDuckGo for CORS compliance
  * - Handles direct imgur.com/<id> links
- * - Handles album links (imgur.com/a/<id>) with UK geo-detection fallback
+ * - Handles album links (imgur.com/a/<id>) with resilient API/proxy fallbacks
  */
 
 import { extensionFetch } from '@/utils/redditApi';
-import { imgurClientIdItem } from '@/config/storage';
+import {
+  imgurClientIdItem,
+  imgurFrontendItem,
+  imgurOdsItem,
+  imgurRegionDefaultsInitializedItem,
+  type ImgurFrontendOption,
+  type ImgurOdsOption,
+} from '@/config/storage';
 
 const PROXY_PREFIX = 'https://external-content.duckduckgo.com/iu/?u=';
+
+const IMGUR_FRONTEND_BASES: Record<Exclude<ImgurFrontendOption, 'imgur'>, string> = {
+  nerdvpn: 'https://imgur.nerdvpn.de',
+  bcow: 'https://rimgo.bcow.xyz',
+};
 
 async function getImgurClientId(): Promise<string | null> {
   try {
@@ -20,25 +32,81 @@ async function getImgurClientId(): Promise<string | null> {
   }
 }
 
-/**
- * Check if user is in the UK (for Imgur geo-restrictions)
- * Caches result in session storage
- */
-export async function detectUserInUK(): Promise<boolean> {
+async function shouldUseRegionalDefaults(): Promise<boolean> {
   try {
-    const cached = sessionStorage.getItem('ri-geo-uk');
-    if (cached !== null) return cached === 'true';
-    
-    // Use Cloudflare trace to detect country
     const resp = await fetch('https://www.cloudflare.com/cdn-cgi/trace');
     if (!resp.ok) return false;
+
     const text = await resp.text();
     const locMatch = text.match(/loc=(\w+)/);
-    const isUK = locMatch ? locMatch[1].toUpperCase() === 'GB' : false;
-    sessionStorage.setItem('ri-geo-uk', String(isUK));
-    return isUK;
+    return locMatch ? locMatch[1].toUpperCase() === 'GB' : false;
   } catch {
     return false;
+  }
+}
+
+export async function initializeImgurRegionDefaultsOnce(): Promise<void> {
+  try {
+    const initialized = await imgurRegionDefaultsInitializedItem.getValue();
+    if (initialized) return;
+
+    const useRegionalDefaults = await shouldUseRegionalDefaults();
+    if (useRegionalDefaults) {
+      await imgurFrontendItem.setValue('nerdvpn');
+      await imgurOdsItem.setValue('duckduckgo');
+    }
+
+    await imgurRegionDefaultsInitializedItem.setValue(true);
+  } catch (error) {
+    console.warn('[imgur] Failed to initialize region defaults', error);
+  }
+}
+
+export function isImgurHost(hostname: string): boolean {
+  return /(^|\.)imgur\.com$/i.test(hostname);
+}
+
+export function isImgurUrl(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    return isImgurHost(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function transformImgurFrontendUrl(rawUrl: string, provider: ImgurFrontendOption): string {
+  if (provider === 'imgur') return rawUrl;
+
+  try {
+    const parsed = new URL(rawUrl);
+    if (!isImgurHost(parsed.hostname)) return rawUrl;
+
+    const base = IMGUR_FRONTEND_BASES[provider];
+    const path = parsed.pathname || '/';
+    return `${base}${path}${parsed.search || ''}${parsed.hash || ''}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+export function applyImgurOdsUrl(rawUrl: string, provider: ImgurOdsOption): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const isDirectImgurImage = /^i\.imgur\.com$/i.test(parsed.hostname);
+    if (!isDirectImgurImage) return rawUrl;
+
+    if (provider === 'duckduckgo') {
+      return `${PROXY_PREFIX}${encodeURIComponent(rawUrl)}`;
+    }
+
+    if (provider === 'flyimg') {
+      return `https://demo.flyimg.io/upload/q_100/${rawUrl}`;
+    }
+
+    return rawUrl;
+  } catch {
+    return rawUrl;
   }
 }
 
@@ -104,8 +172,7 @@ export async function maybeHandleImgurDirect(host: HTMLElement): Promise<boolean
 
 /**
  * Handle Imgur album links (imgur.com/a/<id>).
- * For UK-based users, fetch a GB proxy service which returns a simple array of i.imgur.com links.
- * For others, fall back to Imgur API.
+ * Tries GB proxy first, then falls back to Imgur API.
  * If the album resolves to a single image, rewrite the anchor href to the proxied i.imgur URL.
  * For multi-image albums, attach data-ri-images attribute for gallery handling.
  */
@@ -115,8 +182,6 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
   if (anchors.length === 0) return false;
 
   console.debug('[imgur] maybeHandleImgurAlbums: checking', anchors.length, 'anchors');
-
-  const uk = await detectUserInUK();
 
   for (const a of anchors) {
     const href = a.getAttribute('href') || '';
@@ -128,8 +193,8 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
     try {
       let images: string[] = [];
 
-      if (uk) {
-        // GB proxy service returns a JSON array of i.imgur.com links
+      // Try GB proxy service first.
+      try {
         const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
         const clientId = await getImgurClientId();
         const headers: Record<string, string> = { Accept: 'application/json' };
@@ -139,7 +204,11 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
           const j = await r.json();
           if (Array.isArray(j)) images = j.filter(Boolean).map(String);
         }
-      } else {
+      } catch {
+        // ignore
+      }
+
+      if (images.length === 0) {
         // Fallback to Imgur API public album endpoint
         const apiUrl = `https://api.imgur.com/3/album/${encodeURIComponent(albumId)}`;
         const clientId = await getImgurClientId();

@@ -87,26 +87,27 @@ export function markdownToHtml(text: string): string {
     return `<a ${attrs.replace(/href=["'][^"']+["']/, `href="${href}"`)} target="_blank" rel="noopener noreferrer">`;
   });
 
-  // Post-process images to proxy imgur through DuckDuckGo to avoid CORS issues (UK only)
-  // Check sessionStorage cache (set by detectUserInUK in imgur.ts)
-  // Note: We check the cache synchronously here since markdownToHtml must be synchronous
-  const isUK = ((): boolean => {
+  // Apply selected Imgur delivery mode for direct i.imgur.com URLs.
+  // This remains synchronous by reading a session cache set by preview handlers.
+  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' => {
     try {
-      if (typeof sessionStorage !== 'undefined') {
-        const cached = sessionStorage.getItem('ri-geo-uk');
-        return cached === 'true';
-      }
-      return false;
+      const raw = sessionStorage.getItem('ri-imgur-ods');
+      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'imgur') return raw;
     } catch {
-      return false;
+      // ignore
     }
+    return 'imgur';
   })();
   
   html = html.replace(/<img\s+([^>]*src=["']([^"']+)["'][^>]*)>/gi, (match: string, attrs: string, url: string) => {
-    // Proxy i.imgur.com images through DuckDuckGo only for UK users
-    if (isUK && /^https?:\/\/i\.imgur\.com\//i.test(url)) {
-      const proxiedUrl = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
-      return `<img ${attrs.replace(/src=["'][^"']+["']/, `src="${proxiedUrl}"`)} loading="lazy" />`;
+    if (/^https?:\/\/i\.imgur\.com\//i.test(url)) {
+      let transformedUrl = url;
+      if (imgurOds === 'duckduckgo') {
+        transformedUrl = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
+      } else if (imgurOds === 'flyimg') {
+        transformedUrl = `https://demo.flyimg.io/upload/q_100/${url}`;
+      }
+      return `<img ${attrs.replace(/src=["'][^"']+["']/, `src="${transformedUrl}"`)} loading="lazy" />`;
     }
     // Add loading="lazy" if not present
     if (!/loading=/i.test(attrs)) {

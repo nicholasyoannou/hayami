@@ -2,17 +2,55 @@ import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import {
   useImagePreview,
   isImageLink,
-  proxifyImageUrl,
   isYouTubeLink,
   extractYouTubeId,
+  setImgurOdsProvider,
 } from '@/composables/useImagePreview';
 import { browser } from 'wxt/browser';
-import { detectUserInUK } from '@/entrypoints/content/images/imgur';
+import {
+  initializeImgurRegionDefaultsOnce,
+  isImgurUrl,
+  transformImgurFrontendUrl,
+} from '@/entrypoints/content/images/imgur';
 import { extensionFetch } from '@/utils/redditApi';
-import { DEFAULT_IMGUR_CLIENT_ID, embedImagesItem, imgchestApiKeyItem, imgurClientIdItem } from '@/config/storage';
+import {
+  DEFAULT_IMGUR_CLIENT_ID,
+  embedImagesItem,
+  imgchestApiKeyItem,
+  imgurClientIdItem,
+  imgurFrontendItem,
+  imgurOdsItem,
+  type ImgurFrontendOption,
+  type ImgurOdsOption,
+} from '@/config/storage';
 
 let cachedImgchestApiKey: string | null | undefined;
 let embedImagesEnabled = true;
+let imgurFrontendProvider: ImgurFrontendOption = 'imgur';
+
+async function refreshImgurImagePreferences(): Promise<void> {
+  try {
+    await initializeImgurRegionDefaultsOnce();
+  } catch (error) {
+    console.warn('[preview] Failed to initialize Imgur region defaults', error);
+  }
+
+  try {
+    const frontend = await imgurFrontendItem.getValue();
+    imgurFrontendProvider = frontend;
+  } catch {
+    imgurFrontendProvider = 'imgur';
+  }
+
+  try {
+    const ods = await imgurOdsItem.getValue();
+    setImgurOdsProvider(ods as ImgurOdsOption);
+    try { sessionStorage.setItem('ri-imgur-ods', ods); } catch {}
+  } catch {
+    setImgurOdsProvider('imgur');
+    try { sessionStorage.setItem('ri-imgur-ods', 'imgur'); } catch {}
+  }
+}
 
 async function getImgurClientId(): Promise<string | null> {
   try {
@@ -194,13 +232,19 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   // initialize embed-images flag and keep in sync with storage
   refreshEmbedImagesEnabled(preview);
+  refreshImgurImagePreferences();
   const storageListener = (
     changes: Record<string, browser.storage.StorageChange>,
     areaName: browser.storage.StorageName,
   ) => {
     if (areaName !== 'local') return;
-    const changed = Object.keys(changes || {}).some((key) => key.includes('embed_images'));
-    if (changed) refreshEmbedImagesEnabled(preview);
+    const keys = Object.keys(changes || {});
+    if (keys.some((key) => key.includes('embed_images'))) {
+      refreshEmbedImagesEnabled(preview);
+    }
+    if (keys.some((key) => key.includes('imgur_frontend') || key.includes('imgur_ods'))) {
+      refreshImgurImagePreferences();
+    }
   };
   browser.storage.onChanged.addListener(storageListener);
 
@@ -330,89 +374,62 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
               console.debug('[preview] Fetching imgur direct link on-demand:', id);
               try {
                 let resolved: string | null = null;
-                const isUK = await detectUserInUK();
-                
-                // For UK users, try to construct i.imgur.com URL directly and use it
-                // (GB proxy might not have direct image endpoint, so we'll proxy through DuckDuckGo)
-                if (isUK) {
-                  // Try common extensions on i.imgur.com first (most reliable for UK)
+
+                // Try Imgur API first.
+                try {
+                  const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
+                  const clientId = await getImgurClientId();
+                  const headers: Record<string, string> = { Accept: 'application/json' };
+                  if (clientId) headers['X-Imgur-Client-ID'] = clientId;
+                  const r = await fetch(apiUrl, { headers });
+                  if (r.ok) {
+                    const j = await r.json();
+                    if (j?.data?.link) resolved = j.data.link;
+                  }
+                } catch (e2) {
+                  console.debug('[preview] Imgur API failed, trying alternatives:', e2);
+                }
+
+                // Fall back to trying common i.imgur extensions.
+                if (!resolved) {
                   const exts = ['.jpg', '.png', '.gif', '.webp'];
                   for (const ext of exts) {
                     const tryUrl = `https://i.imgur.com/${id}${ext}`;
                     try {
-                      const r = await fetch(tryUrl, { method: 'HEAD' });
-                      if (r.ok) {
+                      const r2 = await fetch(tryUrl, { method: 'HEAD' });
+                      if (r2.ok) {
                         resolved = tryUrl;
                         break;
                       }
                     } catch {
-                      // Try GET as fallback
                       try {
-                        const r2 = await fetch(tryUrl);
-                        if (r2.ok) {
+                        const r3 = await fetch(tryUrl);
+                        if (r3.ok) {
                           resolved = tryUrl;
                           break;
                         }
                       } catch {}
                     }
                   }
-                  
-                  // If extensions didn't work, try GB proxy service (if it exists)
-                  if (!resolved) {
-                    try {
-                      const proxyUrl = `https://gbr-img-service.quack.si/i/${encodeURIComponent(id)}`;
-                      const r = await fetch(proxyUrl);
-                      if (r.ok) {
-                        const j = await r.json();
-                        if (typeof j === 'string') {
-                          resolved = j;
-                        } else if (j?.link || j?.url || j?.image) {
-                          resolved = j.link || j.url || j.image;
-                        } else if (Array.isArray(j) && j.length > 0) {
-                          resolved = typeof j[0] === 'string' ? j[0] : (j[0]?.link || j[0]?.url || j[0]?.image);
-                        }
-                      }
-                    } catch (e1) {
-                      console.debug('[preview] GB proxy failed:', e1);
-                    }
-                  }
-                } else {
-                  // For non-UK users, try Imgur API first
+                }
+
+                // Final fallback: try GB proxy endpoint if available.
+                if (!resolved) {
                   try {
-                    const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
-                    const clientId = await getImgurClientId();
-                    const headers: Record<string, string> = { Accept: 'application/json' };
-                    if (clientId) headers['X-Imgur-Client-ID'] = clientId;
-                    const r = await fetch(apiUrl, { headers });
+                    const proxyUrl = `https://gbr-img-service.quack.si/i/${encodeURIComponent(id)}`;
+                    const r = await fetch(proxyUrl);
                     if (r.ok) {
                       const j = await r.json();
-                      if (j?.data?.link) resolved = j.data.link;
-                    }
-                  } catch (e2) {
-                    console.debug('[preview] Imgur API failed, trying extensions:', e2);
-                  }
-                  
-                  // Fall back to trying common extensions
-                  if (!resolved) {
-                    const exts = ['.jpg', '.png', '.gif', '.webp'];
-                    for (const ext of exts) {
-                      const tryUrl = `https://i.imgur.com/${id}${ext}`;
-                      try {
-                        const r2 = await fetch(tryUrl, { method: 'HEAD' });
-                        if (r2.ok) {
-                          resolved = tryUrl;
-                          break;
-                        }
-                      } catch {
-                        try {
-                          const r3 = await fetch(tryUrl);
-                          if (r3.ok) {
-                            resolved = tryUrl;
-                            break;
-                          }
-                        } catch {}
+                      if (typeof j === 'string') {
+                        resolved = j;
+                      } else if (j?.link || j?.url || j?.image) {
+                        resolved = j.link || j.url || j.image;
+                      } else if (Array.isArray(j) && j.length > 0) {
+                        resolved = typeof j[0] === 'string' ? j[0] : (j[0]?.link || j[0]?.url || j[0]?.image);
                       }
                     }
+                  } catch (e1) {
+                    console.debug('[preview] GB proxy failed:', e1);
                   }
                 }
                 
@@ -520,6 +537,14 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       // Emit event for parent to handle gallery modal
       window.dispatchEvent(new CustomEvent('crunchyroll-comments:gallery-modal', { detail: { images: multi } }));
     } else if (isImageLink(href)) {
+      if (isImgurUrl(href)) {
+        const targetUrl = transformImgurFrontendUrl(href, imgurFrontendProvider);
+        if (targetUrl !== href) {
+          ev.preventDefault();
+          window.open(targetUrl, '_blank', 'noopener,noreferrer');
+          return;
+        }
+      }
       a.setAttribute('target', '_blank');
       a.setAttribute('rel', 'noopener noreferrer');
     }
