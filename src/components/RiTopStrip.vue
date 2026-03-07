@@ -1,58 +1,58 @@
 <template>
   <div class="flex w-full items-end gap-3 pt-4 px-0 relative">
-    <div class="flex items-center gap-2 shrink-0 relative z-30" ref="logoContainer">
+    <div class="flex items-center gap-[8px] shrink-0 relative z-30 h-[45px]" ref="logoContainer">
       <!-- Provider Logo Button -->
       <div
         ref="logoButton"
-        class="ripple flex items-center gap-2 px-6 h-11 bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
+        class="ripple flex items-center gap-[8px] px-[24px] h-[45px] bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
         :class="{ 'cursor-pointer': !isLoading, 'cursor-not-allowed opacity-60': isLoading }"
         @click.stop="!isLoading && toggleMenu()"
       >
         <img 
           v-if="currentProvider === 'reddit'"
-          class="w-6 h-5 opacity-80" 
+          class="w-[24px] h-[20px] opacity-80" 
           :src="redditLogoUrl" 
           alt="reddit logo" 
         />
         <img 
           v-else-if="currentProvider === 'disqus'"
-          class="h-4 opacity-80" 
+          class="h-[16px] opacity-80" 
           :src="disqusLogoUrl" 
           alt="disqus logo" 
         />
         <img 
           v-else-if="currentProvider === 'youtube'"
-          class="h-5 opacity-80" 
+          class="h-[20px] opacity-80" 
           :src="youtubeLogoUrl" 
           alt="youtube logo" 
         />
         <img 
           v-else-if="currentProvider === 'mal'"
-          class="h-5 opacity-80" 
+          class="h-[20px] opacity-80" 
           :src="malLogoUrl" 
           alt="MAL logo" 
         />
         <img 
           v-else-if="currentProvider === 'anilist'"
-          class="h-5 opacity-80" 
+          class="h-[20px] opacity-80" 
           :src="anilistLogoUrl" 
           alt="anilist logo" 
         />
         <img 
           v-else-if="currentProvider === 'aniwave'"
-          class="h-5 opacity-80" 
+          class="h-[20px] opacity-80" 
           :src="aniwaveLogoUrl" 
           alt="aniwave logo" 
         />
         <img 
           v-else-if="currentProvider === 'animecommunity'"
-          class="h-5 opacity-80" 
+          class="h-[20px] opacity-80" 
           :src="animeCommunityLogoUrl" 
           alt="The Anime Community logo" 
         />
         <img 
           v-if="currentProvider === 'reddit'"
-          class="h-5 opacity-80" 
+          class="h-[20px] opacity-80" 
           :src="redditTextUrl" 
           alt="reddit" 
         />
@@ -60,12 +60,12 @@
       
       <div 
         v-if="currentProvider === 'reddit'"
-        class="flex items-center gap-2 px-4 h-11 border border-[#3a3a3a] bg-[#151515] rounded-full text-sm font-semibold text-[#f0f0f0] transition-opacity duration-300 relative"
+        class="flex items-center gap-[8px] px-[16px] h-[45px] border border-[#3a3a3a] bg-[#151515] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-opacity duration-300 relative"
         :class="{ 'opacity-0 pointer-events-none z-0': menuOpen }"
         :style="{ zIndex: menuOpen ? 0 : 'auto' }"
       >
         <span 
-          class="flex items-center justify-center w-8 h-8 rounded-full border border-[#2f2f2f] overflow-hidden"
+          class="flex items-center justify-center w-[32px] h-[32px] rounded-full border border-[#2f2f2f] overflow-hidden"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
         >
           <div
@@ -87,14 +87,14 @@
 
     <!-- Expandable Menu - expands from right of Reddit logo to end of tabs -->
     <div
-      class="absolute flex items-center pb-1.5 gap-2 overflow-hidden transition-all duration-300 h-11"
+      class="absolute flex items-center pb-[6px] gap-[8px] overflow-hidden transition-all duration-300 h-[45px]"
       :class="menuOpen && !isLoading ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'"
       :style="menuOpen && !isLoading ? { left: logoWidth + 'px', width: (menuWidth - logoWidth) + 'px' } : { left: logoWidth + 'px', width: '0px' }"
     >
       <button
         v-for="item in menuItems"
         :key="item.id"
-        class="ripple flex items-center gap-3 px-4 py-3 h-9 bg-[#151515] border border-[#3a3a3a] rounded-full text-sm font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
+        class="ripple flex items-center gap-[12px] px-[16px] py-[12px] h-[36px] bg-[#151515] border border-[#3a3a3a] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
         :class="{ 
           'bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] transform -translate-y-1 z-10': currentProvider === item.id,
           'opacity-50 cursor-not-allowed': isLoading,
@@ -105,19 +105,19 @@
       >
         <img 
           v-if="item.id === 'reddit'"
-          class="w-6 h-5 opacity-60" 
+          class="w-[24px] h-[20px] opacity-60" 
           :src="redditLogoUrl" 
           alt="reddit logo" 
         />
         <img 
           v-else
-          class="h-4 w-auto opacity-80" 
+          class="h-[16px] w-auto opacity-80" 
           :src="item.iconUrl" 
           :alt="item.label" 
         />
         <img 
           v-if="item.id === 'reddit'"
-          class="h-4 opacity-60" 
+          class="h-[16px] opacity-60" 
           :src="redditTextUrl" 
           alt="reddit" 
         />
@@ -142,18 +142,18 @@
       >
         <div
           v-if="tab.active"
-          class="flex items-center gap-2.5 px-3 py-2 min-h-[44px] relative"
+          class="flex items-center gap-[10px] px-[12px] py-[8px] min-h-[44px] relative"
         >
-          <div class="w-7 h-7 rounded-xl bg-[#353535] p-1.5 flex items-center justify-center flex-shrink-0">
+          <div class="w-[28px] h-[28px] rounded-xl bg-[#353535] p-[6px] flex items-center justify-center flex-shrink-0">
           <img
               class="w-full h-full object-contain"
             :src="discussionIconUrl"
             alt=""
           />
           </div>
-          <div class="flex flex-col gap-0.5 min-w-0">
-            <span class="text-sm font-semibold text-[#f5f5f5] truncate leading-tight">{{ tab.title }}</span>
-            <span v-if="tab.subtitle" class="text-[0.65rem] uppercase tracking-wide text-[#adadad] truncate">
+          <div class="flex flex-col gap-[2px] min-w-0">
+            <span class="text-[14px] font-semibold text-[#f5f5f5] truncate leading-tight">{{ tab.title }}</span>
+            <span v-if="tab.subtitle" class="text-[10px] uppercase tracking-wide text-[#adadad] truncate">
               {{ tab.subtitle }}
               </span>
           </div>
@@ -164,34 +164,34 @@
         </div>
         <div
           v-else
-          class="relative px-2.5 py-1 min-h-[28px] flex items-center w-full"
+          class="relative px-[10px] py-[4px] min-h-[28px] flex items-center w-full"
         >
-          <span class="text-[0.7rem] font-medium truncate text-[#d1d1d1] w-full text-left">{{ tab.title }}</span>
+          <span class="text-[11px] font-medium truncate text-[#d1d1d1] w-full text-left">{{ tab.title }}</span>
           
           <!-- Hover popout tooltip -->
           <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
-            <div class="bg-[#2a2a2a] border border-[#3f3f3f] rounded-lg shadow-xl px-4 py-3 min-w-[200px]">
-              <div class="flex items-center gap-2 mb-1">
+            <div class="bg-[#2a2a2a] border border-[#3f3f3f] rounded-lg shadow-xl px-[16px] py-[12px] min-w-[200px]">
+              <div class="flex items-center gap-[8px] mb-[4px]">
                 <img
-                  class="w-5 h-5 rounded-lg bg-[#353535] p-0.5 flex-shrink-0 object-contain"
+                  class="w-[20px] h-[20px] rounded-lg bg-[#353535] p-[2px] flex-shrink-0 object-contain"
                   :src="discussionIconUrl"
                   alt=""
                 />
-                <span class="text-sm font-semibold text-[#f5f5f5]">{{ tab.title }}</span>
+                <span class="text-[14px] font-semibold text-[#f5f5f5]">{{ tab.title }}</span>
               </div>
-              <div class="flex items-center gap-4 text-xs text-[#cfcfcf]">
-          <span class="flex items-center gap-1">
+              <div class="flex items-center gap-[16px] text-[12px] text-[#cfcfcf]">
+          <span class="flex items-center gap-[4px]">
                   <img
-                    class="w-3 h-3"
+                    class="w-[12px] h-[12px]"
                     :src="upvoteFilledIconUrl"
                     alt="upvote"
                     style="filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%) hue-rotate(359deg) brightness(102%) contrast(101%);"
                   />
             {{ tab.score.toLocaleString() }}
           </span>
-          <span class="flex items-center gap-1">
+          <span class="flex items-center gap-[4px]">
                   <img
-                    class="w-4 h-3"
+                    class="w-[16px] h-[12px]"
                     :src="popoutDiscussionIconUrl"
                     alt="comments"
                   />

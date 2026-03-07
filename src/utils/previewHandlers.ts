@@ -301,9 +301,9 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
           console.warn(`[preview] Postimg ${postimgMatch.kind} fetch failed:`, e);
         }
       }
-      // Check for imgur album: imgur.com/a/<id>
+      // Check for imgur album: imgur.com|imgur.io/a/<id>
       else {
-        const albumMatch = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
+        const albumMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.(?:com|io)\/a\/(\w+)/i);
         if (albumMatch) {
         console.debug('[preview] Fetching album on-demand:', albumMatch[1]);
         try {
@@ -347,7 +347,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
           console.warn('[preview] Album fetch failed:', e);
         }
         }
-        // Check for direct imgur link: imgur.com/<id>
+        // Check for direct imgur link: imgur.com|imgur.io/<id>
         else {
           const imgchestAlbumMatch = href.match(/^https?:\/\/(?:www\.)?imgchest\.com\/(?:a|p)\/([\w-]+)/i);
           if (imgchestAlbumMatch) {
@@ -366,7 +366,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
             console.warn('[preview] ImgChest album fetch failed:', e);
           }
           } else {
-            const directMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.com\/(\w+)(?:\.\w+)?$/i);
+            const directMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.(?:com|io)\/(\w+)(?:\.\w+)?$/i);
             if (directMatch) {
             const id = directMatch[1];
             // Skip if it's 'a' or 'gallery' (those are albums)

@@ -368,11 +368,13 @@ const selectedEpisodeOffset = computed(() => {
 function confirmEpisodeSelection() {
   if (manualEpisodeSelected.value === null) return;
   const chosen = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeSelected.value);
+  const selectedAnimeName = manualEpisodeResolvedName.value || manualEpisodeContext.value.animeName || null;
   try {
     window.dispatchEvent(new CustomEvent('ri-episode-select-override', {
       detail: {
         episodeNumber: manualEpisodeSelected.value,
         redditUrl: chosen?.url,
+        selectedAnimeName,
       },
     }));
   } catch (e) {
@@ -1272,7 +1274,7 @@ defineExpose({
           ⚠️ This post is {{ discussion.archived ? 'archived' : 'locked' }}
         </strong>
         <p>
-          You cannot vote, reply, or interact with this discussion.
+          You cannot vote or reply with this discussion. 
         </p>
       </div>
 

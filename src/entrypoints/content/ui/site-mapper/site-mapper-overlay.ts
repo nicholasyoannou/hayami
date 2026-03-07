@@ -119,7 +119,6 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         <button class="tab" data-placement="insert">Insert inline</button>
         <button class="tab" data-placement="replace">Replace element</button>
         <button class="tab" data-placement="popup">Popup only</button>
-        <button class="tab" data-placement="icon">Icon toggle</button>
       </div>
       <div class="row">
         <div class="field" data-field="mount">
@@ -225,8 +224,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
 
     const normalizePlacement = (raw: string | undefined | null): DisplayPlacement => {
       if (!raw) return 'below';
-      if (raw === 'inline') return 'below';
-      const allowed: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup', 'icon'];
+      if (raw === 'inline' || raw === 'icon') return 'below';
+      const allowed: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup'];
       return (allowed.includes(raw as DisplayPlacement) ? raw : 'below') as DisplayPlacement;
     };
 
@@ -256,7 +255,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         el.classList.toggle('hidden', !visible.has(key));
       });
       if (previewHint) {
-        const inlineModes: DisplayPlacement[] = ['below', 'insert', 'replace', 'icon'];
+        const inlineModes: DisplayPlacement[] = ['below', 'insert', 'replace'];
         previewHint.textContent = inlineModes.includes(selectedPlacement)
           ? 'Preview uses MALSync if available; otherwise your selectors.'
           : 'Popup mode uses your extraction selectors for preview only.';

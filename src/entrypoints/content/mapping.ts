@@ -13,7 +13,6 @@
  */
 
 import { AnimeInfo } from './types';
-import { findThreadForAnime } from '@/utils/disqusApi';
 import { extensionFetch } from '@/utils/redditApi';
 import { getAccessToken, makeRedditRequest } from '@/utils/redditAuth';
 import { fetchHayami } from '@/utils/hayamiApi';
@@ -1363,19 +1362,8 @@ export async function tryMapperFailover(
         mapperUrl = keyedCandidates[0].url;
       }
 
-      // For Disqus, if mapper episodes are incomplete, fall back to a live Disqus search before returning a stale episode.
-      if (!mapperUrl && isDisqus && animeInfo?.animeName) {
-        const thread = await findThreadForAnime({
-          animeName: animeInfo.animeName,
-          episodeName: animeInfo.episodeName,
-          releaseDate: animeInfo.releaseDate,
-        });
-        const threadLink = thread?.link;
-        if (threadLink) {
-          console.log('[Mapper Failover] Disqus search override used in place of incomplete mapper episodes');
-          return threadLink;
-        }
-      }
+      // Do not call direct Disqus search from mapper failover.
+      // Callers decide whether to fall back to native Disqus lookup.
 
       if (platform === 'reddit' && mapperUrl && episodeFromInfo !== null) {
         const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeFromInfo, animeInfo?.animeName);
@@ -1769,9 +1757,14 @@ export async function tryMapperFailover(
       return null;
     }
 
-    let seasonEpisode: number | null = null;
+    const hasManualEpisodeOverride = Number.isFinite(overrideEpisode);
+    let seasonEpisode: number | null = hasManualEpisodeOverride ? Number(overrideEpisode) : null;
 
-    if (seasonsData.length > 0) {
+    if (hasManualEpisodeOverride) {
+      console.log('[Mapper Failover] Using manual episode override as authoritative mapper key', {
+        overrideEpisode: seasonEpisode,
+      });
+    } else if (seasonsData.length > 0) {
       const episodeWithinSeason = seasonsData.length > 1
         ? crEpisodeNumber
         : (sequenceNumber ?? crEpisodeNumber);

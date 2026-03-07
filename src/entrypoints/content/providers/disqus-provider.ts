@@ -342,13 +342,17 @@ export class DisqusProvider extends BaseProvider {
       let thread = discussionCache.disqus?.thread;
 
       // Apply saved episode offset (e.g., from manual override) for all mapper lookups
-      const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName) : null;
+      const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName, 'disqus') : null;
       const episodeOffset = mapping?.episodeOffset ?? 0;
+      const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+      const animeInfoForMapper = mapperAnimeName !== animeInfo.animeName
+        ? { ...animeInfo, animeName: mapperAnimeName }
+        : animeInfo;
       const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
       const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
 
       if (!thread && !releaseToday) {
-        const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus', mappedEp ?? rawEp ?? null);
+        const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEp ?? rawEp ?? null);
         console.log('[DisqusProvider][mapper-failover]', {
           mappedDisqusUrl,
           rawEp,
@@ -374,7 +378,7 @@ export class DisqusProvider extends BaseProvider {
 
       // Fallback for non-Crunchyroll pages (e.g., animepahe) without episode IDs
       if (!thread && !releaseToday && animeInfo.animeName) {
-        const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, 'disqus');
+        const mapperData = await fetchAnimeMapperDataBySeriesName(mapperAnimeName, 'disqus');
         console.log('[DisqusProvider][series-mapper] result count', mapperData?.results?.length || 0);
         if (mapperData?.results?.length) {
           const epNum = mappedEp ?? rawEp ?? 1;

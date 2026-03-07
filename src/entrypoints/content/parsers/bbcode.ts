@@ -30,7 +30,7 @@ function getImgurCdnMode(): 'imgur' | 'duckduckgo' | 'flyimg' {
 }
 
 function rewriteImgurByCdnMode(url: string): string {
-  if (!/imgur\.com/i.test(url)) return url;
+  if (!/imgur\.(?:com|io)/i.test(url)) return url;
 
   const mode = getImgurCdnMode();
   if (mode === 'duckduckgo') {
@@ -58,7 +58,7 @@ export function bbcodeToHtml(input: string): string {
     // If the inner content is already HTML (e.g., decoded div/a/img), center-wrap and rewrite imgur by CDN mode.
     let src = rawSrc.trim();
     if (/^</.test(src)) {
-      src = src.replace(/https?:\/\/i?\.?imgur\.com\/\S+/gi, (match: string) => rewriteImgurByCdnMode(match));
+      src = src.replace(/https?:\/\/i?\.?imgur\.(?:com|io)\/\S+/gi, (match: string) => rewriteImgurByCdnMode(match));
       return `<div style="text-align:center; width:100%;">${src}</div>`;
     }
 

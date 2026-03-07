@@ -786,8 +786,8 @@
 
 /* ==================== Comment Text Content ==================== */
 .ri-text {
-  line-height: 21px;
-  font-size: 14px;
+  line-height: calc(21px + var(--ri-comment-text-size-increase, 0px));
+  font-size: calc(14px + var(--ri-comment-text-size-increase, 0px));
   color: #d7dadc;
   margin-top: 2px;
   padding-right: 12px; /* prevent text from running too close to the right edge */

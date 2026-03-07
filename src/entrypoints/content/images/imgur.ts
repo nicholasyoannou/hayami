@@ -1,8 +1,8 @@
 /**
  * Imgur image handling utilities
  * - Proxies i.imgur.com links through DuckDuckGo for CORS compliance
- * - Handles direct imgur.com/<id> links
- * - Handles album links (imgur.com/a/<id>) with resilient API/proxy fallbacks
+ * - Handles direct imgur.com|imgur.io/<id> links
+ * - Handles album links (imgur.com|imgur.io/a/<id>) with resilient API/proxy fallbacks
  */
 
 import { extensionFetch } from '@/utils/redditApi';
@@ -63,7 +63,7 @@ export async function initializeImgurRegionDefaultsOnce(): Promise<void> {
 }
 
 export function isImgurHost(hostname: string): boolean {
-  return /(^|\.)imgur\.com$/i.test(hostname);
+  return /(^|\.)imgur\.(?:com|io)$/i.test(hostname);
 }
 
 export function isImgurUrl(rawUrl: string): boolean {
@@ -168,7 +168,7 @@ export async function maybeApplyDomImgurEmbed(host: HTMLElement): Promise<boolea
 }
 
 /**
- * Handle direct imgur.com/<id> links (not i.imgur.com)
+ * Handle direct imgur.com|imgur.io/<id> links (not i.imgur.com)
  * Marks them for on-hover loading instead of resolving immediately.
  * The actual resolution happens in previewHandlers.ts when user hovers.
  */
@@ -179,7 +179,7 @@ export async function maybeHandleImgurDirect(host: HTMLElement): Promise<boolean
 }
 
 /**
- * Handle Imgur album links (imgur.com/a/<id>).
+ * Handle Imgur album links (imgur.com|imgur.io/a/<id>).
  * Tries GB proxy first, then falls back to Imgur API.
  * If the album resolves to a single image, rewrite the anchor href to the proxied i.imgur URL.
  * For multi-image albums, attach data-ri-images attribute for gallery handling.
@@ -193,7 +193,7 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
 
   for (const a of anchors) {
     const href = a.getAttribute('href') || '';
-    const m = href.match(/^https?:\/\/imgur\.com\/a\/(\w+)/i);
+    const m = href.match(/^https?:\/\/(?:www\.)?imgur\.(?:com|io)\/a\/(\w+)/i);
     if (!m) continue;
     const albumId = m[1];
     console.debug('[imgur] Found album:', albumId, 'in link:', href);

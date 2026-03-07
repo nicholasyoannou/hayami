@@ -47,7 +47,13 @@ import { AnimeInfo } from '../types';
 import type { MapperResult, MapperMatchedResult, CommentProvider, ProviderContext } from '../types/data';
 
 // Mapping utilities
-import { getSeriesMapping, parseEpisodeFromTitle, saveSeriesMapping, tryMapperFailover } from '../mapping';
+import {
+  getSeriesMapping,
+  parseEpisodeFromTitle,
+  saveSeriesMapping,
+  tryMapperFailover,
+  fetchAnimeMapperDataBySeriesName,
+} from '../mapping';
 
 // Template renderers
 import { renderNoDiscussionPanel } from '../templates';
@@ -57,7 +63,7 @@ import { renderNoDiscussionPanel } from '../templates';
 import { removeCommentsSkeletonLoading } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
 import { commentProviderOptions, displayModeOptions } from '@/config/options';
-import { commentsProviderItem, redditCommentScaleItem, redditDefaultSortItem } from '@/config/storage';
+import { commentsProviderItem, redditDefaultSortItem } from '@/config/storage';
 import { getContentScriptContext } from './content-script-context';
 import { getUiManager, type InlineDiscussionExposed } from './ui-manager';
 import { useDiscussionStore } from '@/store/discussion';
@@ -570,8 +576,13 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     preferredProvider = resolvedProvider;
 
     // Apply any saved episode offset for this series so lookups align with user overrides
-    const seriesMapping = animeInfo.animeName ? await getSeriesMapping(animeInfo.animeName) : null;
+    const mappingPlatform = resolvedProvider === 'disqus' ? 'disqus' : 'reddit';
+    const seriesMapping = animeInfo.animeName ? await getSeriesMapping(animeInfo.animeName, mappingPlatform) : null;
     const episodeOffset = seriesMapping?.episodeOffset ?? 0;
+    const mapperAnimeName = (seriesMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+    const animeInfoForMapper = mapperAnimeName !== animeInfo.animeName
+      ? { ...animeInfo, animeName: mapperAnimeName }
+      : animeInfo;
     const rawEpisodeStr = extractEpisodeNumber(animeInfo.episodeName || '');
     const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
     const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
@@ -615,7 +626,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         try {
           const releaseToday = isReleaseDateToday(animeInfo.releaseDate);
           if (!releaseToday) {
-            const mappedDisqusUrl = await tryMapperFailover(animeInfo, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+            const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
             if (mappedDisqusUrl) {
               const mappedThread = (await findThreadByLink(animeInfo, mappedDisqusUrl)) || buildDisqusThreadFromUrl(mappedDisqusUrl);
               if (mappedThread) {
@@ -623,6 +634,27 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
                 await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
                 await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
                 return;
+              }
+            }
+
+            // Manual-mapped/third-party sites may not have CR episode metadata.
+            // Explicitly query Hayami's series mapper before any direct Disqus lookup.
+            if (animeInfoForMapper.animeName) {
+              const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfoForMapper.animeName, 'disqus');
+              const mapperEpisode = mappedEpisodeNum ?? rawEpisodeNum;
+              if (mapperData?.results?.length && Number.isFinite(mapperEpisode)) {
+                const desired = String(mapperEpisode);
+                for (const entry of mapperData.results) {
+                  const maybeUrl = entry?.episodes?.[desired] || entry?.episodes?.[Number(desired)];
+                  if (!maybeUrl) continue;
+                  const mappedThread = (await findThreadByLink(animeInfo, maybeUrl)) || buildDisqusThreadFromUrl(maybeUrl);
+                  if (mappedThread) {
+                    cache.disqus = { thread: mappedThread };
+                    await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
+                    await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
+                    return;
+                  }
+                }
               }
             }
           }
@@ -669,7 +701,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
 
     // NEW FAILOVER: Try mapper service with series_name and season_title from Crunchyroll API
     console.log('[Search] Attempting new mapper failover...');
-    const failoverRedditUrl = await tryMapperFailover(animeInfo, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+    const failoverRedditUrl = await tryMapperFailover(animeInfoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
     if (failoverRedditUrl) {
       console.log('[Search] Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
@@ -682,7 +714,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     }
 
     // Before showing selection/no discussion, check r-anime-wiki-mapper service (original method)
-    const mapperResult = await fetchAnimeMapperData(animeInfo.animeName);
+    const mapperResult = await fetchAnimeMapperData(mapperAnimeName);
     setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
 
     const epNum = mappedEpisodeStr;
@@ -910,7 +942,7 @@ async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?
         const redditEp = parseEpisodeFromTitle(post.title);
         if (redditEp !== null && animeInfo.animeName) {
           const offset = redditEp - crEpisodeNum;
-          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
+          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
         }
       }
       close();
@@ -1062,13 +1094,17 @@ async function displayDiscussion(discussion: any): Promise<void> {
         try {
           const info = currentState.lastAnimeInfo;
           if (!info?.animeName) return;
-          const mapping = await getSeriesMapping(info.animeName);
+          const mapping = await getSeriesMapping(info.animeName, 'reddit');
           const episodeOffset = mapping?.episodeOffset ?? 0;
+          const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || info.animeName;
+          const infoForMapper = mapperAnimeName !== info.animeName
+            ? { ...info, animeName: mapperAnimeName }
+            : info;
           const rawEpisodeStr = extractEpisodeNumber(info.episodeName || '');
           const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
           const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
-          const failoverRedditUrl = await tryMapperFailover(info, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+          const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
           if (failoverRedditUrl) {
             const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
             if (postData) {
@@ -1386,14 +1422,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const currentState = state();
     const cache = currentState.discussionCache;
     
-    // Load comment scale from storage
-    let commentScale = 1;
-    try {
-      commentScale = await redditCommentScaleItem.getValue();
-    } catch (error) {
-      console.warn('Failed to load comment scale, using default:', error);
-    }
-
     // Load default Reddit sort preference
     const normalizeSort = (sort: string): RedditCommentSort => {
       const lower = (sort || '').toLowerCase();
@@ -1499,13 +1527,17 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           try {
             const info = currentState.lastAnimeInfo;
             if (!info?.animeName) return;
-            const mapping = await getSeriesMapping(info.animeName);
+            const mapping = await getSeriesMapping(info.animeName, 'reddit');
             const episodeOffset = mapping?.episodeOffset ?? 0;
+            const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || info.animeName;
+            const infoForMapper = mapperAnimeName !== info.animeName
+              ? { ...info, animeName: mapperAnimeName }
+              : info;
             const rawEpisodeStr = extractEpisodeNumber(info.episodeName || '');
             const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
             const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
-            const failoverRedditUrl = await tryMapperFailover(info, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+            const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
             if (failoverRedditUrl) {
               const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
               if (postData) {
@@ -1558,7 +1590,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         providerContext: buildProviderContext(),
         redditCommentsKey: 0,
         initialLoading: true,
-        scale: commentScale,
       });
     } else {
       await manager.mount({
@@ -1571,7 +1602,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           providerContext: buildProviderContext(),
           redditCommentsKey: 0,
           initialLoading: true,
-          scale: commentScale,
         },
         styleId: 'hayami-inline-styles',
       });
@@ -1634,7 +1664,7 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
           const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
             const offset = redditEp - crEpisodeNum;
-            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
+            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
           }
         }
         close();

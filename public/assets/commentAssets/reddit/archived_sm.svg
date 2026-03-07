@@ -1,0 +1,3 @@
+<svg rpl="" aria-label="Archived post" class="archived-status fill-[color:var(--color-identity-coins)] shrink-0 px-2xs" fill="currentColor" height="12" icon-name="archive-fill" viewBox="0 0 20 20" width="12" xmlns="http://www.w3.org/2000/svg">
+      <path d="M15.7 1H4.3C2.48 1 1 2.48 1 4.3v2.76c0 .5.4.9.9.9H2v6.74C2 16.52 3.48 18 5.3 18h9.4c1.82 0 3.3-1.48 3.3-3.3V7.96h.1c.5 0 .9-.4.9-.9V4.3C19 2.48 17.52 1 15.7 1zM13 11.87H7v-1.8h6v1.8zm4.2-5.71H2.8V4.3c0-.83.67-1.5 1.5-1.5h11.4c.83 0 1.5.67 1.5 1.5v1.86z"></path>
+    </svg>

@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
-import { redditCommentScaleItem } from '@/config/storage';
+import { redditCommentTextSizeIncreaseItem } from '@/config/storage';
 import { getCurrentUsername } from '@/utils/redditAuth';
 
 const props = defineProps<{
@@ -15,7 +15,7 @@ const props = defineProps<{
   initialSort?: RedditCommentSort;
   searchQuery?: string;
   emptyMessage?: string;
-  scale?: number;
+  textSizeIncrease?: number;
   currentUsername?: string | null;
   showFlairs?: boolean;
   flairPosition?: 'inline' | 'below';
@@ -34,29 +34,31 @@ const currentSort = ref<RedditCommentSort>(props.initialSort || 'confidence');
 const highlightIds = ref<Set<string>>(new Set());
 const rootMoreIds = ref<string[]>([]);
 
-// Scale functionality
-const commentScale = ref(1);
+const textSizeIncrease = ref(0);
 
-// Load scale from storage
+function clampTextSizeIncrease(value: unknown): number {
+  const amount = Math.floor(Number(value));
+  if (!Number.isFinite(amount)) return 0;
+  return Math.max(0, Math.min(6, amount));
+}
+
+// Load text size increase from storage
 onMounted(async () => {
   try {
-    const storedScale = await redditCommentScaleItem.getValue();
-    if (storedScale) commentScale.value = storedScale;
+    textSizeIncrease.value = clampTextSizeIncrease(await redditCommentTextSizeIncreaseItem.getValue());
   } catch (error) {
-    console.warn('Failed to load comment scale:', error);
+    console.warn('Failed to load comment text size increase:', error);
   }
 });
 
-// Use prop scale if provided, otherwise use stored scale
-const effectiveScale = computed(() => props.scale ?? commentScale.value);
+const effectiveTextSizeIncrease = computed(() =>
+  clampTextSizeIncrease(props.textSizeIncrease ?? textSizeIncrease.value),
+);
 
 const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
 
-// Scale styles
-const scaleStyles = computed(() => ({
-  transform: `scale(${effectiveScale.value})`,
-  transformOrigin: 'top left',
-  width: `${(1 / effectiveScale.value) * 100}%`
+const textSizeStyles = computed(() => ({
+  '--ri-comment-text-size-increase': `${effectiveTextSizeIncrease.value}px`,
 }));
 
 // Pagination state
@@ -335,7 +337,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="ri-comment-list" :style="scaleStyles">
+  <div class="ri-comment-list" :style="textSizeStyles">
     <!-- Loading state -->
     <template v-if="isLoading">
       <div v-for="i in 6" :key="i" class="ri-skel">

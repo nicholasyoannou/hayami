@@ -22,7 +22,7 @@ import { setupScreenshotHotkey } from '../ui/screenshot-hotkey';
 import { matchChibiPage } from '../chibi';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/redditApi';
-import { saveSeriesMapping } from '../mapping';
+import { fetchCrunchyrollEpisodeMetadata, saveSeriesMapping } from '../mapping';
 import {
   getState,
   initState,
@@ -37,6 +37,28 @@ import {
   setSearchInProgress,
 } from '../state';
 import { getUiManager } from './ui-manager';
+
+function extractCrunchyrollEpisodeIdFromUrl(url: string): string | null {
+  const match = url.match(/\/watch\/([A-Za-z0-9]+)/);
+  return match?.[1] || null;
+}
+
+async function resolveCurrentCrunchyrollEpisodeForOffset(): Promise<number | null> {
+  const episodeId = extractCrunchyrollEpisodeIdFromUrl(window.location.href);
+  if (!episodeId) return null;
+
+  try {
+    const metadataResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
+    if (!metadataResult.ok || !metadataResult.data) return null;
+
+    const metadata = metadataResult.data as any;
+    const value = metadata.episode_number ?? metadata.sequence_number;
+    const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Debounced watch page handler
@@ -185,10 +207,15 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     try {
       const selectedEpisode = Number(ev?.detail?.episodeNumber);
       const redditUrl = ev?.detail?.redditUrl as string | undefined;
+      const selectedAnimeName = typeof ev?.detail?.selectedAnimeName === 'string'
+        ? ev.detail.selectedAnimeName.trim()
+        : '';
       if (!Number.isFinite(selectedEpisode)) return;
 
-      const currentEpStr = extractEpisodeNumber(getState().lastAnimeInfo?.episodeName || '');
-      const currentEp = currentEpStr !== null ? Number(currentEpStr) : null;
+      const metadataEpisode = await resolveCurrentCrunchyrollEpisodeForOffset();
+      const fallbackEpisodeStr = extractEpisodeNumber(getState().lastAnimeInfo?.episodeName || '');
+      const fallbackEpisode = fallbackEpisodeStr !== null ? Number(fallbackEpisodeStr) : null;
+      const currentEp = Number.isFinite(metadataEpisode) ? metadataEpisode : fallbackEpisode;
 
       if (currentEp === null || !Number.isFinite(currentEp)) {
         toast.error('Could not determine current episode to save mapping');
@@ -197,7 +224,10 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
       if (getState().lastAnimeInfo?.animeName) {
         const offset = selectedEpisode - currentEp;
-        await saveSeriesMapping(getState().lastAnimeInfo!.animeName, { episodeOffset: offset });
+        await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
+          episodeOffset: offset,
+          mapperAnimeName: selectedAnimeName || undefined,
+        }, 'reddit');
         toast.success(`Saved episode mapping: current=${currentEp}, reddit=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
         toast.error('Could not determine current episode to save mapping');

@@ -27,7 +27,7 @@ import {
   redditEditorModeItem,
   redditShowFlairsItem,
   redditFlairPositionItem,
-  redditCommentScaleItem,
+  redditCommentTextSizeIncreaseItem,
   redditClientIdItem,
   redditDefaultSortItem,
   aniwaveAutoExpandAllItem,
@@ -61,7 +61,7 @@ type SettingValueMap = {
   redditDefaultSort: RedditSortOption;
   redditShowFlairs: boolean;
   redditFlairPosition: RedditFlairPositionOption;
-  commentScale: number;
+  commentTextSizeIncrease: number;
   imgurClientId: string;
   imgchestApiKey: string;
   hayamiPlusApiKey: string;
@@ -170,20 +170,34 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save No comments mode',
   },
   {
-    key: 'commentScale',
+    key: 'commentTextSizeIncrease',
     type: 'slider',
     category: 'general',
-    label: 'Comment scale',
-    description: 'Size of embedded comment sections',
-    min: 0.9,
-    max: 1.3,
-    step: 0.05,
-    formatValue: (value) => `${(Number(value) * 100).toFixed(0)}%`,
-    fallback: 1,
-    load: () => redditCommentScaleItem.getValue(),
-    save: (value) => redditCommentScaleItem.setValue(value),
-    successMessage: (value) => `Comment scale set to ${(Number(value) * 100).toFixed(0)}%`,
-    errorMessage: 'Failed to save Comment scale',
+    label: 'Text size increase',
+    description: 'Increase Reddit comment text size (capped).',
+    min: 0,
+    max: 6,
+    step: 1,
+    formatValue: (value) => {
+      const amount = Math.max(0, Math.min(6, Math.floor(Number(value) || 0)));
+      return amount === 0 ? 'Default' : `+${amount}px`;
+    },
+    fallback: 0,
+    load: async () => {
+      const raw = await redditCommentTextSizeIncreaseItem.getValue();
+      const amount = Math.floor(Number(raw));
+      if (!Number.isFinite(amount)) return 0;
+      return Math.max(0, Math.min(6, amount));
+    },
+    save: (value) => {
+      const amount = Math.max(0, Math.min(6, Math.floor(Number(value) || 0)));
+      return redditCommentTextSizeIncreaseItem.setValue(amount);
+    },
+    successMessage: (value) => {
+      const amount = Math.max(0, Math.min(6, Math.floor(Number(value) || 0)));
+      return amount === 0 ? 'Comment text size reset to default' : `Comment text size increased by +${amount}px`;
+    },
+    errorMessage: 'Failed to save text size increase',
   },
   {
     key: 'hayamiPlusApiKey',
@@ -506,7 +520,7 @@ const settingValues = reactive<SettingValueMap>({
   redditShowFlairs: true,
   redditFlairPosition: 'inline',
   redditClientId: '',
-  commentScale: 1,
+  commentTextSizeIncrease: 0,
   imgurClientId: '',
   imgchestApiKey: '',
   hayamiPlusApiKey: '',

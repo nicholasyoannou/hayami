@@ -101,10 +101,10 @@ export const onboardingCompleteItem = storage.defineItem<boolean>(
   { fallback: false }
 );
 
-// Reddit scaling preference (number stored as string in legacy code; now keep number)
-export const redditCommentScaleItem = storage.defineItem<number>(
-  'local:reddit_comment_scale',
-  { fallback: 1 }
+// Reddit comment text size increase (in px, capped in UI/consumer)
+export const redditCommentTextSizeIncreaseItem = storage.defineItem<number>(
+  'local:reddit_comment_text_size_increase',
+  { fallback: 0 }
 );
 
 // Reddit default sort preference
@@ -125,8 +125,10 @@ export const chibiOverridesItem = storage.defineItem<Record<string, any>>(
   { fallback: {} }
 );
 
-// Series mapping (episode offset) per anime title
-export const seriesMappingItem = storage.defineItem<Record<string, { episodeOffset: number }>>(
+// Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
+export const seriesMappingItem = storage.defineItem<
+  Record<string, Record<string, Record<string, { episodeOffset: number; mapperAnimeName?: string }>>>
+>(
   'local:series_mapping',
   { fallback: {} }
 );

@@ -62,7 +62,7 @@ export async function showSelectionUI(
         const redditEp = parseEpisodeFromTitle(post.title);
         if (redditEp !== null && animeInfo.animeName) {
           const offset = redditEp - crEpisodeNum;
-          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
+          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
         }
       }
       close();
@@ -170,7 +170,7 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
         const redditEp = parseEpisodeFromTitle(post.title);
         if (redditEp !== null) {
           const offset = redditEp - crEpisodeNum;
-          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset });
+          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
         }
       }
       close();

@@ -12,7 +12,6 @@
       <InlineDiscussion 
         :discussion="testDiscussion"
         provider="reddit"
-        :scale="1"
       />
     </div>
   </div>

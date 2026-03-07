@@ -165,7 +165,7 @@ export class MalProvider extends BaseProvider {
 
     try {
       const episodeNum = extractEpisodeNumber(animeInfo.episodeName);
-      const mapping = await getSeriesMapping(animeInfo.animeName || '');
+      const mapping = await getSeriesMapping(animeInfo.animeName || '', 'reddit');
 
       // Step A: derive Reddit-intended episode number from Hayami mapper (reddit platform)
       const ensureMapperData = async (): Promise<any | null> => {
