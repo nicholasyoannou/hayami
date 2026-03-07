@@ -10,6 +10,7 @@ import { escapeHtml } from '@/utils/markdown';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { aniwaveAutoExpandAllItem, aniwaveAutoExpandDepthItem, aniwaveHideReplyContextItem } from '@/config/storage';
+import { getSeriesMapping } from '../storage/series-mapping';
 
 interface CommentNode {
   comment: AniwaveComment;
@@ -69,13 +70,33 @@ export class AniwaveProvider extends BaseProvider {
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
     this.validateAnimeInfo(context.animeInfo);
     const animeInfo = context.animeInfo;
-    const episodeNumber = extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeNumber || '';
+    const rawEpisode = extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeNumber || '';
 
-    container.classList.add('aniwave-thread-root');
-    container.innerHTML = this.renderLoading(animeInfo.animeName, episodeNumber);
+    let mappedAnimeName = animeInfo.animeName;
+    let episodeNumber: string | number = rawEpisode;
 
     try {
-      const docId = await this.resolveDocId(animeInfo.animeName, episodeNumber);
+      const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName, 'aniwave') : null;
+      const mapperAnimeName = (mapping?.mapperAnimeName || '').trim();
+      if (mapperAnimeName) {
+        mappedAnimeName = mapperAnimeName;
+      }
+
+      const rawEpisodeNum = Number(rawEpisode);
+      const hasRawEpisode = Number.isFinite(rawEpisodeNum);
+      const hasOffset = Number.isFinite(mapping?.episodeOffset as number);
+      if (hasRawEpisode && hasOffset) {
+        episodeNumber = rawEpisodeNum + Number(mapping!.episodeOffset);
+      }
+    } catch (error) {
+      console.warn('[Aniwave] failed to read saved series mapping override', error);
+    }
+
+    container.classList.add('aniwave-thread-root');
+    container.innerHTML = this.renderLoading(mappedAnimeName, episodeNumber);
+
+    try {
+      const docId = await this.resolveDocId(mappedAnimeName, episodeNumber);
       if (!docId) {
         container.innerHTML = this.renderError('Unable to locate Aniwave thread for this episode.');
         return;

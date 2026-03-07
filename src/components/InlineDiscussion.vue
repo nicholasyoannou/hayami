@@ -16,6 +16,7 @@ import { useDiscussionStore } from '@/store/discussion';
 import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
+type ManualEpisodeProvider = 'reddit' | 'aniwave';
 
 interface Discussion {
   id: string;
@@ -92,7 +93,10 @@ const inlineSectionRef = ref<HTMLElement | null>(null);
 const isNoDiscussion = ref(false);
 const displayTitle = computed(() => {
   if (isLoading.value) return 'Loading discussion…';
-  return isNoDiscussion.value ? 'No Reddit thread found.' : props.discussion.title;
+  if (isNoDiscussion.value) {
+    return currentProvider.value === 'aniwave' ? 'No Aniwave thread found.' : 'No Reddit thread found.';
+  }
+  return props.discussion.title;
 });
 const noDiscussionDetailTitle = computed(() => {
   const host = inlineSectionRef.value;
@@ -168,6 +172,7 @@ const manualEpisodeOptions = ref<Array<{ episode: number; url: string }>>([]);
 const manualEpisodeLoading = ref(false);
 const manualEpisodeError = ref<string | null>(null);
 const manualEpisodeSelected = ref<number | null>(null);
+const manualEpisodeProvider = ref<ManualEpisodeProvider>('reddit');
 const manualEpisodeContext = ref<{ animeName?: string; crEpisodeNum?: number | null }>({ animeName: undefined, crEpisodeNum: null });
 const manualEpisodeResolvedName = ref<string | null>(null);
 const wrongAnimeOpen = ref(false);
@@ -175,6 +180,66 @@ const wrongAnimeQuery = ref('');
 const wrongAnimeResults = ref<any[]>([]);
 const wrongAnimeLoading = ref(false);
 const wrongAnimeError = ref<string | null>(null);
+
+const manualEpisodeProviderLabel = computed(() => manualEpisodeProvider.value === 'aniwave' ? 'Aniwave' : 'Reddit');
+const isAniwaveManualMode = computed(() => manualEpisodeProvider.value === 'aniwave');
+
+function resolveManualEpisodeProvider(provider?: Provider | string | null): ManualEpisodeProvider {
+  return provider === 'aniwave' ? 'aniwave' : 'reddit';
+}
+
+function getMapperResultDisplayName(result: any): string {
+  const animeName = typeof result?.anime_name === 'string' ? result.anime_name.trim() : '';
+  if (animeName) return animeName;
+
+  const matchedTitle = typeof result?.matched_title === 'string' ? result.matched_title.trim() : '';
+  if (matchedTitle) return matchedTitle;
+
+  const title = typeof result?.title === 'string' ? result.title.trim() : '';
+  if (title) return title;
+
+  return 'Unknown title';
+}
+
+function getMapperEpisodeOptions(result: any): Array<{ episode: number; url: string }> {
+  const episodes = result?.episodes;
+  if (!episodes) return [];
+
+  // Newer Aniwave payload shape: episodes[] with episode_number + docID
+  if (Array.isArray(episodes)) {
+    const byEpisode = new Map<number, string>();
+    for (const ep of episodes) {
+      const episodeNumber = Number(ep?.episode_number);
+      if (!Number.isFinite(episodeNumber)) continue;
+
+      const docIdRaw = ep?.docID || ep?.docId || ep?.doc_id;
+      const docId = typeof docIdRaw === 'string' ? docIdRaw.trim() : '';
+      const isDub = ep?.is_dub === true;
+
+      // Prefer non-dub for each episode number when both exist.
+      if (!byEpisode.has(episodeNumber) || !isDub) {
+        byEpisode.set(episodeNumber, docId);
+      }
+    }
+
+    return Array.from(byEpisode.entries())
+      .map(([episode, url]) => ({ episode, url: url || '' }))
+      .sort((a, b) => a.episode - b.episode);
+  }
+
+  // Legacy payload shape: episodes object map
+  if (typeof episodes === 'object') {
+    return Object.entries(episodes)
+      .map(([k, url]) => ({
+        episode: Number.parseInt(k, 10),
+        url: typeof url === 'string' ? url : '',
+      }))
+      .filter((row) => Number.isFinite(row.episode))
+      .sort((a, b) => a.episode - b.episode);
+  }
+
+  return [];
+}
 
 // Strip obvious episode/discussion suffixes before querying Hayami.
 function cleanSeriesForMapper(name?: string): string | undefined {
@@ -203,11 +268,12 @@ const filteredDisqusSearchResults = computed(() => {
 
 function openManualSearchModal(
   initialQuery?: string,
-  context?: { animeName?: string; crEpisodeNum?: number | null },
+  context?: { animeName?: string; crEpisodeNum?: number | null; provider?: Provider },
   initialTab: 'search' | 'episode' = 'episode'
 ) {
+  const resolvedProvider = resolveManualEpisodeProvider(context?.provider || currentProvider.value);
   manualSearchOpen.value = true;
-  manualDialogTab.value = initialTab;
+  manualDialogTab.value = resolvedProvider === 'aniwave' ? 'episode' : initialTab;
   manualSearchQuery.value = initialQuery || props.discussion.title || '';
   manualSearchResults.value = [];
   manualSearchError.value = null;
@@ -215,6 +281,7 @@ function openManualSearchModal(
   manualEpisodeError.value = null;
   manualEpisodeSelected.value = null;
   manualEpisodeResolvedName.value = null;
+  manualEpisodeProvider.value = resolvedProvider;
   wrongAnimeOpen.value = false;
   wrongAnimeQuery.value = '';
   wrongAnimeResults.value = [];
@@ -226,7 +293,9 @@ function openManualSearchModal(
   if (manualDialogTab.value === 'episode') {
     void loadEpisodeOptions();
   }
-  runManualSearch();
+  if (resolvedProvider !== 'aniwave') {
+    runManualSearch();
+  }
 }
 
 async function runManualSearch() {
@@ -259,24 +328,41 @@ async function loadEpisodeOptions() {
     // Prefer Hayami mapper episodes when we know the anime name.
     const cleanedSeries = cleanSeriesForMapper(manualEpisodeContext.value.animeName);
     if (cleanedSeries) {
-      const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, 'reddit', { preserveSeasonSuffix: true });
+      const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
+      const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, mapperPlatform, { preserveSeasonSuffix: true });
       if (mapper && Array.isArray((mapper as any).results) && (mapper as any).results.length > 0) {
         const results: any[] = (mapper as any).results;
-        const preferred: number[] = [];
+        const allIndices = results.map((_, idx) => idx);
         const matchedIdx = typeof (mapper as any).matched_result?.index === 'number' ? (mapper as any).matched_result.index : null;
-        if (matchedIdx !== null) preferred.push(matchedIdx);
-        preferred.push(...results.map((_, idx) => idx));
+        const matchedResultIndices = Array.isArray((mapper as any).matched_results)
+          ? (mapper as any).matched_results
+              .map((entry: any) => (typeof entry?.index === 'number' ? entry.index : null))
+              .filter((idx: number | null): idx is number => idx !== null)
+          : [];
 
-        for (const idx of Array.from(new Set(preferred))) {
+        const preferred: number[] = [];
+
+        if (manualEpisodeProvider.value === 'aniwave') {
+          const ranked = allIndices
+            .map((idx) => ({ idx, count: getMapperEpisodeOptions(results[idx]).length }))
+            .sort((a, b) => b.count - a.count)
+            .map((x) => x.idx);
+          preferred.push(...ranked);
+          preferred.push(...matchedResultIndices);
+          if (matchedIdx !== null) preferred.push(matchedIdx);
+        } else {
+          if (matchedIdx !== null) preferred.push(matchedIdx);
+          preferred.push(...matchedResultIndices);
+          preferred.push(...allIndices);
+        }
+
+        for (const idx of Array.from(new Set(preferred)).filter((i) => i >= 0 && i < results.length)) {
           const res = results[idx];
-          const eps = res?.episodes;
-          if (eps && typeof eps === 'object' && Object.keys(eps).length > 0) {
-            manualEpisodeOptions.value = Object.entries(eps)
-              .map(([k, url]) => ({ episode: Number.parseInt(k, 10), url }))
-              .filter((row) => Number.isFinite(row.episode) && !!row.url)
-              .sort((a, b) => a.episode - b.episode);
+          const options = getMapperEpisodeOptions(res);
+          if (options.length > 0) {
+            manualEpisodeOptions.value = options;
             populatedFromMapper = manualEpisodeOptions.value.length > 0;
-            manualEpisodeResolvedName.value = typeof res?.anime_name === 'string' ? res.anime_name : cleanedSeries;
+            manualEpisodeResolvedName.value = getMapperResultDisplayName(res) || cleanedSeries;
             if (populatedFromMapper) {
               break;
             }
@@ -286,7 +372,7 @@ async function loadEpisodeOptions() {
     }
 
     // Fallback to Reddit selftext table extraction when mapper data is unavailable.
-    if (!populatedFromMapper) {
+    if (!populatedFromMapper && manualEpisodeProvider.value === 'reddit') {
       const data = await extractEpisodeTableFromRedditSelftext(redditUrl.value, manualEpisodeContext.value.animeName);
       if (!data || !data.tableMap || data.tableMap.size === 0) {
         manualEpisodeError.value = 'No episode list found (mapper/selftext).';
@@ -296,6 +382,11 @@ async function loadEpisodeOptions() {
         .map(([episode, url]) => ({ episode, url }))
         .sort((a, b) => a.episode - b.episode);
       manualEpisodeResolvedName.value = manualEpisodeContext.value.animeName || null;
+    }
+
+    if (!populatedFromMapper && manualEpisodeProvider.value === 'aniwave') {
+      manualEpisodeError.value = 'No Aniwave episode map found for this title.';
+      return;
     }
 
     if (manualEpisodeContext.value.crEpisodeNum && manualEpisodeSelected.value === null) {
@@ -327,7 +418,8 @@ async function searchWrongAnime() {
   wrongAnimeResults.value = [];
   try {
     const cleaned = cleanSeriesForMapper(q) || q;
-    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, 'reddit', { preserveSeasonSuffix: true });
+    const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
+    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, mapperPlatform, { preserveSeasonSuffix: true });
     const results: any[] = (mapper as any)?.results || [];
     wrongAnimeResults.value = Array.isArray(results) ? results : [];
     if (wrongAnimeResults.value.length === 0) {
@@ -342,7 +434,7 @@ async function searchWrongAnime() {
 
 function selectWrongAnime(result: any) {
   if (!result) return;
-  const name = typeof result?.anime_name === 'string' ? result.anime_name : wrongAnimeQuery.value.trim();
+  const name = getMapperResultDisplayName(result) || wrongAnimeQuery.value.trim();
   manualEpisodeContext.value.animeName = name;
   manualEpisodeResolvedName.value = name;
   wrongAnimeOpen.value = false;
@@ -369,11 +461,13 @@ function confirmEpisodeSelection() {
   if (manualEpisodeSelected.value === null) return;
   const chosen = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeSelected.value);
   const selectedAnimeName = manualEpisodeResolvedName.value || manualEpisodeContext.value.animeName || null;
+  const provider = manualEpisodeProvider.value;
   try {
     window.dispatchEvent(new CustomEvent('ri-episode-select-override', {
       detail: {
         episodeNumber: manualEpisodeSelected.value,
-        redditUrl: chosen?.url,
+        redditUrl: provider === 'reddit' ? chosen?.url : undefined,
+        provider,
         selectedAnimeName,
       },
     }));
@@ -550,7 +644,7 @@ const shareIconUrl = getRuntimeUrl('assets/commentAssets/share.svg');
 function handleManualSearch() {
   // Dispatch custom event to trigger manual search in content script
   const event = new CustomEvent('ri-manual-search-requested', {
-    detail: { discussion: props.discussion }
+    detail: { discussion: props.discussion, provider: currentProvider.value }
   });
   window.dispatchEvent(event);
 }
@@ -558,7 +652,7 @@ function handleManualSearch() {
 function handleManualSearchNoDiscussion() {
   // Open local manual search modal directly on the Search tab using the resolved no-discussion title
   const title = noDiscussionDetailTitle.value || props.discussion?.title || '';
-  openManualSearchModal(title, { animeName: title, crEpisodeNum: null }, 'search');
+  openManualSearchModal(title, { animeName: title, crEpisodeNum: null, provider: currentProvider.value }, 'search');
 }
 
 async function handleUpvote(e?: Event) {
@@ -887,7 +981,8 @@ onMounted(() => {
     if (animeInfo?.animeName) initialParts.push(animeInfo.animeName);
     if (typeof crEpisodeNum === 'number') initialParts.push(`Episode ${crEpisodeNum}`);
     const initial = initialParts.join(' ').trim() || props.discussion.title || '';
-    openManualSearchModal(initial, { animeName: animeInfo?.animeName || detail?.discussion?.title, crEpisodeNum });
+    const provider = detail?.provider || currentProvider.value;
+    openManualSearchModal(initial, { animeName: animeInfo?.animeName || detail?.discussion?.title, crEpisodeNum, provider });
   };
   const escHandler = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape' && manualSearchOpen.value) {
@@ -1091,14 +1186,15 @@ defineExpose({
     />
 
     <section id="reddit-inline-discussion" ref="inlineSectionRef" style="margin-top: 0; width: 100%;">
-      <!-- Reddit header - only visible for Reddit provider -->
-      <div v-if="currentProvider === 'reddit'" class="ri-header">
+      <!-- Provider header for providers with manual episode override -->
+      <div v-if="currentProvider === 'reddit' || currentProvider === 'aniwave'" class="ri-header">
         <div class="ri-title-row pt-1">
-          <h3 class="ri-title">
+          <h3 v-if="currentProvider === 'reddit'" class="ri-title">
             {{ displayTitle }}
           </h3>
-          <div style="display: flex; align-items: center; gap: 8px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-left: auto;">
             <button
+              v-if="currentProvider === 'reddit'"
               class="ri-manual-search-btn"
               title="Search manually"
               @click="handleManualSearch"
@@ -1108,7 +1204,18 @@ defineExpose({
             >
               ?
             </button>
+            <button
+              v-if="currentProvider === 'aniwave'"
+              class="ri-link"
+              title="Adjust Aniwave mapping"
+              type="button"
+              @click="handleManualSearch"
+              style="background: none; border: none; padding: 0;"
+            >
+              Wrong anime?
+            </button>
             <a
+              v-if="currentProvider === 'reddit'"
               class="ri-link"
               :href="redditUrl"
               target="_blank"
@@ -1118,7 +1225,7 @@ defineExpose({
             </a>
           </div>
         </div>
-        <div class="ri-meta" v-if="!isNoDiscussion">
+        <div class="ri-meta" v-if="currentProvider === 'reddit' && !isNoDiscussion">
           <span class="ri-author">u/{{ discussion.author }}</span>
           <div class="ri-post-actions" v-if="!isNoDiscussion">
             <button
@@ -1363,7 +1470,9 @@ defineExpose({
     >
       <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
-          <h3 class="text-lg font-semibold text-white">Manual search & episode select</h3>
+          <h3 class="text-lg font-semibold text-white">
+            {{ isAniwaveManualMode ? 'Aniwave episode mapping' : 'Manual search & episode select' }}
+          </h3>
           <button
             class="text-[#aaa] hover:text-white"
             @click="manualSearchOpen = false"
@@ -1371,7 +1480,7 @@ defineExpose({
           >✕</button>
         </div>
 
-        <div class="px-4 pt-3 pb-2 border-b border-[#2f2f2f] flex gap-2">
+        <div v-if="!isAniwaveManualMode" class="px-4 pt-3 pb-2 border-b border-[#2f2f2f] flex gap-2">
           <button
             class="px-3 py-2 text-sm font-semibold rounded-lg border transition-colors"
             :class="manualDialogTab === 'episode' ? 'bg-[#2f6feb] border-[#2f6feb] text-white' : 'bg-[#0f0f0f] border-[#2f2f2f] text-[#d0d0d0]'"
@@ -1441,7 +1550,7 @@ defineExpose({
 
         <div v-else class="p-4 space-y-4">
           <div class="text-sm text-[#ccc]">
-            Pick which episode this Reddit thread corresponds to. We'll remember the offset so future episodes auto-advance correctly.
+            Pick which episode this {{ manualEpisodeProviderLabel }} thread corresponds to. We'll remember the offset so future episodes auto-advance correctly.
             <div v-if="manualEpisodeContext.crEpisodeNum" class="mt-1 text-[#8dd4ff] text-xs">
               Detected current episode: Episode {{ manualEpisodeContext.crEpisodeNum }}
             </div>
@@ -1477,7 +1586,7 @@ defineExpose({
                 :key="idx"
                 class="p-2 border border-[#262626] rounded-lg bg-[#0b0b0b] flex items-center justify-between gap-2"
               >
-                <div class="text-xs text-white/90">{{ item?.anime_name || 'Unknown title' }}</div>
+                <div class="text-xs text-white/90">{{ getMapperResultDisplayName(item) }}</div>
                 <button
                   class="px-2 py-1 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded text-[11px] whitespace-nowrap"
                   @click="selectWrongAnime(item)"
@@ -1511,6 +1620,7 @@ defineExpose({
                 <span>Episode {{ opt.episode }}</span>
               </label>
               <a
+                v-if="opt.url"
                 class="text-xs text-[#8dd4ff] hover:underline"
                 :href="opt.url"
                 target="_blank"
@@ -1522,7 +1632,7 @@ defineExpose({
           </ul>
 
           <div v-if="selectedEpisodeOffset !== null" class="text-xs text-[#8dd4ff]">
-            Offset to save: Reddit Episode {{ manualEpisodeSelected }} → current Episode {{ manualEpisodeContext.crEpisodeNum }} ({{ selectedEpisodeOffset >= 0 ? '+' : '' }}{{ selectedEpisodeOffset }})
+            Offset to save: {{ manualEpisodeProviderLabel }} Episode {{ manualEpisodeSelected }} → current Episode {{ manualEpisodeContext.crEpisodeNum }} ({{ selectedEpisodeOffset >= 0 ? '+' : '' }}{{ selectedEpisodeOffset }})
           </div>
 
           <div class="flex justify-end gap-2">

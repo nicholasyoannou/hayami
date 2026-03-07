@@ -95,14 +95,14 @@ function stripSeasonSuffix(animeName: string): string {
  */
 export async function fetchAnimeMapperDataBySeriesName(
   seriesName: string,
-  platform: 'reddit' | 'disqus' = 'reddit',
+  platform: 'reddit' | 'disqus' | 'aniwave' = 'reddit',
   options?: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean; maxEpisodeCount?: number | null },
 ): Promise<any | null> {
   try {
     // Strip season suffix to get series title for broader search
     const searchName = stripSeasonSuffix(seriesName);
     const encodedSeries = encodeURIComponent(searchName);
-    const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
+    const platformParam = platform !== 'reddit' ? `&platform=${encodeURIComponent(platform)}` : '';
     
     // For third-party sites, try to include MAL/AniList IDs for better matching
     let idParams = '';

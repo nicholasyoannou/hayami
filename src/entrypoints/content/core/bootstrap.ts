@@ -207,6 +207,10 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     try {
       const selectedEpisode = Number(ev?.detail?.episodeNumber);
       const redditUrl = ev?.detail?.redditUrl as string | undefined;
+      const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus')
+        ? providerFromEvent
+        : 'reddit';
       const selectedAnimeName = typeof ev?.detail?.selectedAnimeName === 'string'
         ? ev.detail.selectedAnimeName.trim()
         : '';
@@ -227,17 +231,23 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
-        }, 'reddit');
-        toast.success(`Saved episode mapping: current=${currentEp}, reddit=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
+        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave');
+        toast.success(`Saved episode mapping: current=${currentEp}, ${mappingPlatform}=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
         toast.error('Could not determine current episode to save mapping');
       }
 
-      if (redditUrl) {
+      if (mappingPlatform === 'reddit' && redditUrl) {
         const postData = await fetchRedditPostFromUrl(redditUrl);
         if (postData) {
           await displayDiscussionDependingOnMode(postData);
         }
+      } else if (mappingPlatform === 'aniwave' && getState().lastAnimeInfo) {
+        // Re-run resolution immediately so the newly saved Aniwave offset/name mapping takes effect.
+        await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
+          forceProvider: 'aniwave',
+          allowConcurrent: true,
+        });
       }
     } catch (e) {
       console.warn('[EpisodeSelect] Failed to apply episode override', e);
