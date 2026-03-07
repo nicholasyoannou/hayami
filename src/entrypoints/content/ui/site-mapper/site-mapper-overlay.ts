@@ -24,18 +24,39 @@ export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, que
 
   const openOverlay = () => openSiteMapperOverlay(ctx, toast, queueHandleWatchPage);
 
+  const onHotkey = (ev: KeyboardEvent) => {
+    if (ev.defaultPrevented || ev.repeat) return;
+
+    const target = ev.target as HTMLElement | null;
+    const tag = (target?.tagName || '').toLowerCase();
+    const isTyping = target && (
+      ['input', 'textarea', 'select'].includes(tag) ||
+      target.isContentEditable
+    );
+
+    const usesCtrlOrMeta = ev.ctrlKey || ev.metaKey;
+    const key = (ev.key || '').toLowerCase();
+    const matchesH = ev.code === 'KeyH' || key === 'h';
+
+    if (usesCtrlOrMeta && ev.shiftKey && !ev.altKey && matchesH && !isTyping) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openOverlay();
+    }
+  };
+
   ctx.addEventListener(
     window,
     'keydown',
-    (ev: KeyboardEvent) => {
-      const target = ev.target as HTMLElement | null;
-      const isTyping = target && (['input', 'textarea'].includes(target.tagName.toLowerCase()) || target.isContentEditable);
-      if (ev.ctrlKey && ev.shiftKey && ev.code === 'KeyH' && !isTyping) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        openOverlay();
-      }
-    },
+    onHotkey,
+    { capture: true }
+  );
+
+  // Some player/focus contexts dispatch keyboard events on document rather than window.
+  ctx.addEventListener(
+    document,
+    'keydown',
+    onHotkey,
     { capture: true }
   );
 

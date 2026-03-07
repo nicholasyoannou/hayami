@@ -103,6 +103,11 @@ const CONTEXT_MENU_ID = 'hayami-configure-site';
 async function requestSitePermission(url: string): Promise<boolean> {
   try {
     const originPattern = `${new URL(url).origin}/*`;
+
+    // If origin access already exists, do not request again.
+    const alreadyGranted = await browser.permissions.contains({ origins: [originPattern] });
+    if (alreadyGranted) return true;
+
     return await browser.permissions.request({ origins: [originPattern] });
   } catch (e) {
     console.warn('Permission request failed', e);
@@ -112,26 +117,32 @@ async function requestSitePermission(url: string): Promise<boolean> {
 
 async function openMapperForTab(tabId: number, url?: string): Promise<void> {
   if (!url) return;
+
+  // Fast path: when content script is already injected, open immediately.
+  try {
+    await browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' });
+    return;
+  } catch {
+    // Continue to permission flow if content script is missing.
+  }
+
   const granted = await requestSitePermission(url);
   if (!granted) {
     try { await browser.tabs.sendMessage(tabId, { action: 'hayami-site-mapper-permission-denied' }); } catch {}
     return;
   }
+
+  // Content script likely not injected yet (fresh permission). Reload then retry once the tab is ready.
   try {
-    await browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' });
-  } catch {
-    // Content script likely not injected yet (fresh permission). Reload then retry once the tab is ready.
-    try {
-      await browser.tabs.reload(tabId);
-      const retryOnUpdate = (updatedTabId: number, info: any) => {
-        if (updatedTabId === tabId && info.status === 'complete') {
-          browser.tabs.onUpdated.removeListener(retryOnUpdate);
-          browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' }).catch(() => {});
-        }
-      };
-      browser.tabs.onUpdated.addListener(retryOnUpdate);
-    } catch {}
-  }
+    await browser.tabs.reload(tabId);
+    const retryOnUpdate = (updatedTabId: number, info: any) => {
+      if (updatedTabId === tabId && info.status === 'complete') {
+        browser.tabs.onUpdated.removeListener(retryOnUpdate);
+        browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' }).catch(() => {});
+      }
+    };
+    browser.tabs.onUpdated.addListener(retryOnUpdate);
+  } catch {}
 }
 
 async function registerContextMenu(): Promise<void> {
