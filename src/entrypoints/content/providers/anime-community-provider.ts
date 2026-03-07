@@ -3,6 +3,7 @@ import type { AnimeInfo } from '../types';
 import type { CommentProvider, ProviderContext } from '../types/data';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
+import { getSeriesMapping } from '../storage/series-mapping';
 import { safeClear } from '../utils/dom-helpers';
 import { getRuntimeUrl } from '@/utils/runtime';
 
@@ -32,14 +33,68 @@ export class AnimeCommunityProvider extends BaseProvider {
 
     try {
       const animeInfo = context.animeInfo as AnimeInfo;
+      const mapping = await getSeriesMapping(animeInfo.animeName, 'animecommunity');
+      const mappedAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+      const animeInfoForLookup = mappedAnimeName === animeInfo.animeName
+        ? animeInfo
+        : { ...animeInfo, animeName: mappedAnimeName };
       const episodeChapterNumber =
         extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeName || '';
+      const detectedEpisode = extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeName || '?';
+      const numericEpisode = Number(extractEpisodeNumber(animeInfo.episodeName || ''));
 
-      const { malId, anilistId } = await this.resolveIds(animeInfo);
+      const { malId, anilistId } = await this.resolveIds(animeInfoForLookup);
 
       // Make container visible and reset previous content
       container.style.display = 'block';
       safeClear(container);
+
+      const detectedRow = document.createElement('div');
+      detectedRow.style.display = 'flex';
+      detectedRow.style.alignItems = 'center';
+      detectedRow.style.gap = '8px';
+      detectedRow.style.padding = '10px 12px';
+      detectedRow.style.border = '1px solid rgba(255,255,255,0.1)';
+      detectedRow.style.borderRadius = '10px';
+      detectedRow.style.margin = '0 0 10px 0';
+      detectedRow.style.background = '#11141b';
+      detectedRow.style.color = '#d6deed';
+      detectedRow.style.fontSize = '13px';
+      detectedRow.style.lineHeight = '1.4';
+
+      const detectedText = document.createElement('span');
+      detectedText.style.flex = '1';
+      detectedText.textContent = `Detected as: ${mappedAnimeName} - Episode ${String(detectedEpisode)}`;
+
+      const wrongAnimeButton = document.createElement('button');
+      wrongAnimeButton.type = 'button';
+      wrongAnimeButton.textContent = 'Wrong anime?';
+      wrongAnimeButton.style.background = 'transparent';
+      wrongAnimeButton.style.border = 'none';
+      wrongAnimeButton.style.color = '#8cc8ff';
+      wrongAnimeButton.style.cursor = 'pointer';
+      wrongAnimeButton.style.fontWeight = '600';
+      wrongAnimeButton.style.padding = '0';
+      wrongAnimeButton.style.textDecoration = 'underline';
+      wrongAnimeButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+          detail: {
+            provider: 'animecommunity',
+            animeInfo: {
+              ...animeInfo,
+              animeName: mappedAnimeName,
+              anilistId: anilistId ?? animeInfo.anilistId ?? null,
+            },
+            crEpisodeNum: Number.isFinite(numericEpisode) ? numericEpisode : undefined,
+          },
+        }));
+      });
+
+      detectedRow.appendChild(detectedText);
+      detectedRow.appendChild(wrongAnimeButton);
+      container.appendChild(detectedRow);
 
       // Build iframe that points to an extension-served embed shim page (web_accessible_resource)
       const iframe = document.createElement('iframe');

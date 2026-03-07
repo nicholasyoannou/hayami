@@ -208,7 +208,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       const selectedEpisode = Number(ev?.detail?.episodeNumber);
       const redditUrl = ev?.detail?.redditUrl as string | undefined;
       const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
-      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus')
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity')
         ? providerFromEvent
         : 'reddit';
       const selectedAnimeName = typeof ev?.detail?.selectedAnimeName === 'string'
@@ -231,7 +231,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
-        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave');
+        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity');
         toast.success(`Saved episode mapping: current=${currentEp}, ${mappingPlatform}=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
         toast.error('Could not determine current episode to save mapping');
@@ -242,10 +242,10 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         if (postData) {
           await displayDiscussionDependingOnMode(postData);
         }
-      } else if (mappingPlatform === 'aniwave' && getState().lastAnimeInfo) {
+      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity') && getState().lastAnimeInfo) {
         // Re-run resolution immediately so the newly saved Aniwave offset/name mapping takes effect.
         await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
-          forceProvider: 'aniwave',
+          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity',
           allowConcurrent: true,
         });
       }

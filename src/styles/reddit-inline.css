@@ -2041,6 +2041,25 @@ a {
   flex-wrap: wrap;
 }
 
+.aniwave-wrong-anime-btn {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #8dd4ff;
+  cursor: pointer;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.aniwave-wrong-anime-btn:hover {
+  text-decoration: underline;
+  color: #b6e6ff;
+}
+
 .aniwave-meta-info {
   position: relative;
   display: inline-flex;

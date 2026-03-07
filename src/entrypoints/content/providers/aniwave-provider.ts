@@ -570,6 +570,7 @@ export class AniwaveProvider extends BaseProvider {
               <img class="aniwave-meta-icon" src="${escapeHtml(this.assets.infoIcon)}" alt="Info" />
               <span class="aniwave-meta-tooltip">Aniwave comments are archived only (2016–2024).</span>
             </span>
+            <button type="button" class="aniwave-wrong-anime-btn" data-aniwave-wrong-anime>Wrong anime?</button>
           </div>
         </div>
         <div class="aniwave-comments">${body || '<div class="aniwave-empty">No comments yet.</div>'}</div>
@@ -669,6 +670,23 @@ export class AniwaveProvider extends BaseProvider {
     );
 
     this.restoreCollapsedComments(container, collapsedIds);
+
+    const wrongAnimeBtn = container.querySelector<HTMLButtonElement>('[data-aniwave-wrong-anime]');
+    if (wrongAnimeBtn) {
+      wrongAnimeBtn.onclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const crEpisodeNumStr = extractEpisodeNumber(context.animeInfo?.episodeName || '');
+        const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
+        window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+          detail: {
+            provider: 'aniwave',
+            animeInfo: context.animeInfo,
+            crEpisodeNum,
+          },
+        }));
+      };
+    }
 
     if (shouldShowLoadMore) {
       this.attachLoadMore(container, context);
