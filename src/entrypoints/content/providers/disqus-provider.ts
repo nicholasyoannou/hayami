@@ -257,6 +257,22 @@ async function renderDisqusThread(
   // Render Disqus content into the external container
   container.innerHTML = renderDisqusContainer(identifier, threadUrl, title, forumShortname);
 
+  const wrongAnimeBtn = container.querySelector<HTMLButtonElement>('[data-disqus-wrong-anime]');
+  if (wrongAnimeBtn) {
+    wrongAnimeBtn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const crEpisodeNum = parseEpisodeFromTitle(animeInfo?.episodeName || '') ?? undefined;
+      window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+        detail: {
+          provider: 'disqus',
+          animeInfo,
+          crEpisodeNum,
+        },
+      }));
+    };
+  }
+
   // Inject Disqus script
   const script = document.createElement('script');
   script.src = getRuntimeUrl(ASSETS.DISQUS_LOADER);

@@ -16,7 +16,7 @@ import { useDiscussionStore } from '@/store/discussion';
 import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
-type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity';
+type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'disqus';
 
 interface AniListSearchMedia {
   id: number;
@@ -196,6 +196,7 @@ let wrongAnimeDebounceHandle: ReturnType<typeof setTimeout> | null = null;
 const manualEpisodeProviderLabel = computed(() => {
   if (manualEpisodeProvider.value === 'aniwave') return 'Aniwave';
   if (manualEpisodeProvider.value === 'animecommunity') return 'Anime Community';
+  if (manualEpisodeProvider.value === 'disqus') return 'Disqus';
   return 'Reddit';
 });
 const isAniwaveManualMode = computed(() => manualEpisodeProvider.value === 'aniwave');
@@ -205,6 +206,7 @@ const isEpisodeOnlyManualMode = computed(() => manualEpisodeProvider.value !== '
 function resolveManualEpisodeProvider(provider?: Provider | string | null): ManualEpisodeProvider {
   if (provider === 'aniwave') return 'aniwave';
   if (provider === 'animecommunity') return 'animecommunity';
+  if (provider === 'disqus') return 'disqus';
   return 'reddit';
 }
 
@@ -511,7 +513,11 @@ async function loadEpisodeOptions() {
       ? undefined
       : cleanSeriesForMapper(manualEpisodeContext.value.animeName);
     if (cleanedSeries) {
-      const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
+      const mapperPlatform = manualEpisodeProvider.value === 'aniwave'
+        ? 'aniwave'
+        : manualEpisodeProvider.value === 'disqus'
+          ? 'disqus'
+          : 'reddit';
       const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, mapperPlatform, { preserveSeasonSuffix: true });
       if (mapper && Array.isArray((mapper as any).results) && (mapper as any).results.length > 0) {
         const results: any[] = (mapper as any).results;
@@ -572,6 +578,11 @@ async function loadEpisodeOptions() {
       return;
     }
 
+    if (!populatedFromMapper && manualEpisodeProvider.value === 'disqus') {
+      manualEpisodeError.value = 'No Disqus episode map found for this title.';
+      return;
+    }
+
     if (manualEpisodeContext.value.crEpisodeNum && manualEpisodeSelected.value === null) {
       const candidate = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeContext.value.crEpisodeNum);
       manualEpisodeSelected.value = candidate ? candidate.episode : manualEpisodeOptions.value[0]?.episode ?? null;
@@ -610,7 +621,11 @@ async function searchWrongAnime() {
     }
 
     const cleaned = cleanSeriesForMapper(q) || q;
-    const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
+    const mapperPlatform = manualEpisodeProvider.value === 'aniwave'
+      ? 'aniwave'
+      : manualEpisodeProvider.value === 'disqus'
+        ? 'disqus'
+        : 'reddit';
     const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, mapperPlatform, { preserveSeasonSuffix: true });
     const results: any[] = (mapper as any)?.results || [];
     wrongAnimeResults.value = Array.isArray(results) ? results : [];

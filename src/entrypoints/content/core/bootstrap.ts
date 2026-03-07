@@ -242,10 +242,10 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         if (postData) {
           await displayDiscussionDependingOnMode(postData);
         }
-      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity') && getState().lastAnimeInfo) {
-        // Re-run resolution immediately so the newly saved Aniwave offset/name mapping takes effect.
+      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity' || mappingPlatform === 'disqus') && getState().lastAnimeInfo) {
+        // Re-run resolution immediately so the newly saved mapping takes effect.
         await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
-          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity',
+          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus',
           allowConcurrent: true,
         });
       }
