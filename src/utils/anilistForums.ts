@@ -101,6 +101,7 @@ function normalizeThreads(rawThreads: any[] = []): AniListThread[] {
       id: thread?.id ?? thread?.threadId ?? 'unknown',
       title: thread?.title || 'Untitled',
       body: typeof thread?.body === 'string' ? thread.body : undefined,
+      likeCount: typeof thread?.likeCount === 'number' ? thread.likeCount : undefined,
       replyCount: typeof thread?.replyCount === 'number' ? thread.replyCount : undefined,
       viewCount: typeof thread?.viewCount === 'number' ? thread.viewCount : undefined,
       createdAt: typeof thread?.createdAt === 'number' ? thread.createdAt : undefined,
@@ -110,16 +111,57 @@ function normalizeThreads(rawThreads: any[] = []): AniListThread[] {
     .filter((t) => t.id !== 'unknown');
 }
 
+function parseChildComments(rawChildComments: unknown): any[] {
+  if (!rawChildComments) return [];
+
+  if (Array.isArray(rawChildComments)) {
+    return rawChildComments;
+  }
+
+  if (typeof rawChildComments === 'string') {
+    try {
+      const parsed = JSON.parse(rawChildComments);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  if (typeof rawChildComments === 'object') {
+    const obj = rawChildComments as Record<string, unknown>;
+    if (Array.isArray(obj.childComments)) {
+      return obj.childComments;
+    }
+  }
+
+  return [];
+}
+
+function normalizeComment(comment: any, depth: number = 0): AniListThreadComment | null {
+  const id = comment?.id ?? comment?.commentId;
+  if (id === undefined || id === null) return null;
+
+  const rawChildren = parseChildComments(comment?.childComments);
+  const replies = rawChildren
+    .map((child: any) => normalizeComment(child, depth + 1))
+    .filter((child: AniListThreadComment | null): child is AniListThreadComment => !!child);
+
+  return {
+    id,
+    comment: typeof comment?.comment === 'string' ? comment.comment : undefined,
+    parentCommentId: typeof comment?.parentCommentId === 'number' ? comment.parentCommentId : undefined,
+    createdAt: typeof comment?.createdAt === 'number' ? comment.createdAt : undefined,
+    likeCount: typeof comment?.likeCount === 'number' ? comment.likeCount : undefined,
+    user: normalizeUser(comment?.user),
+    replies,
+    depth,
+  };
+}
+
 function normalizeComments(rawComments: any[] = []): AniListThreadComment[] {
   return rawComments
-    .map((comment) => ({
-      id: comment?.id ?? comment?.commentId ?? 'unknown',
-      comment: typeof comment?.comment === 'string' ? comment.comment : undefined,
-      createdAt: typeof comment?.createdAt === 'number' ? comment.createdAt : undefined,
-      likeCount: typeof comment?.likeCount === 'number' ? comment.likeCount : undefined,
-      user: normalizeUser(comment?.user),
-    }))
-    .filter((c) => c.id !== 'unknown');
+    .map((comment) => normalizeComment(comment, 0))
+    .filter((comment): comment is AniListThreadComment => !!comment);
 }
 
 function derivePageInfo(pageInfo: any): { currentPage?: number; hasNextPage?: boolean; nextPage?: number | null } {
@@ -158,6 +200,7 @@ export async function fetchAniListThreads(
           id
           title
           body
+          likeCount
           replyCount
           viewCount
           createdAt
@@ -219,6 +262,7 @@ export async function fetchAniListThreadComments(
           likeCount
           createdAt
           user { id name avatar { large medium } }
+          childComments
         }
       }
     }

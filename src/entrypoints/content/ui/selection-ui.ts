@@ -5,14 +5,13 @@
 import { extractEpisodeNumber, searchCustomPosts } from '@/utils/redditApi';
 import { getUiManager } from '../core/ui-manager';
 import { removeCommentsSkeletonLoading } from './skeletons';
-import { parseEpisodeFromTitle, saveSeriesMapping } from '../mapping';
+import { parseEpisodeFromTitle, saveSeriesMapping, getSeriesMapping, deleteSeriesMapping } from '../mapping';
 import { getState } from '../state';
 import { resolveAdapter } from '../adapters/site-registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper';
 import type { AnimeInfo } from '../types';
 import { RedditDiscussionInfoPanel, RedditManualSearchPanel, RedditNoDiscussionPanel, RedditSelectionPanel, type RedditPost } from '@/components/overlays';
-import { resolveNoCommentsMode } from '../utils/no-comments-mode';
 
 // Forward declarations - set by main module to avoid circular deps
 let displayDiscussionDependingOnModeFn: ((discussion: any) => Promise<void>) | null = null;
@@ -37,40 +36,9 @@ export async function showSelectionUI(
     return;
   }
 
-  try {
-    const mode = await resolveNoCommentsMode();
-    if (mode === 'inline' && posts.length > 0) {
-      if (displayDiscussionDependingOnModeFn) {
-        await displayDiscussionDependingOnModeFn(posts[0]);
-      }
-      return;
-    }
-  } catch (e) {
-    console.warn('[NoComments] inline selection guard failed; falling back to popup', e);
+  if (displayDiscussionDependingOnModeFn) {
+    await displayDiscussionDependingOnModeFn(posts[0]);
   }
-
-  getUiManager().mountWithPropsFactory(RedditSelectionPanel, ({ close }) => ({
-    animeName: animeInfo.animeName || 'this series',
-    posts: posts.slice(0, 12),
-    onClose: close,
-    onWrong: () => {
-      close();
-      showManualSearchUI(animeInfo, crEpisodeNum);
-    },
-    onSelect: async (post: RedditPost, index: number) => {
-      if (typeof crEpisodeNum === 'number') {
-        const redditEp = parseEpisodeFromTitle(post.title);
-        if (redditEp !== null && animeInfo.animeName) {
-          const offset = redditEp - crEpisodeNum;
-          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
-        }
-      }
-      close();
-      if (displayDiscussionDependingOnModeFn) {
-        await displayDiscussionDependingOnModeFn(post);
-      }
-    },
-  }));
 }
 
 /**
@@ -78,16 +46,7 @@ export async function showSelectionUI(
  */
 export async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
   removeCommentsSkeletonLoading();
-  try {
-    const mode = await resolveNoCommentsMode();
-    if (mode === 'inline') {
-      showInlineNoCommentsUI(animeName, episodeNumber);
-      return;
-    }
-  } catch (e) {
-    console.warn('[NoComments] Failed to resolve no-comments mode; falling back to popup', e);
-  }
-  showNoDiscussionPopup(animeName, episodeNumber);
+  showInlineNoCommentsUI(animeName, episodeNumber);
 }
 
 /**
@@ -161,24 +120,58 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
   const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
   const initialQuery = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
 
-  getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
-    initialQuery,
-    onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
-    onClose: close,
-    onSelect: async (post: RedditPost, index: number) => {
-      if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
-        const redditEp = parseEpisodeFromTitle(post.title);
-        if (redditEp !== null) {
-          const offset = redditEp - crEpisodeNum;
-          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
+  const resolveHasMapping = async (): Promise<boolean> => {
+    if (!animeInfo?.animeName) return false;
+    return Boolean(await getSeriesMapping(animeInfo.animeName, 'reddit'));
+  };
+
+  void resolveHasMapping().then((hasMapping) => {
+    getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
+      initialQuery,
+      showResetMapping: hasMapping,
+      onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
+      onClose: close,
+      onReset: async () => {
+        if (animeInfo?.animeName) {
+          await deleteSeriesMapping(animeInfo.animeName, 'reddit');
         }
-      }
-      close();
-      if (displayDiscussionDependingOnModeFn) {
-        await displayDiscussionDependingOnModeFn(post);
-      }
-    },
-  }));
+        close();
+      },
+      onSelect: async (post: RedditPost, index: number) => {
+        if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
+          const redditEp = parseEpisodeFromTitle(post.title);
+          if (redditEp !== null) {
+            const offset = redditEp - crEpisodeNum;
+            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
+          }
+        }
+        close();
+        if (displayDiscussionDependingOnModeFn) {
+          await displayDiscussionDependingOnModeFn(post);
+        }
+      },
+    }));
+  }).catch((error) => {
+    console.warn('[ManualMapping] Failed to check existing reddit mapping', error);
+    getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
+      initialQuery,
+      onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
+      onClose: close,
+      onSelect: async (post: RedditPost, index: number) => {
+        if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
+          const redditEp = parseEpisodeFromTitle(post.title);
+          if (redditEp !== null) {
+            const offset = redditEp - crEpisodeNum;
+            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
+          }
+        }
+        close();
+        if (displayDiscussionDependingOnModeFn) {
+          await displayDiscussionDependingOnModeFn(post);
+        }
+      },
+    }));
+  });
 }
 
 /**

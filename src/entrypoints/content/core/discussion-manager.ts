@@ -35,9 +35,7 @@ import { findThreadForAnime, findThreadByLink } from '@/utils/disqusApi';
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
 import { 
-  RedditSelectionPanel, 
   RedditAuthPrompt, 
-  RedditNoDiscussionPanel, 
   RedditManualSearchPanel,
   type RedditPost 
 } from '@/components/overlays';
@@ -67,7 +65,6 @@ import { commentsProviderItem, redditDefaultSortItem } from '@/config/storage';
 import { getContentScriptContext } from './content-script-context';
 import { getUiManager, type InlineDiscussionExposed } from './ui-manager';
 import { useDiscussionStore } from '@/store/discussion';
-import { resolveNoCommentsMode } from '../utils/no-comments-mode';
 
 // State management
 import {
@@ -576,7 +573,14 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     preferredProvider = resolvedProvider;
 
     // Apply any saved episode offset for this series so lookups align with user overrides
-    const mappingPlatform = resolvedProvider === 'disqus' ? 'disqus' : 'reddit';
+    const mappingPlatform = (
+      resolvedProvider === 'disqus'
+      || resolvedProvider === 'aniwave'
+      || resolvedProvider === 'animecommunity'
+      || resolvedProvider === 'anilist'
+      || resolvedProvider === 'mal'
+      || resolvedProvider === 'youtube'
+    ) ? resolvedProvider : 'reddit';
     const seriesMapping = animeInfo.animeName ? await getSeriesMapping(animeInfo.animeName, mappingPlatform) : null;
     const episodeOffset = seriesMapping?.episodeOffset ?? 0;
     const mapperAnimeName = (seriesMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
@@ -919,36 +923,7 @@ async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?
     return;
   }
 
-  try {
-    const mode = await resolveNoCommentsMode();
-    if (mode === 'inline' && posts.length > 0) {
-      await displayDiscussionDependingOnMode(posts[0]);
-      return;
-    }
-  } catch (e) {
-    console.warn('[NoComments] inline selection guard failed; falling back to popup', e);
-  }
-
-  getUiManager().mountWithPropsFactory(RedditSelectionPanel, ({ close }) => ({
-    animeName: animeInfo.animeName || 'this series',
-    posts: posts.slice(0, 12),
-    onClose: close,
-    onWrong: () => {
-      close();
-      showManualSearchUI(animeInfo, crEpisodeNum);
-    },
-    onSelect: async (post: any, index: number) => {
-      if (typeof crEpisodeNum === 'number') {
-        const redditEp = parseEpisodeFromTitle(post.title);
-        if (redditEp !== null && animeInfo.animeName) {
-          const offset = redditEp - crEpisodeNum;
-          await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
-        }
-      }
-      close();
-      await displayDiscussionDependingOnMode(post);
-    },
-  }));
+  await displayDiscussionDependingOnMode(posts[0]);
 }
 
 export function showAuthPrompt(): void {
@@ -960,29 +935,7 @@ export function showAuthPrompt(): void {
 
 async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
   removeCommentsSkeletonLoading();
-  try {
-    const mode = await resolveNoCommentsMode();
-    if (mode === 'inline') {
-      showInlineNoCommentsUI(animeName, episodeNumber);
-      return;
-    }
-  } catch (e) {
-    console.warn('[NoComments] Failed to resolve no-comments mode; showing popup fallback', e);
-  }
-  getUiManager().mountWithPropsFactory(RedditNoDiscussionPanel, ({ close }) => ({
-    animeName,
-    episodeNumber,
-    onClose: close,
-    onWrong: () => {
-      const lastInfo = getState().lastAnimeInfo;
-      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
-      close();
-      showManualSearchUI(
-        lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` },
-        crEpisodeNum ? Number(crEpisodeNum) : undefined
-      );
-    },
-  }));
+  showInlineNoCommentsUI(animeName, episodeNumber);
 }
 
 function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void {

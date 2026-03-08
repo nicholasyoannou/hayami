@@ -51,7 +51,6 @@ export const SELECTORS = {
 
 export const STORAGE_KEYS = {
   COMMENTS_PROVIDER: 'comments_provider',
-  NO_COMMENTS_MODE: 'no_comments_mode',
   REDDIT_SORT: 'reddit_sort',
   YOUTUBE_ORDER: 'youtube_order',
 } as const;
@@ -70,7 +69,6 @@ export const DEFAULTS = {
   PROVIDER: 'reddit' as const,
   REDDIT_SORT: 'best' as const,
   YOUTUBE_ORDER: 'relevance' as const,
-  NO_COMMENTS_MODE: 'popup' as const,
 } as const;
 
 // ==================== Asset Paths ====================

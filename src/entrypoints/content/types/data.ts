@@ -152,6 +152,7 @@ export interface AniListThread {
   id: number | string;
   title?: string;
   body?: string;
+  likeCount?: number;
   replyCount?: number;
   viewCount?: number;
   createdAt?: number;
@@ -162,6 +163,9 @@ export interface AniListThread {
 export interface AniListThreadComment {
   id: number | string;
   comment?: string;
+  parentCommentId?: number;
+  replies?: AniListThreadComment[];
+  depth?: number;
   createdAt?: number;
   likeCount?: number;
   user?: AniListUser;

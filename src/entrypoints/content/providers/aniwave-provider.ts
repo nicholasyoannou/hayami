@@ -678,11 +678,13 @@ export class AniwaveProvider extends BaseProvider {
         event.stopPropagation();
         const crEpisodeNumStr = extractEpisodeNumber(context.animeInfo?.episodeName || '');
         const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
+        const resolvedAnimeName = (this.apiAnimeName || '').trim() || undefined;
         window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
           detail: {
             provider: 'aniwave',
             animeInfo: context.animeInfo,
             crEpisodeNum,
+            resolvedAnimeName,
           },
         }));
       };

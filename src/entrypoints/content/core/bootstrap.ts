@@ -22,7 +22,7 @@ import { setupScreenshotHotkey } from '../ui/screenshot-hotkey';
 import { matchChibiPage } from '../chibi';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/redditApi';
-import { fetchCrunchyrollEpisodeMetadata, saveSeriesMapping } from '../mapping';
+import { fetchCrunchyrollEpisodeMetadata, saveSeriesMapping, deleteSeriesMapping } from '../mapping';
 import {
   getState,
   initState,
@@ -208,7 +208,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       const selectedEpisode = Number(ev?.detail?.episodeNumber);
       const redditUrl = ev?.detail?.redditUrl as string | undefined;
       const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
-      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity')
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist')
         ? providerFromEvent
         : 'reddit';
       const selectedAnimeName = typeof ev?.detail?.selectedAnimeName === 'string'
@@ -231,7 +231,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
-        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity');
+        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist');
         toast.success(`Saved episode mapping: current=${currentEp}, ${mappingPlatform}=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
         toast.error('Could not determine current episode to save mapping');
@@ -242,16 +242,57 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         if (postData) {
           await displayDiscussionDependingOnMode(postData);
         }
-      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity' || mappingPlatform === 'disqus') && getState().lastAnimeInfo) {
+      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity' || mappingPlatform === 'disqus' || mappingPlatform === 'anilist') && getState().lastAnimeInfo) {
         // Re-run resolution immediately so the newly saved mapping takes effect.
         await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
-          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus',
+          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist',
           allowConcurrent: true,
         });
       }
     } catch (e) {
       console.warn('[EpisodeSelect] Failed to apply episode override', e);
       toast.error('Failed to apply episode selection');
+    }
+  });
+
+  ctx.addEventListener(window, 'ri-reset-episode-mapping', async (ev: any) => {
+    try {
+      const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist')
+        ? providerFromEvent
+        : 'reddit';
+
+      const animeName = getState().lastAnimeInfo?.animeName;
+      if (!animeName) {
+        toast.error('No anime detected to reset mapping');
+        return;
+      }
+
+      const removed = await deleteSeriesMapping(
+        animeName,
+        mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist',
+      );
+
+      if (!removed) {
+        toast('No saved mapping found for this anime.');
+        return;
+      }
+
+      toast.success(`Reset ${mappingPlatform} mapping for this anime`);
+
+      if (getState().lastAnimeInfo) {
+        if (mappingPlatform === 'reddit') {
+          await searchAndDisplayDiscussion(getState().lastAnimeInfo!, { allowConcurrent: true });
+        } else {
+          await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
+            forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist',
+            allowConcurrent: true,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[EpisodeSelect] Failed to reset mapping', e);
+      toast.error('Failed to reset mapping');
     }
   });
 

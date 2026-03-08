@@ -36,7 +36,7 @@ import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { resolveAdapter } from './adapters/site-registry';
 
 export { SERIES_MAPPING_KEY } from './mapping-keys';
-export { getSeriesMapping, saveSeriesMapping } from './storage/series-mapping';
+export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from './storage/series-mapping';
 export {
   parseEpisodeFromTitle,
   parseMapperYear,

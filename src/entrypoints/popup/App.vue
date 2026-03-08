@@ -23,7 +23,6 @@ import {
   imgurOdsItem,
   imgchestApiKeyItem,
   imgurClientIdItem,
-  noCommentsModeItem,
   redditEditorModeItem,
   redditShowFlairsItem,
   redditFlairPositionItem,
@@ -33,6 +32,7 @@ import {
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
+  seriesMappingItem,
   type ImgurFrontendOption,
   type ImgurOdsOption,
 } from '@/config/storage';
@@ -55,7 +55,6 @@ type SettingValueMap = {
   embedImages: boolean;
   imgurFrontend: ImgurFrontendOption;
   imgurOds: ImgurOdsOption;
-  noCommentsMode: 'popup' | 'inline';
   commentsProvider: CommentProviderOption;
   redditEditorMode: RedditEditorMode;
   redditDefaultSort: RedditSortOption;
@@ -150,29 +149,10 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save Default display mode',
   },
   {
-    key: 'noCommentsMode',
-    type: 'segmented',
-    category: 'general',
-    label: 'No comments mode',
-    description: 'Fallback when nothing is found',
-    options: [
-      { value: 'popup', label: 'Popup' },
-      { value: 'inline', label: 'Inline selection' },
-    ],
-    fallback: 'popup',
-    load: async () => {
-      const value = await noCommentsModeItem.getValue();
-      return value === 'inline' || value === 'popup' ? value : 'popup';
-    },
-    save: (value) => noCommentsModeItem.setValue(value),
-    successMessage: (value) =>
-      value === 'popup' ? 'No comments mode set to Popup' : 'No comments mode set to Inline selection',
-    errorMessage: 'Failed to save No comments mode',
-  },
-  {
     key: 'commentTextSizeIncrease',
     type: 'slider',
-    category: 'general',
+    category: 'provider',
+    providerId: 'reddit',
     label: 'Text size increase',
     description: 'Increase Reddit comment text size (capped).',
     min: 0,
@@ -514,7 +494,6 @@ const settingValues = reactive<SettingValueMap>({
   embedImages: true,
   imgurFrontend: 'imgur',
   imgurOds: 'imgur',
-  noCommentsMode: 'popup',
   commentsProvider: 'reddit',
   redditEditorMode: 'editor',
   redditShowFlairs: true,
@@ -652,6 +631,16 @@ async function handleSettingChange(setting: SettingDefinition, value: SettingVal
     console.error(`Failed to save ${setting.label}`, error);
     showError(setting.errorMessage || `Failed to save ${setting.label}`);
     await reloadSetting(setting.key);
+  }
+}
+
+async function resetAllManualMappingsToDefaults() {
+  try {
+    await seriesMappingItem.setValue({});
+    showSuccess('All manual mappings reset to defaults');
+  } catch (error) {
+    console.error('Failed to reset manual mappings', error);
+    showError('Failed to reset manual mappings');
   }
 }
 
@@ -1230,6 +1219,24 @@ function handleAniListLogout() {
                       </div>
                     </div>
                   </template>
+
+                  <div
+                    v-if="activeSettingsCategory.id === 'general'"
+                    class="rounded-xl bg-white/5 px-4 py-3"
+                  >
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex-1">
+                        <p class="text-sm text-white/80">Reset all manual mappings to defaults</p>
+                        <p class="text-xs text-white/60">Clears all saved episode offset and wrong-anime mappings.</p>
+                      </div>
+                      <button
+                        class="rounded-lg bg-[#5a2f2f] px-3 py-2 text-sm font-semibold text-[#ffdcdc] hover:bg-[#733838]"
+                        @click="resetAllManualMappingsToDefaults"
+                      >
+                        Reset
+                      </button>
+                    </div>
+                  </div>
 
                   <div
                     v-if="activeSettingsCategory.id === 'image-previews' && activeCategoryAdvancedSettings.length"

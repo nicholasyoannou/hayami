@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import { resolveNoCommentsMode } from '@/entrypoints/content/utils/no-comments-mode';
 import { escapeHtml } from '@/utils/markdown';
 
 export interface RedditPost {
@@ -15,11 +13,13 @@ export interface RedditPost {
 const props = defineProps<{
   animeName: string;
   posts: RedditPost[];
+  showResetMapping?: boolean;
 }>();
 
 const emit = defineEmits<{
   close: [];
   wrong: [];
+  reset: [];
   select: [post: RedditPost, index: number];
 }>();
 
@@ -30,22 +30,6 @@ function formatDate(timestamp: number): string {
 function handleSelect(post: RedditPost, index: number): void {
   emit('select', post, index);
 }
-
-// Safety guard: if inline mode is set but we still mounted, auto-select first result to avoid popup
-onMounted(async () => {
-  try {
-    const mode = await resolveNoCommentsMode();
-    if (mode === 'inline') {
-      const first = props.posts?.[0];
-      if (first) {
-        emit('select', first, 0);
-      }
-      emit('close');
-    }
-  } catch (e) {
-    console.warn('[NoComments] selection panel inline guard failed; leaving popup visible', e);
-  }
-});
 </script>
 
 <template>
@@ -53,6 +37,7 @@ onMounted(async () => {
     <div class="panel-header">
       <h3>r/anime Discussion</h3>
       <div class="panel-actions">
+        <button v-if="props.showResetMapping" class="wrong-btn" @click="emit('reset')" title="Clear saved episode mapping">Reset mapping</button>
         <button class="wrong-btn" @click="emit('wrong')" title="Refine search manually">Wrong?</button>
         <button class="close-btn" @click="emit('close')">✕</button>
       </div>

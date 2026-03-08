@@ -35,11 +35,6 @@ export const displayModeItem = storage.defineItem<DisplayModeOption>(
   { fallback: 'popup' }
 );
 
-export const noCommentsModeItem = storage.defineItem<'popup' | 'inline'>(
-  'local:no_comments_mode',
-  { fallback: 'popup' }
-);
-
 export const embedImagesItem = storage.defineItem<boolean>(
   'local:embed_images',
   { fallback: true }

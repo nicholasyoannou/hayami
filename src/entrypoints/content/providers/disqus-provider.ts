@@ -464,28 +464,6 @@ export class DisqusProvider extends BaseProvider {
             showDisqusSearchUI(animeInfo);
           });
         }
-
-        const result = await showDisqusSearchUI(animeInfo);
-        console.log('[DisqusProvider][manual-search] UI result status', result.status);
-        if (result.status === 'embedded' && result.thread) {
-          const selectedLink = result.thread.link || result.thread.url || '';
-          const selectedThread = {
-            id: String(result.thread.id || result.thread.identifier || selectedLink),
-            identifier: String(result.thread.identifier || result.thread.id || selectedLink),
-            title: String(result.thread.title || ''),
-            clean_title: String(result.thread.clean_title || result.thread.title || ''),
-            link: String(selectedLink),
-            slug: String(result.thread.slug || ''),
-            forum: String(result.thread.forum || DISQUS_FORUM_SHORTNAME),
-          } as DisqusThread;
-          logThreadSnapshot('manual-search-selected', selectedThread);
-          if (selectedThread) {
-            discussionCache.disqus = { thread: selectedThread, animeKey: cacheKey || undefined };
-            await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
-            clearLoadingState('Disqus selection render complete');
-            return;
-          }
-        }
         clearLoadingState('Disqus fallback');
       }
     } catch (error) {

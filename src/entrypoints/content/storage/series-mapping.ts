@@ -171,3 +171,52 @@ export async function saveSeriesMapping(
   mappings[existingSiteKey] = siteMappings;
   await seriesMappingItem.setValue(mappings);
 }
+
+export async function deleteSeriesMapping(
+  series: string,
+  platform?: SeriesMappingPlatform,
+): Promise<boolean> {
+  const siteKeys = resolveSiteKeyCandidates();
+  const preferredSiteKey = siteKeys[0] || 'global';
+  const platformKey = resolvePlatformKey(platform);
+  const mappings = await getSeriesMappingsBySite(preferredSiteKey);
+  const normalized = normalizeKey(series);
+
+  let removed = false;
+
+  for (const candidateSiteKey of siteKeys) {
+    const siteMappings = mappings[candidateSiteKey];
+    if (!siteMappings) continue;
+
+    const platformMappings = siteMappings[platformKey];
+    if (!platformMappings) continue;
+
+    if (Object.prototype.hasOwnProperty.call(platformMappings, normalized)) {
+      delete platformMappings[normalized];
+      removed = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(platformMappings, series)) {
+      delete platformMappings[series];
+      removed = true;
+    }
+
+    if (Object.keys(platformMappings).length === 0) {
+      delete siteMappings[platformKey];
+    }
+
+    if (Object.keys(siteMappings).length === 0) {
+      delete mappings[candidateSiteKey];
+    }
+  }
+
+  if (removed) {
+    await seriesMappingItem.setValue(mappings);
+  }
+
+  return removed;
+}
+
+export async function clearAllSeriesMappings(): Promise<void> {
+  await seriesMappingItem.setValue({});
+}

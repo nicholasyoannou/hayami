@@ -10,18 +10,71 @@ const props = defineProps<{
   result: AniListForumResult;
   animeTitle: string;
   threadId?: number | string;
+  wrongAnimeContext?: {
+    animeName?: string;
+    mappingAnimeName?: string;
+    anilistId?: number | null;
+    crEpisodeNum?: number;
+  };
 }>();
 
 const comments = ref<AniListThreadComment[]>(Array.isArray(props.result.comments) ? props.result.comments : []);
 const pageInfo = ref(props.result.pageInfo ?? { nextPage: null, hasNextPage: false });
 const loadingMore = ref(false);
 const loveHeartUrl = getRuntimeUrl('/assets/commentAssets/anilist/loveHeart.svg');
+const replyIconUrl = getRuntimeUrl('/assets/commentAssets/reply.svg');
 const imgurOds = ref<ImgurOdsOption>('imgur');
+const collapsedCommentKeys = ref<Set<string>>(new Set());
+
+interface FlatAniListComment extends AniListThreadComment {
+  depth: number;
+  flatKey: string;
+  hasReplies: boolean;
+  directReplyCount: number;
+  replyToName?: string;
+  replyToDepth?: number;
+}
 
 const selectedThread = computed(() => props.result.selectedThread);
 const threads = computed(() => Array.isArray(props.result.threads) ? props.result.threads : []);
-const combinedComments = computed(() => {
-  const base = Array.isArray(comments.value) ? comments.value : [];
+
+function flattenComments(list: AniListThreadComment[] = [], depth: number = 0, parentKey: string = 'root'): FlatAniListComment[] {
+  const flattened: FlatAniListComment[] = [];
+  for (const [index, comment] of list.entries()) {
+    const flatKey = `${parentKey}:${String(comment.id)}:${index}`;
+    const directReplyCount = Array.isArray(comment.replies) ? comment.replies.length : 0;
+    const current = {
+      ...comment,
+      depth,
+      flatKey,
+      hasReplies: directReplyCount > 0,
+      directReplyCount,
+    } as FlatAniListComment;
+    flattened.push(current);
+    if (directReplyCount > 0) {
+      flattened.push(...flattenComments(comment.replies || [], depth + 1, flatKey));
+    }
+  }
+  return flattened;
+}
+
+const combinedComments = computed<FlatAniListComment[]>(() => {
+  const baseTree = Array.isArray(comments.value) ? comments.value : [];
+  const base = flattenComments(baseTree, 0);
+
+  const byId = new Map<string, FlatAniListComment>();
+  for (const item of base) {
+    byId.set(String(item.id), item);
+  }
+
+  for (const item of base) {
+    if (!item.parentCommentId) continue;
+    const parent = byId.get(String(item.parentCommentId));
+    if (!parent) continue;
+    item.replyToName = parent.user?.name || 'User';
+    item.replyToDepth = parent.depth;
+  }
+
   const thread = selectedThread.value;
   if (thread?.body) {
     return [
@@ -29,14 +82,80 @@ const combinedComments = computed(() => {
         id: `thread-${thread.id}-body`,
         comment: thread.body,
         createdAt: thread.createdAt,
-        likeCount: undefined,
+        likeCount: thread.likeCount,
         user: thread.user,
-      } as AniListThreadComment,
+        depth: 0,
+        flatKey: `thread-body:${String(thread.id)}`,
+        hasReplies: false,
+        directReplyCount: 0,
+      } as FlatAniListComment,
       ...base,
     ];
   }
   return base;
 });
+
+const visibleComments = computed(() => {
+  const collapsedDepths: number[] = [];
+  const visible: FlatAniListComment[] = [];
+
+  for (const comment of combinedComments.value) {
+    while (collapsedDepths.length > 0 && comment.depth <= collapsedDepths[collapsedDepths.length - 1]) {
+      collapsedDepths.pop();
+    }
+
+    const hiddenByAncestor = collapsedDepths.length > 0;
+    if (!hiddenByAncestor) {
+      visible.push(comment);
+      if (collapsedCommentKeys.value.has(comment.flatKey) && comment.hasReplies) {
+        collapsedDepths.push(comment.depth);
+      }
+    }
+  }
+
+  return visible;
+});
+
+function toggleReplies(comment: FlatAniListComment) {
+  if (!comment.hasReplies) return;
+  const next = new Set(collapsedCommentKeys.value);
+  if (next.has(comment.flatKey)) {
+    next.delete(comment.flatKey);
+  } else {
+    next.add(comment.flatKey);
+  }
+  collapsedCommentKeys.value = next;
+}
+
+function replyToggleLabel(comment: FlatAniListComment): string {
+  const count = comment.directReplyCount;
+  if (collapsedCommentKeys.value.has(comment.flatKey)) {
+    return `Show ${count} ${count === 1 ? 'reply' : 'replies'}`;
+  }
+  return 'Collapse replies';
+}
+
+function shouldShowReplyTo(comment: FlatAniListComment): boolean {
+  if (!comment.replyToName) return false;
+  // Show explicit reply context when AniList data places reply at same visual level.
+  return typeof comment.replyToDepth === 'number' && comment.replyToDepth === comment.depth;
+}
+
+function handleWrongAnimeClick(event: Event) {
+  event.preventDefault();
+  event.stopPropagation();
+  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+    detail: {
+      provider: 'anilist',
+      animeInfo: {
+        animeName: props.wrongAnimeContext?.animeName || props.animeTitle,
+        anilistId: props.wrongAnimeContext?.anilistId ?? null,
+      },
+      mappingAnimeName: props.wrongAnimeContext?.mappingAnimeName,
+      crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+    },
+  }));
+}
 const threadUrl = computed(() => {
   const thread = selectedThread.value;
   if (!thread) return '';
@@ -68,6 +187,85 @@ const formatTimestamp = (createdAt?: number): string => {
     console.warn('[AniList] timestamp format failed', err);
     return String(createdAt);
   }
+};
+
+const HTTP_URL_RE = /^https?:\/\//i;
+
+const sanitizeHttpUrl = (value: string): string | null => {
+  if (!HTTP_URL_RE.test(value)) return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+};
+
+const formatInline = (rawLine: string): string => {
+  if (!rawLine) return '';
+
+  const placeholders: string[] = [];
+  const tokenFor = (html: string): string => {
+    const token = `__RI_ANILIST_FMT_${placeholders.length}__`;
+    placeholders.push(html);
+    return token;
+  };
+
+  let staged = rawLine;
+
+  staged = staged.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, (_match, label: string, url: string) => {
+    const safeUrl = sanitizeHttpUrl(url);
+    if (!safeUrl) return _match;
+    return tokenFor(
+      `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`,
+    );
+  });
+
+  staged = staged.replace(/https?:\/\/[^\s<]+/gi, (url: string) => {
+    const safeUrl = sanitizeHttpUrl(url);
+    if (!safeUrl) return url;
+    return tokenFor(
+      `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`,
+    );
+  });
+
+  let html = escapeHtml(staged);
+
+  html = html
+    .replace(/`([^`]+)`/g, '<code class="ri-anilist-inline-code">$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
+  return html.replace(/__RI_ANILIST_FMT_(\d+)__/g, (_m, idx: string) => placeholders[Number(idx)] ?? '');
+};
+
+const formatTextBlock = (rawText: string): string => {
+  const lines = rawText.split('\n');
+  const formatted: string[] = [];
+  let quoteLines: string[] = [];
+
+  const flushQuote = () => {
+    if (!quoteLines.length) return;
+    const quoteHtml = quoteLines.map((line) => formatInline(line)).join('<br>');
+    formatted.push(`<blockquote class="ri-anilist-quote">${quoteHtml}</blockquote>`);
+    quoteLines = [];
+  };
+
+  for (const line of lines) {
+    const quoteMatch = line.match(/^\s*>\s?(.*)$/);
+    if (quoteMatch) {
+      quoteLines.push(quoteMatch[1] ?? '');
+      continue;
+    }
+
+    flushQuote();
+    formatted.push(formatInline(line));
+  }
+
+  flushQuote();
+  return formatted.join('<br>');
 };
 
 const renderComment = (body?: string): string => {
@@ -104,7 +302,7 @@ const renderComment = (body?: string): string => {
 
   while ((match = imgPattern.exec(normalized)) !== null) {
     const [, widthRaw, url] = match;
-    parts.push(escapeHtml(normalized.slice(lastIndex, match.index)));
+    parts.push(formatTextBlock(normalized.slice(lastIndex, match.index)));
 
     const widthNum = parseInt(widthRaw, 10) || 0;
     const width = Math.min(Math.max(widthNum, 10), 100);
@@ -117,9 +315,9 @@ const renderComment = (body?: string): string => {
     lastIndex = imgPattern.lastIndex;
   }
 
-  parts.push(escapeHtml(normalized.slice(lastIndex)));
+  parts.push(formatTextBlock(normalized.slice(lastIndex)));
 
-  return parts.join('').replace(/\n/g, '<br>');
+  return parts.join('');
 };
 
 let observer: IntersectionObserver | null = null;
@@ -208,7 +406,7 @@ watch(() => props.result.pageInfo, (newInfo) => {
       </div>
     </div>
 
-    <div style="margin-bottom:12px;">
+    <div style="margin-bottom:12px; display:flex; align-items:center; gap:12px;">
       <a
         :href="threadUrl"
         target="_blank"
@@ -217,6 +415,13 @@ watch(() => props.result.pageInfo, (newInfo) => {
       >
         Open on AniList
       </a>
+      <button
+        type="button"
+        class="ri-anilist-wrong-anime"
+        @click="handleWrongAnimeClick"
+      >
+        Wrong anime?
+      </button>
     </div>
 
     <div
@@ -228,17 +433,38 @@ watch(() => props.result.pageInfo, (newInfo) => {
         style="padding-left:0; list-style:none; margin:0; color:#ddd; font-size:14px; line-height:1.5; position:relative;"
       >
         <li
-          v-for="comment in combinedComments"
-          :key="comment.id"
+          v-for="comment in visibleComments"
+          :key="comment.flatKey"
           class="ri-anilist-post"
-          style="margin-bottom:12px; padding-bottom:8px; border-bottom:1px solid #2a2a2a;"
+          :style="{
+            marginBottom: '18px',
+            paddingBottom: '14px',
+            borderBottom: '1px solid #2a2a2a',
+            marginLeft: `${Math.min((comment.depth ?? 0) * 22, 88)}px`,
+          }"
         >
           <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+            <button
+              v-if="comment.hasReplies"
+              type="button"
+              class="ri-anilist-collapse-btn"
+              :aria-label="replyToggleLabel(comment)"
+              @click="toggleReplies(comment)"
+            >
+              {{ collapsedCommentKeys.has(comment.flatKey) ? '+' : '-' }}
+            </button>
             <div v-if="comment.user?.avatar" style="width:28px; height:28px; border-radius:50%; overflow:hidden; background:#1a1a1a;">
               <img :src="comment.user.avatar" alt="" style="width:100%; height:100%; object-fit:cover;" />
             </div>
             <div style="font-weight:600; color:#fff;">
               {{ comment.user?.name || 'User' }}
+            </div>
+            <div
+              v-if="shouldShowReplyTo(comment)"
+              class="ri-anilist-replying-to"
+            >
+              <img class="ri-anilist-replying-to-icon" :src="replyIconUrl" alt="Reply" />
+              <span>Replying to {{ comment.replyToName }}</span>
             </div>
             <div style="font-size:12px; color:#aaa;">
               {{ formatTimestamp(comment.createdAt) }}
@@ -321,6 +547,71 @@ watch(() => props.result.pageInfo, (newInfo) => {
   display: inline-block;
   margin: 6px 0;
   vertical-align: middle;
+}
+
+.ri-anilist-post-body :deep(a) {
+  color: #8ab4ff;
+  text-decoration: underline;
+}
+
+.ri-anilist-post-body :deep(.ri-anilist-inline-code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.92em;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.ri-anilist-post-body :deep(.ri-anilist-quote) {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-left: 3px solid #4f6d8d;
+  border-radius: 4px;
+  background: rgba(79, 109, 141, 0.12);
+  color: #cfd9e6;
+}
+
+.ri-anilist-collapse-btn {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: 1px solid #3c4c5f;
+  background: #182431;
+  color: #cfe5ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.ri-anilist-replying-to {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #8fb2d8;
+}
+
+.ri-anilist-replying-to-icon {
+  width: 12px;
+  height: 12px;
+  opacity: 0.9;
+}
+
+.ri-anilist-wrong-anime {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #8cc8ff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0;
 }
 
 .ri-like {

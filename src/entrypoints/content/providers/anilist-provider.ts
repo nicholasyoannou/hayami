@@ -14,6 +14,8 @@ import { handleAuthError, handleProviderError } from '../utils/error-handler';
 import { DISQUS_CONTAINER_RETRY_ATTEMPTS, DISQUS_CONTAINER_RETRY_DELAY_MS } from '../constants';
 import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason, extractEpisodeIdFromUrl } from '../mapping';
 import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
+import { getSeriesMapping } from '../storage/series-mapping';
+import { safeClear } from '../utils/dom-helpers';
 
 export class AniListProvider extends BaseProvider {
   readonly name: CommentProvider = 'anilist';
@@ -23,7 +25,15 @@ export class AniListProvider extends BaseProvider {
     this.validateAnimeInfo(animeInfo);
 
     try {
-      let anilistId = animeInfo.anilistId;
+      const mapping = await getSeriesMapping(animeInfo.animeName, 'anilist');
+      const mappedAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+      const animeInfoForLookup = mappedAnimeName === animeInfo.animeName
+        ? animeInfo
+        : { ...animeInfo, animeName: mappedAnimeName };
+      // If the user picked "Wrong anime?" and mapped to a different series name,
+      // do not reuse the old resolved AniList ID from the original title.
+      const hasMappedTitleOverride = mappedAnimeName !== animeInfo.animeName;
+      let anilistId = hasMappedTitleOverride ? null : animeInfo.anilistId;
 
       // Prefer Hayami mapper for Crunchyroll to get authoritative AniList ID
       const adapter = resolveAdapter();
@@ -53,7 +63,7 @@ export class AniListProvider extends BaseProvider {
           }
 
           if (!mapper) {
-            mapper = await fetchAnimeMapperDataBySeriesName(crSeriesTitle || animeInfo.animeName, 'reddit', { isThirdPartySite: true });
+            mapper = await fetchAnimeMapperDataBySeriesName(crSeriesTitle || animeInfoForLookup.animeName, 'reddit', { isThirdPartySite: true });
           }
 
           const fromMapper = extractAnilistIdFromMapper(mapper);
@@ -67,7 +77,7 @@ export class AniListProvider extends BaseProvider {
       }
 
       if (!anilistId) {
-        const ids = await getCachedAnimeIds(animeInfo.animeName);
+        const ids = await getCachedAnimeIds(animeInfoForLookup.animeName);
         anilistId = ids?.anilistId ?? null;
         if (anilistId) {
           animeInfo.anilistId = anilistId;
@@ -81,10 +91,14 @@ export class AniListProvider extends BaseProvider {
         return;
       }
 
-      const episodeNum = extractEpisodeNumber(animeInfo.episodeName);
-      const episodeParsed = episodeNum ? Number(episodeNum) : null;
+      const rawEpisode = extractEpisodeNumber(animeInfo.episodeName);
+      const rawEpisodeNum = rawEpisode ? Number(rawEpisode) : null;
+      const episodeOffset = Number.isFinite(mapping?.episodeOffset) ? Number(mapping?.episodeOffset) : 0;
+      const episodeParsed = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum)
+        ? rawEpisodeNum + episodeOffset
+        : null;
 
-      const threadsResult = await fetchAniListThreads(anilistId, animeInfo.animeName, episodeParsed);
+      const threadsResult = await fetchAniListThreads(anilistId, animeInfoForLookup.animeName, episodeParsed);
       let commentsResult: Awaited<ReturnType<typeof fetchAniListThreadComments>> | null = null;
 
       if (threadsResult.selectedThread?.id) {
@@ -111,9 +125,7 @@ export class AniListProvider extends BaseProvider {
         return;
       }
 
-      if (status === 'no_thread' || !threadsResult.selectedThread) {
-        toast('No AniList forum thread found', { description: 'No episode thread located for this episode.' });
-      } else if (status === 'error') {
+      if (status === 'error') {
         toast.error('AniList forums unavailable', { description: 'Unable to load AniList comments right now.' });
       }
 
@@ -123,6 +135,12 @@ export class AniListProvider extends BaseProvider {
         DISQUS_CONTAINER_RETRY_DELAY_MS,
       );
 
+      container.style.display = 'block';
+      safeClear(container);
+
+      const appRoot = document.createElement('div');
+      container.appendChild(appRoot);
+
       const app = createApp(AniListForumView, {
         result: {
           ...threadsResult,
@@ -130,11 +148,17 @@ export class AniListProvider extends BaseProvider {
           comments: commentsResult?.comments,
           pageInfo: commentsResult?.pageInfo ?? { nextPage: null, hasNextPage: false },
         },
-        animeTitle: animeInfo.animeName,
+        animeTitle: animeInfoForLookup.animeName,
         threadId: threadsResult.selectedThread?.id,
+        wrongAnimeContext: {
+          animeName: mappedAnimeName,
+          mappingAnimeName: animeInfo.animeName,
+          anilistId,
+          crEpisodeNum: episodeParsed ?? undefined,
+        },
       });
 
-      app.mount(container);
+      app.mount(appRoot);
       clearLoadingState('AniList fetch complete');
     } catch (error) {
       handleProviderError(error, 'AniList', 'switchTo');
@@ -159,6 +183,16 @@ export class AniListProvider extends BaseProvider {
       result: discussionCache.anilist as AniListForumResult,
       animeTitle: animeInfo.animeName,
       threadId: discussionCache.anilist.selectedThread?.id,
+      wrongAnimeContext: {
+        animeName: animeInfo.animeName,
+        mappingAnimeName: animeInfo.animeName,
+        anilistId: animeInfo.anilistId ?? null,
+        crEpisodeNum: (() => {
+          const raw = extractEpisodeNumber(animeInfo.episodeName);
+          const num = raw ? Number(raw) : NaN;
+          return Number.isFinite(num) ? num : undefined;
+        })(),
+      },
     });
 
     app.mount(container);

@@ -5,10 +5,12 @@ import type { RedditPost } from './RedditSelectionPanel.vue';
 const props = defineProps<{
   onSearch?: (query: string) => Promise<RedditPost[]>;
   initialQuery?: string;
+  showResetMapping?: boolean;
 }>();
 
 const emit = defineEmits<{
   close: [];
+  reset: [];
   select: [post: RedditPost, index: number];
 }>();
 
@@ -62,7 +64,10 @@ function handleSelect(post: RedditPost, index: number): void {
   <div class="reddit-discussion-panel">
     <div class="panel-header">
       <h3>🔍 Search r/anime</h3>
-      <button class="close-btn" @click="emit('close')">✕</button>
+      <div class="panel-actions">
+        <button v-if="props.showResetMapping" class="wrong-btn" @click="emit('reset')" title="Clear saved episode mapping">Reset mapping</button>
+        <button class="close-btn" @click="emit('close')">✕</button>
+      </div>
     </div>
     <div class="panel-content">
       <div class="manual-search">

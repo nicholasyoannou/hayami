@@ -8,7 +8,7 @@ import TipTapCommentEditor from './TipTapCommentEditor.vue';
 import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/utils/redditApi';
 import { searchCustomPosts } from '../utils/redditApi';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
-import { extractEpisodeTableFromRedditSelftext, fetchAnimeMapperDataBySeriesName } from '@/entrypoints/content/mapping';
+import { extractEpisodeTableFromRedditSelftext, fetchAnimeMapperDataBySeriesName, getSeriesMapping } from '@/entrypoints/content/mapping';
 import { getCurrentUsername } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
@@ -16,7 +16,7 @@ import { useDiscussionStore } from '@/store/discussion';
 import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
-type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'disqus';
+type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'disqus';
 
 interface AniListSearchMedia {
   id: number;
@@ -196,16 +196,20 @@ let wrongAnimeDebounceHandle: ReturnType<typeof setTimeout> | null = null;
 const manualEpisodeProviderLabel = computed(() => {
   if (manualEpisodeProvider.value === 'aniwave') return 'Aniwave';
   if (manualEpisodeProvider.value === 'animecommunity') return 'Anime Community';
+  if (manualEpisodeProvider.value === 'anilist') return 'AniList';
   if (manualEpisodeProvider.value === 'disqus') return 'Disqus';
   return 'Reddit';
 });
 const isAniwaveManualMode = computed(() => manualEpisodeProvider.value === 'aniwave');
-const isAnimeCommunityManualMode = computed(() => manualEpisodeProvider.value === 'animecommunity');
+const isAniListEpisodeManualMode = computed(
+  () => manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist',
+);
 const isEpisodeOnlyManualMode = computed(() => manualEpisodeProvider.value !== 'reddit');
 
 function resolveManualEpisodeProvider(provider?: Provider | string | null): ManualEpisodeProvider {
   if (provider === 'aniwave') return 'aniwave';
   if (provider === 'animecommunity') return 'animecommunity';
+  if (provider === 'anilist') return 'anilist';
   if (provider === 'disqus') return 'disqus';
   return 'reddit';
 }
@@ -414,7 +418,7 @@ const filteredDisqusSearchResults = computed(() => {
 
 function openManualSearchModal(
   initialQuery?: string,
-  context?: { animeName?: string; crEpisodeNum?: number | null; provider?: Provider; anilistId?: number | null },
+  context?: { animeName?: string; crEpisodeNum?: number | null; provider?: Provider; anilistId?: number | null; mappingAnimeName?: string },
   initialTab: 'search' | 'episode' = 'episode'
 ) {
   const resolvedProvider = resolveManualEpisodeProvider(context?.provider || currentProvider.value);
@@ -442,6 +446,8 @@ function openManualSearchModal(
     crEpisodeNum: context?.crEpisodeNum ?? null,
     anilistId: context?.anilistId ?? null,
   };
+  manualMappingAnimeName.value = (context?.mappingAnimeName || context?.animeName || '').trim() || null;
+  void refreshManualMappingExists();
   if (manualDialogTab.value === 'episode') {
     void loadEpisodeOptions();
   }
@@ -477,7 +483,7 @@ async function loadEpisodeOptions() {
   try {
     let populatedFromMapper = false;
 
-    if (manualEpisodeProvider.value === 'animecommunity') {
+    if (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist') {
       let media = animeCommunityMedia.value;
 
       if (!media && Number.isFinite(Number(manualEpisodeContext.value.anilistId))) {
@@ -509,7 +515,7 @@ async function loadEpisodeOptions() {
     }
 
     // Prefer Hayami mapper episodes when we know the anime name.
-    const cleanedSeries = manualEpisodeProvider.value === 'animecommunity'
+    const cleanedSeries = (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist')
       ? undefined
       : cleanSeriesForMapper(manualEpisodeContext.value.animeName);
     if (cleanedSeries) {
@@ -611,7 +617,7 @@ async function searchWrongAnime() {
   wrongAnimeError.value = null;
   wrongAnimeResults.value = [];
   try {
-    if (manualEpisodeProvider.value === 'animecommunity') {
+    if (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist') {
       const results = await searchAniListMedia(q);
       wrongAnimeResults.value = results;
       if (results.length === 0) {
@@ -642,7 +648,7 @@ async function searchWrongAnime() {
 function selectWrongAnime(result: any) {
   if (!result) return;
 
-  if (manualEpisodeProvider.value === 'animecommunity') {
+  if (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist') {
     const media = result as AniListSearchMedia;
     animeCommunityMedia.value = media;
     const name = media.title || wrongAnimeQuery.value.trim();
@@ -668,7 +674,7 @@ function selectWrongAnime(result: any) {
 }
 
 watch([wrongAnimeQuery, manualEpisodeProvider, wrongAnimeOpen], ([query, provider, isOpen]) => {
-  if (provider !== 'animecommunity' || !isOpen) {
+  if ((provider !== 'animecommunity' && provider !== 'anilist') || !isOpen) {
     if (wrongAnimeDebounceHandle) {
       clearTimeout(wrongAnimeDebounceHandle);
       wrongAnimeDebounceHandle = null;
@@ -701,6 +707,52 @@ function setManualDialogTab(tab: 'search' | 'episode') {
   manualDialogTab.value = tab;
   if (tab === 'episode' && !manualEpisodeLoading.value && manualEpisodeOptions.value.length === 0) {
     void loadEpisodeOptions();
+  }
+}
+
+const manualMappingAnimeName = ref<string | null>(null);
+const manualMappingExists = ref(false);
+const manualResetInProgress = ref(false);
+
+function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' {
+  const provider = manualEpisodeProvider.value;
+  if (provider === 'disqus' || provider === 'aniwave' || provider === 'animecommunity' || provider === 'anilist') {
+    return provider;
+  }
+  return 'reddit';
+}
+
+async function refreshManualMappingExists() {
+  const animeName = (manualMappingAnimeName.value || '').trim();
+  if (!animeName) {
+    manualMappingExists.value = false;
+    return;
+  }
+
+  try {
+    const mapping = await getSeriesMapping(animeName, getManualMappingPlatform());
+    manualMappingExists.value = !!mapping;
+  } catch (error) {
+    console.warn('[ManualMapping] Failed to read existing mapping', error);
+    manualMappingExists.value = false;
+  }
+}
+
+function resetCurrentMapping() {
+  if (!manualMappingExists.value || manualResetInProgress.value) return;
+  manualResetInProgress.value = true;
+  try {
+    window.dispatchEvent(new CustomEvent('ri-reset-episode-mapping', {
+      detail: {
+        provider: manualEpisodeProvider.value,
+      },
+    }));
+    manualMappingExists.value = false;
+    manualSearchOpen.value = false;
+  } catch (error) {
+    console.warn('[ManualMapping] Failed to dispatch reset event', error);
+  } finally {
+    manualResetInProgress.value = false;
   }
 }
 
@@ -1229,17 +1281,23 @@ onMounted(() => {
   const manualSearchHandler = (ev: Event) => {
     const detail = (ev as CustomEvent)?.detail || {};
     const animeInfo = detail.animeInfo;
+    const mappingAnimeName = typeof detail?.mappingAnimeName === 'string' ? detail.mappingAnimeName.trim() : '';
     const crEpisodeNum = detail.crEpisodeNum;
+    const resolvedAnimeName = typeof detail?.resolvedAnimeName === 'string' ? detail.resolvedAnimeName.trim() : '';
+    const fallbackAnimeName = typeof animeInfo?.animeName === 'string' ? animeInfo.animeName.trim() : '';
+    const discussionTitle = typeof detail?.discussion?.title === 'string' ? detail.discussion.title.trim() : '';
+    const animeNameForMapper = resolvedAnimeName || fallbackAnimeName || discussionTitle;
     const initialParts: string[] = [];
-    if (animeInfo?.animeName) initialParts.push(animeInfo.animeName);
+    if (animeNameForMapper) initialParts.push(animeNameForMapper);
     if (typeof crEpisodeNum === 'number') initialParts.push(`Episode ${crEpisodeNum}`);
     const initial = initialParts.join(' ').trim() || props.discussion.title || '';
     const provider = detail?.provider || currentProvider.value;
     openManualSearchModal(initial, {
-      animeName: animeInfo?.animeName || detail?.discussion?.title,
+      animeName: animeNameForMapper || undefined,
       crEpisodeNum,
       provider,
       anilistId: animeInfo?.anilistId,
+      mappingAnimeName: mappingAnimeName || fallbackAnimeName || undefined,
     });
   };
   const escHandler = (ev: KeyboardEvent) => {
@@ -1305,6 +1363,11 @@ watch(
     }
   }
 );
+
+watch([manualEpisodeProvider, manualMappingAnimeName], () => {
+  if (!manualSearchOpen.value) return;
+  void refreshManualMappingExists();
+});
 
 watch(
   () => props.redditCommentsKey,
@@ -1721,7 +1784,7 @@ defineExpose({
       <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
           <h3 class="text-lg font-semibold text-white">
-            {{ isAniwaveManualMode ? 'Aniwave episode mapping' : (isAnimeCommunityManualMode ? 'Anime Community episode mapping' : 'Manual search & episode select') }}
+            {{ isAniwaveManualMode ? 'Aniwave episode mapping' : (manualEpisodeProvider === 'animecommunity' ? 'Anime Community episode mapping' : (manualEpisodeProvider === 'anilist' ? 'AniList episode mapping' : 'Manual search & episode select')) }}
           </h3>
           <button
             class="text-[#aaa] hover:text-white"
@@ -1808,7 +1871,7 @@ defineExpose({
           </div>
 
           <div v-if="wrongAnimeOpen" class="rounded-lg border border-[#2f2f2f] bg-[#0f0f0f] p-3 text-xs text-white/80 space-y-2">
-            <div class="text-[#ccc]">{{ isAnimeCommunityManualMode ? 'Search AniList for the correct series.' : 'Search Hayami for the correct series.' }}</div>
+            <div class="text-[#ccc]">{{ isAniListEpisodeManualMode ? 'Search AniList for the correct series.' : 'Search Hayami for the correct series.' }}</div>
             <div class="flex gap-2">
               <input
                 v-model="wrongAnimeQuery"
@@ -1822,10 +1885,10 @@ defineExpose({
                 @click="searchWrongAnime"
                 :disabled="wrongAnimeLoading"
               >
-                {{ wrongAnimeLoading ? 'Searching...' : (isAnimeCommunityManualMode ? 'Search now' : 'Search') }}
+                {{ wrongAnimeLoading ? 'Searching...' : (isAniListEpisodeManualMode ? 'Search now' : 'Search') }}
               </button>
             </div>
-            <div v-if="isAnimeCommunityManualMode" class="text-[11px] text-[#88a5c4]">Live search runs automatically while you type.</div>
+            <div v-if="isAniListEpisodeManualMode" class="text-[11px] text-[#88a5c4]">Live search runs automatically while you type.</div>
             <div v-if="wrongAnimeError" class="text-red-400">{{ wrongAnimeError }}</div>
             <div v-else-if="wrongAnimeLoading" class="text-[#ccc]">Searching...</div>
             <ul v-else-if="wrongAnimeResults.length" class="space-y-2 max-h-[180px] overflow-y-auto styled-scroll">
@@ -1834,7 +1897,7 @@ defineExpose({
                 :key="idx"
                 class="p-2 border border-[#262626] rounded-lg bg-[#0b0b0b] flex items-center justify-between gap-2"
               >
-                <template v-if="isAnimeCommunityManualMode">
+                <template v-if="isAniListEpisodeManualMode">
                   <div class="flex items-center gap-2 min-w-0">
                     <img
                       v-if="item.coverImage"
@@ -1898,7 +1961,15 @@ defineExpose({
             </li>
           </ul>
 
-          <div class="flex justify-end gap-2">
+          <div class="flex items-center justify-end gap-2">
+            <button
+              v-if="manualMappingExists"
+              class="mr-auto px-3 py-2 bg-[#4d2f2f] hover:bg-[#643535] text-[#ffd6d6] rounded-lg text-sm"
+              @click="resetCurrentMapping"
+              :disabled="manualResetInProgress"
+            >
+              {{ manualResetInProgress ? 'Resetting...' : 'Reset mapping' }}
+            </button>
             <button
               class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm"
               @click="confirmEpisodeSelection"
