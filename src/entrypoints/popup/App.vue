@@ -254,8 +254,8 @@ const settingDefinitions: SettingDefinition[] = [
     options: [
       { value: 'imgur', label: 'Imgur' },
       { value: 'duckduckgo', label: 'DuckDuckGo' },
-      { value: 'flyimg', label: 'flyimg' },
       { value: 'swisscows', label: 'Swisscows' },
+      { value: 'flyimg', label: 'flyimg' },
     ],
     fallback: 'imgur',
     load: async () => {
