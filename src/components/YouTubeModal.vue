@@ -1,7 +1,6 @@
 <template>
   <div class="ri-yt-overlay" @click.self="close">
     <div class="ri-yt-modal">
-      <button class="ri-yt-close" @click="close" aria-label="Close video">✕</button>
       <LiteYouTubeEmbed :id="videoId" :title="'YouTube video'" poster="maxresdefault" />
     </div>
   </div>
@@ -40,18 +39,4 @@ function close() {
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
   position: relative;
 }
-.ri-yt-close {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  background: #1e1e1f;
-  color: #d7dadc;
-  border: none;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 16px;
-}
-.ri-yt-close:hover { background: #2a2a2c; }
 </style>

@@ -17,7 +17,6 @@ import {
 import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { handleProviderError } from '../utils/error-handler';
 import { getSeriesMapping, parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName, resolveAdapter } from '../mapping';
-import { isReleaseDateToday } from '../utils/date-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { getRuntimeUrl } from '@/utils/runtime';
 
@@ -298,14 +297,12 @@ export class DisqusProvider extends BaseProvider {
     const cacheKey = buildDisqusCacheKey(animeInfo);
     
     this.validateAnimeInfo(animeInfo);
-    const releaseToday = isReleaseDateToday(animeInfo?.releaseDate);
 
     console.log('[DisqusProvider][switchTo] start', {
       animeName: animeInfo?.animeName,
       episodeName: animeInfo?.episodeName,
       releaseDate: animeInfo?.releaseDate,
       cacheKey,
-      releaseToday,
       hasCachedThread: !!discussionCache.disqus?.thread,
       cachedAnimeKey: discussionCache.disqus?.animeKey,
     });
@@ -367,7 +364,7 @@ export class DisqusProvider extends BaseProvider {
       const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
       const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
 
-      if (!thread && !releaseToday) {
+      if (!thread) {
         const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEp ?? rawEp ?? null);
         console.log('[DisqusProvider][mapper-failover]', {
           mappedDisqusUrl,
@@ -388,12 +385,8 @@ export class DisqusProvider extends BaseProvider {
         }
       }
 
-      if (!thread && releaseToday) {
-        console.log('[DisqusProvider] Skipping Hayami mapper for same-day airing; using direct Disqus lookup');
-      }
-
       // Fallback for non-Crunchyroll pages (e.g., animepahe) without episode IDs
-      if (!thread && !releaseToday && animeInfo.animeName) {
+      if (!thread && animeInfo.animeName) {
         const mapperData = await fetchAnimeMapperDataBySeriesName(mapperAnimeName, 'disqus');
         console.log('[DisqusProvider][series-mapper] result count', mapperData?.results?.length || 0);
         if (mapperData?.results?.length) {
@@ -419,7 +412,7 @@ export class DisqusProvider extends BaseProvider {
       }
 
       // Avoid season-mismatched grabs if mapper search didn’t return an exact episode hit
-      if (!thread && animeInfo.animeName && !releaseToday) {
+      if (!thread && animeInfo.animeName) {
         console.log('[DisqusProvider] No exact mapper Disqus episode match; skipping mismatched season threads');
       }
 
@@ -460,8 +453,39 @@ export class DisqusProvider extends BaseProvider {
         // Wire the button to trigger the Vue modal search
         const btn = fallbackContainer.querySelector('#ri-disqus-search-btn') as HTMLButtonElement | null;
         if (btn) {
-          btn.addEventListener('click', () => {
-            showDisqusSearchUI(animeInfo);
+          btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            const originalLabel = btn.textContent || 'Browse Disqus threads';
+            btn.textContent = 'Loading...';
+            try {
+              const result = await showDisqusSearchUI(animeInfo);
+              if (result.status === 'embedded' && result.thread) {
+                let selectedThread = result.thread as DisqusThread;
+
+                // Hydrate title when the picker result only contains link/slug fields.
+                if (!hasResolvedTitle(selectedThread) && selectedThread.link) {
+                  const hydrated = await findThreadByLink(animeInfo, String(selectedThread.link));
+                  if (hydrated) {
+                    selectedThread = {
+                      ...selectedThread,
+                      ...hydrated,
+                      title: String(hydrated?.title || selectedThread.title || ''),
+                      clean_title: String(hydrated?.clean_title || hydrated?.title || selectedThread.clean_title || ''),
+                    } as DisqusThread;
+                  }
+                }
+
+                discussionCache.disqus = { thread: selectedThread, animeKey: cacheKey || undefined };
+                await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
+                clearLoadingState('Disqus manual selection render complete');
+                return;
+              }
+            } catch (e) {
+              console.warn('[DisqusProvider] Manual Disqus thread selection failed', e);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = originalLabel;
+            }
           });
         }
         clearLoadingState('Disqus fallback');

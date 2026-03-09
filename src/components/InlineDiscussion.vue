@@ -947,11 +947,50 @@ const downvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/downvoteFilled
 const shareIconUrl = getRuntimeUrl('assets/commentAssets/share.svg');
 
 function handleManualSearch() {
-  // Dispatch custom event to trigger manual search in content script
-  const event = new CustomEvent('ri-manual-search-requested', {
-    detail: { discussion: props.discussion, provider: currentProvider.value }
-  });
-  window.dispatchEvent(event);
+  const provider = currentProvider.value;
+  const manualProvider = resolveManualEpisodeProvider(provider);
+  const animeInfo = providerContextRef.value?.animeInfo || null;
+
+  // Resolve anime name from Hayami for mapper-backed providers so the modal title
+  // uses API data instead of discussion-thread text.
+  const dispatchWithResolvedName = async () => {
+    let resolvedAnimeName: string | undefined;
+    let mappingAnimeName: string | undefined;
+
+    try {
+      const baseAnimeName = (animeInfo?.animeName || '').trim();
+      if (baseAnimeName && (manualProvider === 'reddit' || manualProvider === 'disqus' || manualProvider === 'aniwave')) {
+        const existingMapping = await getSeriesMapping(baseAnimeName, manualProvider);
+        const mappedName = (existingMapping?.mapperAnimeName || '').trim();
+        const preferredLookupName = mappedName || baseAnimeName;
+        mappingAnimeName = preferredLookupName;
+
+        const lookupName = cleanSeriesForMapper(preferredLookupName) || preferredLookupName;
+        if (lookupName) {
+          const mapper = await fetchAnimeMapperDataBySeriesName(lookupName, manualProvider as any, { preserveSeasonSuffix: true } as any);
+          const results: any[] = Array.isArray((mapper as any)?.results) ? (mapper as any).results : [];
+          const matchedIdx = typeof (mapper as any)?.matched_result?.index === 'number' ? (mapper as any).matched_result.index : null;
+          const matchedResult = matchedIdx !== null && matchedIdx >= 0 && matchedIdx < results.length ? results[matchedIdx] : null;
+          resolvedAnimeName = (matchedResult ? getMapperResultDisplayName(matchedResult) : '') || getMapperResultDisplayName(results[0]);
+        }
+      }
+    } catch (error) {
+      console.warn('[ManualSearch] Failed to resolve Hayami anime title for manual override', error);
+    }
+
+    const event = new CustomEvent('ri-manual-search-requested', {
+      detail: {
+        discussion: props.discussion,
+        provider,
+        animeInfo,
+        resolvedAnimeName,
+        mappingAnimeName,
+      },
+    });
+    window.dispatchEvent(event);
+  };
+
+  void dispatchWithResolvedName();
 }
 
 function handleManualSearchNoDiscussion() {
@@ -1285,8 +1324,7 @@ onMounted(() => {
     const crEpisodeNum = detail.crEpisodeNum;
     const resolvedAnimeName = typeof detail?.resolvedAnimeName === 'string' ? detail.resolvedAnimeName.trim() : '';
     const fallbackAnimeName = typeof animeInfo?.animeName === 'string' ? animeInfo.animeName.trim() : '';
-    const discussionTitle = typeof detail?.discussion?.title === 'string' ? detail.discussion.title.trim() : '';
-    const animeNameForMapper = resolvedAnimeName || fallbackAnimeName || discussionTitle;
+    const animeNameForMapper = resolvedAnimeName || fallbackAnimeName || mappingAnimeName;
     const initialParts: string[] = [];
     if (animeNameForMapper) initialParts.push(animeNameForMapper);
     if (typeof crEpisodeNum === 'number') initialParts.push(`Episode ${crEpisodeNum}`);

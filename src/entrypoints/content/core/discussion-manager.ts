@@ -84,7 +84,7 @@ import { getCurrentYouTubeOrder } from '../providers/youtube-provider';
 import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageWrapper } from '../utils/dom-helpers';
 import { handleError } from '../utils/error-handler';
 import { debug } from '@/utils/debug';
-import { findExactDateMatch, isReleaseDateToday } from '../utils/date-utils';
+import { findExactDateMatch } from '../utils/date-utils';
 import { resolveAdapter } from '../mapping';
 
 // Site mapper
@@ -628,36 +628,35 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     try {
       if (preferredProvider === 'disqus') {
         try {
-          const releaseToday = isReleaseDateToday(animeInfo.releaseDate);
-          if (!releaseToday) {
-            const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
-            if (mappedDisqusUrl) {
-              const mappedThread = (await findThreadByLink(animeInfo, mappedDisqusUrl)) || buildDisqusThreadFromUrl(mappedDisqusUrl);
-              if (mappedThread) {
-                cache.disqus = { thread: mappedThread };
-                await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
-                await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
-                return;
-              }
+          const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+          if (mappedDisqusUrl) {
+            const mappedThread = (await findThreadByLink(animeInfo, mappedDisqusUrl)) || buildDisqusThreadFromUrl(mappedDisqusUrl);
+            if (mappedThread) {
+              const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
+              cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
+              await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
+              await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
+              return;
             }
+          }
 
-            // Manual-mapped/third-party sites may not have CR episode metadata.
-            // Explicitly query Hayami's series mapper before any direct Disqus lookup.
-            if (animeInfoForMapper.animeName) {
-              const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfoForMapper.animeName, 'disqus');
-              const mapperEpisode = mappedEpisodeNum ?? rawEpisodeNum;
-              if (mapperData?.results?.length && Number.isFinite(mapperEpisode)) {
-                const desired = String(mapperEpisode);
-                for (const entry of mapperData.results) {
-                  const maybeUrl = entry?.episodes?.[desired] || entry?.episodes?.[Number(desired)];
-                  if (!maybeUrl) continue;
-                  const mappedThread = (await findThreadByLink(animeInfo, maybeUrl)) || buildDisqusThreadFromUrl(maybeUrl);
-                  if (mappedThread) {
-                    cache.disqus = { thread: mappedThread };
-                    await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
-                    await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
-                    return;
-                  }
+          // Manual-mapped/third-party sites may not have CR episode metadata.
+          // Explicitly query Hayami's series mapper before any direct Disqus lookup.
+          if (animeInfoForMapper.animeName) {
+            const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfoForMapper.animeName, 'disqus');
+            const mapperEpisode = mappedEpisodeNum ?? rawEpisodeNum;
+            if (mapperData?.results?.length && Number.isFinite(mapperEpisode)) {
+              const desired = String(mapperEpisode);
+              for (const entry of mapperData.results) {
+                const maybeUrl = entry?.episodes?.[desired] || entry?.episodes?.[Number(desired)];
+                if (!maybeUrl) continue;
+                const mappedThread = (await findThreadByLink(animeInfo, maybeUrl)) || buildDisqusThreadFromUrl(maybeUrl);
+                if (mappedThread) {
+                  const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
+                  cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
+                  await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
+                  await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
+                  return;
                 }
               }
             }

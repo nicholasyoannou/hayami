@@ -31,7 +31,6 @@ import {
   fetchCrunchyrollSeasons,
   getCrunchyrollAccessToken,
 } from './net/crunchyroll-client';
-import { isReleaseDateToday } from './utils/date-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { resolveAdapter } from './adapters/site-registry';
 
@@ -1108,12 +1107,6 @@ export async function tryMapperFailover(
       episodeOverride,
     });
 
-    // For Disqus, bypass Hayami mapper on same-day airings and let native Disqus lookup run instead.
-    if (platform === 'disqus' && isReleaseDateToday(animeInfo?.releaseDate)) {
-      console.log('[Mapper Failover] Skipping mapper for Disqus because release is today');
-      return null;
-    }
-
     // If we are not on a Crunchyroll watch URL (e.g., animepahe), skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.
     const extractEpisodeFromInfo = (): number | null => {
@@ -1319,6 +1312,7 @@ export async function tryMapperFailover(
       console.log('[Episode Detection] Final desired mapper keys after conversion:', Array.from(desiredKeys));
 
       let mapperUrl: string | null = null;
+      let movieFallbackUrl: string | null = null;
       const isDisqus = platform === 'disqus';
       const keyedCandidates: Array<{ idx: number; url: string; year: number | null }> = [];
 
@@ -1326,7 +1320,8 @@ export async function tryMapperFailover(
         const res = results[idx];
         if (!res) continue;
         if (res.year === 'movies' && Array.isArray(res.movies) && res.movies.length > 0) {
-          return res.movies[0];
+          if (!movieFallbackUrl) movieFallbackUrl = res.movies[0];
+          continue;
         }
         const eps = res.episodes;
         if (eps && typeof eps === 'object' && Object.keys(eps).length > 0) {
@@ -1360,6 +1355,11 @@ export async function tryMapperFailover(
           return a.idx - b.idx; // otherwise prefer lower idx (mapper preference)
         });
         mapperUrl = keyedCandidates[0].url;
+      }
+
+      // Only use movie URL when no episodic mapping could be resolved.
+      if (!mapperUrl && movieFallbackUrl) {
+        mapperUrl = movieFallbackUrl;
       }
 
       // Do not call direct Disqus search from mapper failover.
