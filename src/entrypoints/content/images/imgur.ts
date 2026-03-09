@@ -112,6 +112,10 @@ export function applyImgurOdsUrl(rawUrl: string, provider: ImgurOdsOption): stri
       return `https://demo.flyimg.io/upload/q_100/${rawUrl}`;
     }
 
+    if (provider === 'swisscows') {
+      return `https://cdn.swisscows.com/image?url=${encodeURIComponent(rawUrl)}`;
+    }
+
     return rawUrl;
   } catch {
     return rawUrl;

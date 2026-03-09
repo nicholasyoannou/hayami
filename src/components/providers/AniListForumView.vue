@@ -290,6 +290,9 @@ const renderComment = (body?: string): string => {
       if (imgurOds.value === 'flyimg') {
         return `https://demo.flyimg.io/upload/q_100/${url}`;
       }
+      if (imgurOds.value === 'swisscows') {
+        return `https://cdn.swisscows.com/image?url=${encodeURIComponent(url)}`;
+      }
     }
     return url;
   };

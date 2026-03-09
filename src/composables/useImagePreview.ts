@@ -433,6 +433,7 @@ function isImageLink(href: string): boolean {
     // ignore
   }
   if (/images\.duckduckgo\.com\/iu\//i.test(href)) return true;
+  if (/cdn\.swisscows\.com\/image\?/i.test(href)) return true;
   return /\.(png|jpe?g|gif|webp|bmp|svg)(?:\?|#|$)/i.test(href);
 }
 

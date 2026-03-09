@@ -255,11 +255,12 @@ const settingDefinitions: SettingDefinition[] = [
       { value: 'imgur', label: 'Imgur' },
       { value: 'duckduckgo', label: 'DuckDuckGo' },
       { value: 'flyimg', label: 'flyimg' },
+      { value: 'swisscows', label: 'Swisscows' },
     ],
     fallback: 'imgur',
     load: async () => {
       const value = await imgurOdsItem.getValue();
-      return value === 'duckduckgo' || value === 'flyimg' || value === 'imgur' ? value : 'imgur';
+      return value === 'duckduckgo' || value === 'flyimg' || value === 'swisscows' || value === 'imgur' ? value : 'imgur';
     },
     save: (value) => imgurOdsItem.setValue(value),
     successMessage: (value) => `Imgur ODS set to ${value}`,

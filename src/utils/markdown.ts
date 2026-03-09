@@ -89,10 +89,10 @@ export function markdownToHtml(text: string): string {
 
   // Apply selected Imgur delivery mode for direct i.imgur.com URLs.
   // This remains synchronous by reading a session cache set by preview handlers.
-  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' => {
+  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' => {
     try {
       const raw = sessionStorage.getItem('ri-imgur-ods');
-      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'imgur') return raw;
+      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'swisscows' || raw === 'imgur') return raw;
     } catch {
       // ignore
     }
@@ -106,6 +106,8 @@ export function markdownToHtml(text: string): string {
         transformedUrl = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
       } else if (imgurOds === 'flyimg') {
         transformedUrl = `https://demo.flyimg.io/upload/q_100/${url}`;
+      } else if (imgurOds === 'swisscows') {
+        transformedUrl = `https://cdn.swisscows.com/image?url=${encodeURIComponent(url)}`;
       }
       return `<img ${attrs.replace(/src=["'][^"']+["']/, `src="${transformedUrl}"`)} loading="lazy" />`;
     }
