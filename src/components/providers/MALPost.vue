@@ -103,6 +103,18 @@ onUnmounted(() => {
   max-width: 100%;
 }
 
+.ri-mal-signature :deep(table.ri-mal-table) {
+  border-collapse: collapse;
+  border-spacing: 0;
+  max-width: 100%;
+}
+
+.ri-mal-signature :deep(table.ri-mal-table td),
+.ri-mal-signature :deep(table.ri-mal-table th) {
+  vertical-align: top;
+  padding: 0;
+}
+
 :deep(.ri-mal-body img.userimg),
 .ri-mal-signature :deep(img.userimg) {
   max-width: 100%;

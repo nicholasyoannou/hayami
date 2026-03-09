@@ -166,6 +166,26 @@ export function bbcodeToHtml(input: string): string {
     }],
     [/\[url=(.+?)\](.*?)\[\/url\]/gis, '<a href="$1" target="_blank" rel="noopener">$2</a>'],
     [/\[url\](.*?)\[\/url\]/gis, '<a href="$1" target="_blank" rel="noopener">$1</a>'],
+    [/\[table(?:=[^\]]*)?\]/gi, '<table class="ri-mal-table"><tbody>'],
+    [/\[\/table\]/gi, '</tbody></table>'],
+    [/\[tr(?:=[^\]]*)?\]/gi, '<tr>'],
+    [/\[\/tr\]/gi, '</tr>'],
+    [/\[td(?:=([^\]]+))?\]/gi, (_m: string, align: string) => {
+      const normalizedAlign = typeof align === 'string' ? align.trim().toLowerCase() : '';
+      const alignStyle = normalizedAlign && /^(left|center|right)$/.test(normalizedAlign)
+        ? ` style="text-align:${normalizedAlign};"`
+        : '';
+      return `<td${alignStyle}>`;
+    }],
+    [/\[\/td\]/gi, '</td>'],
+    [/\[th(?:=([^\]]+))?\]/gi, (_m: string, align: string) => {
+      const normalizedAlign = typeof align === 'string' ? align.trim().toLowerCase() : '';
+      const alignStyle = normalizedAlign && /^(left|center|right)$/.test(normalizedAlign)
+        ? ` style="text-align:${normalizedAlign};"`
+        : '';
+      return `<th${alignStyle}>`;
+    }],
+    [/\[\/th\]/gi, '</th>'],
     [/\[list\](.*?)\[\/list\]/gis, '<ul>$1</ul>'],
     [/\[list=1\](.*?)\[\/list\]/gis, '<ol>$1</ol>'],
     [/\[\*\](.*?)(?=(\[\*\]|<\/ul>|<\/ol>|$))/gis, '<li>$1</li>'],
