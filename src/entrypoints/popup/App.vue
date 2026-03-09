@@ -1146,7 +1146,7 @@ function handleAniListLogout() {
                       <div v-else-if="setting.description" class="flex-1">
                         <p class="text-xs text-white/60">{{ setting.description }}</p>
                       </div>
-                      <div class="shrink-0">
+                      <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
                         <template v-if="setting.type === 'select'">
                           <select
                             class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
@@ -1264,7 +1264,7 @@ function handleAniListLogout() {
                           <div v-else-if="setting.description" class="flex-1">
                             <p class="text-xs text-white/60">{{ setting.description }}</p>
                           </div>
-                          <div class="shrink-0">
+                          <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
                             <template v-if="setting.type === 'select'">
                               <select
                                 class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
@@ -1514,7 +1514,7 @@ function handleAniListLogout() {
                           <div v-else-if="setting.description" class="flex-1">
                             <p class="text-xs text-white/60">{{ setting.description }}</p>
                           </div>
-                          <div class="shrink-0">
+                          <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
                             <template v-if="setting.type === 'select'">
                               <select
                                 class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"

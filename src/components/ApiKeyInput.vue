@@ -103,6 +103,7 @@ const handleKeydown = (event: KeyboardEvent) => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
 }
 
 .api-key-input__label {
@@ -142,17 +143,18 @@ const handleKeydown = (event: KeyboardEvent) => {
 .api-key-input__container {
   display: flex;
   gap: 8px;
+  width: 100%;
 }
 
 .api-key-input__field {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   padding: 8px 12px;
   font-size: 14px;
   color: white;
   border: 1px solid transparent;
-  transition: all 0.2s ease;
 }
 
 .api-key-input__field::placeholder {
@@ -160,8 +162,8 @@ const handleKeydown = (event: KeyboardEvent) => {
 }
 
 .api-key-input__field:focus {
-  outline: 2px solid rgba(255, 255, 255, 0.3);
-  outline-offset: -2px;
+  outline: none;
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .api-key-input__field:disabled {
@@ -170,6 +172,8 @@ const handleKeydown = (event: KeyboardEvent) => {
 }
 
 .api-key-input__save-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.15);
   padding: 8px 12px;

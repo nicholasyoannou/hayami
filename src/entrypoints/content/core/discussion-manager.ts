@@ -546,6 +546,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
   const allowConcurrent = options?.allowConcurrent === true;
   const currentState = state();
   const searchAlreadyRunning = currentState.searchInProgress;
+  let handoffLoadingToProvider = false;
 
   try {
     const discussionStore = useDiscussionStore();
@@ -688,6 +689,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     // If the user's preferred provider is not Reddit, do not do any Reddit work
     // in the background. Mount the UI and let the provider manager handle fetching.
     if (preferredProvider !== 'reddit' && guardProviders) {
+      // Non-Reddit providers own loading state and clear it after provider fetch completes.
+      handoffLoadingToProvider = true;
       await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
       return;
     }
@@ -860,7 +863,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     if (!searchAlreadyRunning) {
       setSearchInProgress(false);
     }
-    useDiscussionStore().clearLoading();
+    if (!handoffLoadingToProvider) {
+      useDiscussionStore().clearLoading();
+    }
   }
 }
 

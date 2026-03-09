@@ -10,6 +10,12 @@ const props = defineProps<{
   result: MalForumResult;
   animeTitle: string;
   topicId?: number | string;
+  wrongAnimeContext?: {
+    animeName?: string;
+    mappingAnimeName?: string;
+    malId?: number | null;
+    crEpisodeNum?: number;
+  };
   bbcodeToHtml: (input: string) => string;
 }>();
 
@@ -50,6 +56,22 @@ const authorText = computed(() => {
   const topic = selectedTopic.value;
   return topic?.author?.name ? `by ${escapeHtml(topic.author.name)}` : '';
 });
+
+function handleWrongAnimeClick(event: Event) {
+  event.preventDefault();
+  event.stopPropagation();
+  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+    detail: {
+      provider: 'mal',
+      animeInfo: {
+        animeName: props.wrongAnimeContext?.animeName || props.animeTitle,
+        malId: props.wrongAnimeContext?.malId ?? null,
+      },
+      mappingAnimeName: props.wrongAnimeContext?.mappingAnimeName,
+      crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+    },
+  }));
+}
 
 // Infinite scroll
 let observer: IntersectionObserver | null = null;
@@ -140,7 +162,7 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
     </div>
     
     <!-- Open on MAL link -->
-    <div style="margin-bottom:12px;">
+    <div style="margin-bottom:12px; display:flex; align-items:center; gap:12px;">
       <a 
         :href="topicUrl" 
         target="_blank" 
@@ -149,6 +171,13 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
       >
         Open on MyAnimeList
       </a>
+      <button
+        type="button"
+        class="ri-mal-wrong-anime"
+        @click="handleWrongAnimeClick"
+      >
+        Wrong anime?
+      </button>
     </div>
     
     <!-- Posts section -->
@@ -208,5 +237,21 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
 
 .ri-mal-posts {
   position: relative;
+}
+
+.ri-mal-wrong-anime {
+  appearance: none;
+  border: 1px solid #4f6078;
+  background: #141b28;
+  color: #c7dbff;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.ri-mal-wrong-anime:hover {
+  background: #1b2739;
+  border-color: #6482a8;
 }
 </style>

@@ -103,25 +103,49 @@ onUnmounted(() => {
   max-width: 100%;
 }
 
-.ri-mal-signature :deep(img) {
-  display: inline-block;
-  max-height: 110px;
-  height: 110px;
-  width: auto;
-  margin-right: 4px;
+:deep(.ri-mal-body img.userimg),
+.ri-mal-signature :deep(img.userimg) {
+  max-width: 100%;
+  height: auto;
   vertical-align: middle;
 }
 
+:deep(.ri-mal-body img.userimg:not(.img-a-l):not(.img-a-r)),
+.ri-mal-signature :deep(img.userimg:not(.img-a-l):not(.img-a-r)) {
+  display: block;
+}
+
+:deep(.ri-mal-body div[style*="text-align:center"] img.userimg),
+.ri-mal-signature :deep(div[style*="text-align:center"] img.userimg) {
+  display: inline-block;
+}
+
+:deep(.ri-mal-body img.img-a-l),
+.ri-mal-signature :deep(img.img-a-l) {
+  float: left;
+  padding-right: 8px;
+  padding-top: 4px;
+}
+
+:deep(.ri-mal-body img.img-a-r),
+.ri-mal-signature :deep(img.img-a-r) {
+  float: right;
+  padding-left: 8px;
+  padding-top: 4px;
+}
+
 .ri-mal-signature :deep(br) {
-  display: none;
+  display: block;
 }
 
 :deep(blockquote.ri-mal-quote) {
-  border-left: 3px solid #3b82f6;
-  margin: 8px 0;
-  padding: 8px 12px;
-  background: #0f0f0f;
-  border-radius: 6px;
+  background-color: #151515;
+  margin: 0;
+  margin-bottom: 5px;
+  margin-left: 10px;
+  margin-top: 5px;
+  border: 1px solid #2b2b2b;
+  padding: 5px;
 }
 
 :deep(.ri-mal-quote__header) {

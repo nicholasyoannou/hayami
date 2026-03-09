@@ -208,7 +208,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       const selectedEpisode = Number(ev?.detail?.episodeNumber);
       const redditUrl = ev?.detail?.redditUrl as string | undefined;
       const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
-      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist')
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist' || providerFromEvent === 'mal')
         ? providerFromEvent
         : 'reddit';
       const selectedAnimeName = typeof ev?.detail?.selectedAnimeName === 'string'
@@ -231,7 +231,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
-        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist');
+        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal');
         toast.success(`Saved episode mapping: current=${currentEp}, ${mappingPlatform}=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
         toast.error('Could not determine current episode to save mapping');
@@ -242,10 +242,10 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         if (postData) {
           await displayDiscussionDependingOnMode(postData);
         }
-      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity' || mappingPlatform === 'disqus' || mappingPlatform === 'anilist') && getState().lastAnimeInfo) {
+      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity' || mappingPlatform === 'disqus' || mappingPlatform === 'anilist' || mappingPlatform === 'mal') && getState().lastAnimeInfo) {
         // Re-run resolution immediately so the newly saved mapping takes effect.
         await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
-          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist',
+          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal',
           allowConcurrent: true,
         });
       }
@@ -258,7 +258,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   ctx.addEventListener(window, 'ri-reset-episode-mapping', async (ev: any) => {
     try {
       const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
-      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist')
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist' || providerFromEvent === 'mal')
         ? providerFromEvent
         : 'reddit';
 
@@ -270,7 +270,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
       const removed = await deleteSeriesMapping(
         animeName,
-        mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist',
+        mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal',
       );
 
       if (!removed) {
@@ -285,7 +285,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
           await searchAndDisplayDiscussion(getState().lastAnimeInfo!, { allowConcurrent: true });
         } else {
           await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
-            forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist',
+            forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal',
             allowConcurrent: true,
           });
         }

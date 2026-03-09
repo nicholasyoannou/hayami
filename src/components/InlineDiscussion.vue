@@ -16,7 +16,7 @@ import { useDiscussionStore } from '@/store/discussion';
 import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem } from '@/config/storage';
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
-type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'disqus';
+type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'disqus' | 'mal';
 
 interface AniListSearchMedia {
   id: number;
@@ -25,6 +25,14 @@ interface AniListSearchMedia {
   nextAiringEpisode: number | null;
   seasonYear: number | null;
   status: string | null;
+  coverImage: string | null;
+}
+
+interface MalSearchMedia {
+  id: number;
+  title: string;
+  episodes: number | null;
+  seasonYear: number | null;
   coverImage: string | null;
 }
 
@@ -183,7 +191,7 @@ const manualEpisodeLoading = ref(false);
 const manualEpisodeError = ref<string | null>(null);
 const manualEpisodeSelected = ref<number | null>(null);
 const manualEpisodeProvider = ref<ManualEpisodeProvider>('reddit');
-const manualEpisodeContext = ref<{ animeName?: string; crEpisodeNum?: number | null; anilistId?: number | null }>({ animeName: undefined, crEpisodeNum: null, anilistId: null });
+const manualEpisodeContext = ref<{ animeName?: string; crEpisodeNum?: number | null; anilistId?: number | null; malId?: number | null }>({ animeName: undefined, crEpisodeNum: null, anilistId: null, malId: null });
 const manualEpisodeResolvedName = ref<string | null>(null);
 const wrongAnimeOpen = ref(false);
 const wrongAnimeQuery = ref('');
@@ -191,12 +199,14 @@ const wrongAnimeResults = ref<Array<any | AniListSearchMedia>>([]);
 const wrongAnimeLoading = ref(false);
 const wrongAnimeError = ref<string | null>(null);
 const animeCommunityMedia = ref<AniListSearchMedia | null>(null);
+const malManualMedia = ref<MalSearchMedia | null>(null);
 let wrongAnimeDebounceHandle: ReturnType<typeof setTimeout> | null = null;
 
 const manualEpisodeProviderLabel = computed(() => {
   if (manualEpisodeProvider.value === 'aniwave') return 'Aniwave';
   if (manualEpisodeProvider.value === 'animecommunity') return 'Anime Community';
   if (manualEpisodeProvider.value === 'anilist') return 'AniList';
+  if (manualEpisodeProvider.value === 'mal') return 'MyAnimeList';
   if (manualEpisodeProvider.value === 'disqus') return 'Disqus';
   return 'Reddit';
 });
@@ -204,12 +214,14 @@ const isAniwaveManualMode = computed(() => manualEpisodeProvider.value === 'aniw
 const isAniListEpisodeManualMode = computed(
   () => manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist',
 );
+const isMalEpisodeManualMode = computed(() => manualEpisodeProvider.value === 'mal');
 const isEpisodeOnlyManualMode = computed(() => manualEpisodeProvider.value !== 'reddit');
 
 function resolveManualEpisodeProvider(provider?: Provider | string | null): ManualEpisodeProvider {
   if (provider === 'aniwave') return 'aniwave';
   if (provider === 'animecommunity') return 'animecommunity';
   if (provider === 'anilist') return 'anilist';
+  if (provider === 'mal') return 'mal';
   if (provider === 'disqus') return 'disqus';
   return 'reddit';
 }
@@ -326,6 +338,86 @@ async function fetchAniListMediaById(anilistId: number): Promise<AniListSearchMe
   return normalizeAniListMedia(payload?.data?.Media);
 }
 
+function normalizeMalMedia(media: any): MalSearchMedia | null {
+  const id = Number(media?.mal_id ?? media?.id);
+  if (!Number.isFinite(id)) return null;
+
+  const title = typeof media?.title === 'string' && media.title.trim()
+    ? media.title.trim()
+    : typeof media?.title_english === 'string' && media.title_english.trim()
+      ? media.title_english.trim()
+      : 'Unknown title';
+  const episodesRaw = Number(media?.episodes);
+  const yearRaw = Number(media?.year);
+  const coverImage =
+    typeof media?.images?.jpg?.large_image_url === 'string' ? media.images.jpg.large_image_url
+      : typeof media?.images?.jpg?.image_url === 'string' ? media.images.jpg.image_url
+        : null;
+
+  return {
+    id,
+    title,
+    episodes: Number.isFinite(episodesRaw) && episodesRaw > 0 ? episodesRaw : null,
+    seasonYear: Number.isFinite(yearRaw) ? yearRaw : null,
+    coverImage,
+  };
+}
+
+async function searchMalMedia(queryText: string): Promise<MalSearchMedia[]> {
+  const trimmed = queryText.trim();
+  if (!trimmed) return [];
+
+  const url = new URL('https://api.jikan.moe/v4/anime');
+  url.searchParams.set('q', trimmed);
+  url.searchParams.set('limit', '8');
+
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`MAL search failed (${response.status})`);
+  }
+
+  const payload = await response.json();
+  const entries = Array.isArray(payload?.data) ? payload.data : [];
+  return entries
+    .map((entry: any) => normalizeMalMedia(entry))
+    .filter((entry: MalSearchMedia | null): entry is MalSearchMedia => !!entry);
+}
+
+async function fetchMalMediaById(malId: number): Promise<MalSearchMedia | null> {
+  const url = `https://api.jikan.moe/v4/anime/${malId}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`MAL lookup failed (${response.status})`);
+  }
+
+  const payload = await response.json();
+  return normalizeMalMedia(payload?.data);
+}
+
+function buildMalEpisodeOptions(media: MalSearchMedia): Array<{ episode: number; url: string }> {
+  const upperBound = media.episodes ?? null;
+  if (!upperBound || upperBound <= 0) return [];
+
+  const safeUpperBound = Math.min(upperBound, 2000);
+  const out: Array<{ episode: number; url: string }> = [];
+  for (let ep = 1; ep <= safeUpperBound; ep += 1) {
+    out.push({ episode: ep, url: '' });
+  }
+  return out;
+}
+
 function buildAnimeCommunityEpisodeOptions(media: AniListSearchMedia): Array<{ episode: number; url: string }> {
   const upperBound = media.episodes ?? media.nextAiringEpisode ?? null;
   if (!upperBound || upperBound <= 0) return [];
@@ -418,7 +510,7 @@ const filteredDisqusSearchResults = computed(() => {
 
 function openManualSearchModal(
   initialQuery?: string,
-  context?: { animeName?: string; crEpisodeNum?: number | null; provider?: Provider; anilistId?: number | null; mappingAnimeName?: string },
+  context?: { animeName?: string; crEpisodeNum?: number | null; provider?: Provider; anilistId?: number | null; malId?: number | null; mappingAnimeName?: string },
   initialTab: 'search' | 'episode' = 'episode'
 ) {
   const resolvedProvider = resolveManualEpisodeProvider(context?.provider || currentProvider.value);
@@ -437,6 +529,7 @@ function openManualSearchModal(
   wrongAnimeResults.value = [];
   wrongAnimeError.value = null;
   animeCommunityMedia.value = null;
+  malManualMedia.value = null;
   if (wrongAnimeDebounceHandle) {
     clearTimeout(wrongAnimeDebounceHandle);
     wrongAnimeDebounceHandle = null;
@@ -445,6 +538,7 @@ function openManualSearchModal(
     animeName: context?.animeName,
     crEpisodeNum: context?.crEpisodeNum ?? null,
     anilistId: context?.anilistId ?? null,
+    malId: context?.malId ?? null,
   };
   manualMappingAnimeName.value = (context?.mappingAnimeName || context?.animeName || '').trim() || null;
   void refreshManualMappingExists();
@@ -514,8 +608,39 @@ async function loadEpisodeOptions() {
       populatedFromMapper = true;
     }
 
+    if (manualEpisodeProvider.value === 'mal') {
+      let media = malManualMedia.value;
+
+      if (!media && Number.isFinite(Number(manualEpisodeContext.value.malId))) {
+        media = await fetchMalMediaById(Number(manualEpisodeContext.value.malId));
+      }
+
+      if (!media && manualEpisodeContext.value.animeName) {
+        const results = await searchMalMedia(manualEpisodeContext.value.animeName);
+        media = results[0] || null;
+      }
+
+      if (!media) {
+        manualEpisodeError.value = 'No MAL match found. Try Wrong anime? and search manually.';
+        return;
+      }
+
+      malManualMedia.value = media;
+      manualEpisodeResolvedName.value = media.title;
+      manualEpisodeContext.value.animeName = media.title;
+      manualEpisodeContext.value.malId = media.id;
+      manualEpisodeOptions.value = buildMalEpisodeOptions(media);
+
+      if (manualEpisodeOptions.value.length === 0) {
+        manualEpisodeError.value = 'MAL does not expose a fixed episode count for this title yet.';
+        return;
+      }
+
+      populatedFromMapper = true;
+    }
+
     // Prefer Hayami mapper episodes when we know the anime name.
-    const cleanedSeries = (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist')
+    const cleanedSeries = (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist' || manualEpisodeProvider.value === 'mal')
       ? undefined
       : cleanSeriesForMapper(manualEpisodeContext.value.animeName);
     if (cleanedSeries) {
@@ -524,7 +649,7 @@ async function loadEpisodeOptions() {
         : manualEpisodeProvider.value === 'disqus'
           ? 'disqus'
           : 'reddit';
-      const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, mapperPlatform, { preserveSeasonSuffix: true });
+      const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, mapperPlatform);
       if (mapper && Array.isArray((mapper as any).results) && (mapper as any).results.length > 0) {
         const results: any[] = (mapper as any).results;
         const allIndices = results.map((_, idx) => idx);
@@ -626,13 +751,22 @@ async function searchWrongAnime() {
       return;
     }
 
+    if (manualEpisodeProvider.value === 'mal') {
+      const results = await searchMalMedia(q);
+      wrongAnimeResults.value = results;
+      if (results.length === 0) {
+        wrongAnimeError.value = 'No MAL matches found.';
+      }
+      return;
+    }
+
     const cleaned = cleanSeriesForMapper(q) || q;
     const mapperPlatform = manualEpisodeProvider.value === 'aniwave'
       ? 'aniwave'
       : manualEpisodeProvider.value === 'disqus'
         ? 'disqus'
         : 'reddit';
-    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, mapperPlatform, { preserveSeasonSuffix: true });
+    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, mapperPlatform);
     const results: any[] = (mapper as any)?.results || [];
     wrongAnimeResults.value = Array.isArray(results) ? results : [];
     if (wrongAnimeResults.value.length === 0) {
@@ -663,6 +797,21 @@ function selectWrongAnime(result: any) {
     return;
   }
 
+  if (manualEpisodeProvider.value === 'mal') {
+    const media = result as MalSearchMedia;
+    malManualMedia.value = media;
+    const name = media.title || wrongAnimeQuery.value.trim();
+    manualEpisodeContext.value.animeName = name;
+    manualEpisodeContext.value.malId = media.id;
+    manualEpisodeResolvedName.value = name;
+    wrongAnimeOpen.value = false;
+    wrongAnimeResults.value = [];
+    wrongAnimeError.value = null;
+    wrongAnimeQuery.value = name;
+    void loadEpisodeOptions();
+    return;
+  }
+
   const name = getMapperResultDisplayName(result) || wrongAnimeQuery.value.trim();
   manualEpisodeContext.value.animeName = name;
   manualEpisodeResolvedName.value = name;
@@ -674,7 +823,7 @@ function selectWrongAnime(result: any) {
 }
 
 watch([wrongAnimeQuery, manualEpisodeProvider, wrongAnimeOpen], ([query, provider, isOpen]) => {
-  if ((provider !== 'animecommunity' && provider !== 'anilist') || !isOpen) {
+  if ((provider !== 'animecommunity' && provider !== 'anilist' && provider !== 'mal') || !isOpen) {
     if (wrongAnimeDebounceHandle) {
       clearTimeout(wrongAnimeDebounceHandle);
       wrongAnimeDebounceHandle = null;
@@ -714,9 +863,9 @@ const manualMappingAnimeName = ref<string | null>(null);
 const manualMappingExists = ref(false);
 const manualResetInProgress = ref(false);
 
-function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' {
+function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' {
   const provider = manualEpisodeProvider.value;
-  if (provider === 'disqus' || provider === 'aniwave' || provider === 'animecommunity' || provider === 'anilist') {
+  if (provider === 'disqus' || provider === 'aniwave' || provider === 'animecommunity' || provider === 'anilist' || provider === 'mal') {
     return provider;
   }
   return 'reddit';
@@ -1335,6 +1484,7 @@ onMounted(() => {
       crEpisodeNum,
       provider,
       anilistId: animeInfo?.anilistId,
+      malId: animeInfo?.malId,
       mappingAnimeName: mappingAnimeName || fallbackAnimeName || undefined,
     });
   };
@@ -1428,11 +1578,6 @@ watch(
     if (marker && marker !== lastDiscussionId.value) {
       lastDiscussionId.value = marker;
       redditCommentsKey.value++;
-    }
-
-    const hasReddit = discussion.permalink || discussion.subreddit || discussion.fullname || discussion.id;
-    if (hasReddit && discussion.permalink && currentProvider.value !== 'reddit') {
-      currentProvider.value = 'reddit';
     }
   },
   { deep: false, immediate: true }
@@ -1822,7 +1967,7 @@ defineExpose({
       <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
           <h3 class="text-lg font-semibold text-white">
-            {{ isAniwaveManualMode ? 'Aniwave episode mapping' : (manualEpisodeProvider === 'animecommunity' ? 'Anime Community episode mapping' : (manualEpisodeProvider === 'anilist' ? 'AniList episode mapping' : 'Manual search & episode select')) }}
+            {{ isAniwaveManualMode ? 'Aniwave episode mapping' : (manualEpisodeProvider === 'animecommunity' ? 'Anime Community episode mapping' : (manualEpisodeProvider === 'anilist' ? 'AniList episode mapping' : (manualEpisodeProvider === 'mal' ? 'MyAnimeList episode mapping' : 'Manual search & episode select'))) }}
           </h3>
           <button
             class="text-[#aaa] hover:text-white"
@@ -1909,7 +2054,7 @@ defineExpose({
           </div>
 
           <div v-if="wrongAnimeOpen" class="rounded-lg border border-[#2f2f2f] bg-[#0f0f0f] p-3 text-xs text-white/80 space-y-2">
-            <div class="text-[#ccc]">{{ isAniListEpisodeManualMode ? 'Search AniList for the correct series.' : 'Search Hayami for the correct series.' }}</div>
+            <div class="text-[#ccc]">{{ isAniListEpisodeManualMode ? 'Search AniList for the correct series.' : (isMalEpisodeManualMode ? 'Search MyAnimeList for the correct series.' : 'Search Hayami for the correct series.') }}</div>
             <div class="flex gap-2">
               <input
                 v-model="wrongAnimeQuery"
@@ -1923,10 +2068,10 @@ defineExpose({
                 @click="searchWrongAnime"
                 :disabled="wrongAnimeLoading"
               >
-                {{ wrongAnimeLoading ? 'Searching...' : (isAniListEpisodeManualMode ? 'Search now' : 'Search') }}
+                {{ wrongAnimeLoading ? 'Searching...' : ((isAniListEpisodeManualMode || isMalEpisodeManualMode) ? 'Search now' : 'Search') }}
               </button>
             </div>
-            <div v-if="isAniListEpisodeManualMode" class="text-[11px] text-[#88a5c4]">Live search runs automatically while you type.</div>
+            <div v-if="isAniListEpisodeManualMode || isMalEpisodeManualMode" class="text-[11px] text-[#88a5c4]">Live search runs automatically while you type.</div>
             <div v-if="wrongAnimeError" class="text-red-400">{{ wrongAnimeError }}</div>
             <div v-else-if="wrongAnimeLoading" class="text-[#ccc]">Searching...</div>
             <ul v-else-if="wrongAnimeResults.length" class="space-y-2 max-h-[180px] overflow-y-auto styled-scroll">
@@ -1935,7 +2080,7 @@ defineExpose({
                 :key="idx"
                 class="p-2 border border-[#262626] rounded-lg bg-[#0b0b0b] flex items-center justify-between gap-2"
               >
-                <template v-if="isAniListEpisodeManualMode">
+                <template v-if="isAniListEpisodeManualMode || isMalEpisodeManualMode">
                   <div class="flex items-center gap-2 min-w-0">
                     <img
                       v-if="item.coverImage"
