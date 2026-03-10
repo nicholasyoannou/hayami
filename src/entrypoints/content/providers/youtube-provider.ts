@@ -11,7 +11,8 @@ import { extractEpisodeNumber } from '@/utils/redditApi';
 import { extractEpisodeIdFromUrl, fetchCrunchyrollEpisodeMetadata } from '../mapping';
 import { createApp } from 'vue';
 import YouTubeCommentList from '@/components/comments/YouTubeCommentList.vue';
-import { handleProviderError, handleAuthError } from '../utils/error-handler';
+import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
+import { handleProviderError } from '../utils/error-handler';
 import { 
   DISQUS_CONTAINER_RETRY_ATTEMPTS, 
   DISQUS_CONTAINER_RETRY_DELAY_MS,
@@ -53,7 +54,18 @@ export class YouTubeProvider extends BaseProvider {
     // Check authentication first
     const isAuth = await isYouTubeAuthenticated();
     if (!isAuth) {
-      handleAuthError('YouTube');
+      const container = await this.getContainerWithRetry(
+        getExternalCommentsContainer,
+        DISQUS_CONTAINER_RETRY_ATTEMPTS,
+        DISQUS_CONTAINER_RETRY_DELAY_MS,
+      );
+      safeClear(container);
+
+      const app = createApp(ProviderAuthRequired, {
+        provider: 'youtube',
+        providerLabel: 'YouTube',
+      });
+      app.mount(container);
       clearLoadingState('YouTube not authenticated');
       return;
     }

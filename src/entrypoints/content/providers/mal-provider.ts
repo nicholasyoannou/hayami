@@ -10,7 +10,7 @@ import { extractEpisodeNumber } from '@/utils/redditApi';
 import { createApp } from 'vue';
 import MALForumView from '@/components/providers/MALForumView.vue';
 import { bbcodeToHtml } from '../parsers/bbcode';
-import { handleProviderError, handleAuthError, handleApiError } from '../utils/error-handler';
+import { handleProviderError, handleApiError } from '../utils/error-handler';
 import { toast } from 'vue-sonner';
 import { 
   DISQUS_CONTAINER_RETRY_ATTEMPTS, 
@@ -104,29 +104,33 @@ export class MalProvider extends BaseProvider {
       }
 
       let postsResult: any = null;
+      let postsStatus: string | undefined;
       if (forumResult?.selectedTopic?.id) {
         postsResult = await fetchMalTopicPosts(forumResult.selectedTopic.id);
+        postsStatus = postsResult?.status;
         if (postsResult?.status === 'auth_required') {
           postsResult = null;
         }
       }
 
+      const effectiveStatus = postsStatus === 'auth_required'
+        ? 'auth_required'
+        : forumResult.status;
+
       // Cache the result
       discussionCache.mal = {
         topics: forumResult.topics,
         selectedTopic: forumResult.selectedTopic,
-        status: forumResult.status,
+        status: effectiveStatus,
         retryAfterSeconds: forumResult.retryAfterSeconds,
         posts: postsResult?.posts,
         nextPageUrl: postsResult?.nextPageUrl ?? null,
       };
 
       // Show appropriate messages
-      if (forumResult.status === 'auth_required') {
-        handleAuthError('MAL');
-      } else if (forumResult.status === 'rate_limited') {
+      if (effectiveStatus === 'rate_limited') {
         handleApiError(new Error('MAL rate limit'), 'MAL', forumResult.retryAfterSeconds);
-      } else if (forumResult.status === 'no_topic') {
+      } else if (effectiveStatus === 'no_topic') {
         toast('No MAL forum topic found', { description: 'No episode thread located for this episode.' });
       }
 
@@ -147,6 +151,7 @@ export class MalProvider extends BaseProvider {
       const app = createApp(MALForumView, {
         result: {
           ...forumResult,
+          status: effectiveStatus,
           posts: postsResult?.posts,
           nextPageUrl: postsResult?.nextPageUrl ?? null,
         },

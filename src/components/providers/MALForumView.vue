@@ -5,6 +5,7 @@ import { fetchMalTopicPosts } from '@/utils/malForums';
 import MALPost from './MALPost.vue';
 import MALTopicList from './MALTopicList.vue';
 import { escapeHtml } from '@/utils/markdown';
+import ProviderAuthRequired from './ProviderAuthRequired.vue';
 
 const props = defineProps<{
   result: MalForumResult;
@@ -135,9 +136,11 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
 
 <template>
   <!-- Auth required state -->
-  <div v-if="result.status === 'auth_required'" style="padding:1rem; color:#f44;">
-    MAL authentication required. Please connect in the extension.
-  </div>
+  <ProviderAuthRequired
+    v-if="result.status === 'auth_required'"
+    provider="mal"
+    provider-label="MAL"
+  />
   
   <!-- Rate limited state -->
   <div v-else-if="result.status === 'rate_limited'" style="padding:1rem; color:#f0c040;">

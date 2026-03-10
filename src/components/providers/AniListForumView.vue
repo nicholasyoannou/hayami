@@ -5,6 +5,7 @@ import { fetchAniListThreadComments } from '@/utils/anilistForums';
 import { escapeHtml } from '@/utils/markdown';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { imgurOdsItem, type ImgurOdsOption } from '@/config/storage';
+import ProviderAuthRequired from './ProviderAuthRequired.vue';
 
 const props = defineProps<{
   result: AniListForumResult;
@@ -576,9 +577,11 @@ watch(() => props.result.pageInfo, (newInfo) => {
 </script>
 
 <template>
-  <div v-if="result.status === 'auth_required'" style="padding:1rem; color:#f44;">
-    AniList authentication required. Please connect in the extension.
-  </div>
+  <ProviderAuthRequired
+    v-if="result.status === 'auth_required'"
+    provider="anilist"
+    provider-label="AniList"
+  />
 
   <div v-else-if="result.status === 'no_thread' || !selectedThread" style="padding:1rem; color:#ccc;">
     No AniList forum thread found for {{ animeTitle }}.

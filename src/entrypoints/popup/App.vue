@@ -535,6 +535,14 @@ const settingValues = reactive<SettingValueMap>({
 
 const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));
 const redditClientConfigured = computed(() => Boolean((settingValues.redditClientId || '').trim()));
+const redditUsesCookieMode = computed(() => !redditClientConfigured.value);
+const redditCanLogin = computed(() => !getRedditAccount()?.isConnected);
+const redditDisplayStatus = computed(() => {
+  const account = getRedditAccount();
+  if (!account?.isConnected) return 'Not connected';
+  if (account.username) return `u/${account.username}`;
+  return 'Connected';
+});
 
 const activeSettingsCategory = computed(() =>
   settingsCategories.find((category) => category.id === selectedSettingsCategory.value),
@@ -927,6 +935,8 @@ async function applyInitialRouteParams() {
   const section = params.get('section');
   const originParam = params.get('customSiteOrigin');
   const openMapper = params.get('open') === 'mapper';
+  const authProvider = params.get('authProvider');
+  const authAction = params.get('authAction');
 
   if (originParam && openMapper) {
     await openSiteMapperForOrigin(originParam);
@@ -952,6 +962,19 @@ async function applyInitialRouteParams() {
     currentView.value = 'settings';
     selectedSettingsCategory.value = section === 'custom-sites' ? 'custom-sites' : section === 'discussion-platforms' ? 'discussion-platforms' : 'general';
     settingsScreen.value = section === 'custom-sites' ? 'custom-sites' : section === 'discussion-platforms' ? 'providers' : 'category';
+
+    const shouldAutoConnect =
+      section === 'discussion-platforms' &&
+      authAction === 'connect' &&
+      (authProvider === 'anilist' || authProvider === 'mal' || authProvider === 'youtube');
+
+    if (shouldAutoConnect) {
+      await refreshAllAccounts();
+      const account = getAccount(authProvider);
+      if (account?.requiresAuth && !account.isConnected) {
+        await getAccountActions(authProvider).connect();
+      }
+    }
   }
 }
 
@@ -976,10 +999,6 @@ function getAniListAccount() {
 async function handleLogin() {
   const actions = getAccountActions('reddit');
   try {
-    if (!redditClientConfigured.value) {
-      errorMessage.value = 'Add your Reddit Client ID in Settings -> Discussion platforms before logging in.';
-      return;
-    }
     await actions.connect();
   } catch (err) {
     errorMessage.value = err instanceof Error ? err.message : 'Failed to log in to Reddit.';
@@ -1090,7 +1109,7 @@ function handleAniListLogout() {
               <div class="space-y-3 text-base text-white/90">
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ getRedditAccount()?.isConnected ? `u/${getRedditAccount()?.username || 'your reddit'}` : 'Not connected' }}</div>
+                  <div class="truncate">{{ redditDisplayStatus }}</div>
                 </div>
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
@@ -1635,16 +1654,17 @@ function handleAniListLogout() {
                     <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
                     <div>
                       <p class="text-sm text-white/70">Reddit</p>
-                      <p class="text-base font-semibold">{{ getRedditAccount()?.isConnected ? `u/${getRedditAccount()?.username || 'connected'}` : 'Not connected' }}</p>
-                      <p v-if="!redditClientConfigured" class="text-xs text-amber-200">Add your Reddit Client ID in Settings -> Discussion platforms.</p>
+                      <p class="text-base font-semibold">{{ redditDisplayStatus }}</p>
+                      <p v-if="redditUsesCookieMode" class="text-xs text-white/70">Connected via browser session</p>
+                      <p v-else class="text-xs text-white/70">{{ getRedditAccount()?.isConnected ? 'Connected via Reddit (software-app)' : 'Login with Reddit (software-app)' }}</p>
                     </div>
                   </div>
                   <button
                     class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20 disabled:opacity-50"
-                    :disabled="anyAccountLoading || !redditClientConfigured"
-                    @click="getRedditAccount()?.isConnected ? handleLogout() : handleLogin()"
+                    :disabled="anyAccountLoading || (redditUsesCookieMode && !redditCanLogin)"
+                    @click="redditUsesCookieMode ? handleLogin() : (getRedditAccount()?.isConnected ? handleLogout() : handleLogin())"
                   >
-                    {{ redditClientConfigured ? (getRedditAccount()?.isConnected ? 'Logout' : 'Login') : 'Add client ID' }}
+                    {{ redditUsesCookieMode ? (redditCanLogin ? 'Login' : 'Connected') : (getRedditAccount()?.isConnected ? 'Logout' : 'Login') }}
                   </button>
                 </div>
 

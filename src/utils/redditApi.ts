@@ -248,6 +248,10 @@ export interface RedditCommentsResult {
   comments: RedditComment[];
   rootMoreChildrenIds: string[];
   linkFullname: string;
+  authRequired?: boolean;
+  authError?: string;
+  postTitle?: string;
+  postAuthor?: string;
 }
 
 interface RedditSearchResult {
@@ -477,10 +481,29 @@ export async function getSubredditEmojiMap(subreddit: string): Promise<Record<st
 
 export async function getPostComments(postId: string, sort: RedditCommentSort = 'confidence'): Promise<RedditCommentsResult> {
   try {
+    let authError: string | null = null;
+
+    const resolveAuthError = async (status: number): Promise<string> => {
+      let hasTokenCookie = false;
+      try {
+        const res = await browser.runtime.sendMessage({ action: 'hayami_checkRedditTokenCookie' });
+        hasTokenCookie = !!res?.loggedIn;
+      } catch {
+        // Keep fallback text if cookie check fails.
+      }
+
+      if (!hasTokenCookie) {
+        return `Reddit login required (${status}): missing reddit_session cookie.`;
+      }
+
+      return `Reddit login required (${status}): session appears logged in but re-authentication is needed.`;
+    };
+
     const emptyResult = (): RedditCommentsResult => ({
       comments: [],
       rootMoreChildrenIds: [],
       linkFullname: postId.startsWith('t3_') ? postId : `t3_${postId}`,
+      ...(authError ? { authRequired: true, authError } : {}),
     });
 
     if (!postId) {
@@ -514,6 +537,9 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
         if (oauthResp.ok) {
           devLog('[getPostComments] oauth-cookie fetch ok', { oauthUrl });
           return await oauthResp.json();
+        }
+        if (oauthResp.status === 401 || oauthResp.status === 403 || oauthResp.status === 429) {
+          authError = await resolveAuthError(oauthResp.status);
         }
         console.warn('[getPostComments] oauth-cookie fetch non-ok', { status: oauthResp.status, oauthUrl });
       } catch (e) {
@@ -549,6 +575,9 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
             devLog('[getPostComments] public fetch ok', { url });
             result = await resp.json();
           } else {
+            if (resp.status === 401 || resp.status === 403 || resp.status === 429) {
+              authError = await resolveAuthError(resp.status);
+            }
             console.warn('[getPostComments] public fetch non-ok', { status: resp.status, url });
           }
         } catch (e) {
@@ -565,10 +594,13 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
     // Reddit returns an array where [0] is the post, [1] is comments
     const postData = result[0];
     const commentsData = result[1];
+    const postListing = postData?.data?.children?.[0]?.data;
+    const postTitle = typeof postListing?.title === 'string' ? postListing.title : undefined;
+    const postAuthor = typeof postListing?.author === 'string' ? postListing.author : undefined;
     const linkFullname = (postData?.data?.children?.[0]?.data?.name as string | undefined) || (postId.startsWith('t3_') ? postId : `t3_${postId}`);
     if (!commentsData || !commentsData.data || !commentsData.data.children) {
       console.warn('[getPostComments] commentsData missing children', { postId, linkFullname });
-      return { comments: [], rootMoreChildrenIds: [], linkFullname };
+      return { comments: [], rootMoreChildrenIds: [], linkFullname, postTitle, postAuthor };
     }
 
     const children = commentsData.data.children || [];
@@ -580,7 +612,7 @@ export async function getPostComments(postId: string, sort: RedditCommentSort = 
       }
     }
     const comments = parseComments(children);
-    return { comments, rootMoreChildrenIds, linkFullname };
+    return { comments, rootMoreChildrenIds, linkFullname, postTitle, postAuthor };
   } catch (error) {
     console.error('Error fetching post comments:', error);
     return {
@@ -696,20 +728,41 @@ function parseComments(children: any[]): RedditComment[] {
  * @param linkFullname Fullname of the link (e.g., t3_abc123)
  * @param childrenIds Array of comment IDs to expand
  */
-export async function getMoreChildren(linkFullname: string, childrenIds: string[]): Promise<RedditComment[]> {
+type GetMoreChildrenOptions = {
+  sort?: RedditCommentSort;
+  subreddit?: string;
+  id?: string;
+};
+
+export async function getMoreChildren(
+  linkFullname: string,
+  childrenIds: string[],
+  options?: GetMoreChildrenOptions,
+): Promise<RedditComment[]> {
   try {
     if (!childrenIds || childrenIds.length === 0) return [];
     const token = await getAccessToken();
     const form = new URLSearchParams();
     form.set('api_type', 'json');
-    form.set('link_id', linkFullname);
+    form.set('link_id', linkFullname.startsWith('t3_') ? linkFullname : `t3_${linkFullname}`);
     form.set('children', childrenIds.join(','));
+
+    // Keep optional context fields accepted by callers.
+    if (options?.id) {
+      form.set('id', String(options.id));
+    }
+    if (options?.subreddit) {
+      form.set('r', String(options.subreddit).replace(/^r\//i, '').trim());
+    }
+    if (options?.sort) {
+      form.set('sort', String(options.sort));
+    }
 
     let resp: Response | null = null;
     if (token) {
       // Authenticated request via OAuth endpoint
       resp = await (async () => {
-          const r = await extensionFetch('https://oauth.reddit.com/api/morechildren', {
+        const r = await extensionFetch('https://oauth.reddit.com/api/morechildren', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -720,7 +773,7 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
         return { ok: r.ok, status: r.status, json: async () => await r.json() } as any;
       })();
     } else {
-      // Unauthenticated attempt: only hit oauth.reddit.com with cookies (no bearer).
+      // Cookie-session mode: keep the old working OAuth+cookies request shape.
       try {
         resp = await (async () => {
           const r = await extensionFetch('https://oauth.reddit.com/api/morechildren', {
@@ -746,13 +799,30 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
       .filter((t: any) => t && t.kind === 't1')
       .map((t: any) => {
         const d = t.data;
-        // Prefer the full legacy HTML fragment (content) so we can recover author/timestamp when the JSON fields are absent.
-        const legacyMeta = (!d.author || !d.created_utc) ? parseLegacyContentMeta(d.content || d.contentHTML || '') : null;
+        // Prefer the full legacy HTML fragment (content) so we can recover metadata
+        // (author/timestamp/score/flair) when JSON fields are absent.
+        const legacyMeta = parseLegacyContentMeta(d.content || d.contentHTML || '');
         const createdUtc = typeof d.created_utc === 'number'
           ? d.created_utc
           : typeof legacyMeta?.createdUtc === 'number'
             ? legacyMeta.createdUtc
             : Math.round(Date.now() / 1000);
+
+        const scoreFromNumber = (() => {
+          if (typeof d.score === 'number') return d.score;
+          if (typeof d.score === 'string') {
+            const trimmed = d.score.trim();
+            if (!trimmed) return NaN;
+            return Number(trimmed.replace(/,/g, ''));
+          }
+          return Number(d.score);
+        })();
+        const scoreFromVotes = (typeof d.ups === 'number' && typeof d.downs === 'number')
+          ? (d.ups - d.downs)
+          : null;
+        const resolvedScore = Number.isFinite(scoreFromNumber)
+          ? scoreFromNumber
+          : (scoreFromVotes ?? (legacyMeta?.score ?? 0));
 
         // Normalize identifiers so we don't double-prefix t1_
         const rawId = (d.id || '').replace(/^t1_/, '');
@@ -767,15 +837,15 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
           author: d.author || legacyMeta?.author || '[deleted]',
           body: d.body || d.contentText || '',
           body_html: d.body_html || d.contentHTML || null,
-          score: typeof d.score === 'number' ? d.score : d.score_hidden ? 0 : Number(d.score) || 0,
+          score: resolvedScore,
           created_utc: createdUtc,
           edited: d.edited,
           likes: d.likes,
           stickied: d.stickied,
           distinguished: d.distinguished,
           is_submitter: d.is_submitter,
-          author_flair_text: d.author_flair_text || null,
-          author_flair_richtext: d.author_flair_richtext,
+          author_flair_text: d.author_flair_text || legacyMeta?.flairText || null,
+          author_flair_richtext: d.author_flair_richtext || legacyMeta?.flairRichtext,
           author_flair_background_color: d.author_flair_background_color || null,
           author_flair_text_color: d.author_flair_text_color || null,
           permalink: d.permalink,
@@ -835,7 +905,13 @@ export async function getMoreChildren(linkFullname: string, childrenIds: string[
   }
 }
 
-function parseLegacyContentMeta(content: string): { author?: string; createdUtc?: number } | null {
+function parseLegacyContentMeta(content: string): {
+  author?: string;
+  createdUtc?: number;
+  score?: number;
+  flairText?: string;
+  flairRichtext?: Array<{ e?: string; t?: string; a?: string; u?: string }>;
+} | null {
   if (!content) return null;
   try {
     // The legacy /api/morechildren payload often contains HTML-escaped strings.
@@ -858,7 +934,119 @@ function parseLegacyContentMeta(content: string): { author?: string; createdUtc?
         createdUtc = Math.round(ms / 1000);
       }
     }
-    return { author, createdUtc };
+    let score: number | undefined;
+    // Prefer the "unvoted" displayed score if present.
+    // Example: <span class="score unvoted" title="6">6 points</span>
+    const unvotedTitleMatch = decoded.match(/class=["'][^"']*\bscore\b[^"']*\bunvoted\b[^"']*["'][^>]*title=["']([\d,]+)["']/i);
+    if (unvotedTitleMatch?.[1]) {
+      const parsed = Number(unvotedTitleMatch[1].replace(/,/g, ''));
+      if (Number.isFinite(parsed)) {
+        score = parsed;
+      }
+    }
+
+    if (typeof score === 'undefined') {
+      const unvotedTextMatch = decoded.match(/class=["'][^"']*\bscore\b[^"']*\bunvoted\b[^"']*["'][^>]*>([\d,]+)\s+point/i);
+      if (unvotedTextMatch?.[1]) {
+        const parsed = Number(unvotedTextMatch[1].replace(/,/g, ''));
+        if (Number.isFinite(parsed)) {
+          score = parsed;
+        }
+      }
+    }
+
+    if (typeof score === 'undefined') {
+      // Fallback: first score span encountered.
+      const scoreMatch = decoded.match(/class=["'][^"']*\bscore\b[^"']*["'][^>]*>([\d,]+)\s+point/i);
+      if (scoreMatch?.[1]) {
+        const parsed = Number(scoreMatch[1].replace(/,/g, ''));
+        if (Number.isFinite(parsed)) {
+          score = parsed;
+        }
+      }
+    }
+
+    let flairText: string | undefined;
+    const flairRichtext: Array<{ e?: string; t?: string; a?: string; u?: string }> = [];
+
+    // Parse the full old.reddit flairrichtext span so mixed emoji + text badges keep order.
+    const flairOpenRegex = /<span[^>]*class=["'][^"']*flairrichtext[^"']*["'][^>]*>/i;
+    const flairOpenMatch = flairOpenRegex.exec(decoded);
+    if (flairOpenMatch && typeof flairOpenMatch.index === 'number') {
+      const flairOpenTag = flairOpenMatch[0];
+      const flairStartIndex = flairOpenMatch.index;
+      const titleMatch = flairOpenTag.match(/title=["']([^"']*)["']/i);
+      if (titleMatch?.[1]) {
+        flairText = titleMatch[1].trim();
+      }
+
+      const innerStartIndex = flairStartIndex + flairOpenTag.length;
+      const spanTagRegex = /<\/?span\b[^>]*>/gi;
+      spanTagRegex.lastIndex = innerStartIndex;
+
+      let depth = 1;
+      let flairEndIndex = -1;
+      let spanTagMatch: RegExpExecArray | null;
+      while ((spanTagMatch = spanTagRegex.exec(decoded))) {
+        const tag = spanTagMatch[0];
+        if (/^<\/span/i.test(tag)) {
+          depth -= 1;
+          if (depth === 0) {
+            flairEndIndex = spanTagRegex.lastIndex;
+            break;
+          }
+        } else if (!/\/>\s*$/i.test(tag)) {
+          depth += 1;
+        }
+      }
+
+      if (flairEndIndex > innerStartIndex) {
+        const flairInnerHtml = decoded.slice(innerStartIndex, flairEndIndex - '</span>'.length);
+        const partRegex = /<span\b([^>]*)>([\s\S]*?)<\/span>/gi;
+        let partMatch: RegExpExecArray | null;
+        while ((partMatch = partRegex.exec(flairInnerHtml))) {
+          const attrs = partMatch[1] || '';
+          const inner = partMatch[2] || '';
+          const isEmoji = /class\s*=\s*["'][^"']*flairemoji[^"']*["']/i.test(attrs);
+          if (isEmoji) {
+            const emojiTitleMatch = attrs.match(/title=["']([^"']*)["']/i);
+            const styleMatch = attrs.match(/style=["']([^"']*)["']/i);
+            const alt = (emojiTitleMatch?.[1] || '').trim();
+            const urlMatch = styleMatch?.[1]?.match(/background-image\s*:\s*url\(([^)]+)\)/i);
+            let url = (urlMatch?.[1] || '').trim();
+            if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
+              url = url.slice(1, -1);
+            }
+            if (url) {
+              flairRichtext.push({ e: 'emoji', a: alt || undefined, u: url });
+            }
+            continue;
+          }
+
+          const text = inner
+            .replace(/<!--[\s\S]*?-->/g, '')
+            .replace(/<[^>]+>/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (text) {
+            flairRichtext.push({ e: 'text', t: text });
+          }
+        }
+      }
+    }
+
+    // Fallback: if parsing produced no structured parts, keep title as plain text flair.
+    if (flairRichtext.length === 0 && flairText) {
+      flairRichtext.push({ e: 'text', t: flairText });
+    }
+
+    return {
+      author,
+      createdUtc,
+      score,
+      flairText,
+      flairRichtext: flairRichtext.length > 0 ? flairRichtext : undefined,
+    };
   } catch {
     return null;
   }
@@ -873,7 +1061,9 @@ const userAvatarInflight = new Map<string, Promise<string | null>>();
 export async function getUserAvatar(username: string): Promise<string | null> {
   try {
     if (!username) return null;
-    const cacheKey = username.toLowerCase();
+    const normalizedUsername = username.replace(/^u\//i, '').trim();
+    if (!normalizedUsername) return null;
+    const cacheKey = normalizedUsername.toLowerCase();
     if (userAvatarCache.has(cacheKey)) {
       return userAvatarCache.get(cacheKey) || null;
     }
@@ -902,11 +1092,13 @@ export async function getUserAvatar(username: string): Promise<string | null> {
         return normalized;
       }
 
-      // No token: try to return a cached profile pic if present (avoid network calls)
+      // No token: only use stored profile pic for the currently logged-in user.
+      // Otherwise we'd incorrectly assign the same avatar to every author.
       try {
-        const stored = await browser.storage.local.get('reddit_profile_pic');
+        const stored = await browser.storage.local.get(['reddit_profile_pic', 'reddit_username']);
         const pic = stored?.reddit_profile_pic;
-        if (pic) {
+        const storedUsername = (stored?.reddit_username || '').toString().replace(/^u\//i, '').trim().toLowerCase();
+        if (pic && storedUsername && storedUsername === cacheKey) {
           const normalized = normalizeAvatarCdnUrl(String(pic));
           userAvatarCache.set(cacheKey, normalized);
           return normalized;
@@ -916,7 +1108,7 @@ export async function getUserAvatar(username: string): Promise<string | null> {
       // No token and no stored avatar: try a public about.json using browser cookies/session
       try {
         const resp = await extensionFetch(
-          `https://www.reddit.com/user/${encodeURIComponent(username)}/about.json?raw_json=1`,
+          `https://www.reddit.com/user/${encodeURIComponent(normalizedUsername)}/about.json?raw_json=1`,
           { credentials: 'include' } as any,
         );
         if (resp.ok) {

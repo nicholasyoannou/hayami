@@ -10,7 +10,7 @@ import { extractEpisodeNumber } from '@/utils/redditApi';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchAniListThreads, fetchAniListThreadComments } from '@/utils/anilistForums';
 import AniListForumView from '@/components/providers/AniListForumView.vue';
-import { handleAuthError, handleProviderError } from '../utils/error-handler';
+import { handleProviderError } from '../utils/error-handler';
 import { DISQUS_CONTAINER_RETRY_ATTEMPTS, DISQUS_CONTAINER_RETRY_DELAY_MS } from '../constants';
 import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason, extractEpisodeIdFromUrl } from '../mapping';
 import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
@@ -118,12 +118,6 @@ export class AniListProvider extends BaseProvider {
         comments: commentsResult?.comments,
         pageInfo: commentsResult?.pageInfo ?? { nextPage: null, hasNextPage: false },
       };
-
-      if (status === 'auth_required') {
-        handleAuthError('AniList');
-        clearLoadingState('AniList auth required');
-        return;
-      }
 
       if (status === 'error') {
         toast.error('AniList forums unavailable', { description: 'Unable to load AniList comments right now.' });

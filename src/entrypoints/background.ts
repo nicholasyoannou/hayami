@@ -2,8 +2,12 @@ import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
 import { exchangeCodeForToken as exchangeRedditCode } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
+import { authenticateWithAniList } from '@/utils/anilistAuth';
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
+
+type SupportedProviderAuth = 'youtube' | 'mal' | 'anilist';
+const pendingAuthSourceTabs: Partial<Record<SupportedProviderAuth, number>> = {};
 
 async function unregisterContentScriptsForHost(host: string): Promise<void> {
   const scripting = (browser as any).scripting;
@@ -163,6 +167,94 @@ async function registerContextMenu(): Promise<void> {
   }
 }
 
+function isRedditHomeUrl(rawUrl?: string): boolean {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    if (host !== 'reddit.com') return false;
+    return parsed.pathname === '/' || parsed.pathname === '';
+  } catch {
+    return false;
+  }
+}
+
+async function hasRedditSessionCookie(): Promise<boolean> {
+  try {
+    // Fast path: direct lookup against common Reddit hosts.
+    const directHosts = ['https://www.reddit.com/', 'https://reddit.com/', 'https://old.reddit.com/'];
+    for (const url of directHosts) {
+      try {
+        const cookie = await browser.cookies.get({ url, name: 'reddit_session' });
+        if (cookie) return true;
+      } catch {
+        // Continue to next host.
+      }
+    }
+
+    // Fallback: scan cookies and match reddit_session on reddit.com domains.
+    const cookies = await browser.cookies.getAll({});
+    return cookies.some((cookie) => {
+      if (cookie?.name !== 'reddit_session') return false;
+      const domain = (cookie.domain || '').replace(/^\./, '').toLowerCase();
+      return domain === 'reddit.com' || domain.endsWith('.reddit.com');
+    });
+  } catch (error) {
+    console.warn('[background] Failed to read Reddit cookies for auth check', error);
+    return false;
+  }
+}
+
+async function getRedditSessionProfile(): Promise<{ loggedIn: boolean; username?: string; profilePic?: string | null }> {
+  try {
+    const hasCookie = await hasRedditSessionCookie();
+    if (!hasCookie) {
+      return { loggedIn: false };
+    }
+
+    const parseProfile = (raw: any): { username?: string; profilePic?: string | null } => {
+      const root = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
+      const username = typeof root?.name === 'string' ? root.name : undefined;
+      const profilePicRaw =
+        typeof root?.snoovatar_img === 'string' && root.snoovatar_img
+          ? root.snoovatar_img
+          : typeof root?.icon_img === 'string'
+            ? root.icon_img
+            : null;
+      const profilePic = typeof profilePicRaw === 'string' ? profilePicRaw.replace(/&amp;/g, '&') : null;
+      return { username, profilePic };
+    };
+
+    const urls = ['https://www.reddit.com/api/me.json', 'https://old.reddit.com/api/me.json'];
+    for (const url of urls) {
+      try {
+        const resp = await fetch(url, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            Accept: 'application/json',
+          },
+        });
+        if (!resp.ok) continue;
+
+        const data = await resp.json();
+        const parsed = parseProfile(data);
+        if (parsed.username) {
+          return { loggedIn: true, username: parsed.username, profilePic: parsed.profilePic ?? null };
+        }
+      } catch {
+        // Try next endpoint.
+      }
+    }
+
+    // If session cookie exists but profile lookup fails, keep loggedIn true.
+    return { loggedIn: true };
+  } catch (error) {
+    console.warn('[background] Failed to fetch Reddit session profile', error);
+    return { loggedIn: false };
+  }
+}
+
 export default defineBackground(() => {
   console.log('Hayami - Background service started');
 
@@ -318,6 +410,104 @@ export default defineBackground(() => {
       return false;
     }
 
+    if (message.action === 'hayami_openRedditLoginGuided') {
+      (async () => {
+        const sourceTabId = sender.tab?.id;
+
+        const loginUrl = typeof message.url === 'string' && message.url.trim()
+          ? message.url.trim()
+          : 'https://www.reddit.com/login';
+
+        let loginTabId: number | null = null;
+        let loginWindowId: number | null = null;
+        let cleanedUp = false;
+
+        const cleanup = () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
+          try { browser.tabs.onUpdated.removeListener(handleUpdated); } catch {}
+          try { browser.tabs.onRemoved.removeListener(handleRemoved); } catch {}
+        };
+
+        const handleRemoved = (removedTabId: number) => {
+          if (removedTabId !== loginTabId) return;
+          cleanup();
+        };
+
+        const handleUpdated = async (updatedTabId: number, changeInfo: any, tab: any) => {
+          if (updatedTabId !== loginTabId) return;
+          const currentUrl = changeInfo?.url || tab?.url;
+          if (!isRedditHomeUrl(currentUrl)) return;
+
+          cleanup();
+          try {
+            if (typeof loginWindowId === 'number') {
+              await browser.windows.remove(loginWindowId);
+            } else if (typeof loginTabId === 'number') {
+              await browser.tabs.remove(loginTabId);
+            }
+          } catch {
+            // ignore tab close failures
+          }
+
+          if (typeof sourceTabId === 'number') {
+            try {
+              await browser.tabs.sendMessage(sourceTabId, { action: 'hayami_redditLoginCompleted' });
+            } catch {
+              // originating tab may no longer have the content script mounted
+            }
+          }
+        };
+
+        try {
+          const createdWindow = await browser.windows.create({
+            url: loginUrl,
+            type: 'popup',
+            focused: true,
+            width: 520,
+            height: 760,
+          });
+
+          const createdTab = createdWindow?.tabs?.[0];
+          loginWindowId = typeof createdWindow?.id === 'number' ? createdWindow.id : null;
+
+          if (typeof createdTab?.id !== 'number') {
+            sendResponse({ success: false, error: 'Failed to open Reddit login popup.' });
+            return;
+          }
+
+          loginTabId = createdTab.id;
+          browser.tabs.onUpdated.addListener(handleUpdated);
+          browser.tabs.onRemoved.addListener(handleRemoved);
+
+          sendResponse({ success: true, tabId: loginTabId, windowId: loginWindowId });
+        } catch (error) {
+          cleanup();
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to open Reddit login popup.',
+          });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_checkRedditTokenCookie') {
+      (async () => {
+        const loggedIn = await hasRedditSessionCookie();
+        sendResponse({ loggedIn });
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_getRedditCookieSessionProfile') {
+      (async () => {
+        const profile = await getRedditSessionProfile();
+        sendResponse(profile);
+      })();
+      return true;
+    }
+
     if (message.action === 'hayami_unregister_scripts_for_host') {
       (async () => {
         try {
@@ -351,6 +541,122 @@ export default defineBackground(() => {
 
           const result = await purgeHostPermissionsForHost(host, origin);
           sendResponse({ ok: true, ...result, host });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_openSettingsAuth') {
+      (async () => {
+        try {
+          const provider = String(message.provider || '').toLowerCase();
+          const supported = provider === 'anilist' || provider === 'mal' || provider === 'youtube';
+          if (!supported) {
+            sendResponse({ ok: false, error: 'unsupported_provider' });
+            return;
+          }
+
+          const popupUrl = browser.runtime.getURL(
+            `/popup.html?open=settings&section=discussion-platforms&authProvider=${encodeURIComponent(provider)}&authAction=connect`,
+          );
+          await browser.tabs.create({ url: popupUrl });
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_startProviderAuth') {
+      (async () => {
+        try {
+          const provider = String(message.provider || '').toLowerCase() as SupportedProviderAuth;
+          if (provider !== 'anilist' && provider !== 'mal' && provider !== 'youtube') {
+            sendResponse({ ok: false, error: 'unsupported_provider' });
+            return;
+          }
+
+          const sourceTabId = sender.tab?.id;
+          if (typeof sourceTabId !== 'number') {
+            sendResponse({ ok: false, error: 'missing_source_tab' });
+            return;
+          }
+
+          pendingAuthSourceTabs[provider] = sourceTabId;
+
+          if (provider === 'youtube') {
+            const result = await authenticateWithYouTube();
+            if (!result.success) {
+              delete pendingAuthSourceTabs[provider];
+              sendResponse({ ok: false, error: result.error || 'YouTube authentication failed' });
+              return;
+            }
+
+            try {
+              await browser.tabs.sendMessage(sourceTabId, {
+                action: 'hayami_providerAuthCompleted',
+                provider,
+              });
+            } catch {
+              // origin tab may no longer be available
+            }
+
+            delete pendingAuthSourceTabs[provider];
+            sendResponse({ ok: true, provider, completed: true });
+            return;
+          }
+
+          if (provider === 'mal') {
+            const result = await authenticateWithMAL({ openInTab: false });
+            if (!result.success) {
+              delete pendingAuthSourceTabs[provider];
+              sendResponse({ ok: false, error: result.error || 'MAL authentication failed' });
+              return;
+            }
+            sendResponse({ ok: true, provider, completed: false });
+            return;
+          }
+
+          const result = await authenticateWithAniList({ openInTab: false });
+          if (!result.success) {
+            delete pendingAuthSourceTabs[provider];
+            sendResponse({ ok: false, error: result.error || 'AniList authentication failed' });
+            return;
+          }
+          sendResponse({ ok: true, provider, completed: false });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_providerAuthFlowCompleted') {
+      (async () => {
+        try {
+          const provider = String(message.provider || '').toLowerCase() as SupportedProviderAuth;
+          if (provider !== 'anilist' && provider !== 'mal' && provider !== 'youtube') {
+            sendResponse({ ok: false, error: 'unsupported_provider' });
+            return;
+          }
+
+          const sourceTabId = pendingAuthSourceTabs[provider];
+          if (typeof sourceTabId === 'number') {
+            try {
+              await browser.tabs.sendMessage(sourceTabId, {
+                action: 'hayami_providerAuthCompleted',
+                provider,
+              });
+            } catch {
+              // source tab may not be available
+            }
+          }
+
+          delete pendingAuthSourceTabs[provider];
+          sendResponse({ ok: true, provider, notified: typeof sourceTabId === 'number' });
         } catch (error) {
           sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
         }

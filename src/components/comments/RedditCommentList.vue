@@ -25,6 +25,8 @@ const emit = defineEmits<{
   reply: [comment: RedditCommentData];
   commentsLoaded: [count: number];
   collapse: [commentId: string, collapsed: boolean];
+  authRequired: [reason: string];
+  discussionMeta: [{ title?: string; author?: string }];
 }>();
 
 const comments = ref<RedditCommentData[]>([]);
@@ -107,6 +109,38 @@ const visibleComments = computed(() => {
   return filteredComments.value.slice(0, renderedCount.value);
 });
 
+function mergeRepliesById(
+  existing: RedditCommentData[] | undefined,
+  incoming: RedditCommentData[] | undefined,
+): RedditCommentData[] {
+  const existingList = Array.isArray(existing) ? existing : [];
+  const incomingList = Array.isArray(incoming) ? incoming : [];
+  if (incomingList.length === 0) return [...existingList];
+
+  const byId = new Map<string, RedditCommentData>();
+  for (const item of existingList) {
+    byId.set(item.id, { ...item });
+  }
+
+  for (const item of incomingList) {
+    const prev = byId.get(item.id);
+    if (!prev) {
+      byId.set(item.id, { ...item });
+      continue;
+    }
+
+    byId.set(item.id, {
+      ...prev,
+      ...item,
+      replies: mergeRepliesById(prev.replies, item.replies),
+      moreChildrenIds: item.moreChildrenIds ?? prev.moreChildrenIds,
+      moreCount: item.moreCount ?? prev.moreCount,
+    });
+  }
+
+  return Array.from(byId.values());
+}
+
 async function loadComments(sort: RedditCommentSort = 'confidence') {
   isLoading.value = true;
   error.value = null;
@@ -123,6 +157,17 @@ async function loadComments(sort: RedditCommentSort = 'confidence') {
     }
 
     const result = await getPostComments(props.discussionId, sort);
+    emit('discussionMeta', { title: result.postTitle, author: result.postAuthor });
+    if (result.authRequired) {
+      const reason = result.authError || 'Reddit authentication required.';
+      error.value = reason;
+      emit('authRequired', reason);
+      comments.value = [];
+      rootMoreIds.value = [];
+      renderedCount.value = 0;
+      hasMore.value = false;
+      return;
+    }
     const currentUserFinal = currentUser;
 
     function tagMine(list: RedditCommentData[]): RedditCommentData[] {
@@ -166,9 +211,12 @@ function loadMoreComments() {
     const chunk = rootMoreIds.value.slice(0, 20);
     rootMoreIds.value = rootMoreIds.value.slice(20);
     try {
-      const added = await getMoreChildren(props.linkFullname, chunk);
+      const added = await getMoreChildren(props.linkFullname, chunk, {
+        sort: currentSort.value,
+        subreddit: props.subreddit,
+      });
       if (Array.isArray(added) && added.length > 0) {
-        comments.value = [...comments.value, ...added];
+        comments.value = mergeRepliesById(comments.value, added);
         renderedCount.value = Math.min(comments.value.length, renderedCount.value + added.length);
       }
     } catch (err) {
@@ -225,7 +273,11 @@ async function loadMoreForComment(commentId: string) {
   const remaining = target.moreChildrenIds.slice(20);
 
   try {
-    const added = await getMoreChildren(props.linkFullname, chunk);
+    const added = await getMoreChildren(props.linkFullname, chunk, {
+      sort: currentSort.value,
+      subreddit: props.subreddit,
+      id: target.id ? `t1_${String(target.id).replace(/^t1_/, '')}` : undefined,
+    });
     
     // Update the target comment's properties
     if (remaining.length > 0) {
@@ -240,8 +292,8 @@ async function loadMoreForComment(commentId: string) {
     }
     
     // Merge new replies with existing ones - create new array to ensure reactivity
-    const existingReplies = Array.isArray(target.replies) ? [...target.replies] : [];
-    target.replies = [...existingReplies, ...added];
+    const filteredAdded = (Array.isArray(added) ? added : []).filter((reply) => reply.id !== target.id);
+    target.replies = mergeRepliesById(target.replies, filteredAdded);
     
     // Force Vue reactivity by creating a new array reference
     // This ensures Vue detects changes to deeply nested comment structures

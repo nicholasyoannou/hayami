@@ -38,7 +38,7 @@ const voteState = ref<'upvoted' | 'downvoted' | 'idle'>(
   props.comment.likes === false ? 'downvoted' : 'idle'
 );
 const isVoting = ref(false);
-const showReplies = ref(true);
+const showReplies = ref(false);
 const localReplies = ref<RedditComment[]>(props.comment.replies || []);
 const localBody = ref(props.comment.body);
 const localEdited = ref(props.comment.edited);
@@ -623,6 +623,9 @@ function handleShare() {
 
 // Limited replies for initial render
 const visibleReplies = computed(() => {
+  if (showReplies.value) {
+    return localReplies.value;
+  }
   const limit = depth.value === 0 ? 20 : 5;
   return localReplies.value.slice(0, limit);
 });

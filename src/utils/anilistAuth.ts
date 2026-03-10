@@ -24,6 +24,10 @@ export interface AniListAuthResult {
   expiresIn?: number;
 }
 
+interface AniListAuthOptions {
+  openInTab?: boolean;
+}
+
 function generateState(length = 32): string {
   const arr = new Uint8Array(length);
   crypto.getRandomValues(arr);
@@ -37,7 +41,7 @@ function parseHashParams(hash: string): Record<string, string> {
   return out;
 }
 
-export async function authenticateWithAniList(): Promise<AniListAuthResult> {
+export async function authenticateWithAniList(options: AniListAuthOptions = {}): Promise<AniListAuthResult> {
   if (!ANILIST_CLIENT_ID) {
     return { success: false, error: 'AniList client details are not configured.' };
   }
@@ -55,14 +59,22 @@ export async function authenticateWithAniList(): Promise<AniListAuthResult> {
     const urlStr = authUrl.toString();
 
     // Prefer a popup window to avoid stealing focus/new tabs.
-    if (browser?.windows?.create) {
+    const shouldOpenTab = options.openInTab === true;
+    if (shouldOpenTab && browser?.tabs?.create) {
+      await browser.tabs.create({ url: urlStr, active: true });
+    } else if (browser?.windows?.create) {
+      const canUseWindowMetrics = typeof window !== 'undefined';
       await browser.windows.create({
         url: urlStr,
         type: 'popup',
         width: 520,
         height: 760,
-        left: Math.round(window.screenX + (window.outerWidth - 520) / 2),
-        top: Math.round(window.screenY + (window.outerHeight - 760) / 2),
+        ...(canUseWindowMetrics
+          ? {
+              left: Math.round(window.screenX + (window.outerWidth - 520) / 2),
+              top: Math.round(window.screenY + (window.outerHeight - 760) / 2),
+            }
+          : {}),
       });
     } else if (browser?.tabs?.create) {
       await browser.tabs.create({ url: urlStr, active: true });

@@ -109,13 +109,19 @@ const redditEmptyMessage = computed(() => {
 const redditCommentsKey = ref(0);
 const inlineSectionRef = ref<HTMLElement | null>(null);
 const isNoDiscussion = ref(false);
+const showRedditAuthPrompt = ref(false);
+const redditAuthReason = ref('Please log in to Reddit to load episode discussions.');
+const isStartingGuidedRedditLogin = ref(false);
+const fetchedDiscussionTitle = ref<string | null>(null);
+const fetchedDiscussionAuthor = ref<string | null>(null);
 const displayTitle = computed(() => {
   if (isLoading.value) return 'Loading discussion…';
   if (isNoDiscussion.value) {
     return currentProvider.value === 'aniwave' ? 'No Aniwave thread found.' : 'No Reddit thread found.';
   }
-  return props.discussion.title;
+  return fetchedDiscussionTitle.value || props.discussion.title;
 });
+const displayAuthor = computed(() => fetchedDiscussionAuthor.value || props.discussion.author || 'unknown');
 const noDiscussionDetailTitle = computed(() => {
   const host = inlineSectionRef.value;
   const fromHost = host?.dataset?.noDiscussionTitle;
@@ -173,9 +179,58 @@ function applyDiscussionUpdate(discussion: Discussion | undefined) {
 
   const hasRedditIdentity = !!(discussion.permalink || discussion.id || discussion.fullname);
   if (hasRedditIdentity && currentProvider.value === 'reddit') {
+    showRedditAuthPrompt.value = false;
     isLoading.value = false;
     discussionStore.clearLoading();
     clearNoDiscussionFlag();
+  }
+}
+
+function handleRedditAuthRequired(reason?: string) {
+  if (currentProvider.value !== 'reddit') return;
+  showRedditAuthPrompt.value = true;
+  redditAuthReason.value = reason || 'Please log in to Reddit to load episode discussions.';
+  isLoading.value = false;
+  discussionStore.clearLoading();
+}
+
+function refreshRedditCommentsAfterLogin() {
+  showRedditAuthPrompt.value = false;
+  isLoading.value = true;
+  discussionStore.startLoading();
+  redditCommentsKey.value++;
+}
+
+function refreshCurrentProviderAfterAuth(provider: Provider) {
+  if (provider === 'reddit') {
+    refreshRedditCommentsAfterLogin();
+    return;
+  }
+
+  if (currentProvider.value !== provider) return;
+
+  isLoading.value = true;
+  discussionStore.startLoading();
+  clearNoDiscussionFlag();
+  providerHook.changeProvider(provider);
+}
+
+async function startGuidedRedditLogin() {
+  if (isStartingGuidedRedditLogin.value) return;
+
+  isStartingGuidedRedditLogin.value = true;
+  try {
+    const res = await browser.runtime.sendMessage({
+      action: 'hayami_openRedditLoginGuided',
+      url: 'https://www.reddit.com/login',
+    });
+    if (!res?.success) {
+      toast.error(res?.error || 'Failed to open Reddit login.');
+    }
+  } catch (error: any) {
+    toast.error(error?.message || 'Failed to open Reddit login.');
+  } finally {
+    isStartingGuidedRedditLogin.value = false;
   }
 }
 
@@ -448,6 +503,12 @@ function getMapperResultDisplayName(result: any): string {
   if (title) return title;
 
   return 'Unknown title';
+}
+
+function normalizeMapperDisplayName(name: string | null | undefined): string {
+  const cleaned = (name || '').trim();
+  if (!cleaned) return '';
+  return cleaned.toLowerCase() === 'unknown title' ? '' : cleaned;
 }
 
 function getAniwaveEpisodeVariants(result: any): Array<{ episode: number; subUrl: string; dubUrl: string }> {
@@ -1240,40 +1301,138 @@ function handleManualSearch() {
   const manualProvider = resolveManualEpisodeProvider(provider);
   const animeInfo = providerContextRef.value?.animeInfo || null;
 
+  const parseNoDiscussionContext = (rawTitle: string): { animeName?: string; episodeName?: string } => {
+    const title = (rawTitle || '').trim();
+    if (!title) return {};
+
+    const fullMatch = title.match(/^(.*?)\s*-\s*Episode\s*(\d{1,4})\b/i);
+    if (fullMatch) {
+      const animeName = (fullMatch[1] || '').trim();
+      const epNum = Number.parseInt(fullMatch[2], 10);
+      return {
+        animeName: animeName || undefined,
+        episodeName: Number.isFinite(epNum) ? `Episode ${epNum}` : undefined,
+      };
+    }
+
+    return { animeName: title };
+  };
+
+  const parseEpisodeNumber = (raw: string | undefined | null): number | null => {
+    if (!raw) return null;
+    const tagged = raw.match(/(?:episode|ep)\s*(\d{1,4})/i);
+    if (tagged) {
+      const val = Number.parseInt(tagged[1], 10);
+      if (Number.isFinite(val)) return val;
+    }
+    const loose = raw.match(/\b(\d{1,4})\b/);
+    if (loose) {
+      const val = Number.parseInt(loose[1], 10);
+      if (Number.isFinite(val)) return val;
+    }
+    return null;
+  };
+
   // Resolve anime name from Hayami for mapper-backed providers so the modal title
   // uses API data instead of discussion-thread text.
-  const dispatchWithResolvedName = async () => {
-    let resolvedAnimeName: string | undefined;
-    let mappingAnimeName: string | undefined;
+  // If a manual mapping already exists, keep using that override as highest priority.
+  const resolveManualOverrideNames = async (
+    info: any,
+    providerForMapping: ManualEpisodeProvider,
+    crEpisodeNum?: number | null,
+  ): Promise<{ resolvedAnimeName?: string; mappingAnimeName?: string; crEpisodeNum?: number | null }> => {
+    const baseAnimeName = (info?.animeName || '').trim();
+    const inferredEpisode = Number.isFinite(Number(crEpisodeNum))
+      ? Number(crEpisodeNum)
+      : parseEpisodeNumber(info?.episodeName || null);
+
+    if (!baseAnimeName || !(providerForMapping === 'reddit' || providerForMapping === 'disqus' || providerForMapping === 'aniwave')) {
+      return { crEpisodeNum: inferredEpisode };
+    }
 
     try {
-      const baseAnimeName = (animeInfo?.animeName || '').trim();
-      if (baseAnimeName && (manualProvider === 'reddit' || manualProvider === 'disqus' || manualProvider === 'aniwave')) {
-        const existingMapping = await getSeriesMapping(baseAnimeName, manualProvider);
-        const mappedName = (existingMapping?.mapperAnimeName || '').trim();
-        const preferredLookupName = mappedName || baseAnimeName;
-        mappingAnimeName = preferredLookupName;
+      const existingMapping = await getSeriesMapping(baseAnimeName, providerForMapping);
+      const mappedName = (existingMapping?.mapperAnimeName || '').trim();
+      const preferredLookupName = mappedName || baseAnimeName;
+      const hasSavedMapping = Boolean(existingMapping);
 
-        const lookupName = cleanSeriesForMapper(preferredLookupName) || preferredLookupName;
-        if (lookupName) {
-          const mapper = await fetchAnimeMapperDataBySeriesName(lookupName, manualProvider as any, { preserveSeasonSuffix: true } as any);
-          const results: any[] = Array.isArray((mapper as any)?.results) ? (mapper as any).results : [];
-          const matchedIdx = typeof (mapper as any)?.matched_result?.index === 'number' ? (mapper as any).matched_result.index : null;
-          const matchedResult = matchedIdx !== null && matchedIdx >= 0 && matchedIdx < results.length ? results[matchedIdx] : null;
-          resolvedAnimeName = (matchedResult ? getMapperResultDisplayName(matchedResult) : '') || getMapperResultDisplayName(results[0]);
-        }
+      if (hasSavedMapping) {
+        return {
+          resolvedAnimeName: preferredLookupName,
+          mappingAnimeName: preferredLookupName,
+          crEpisodeNum: inferredEpisode,
+        };
       }
+
+      const lookupName = cleanSeriesForMapper(preferredLookupName) || preferredLookupName;
+      if (!lookupName) {
+        return { mappingAnimeName: preferredLookupName, crEpisodeNum: inferredEpisode };
+      }
+
+      const mapper = await fetchAnimeMapperDataBySeriesName(lookupName, providerForMapping as any, { preserveSeasonSuffix: true } as any);
+      const results: any[] = Array.isArray((mapper as any)?.results) ? (mapper as any).results : [];
+      if (results.length === 0) {
+        return { mappingAnimeName: preferredLookupName, crEpisodeNum: inferredEpisode };
+      }
+
+      const desiredEpisode =
+        typeof inferredEpisode === 'number' && Number.isFinite(inferredEpisode)
+          ? inferredEpisode + (existingMapping?.episodeOffset ?? 0)
+          : null;
+
+      let episodeMatched: any | null = null;
+      if (desiredEpisode !== null) {
+        const desiredKey = String(desiredEpisode);
+        episodeMatched = results.find((res: any) => {
+          const eps = res?.episodes;
+          if (!eps || typeof eps !== 'object') return false;
+          return Object.prototype.hasOwnProperty.call(eps, desiredKey)
+            || Object.prototype.hasOwnProperty.call(eps, Number(desiredKey));
+        }) || null;
+      }
+
+      const matchedIdx = typeof (mapper as any)?.matched_result?.index === 'number' ? (mapper as any).matched_result.index : null;
+      const matchedResult = matchedIdx !== null && matchedIdx >= 0 && matchedIdx < results.length ? results[matchedIdx] : null;
+      const resolvedAnimeName =
+        normalizeMapperDisplayName(getMapperResultDisplayName(episodeMatched))
+        || normalizeMapperDisplayName(getMapperResultDisplayName(matchedResult))
+        || normalizeMapperDisplayName(getMapperResultDisplayName(results[0]))
+        || preferredLookupName;
+            const mapperTitle = normalizeMapperDisplayName(getMapperResultDisplayName(res));
+            manualEpisodeResolvedName.value = mapperTitle || cleanedSeries;
+
+      return {
+        resolvedAnimeName: resolvedAnimeName || undefined,
+        mappingAnimeName: preferredLookupName,
+        crEpisodeNum: inferredEpisode,
+      };
     } catch (error) {
       console.warn('[ManualSearch] Failed to resolve Hayami anime title for manual override', error);
+      return {
+        mappingAnimeName: baseAnimeName,
+        crEpisodeNum: inferredEpisode,
+      };
     }
+  };
+
+  const dispatchWithResolvedName = async () => {
+    const fallbackCtx = parseNoDiscussionContext(noDiscussionDetailTitle.value || props.discussion?.title || '');
+    const effectiveAnimeInfo = {
+      ...(animeInfo || {}),
+      animeName: (animeInfo?.animeName || fallbackCtx.animeName || '').trim(),
+      episodeName: (animeInfo?.episodeName || fallbackCtx.episodeName || '').trim(),
+    };
+
+    const resolved = await resolveManualOverrideNames(effectiveAnimeInfo, manualProvider);
 
     const event = new CustomEvent('ri-manual-search-requested', {
       detail: {
         discussion: props.discussion,
         provider,
-        animeInfo,
-        resolvedAnimeName,
-        mappingAnimeName,
+        animeInfo: effectiveAnimeInfo,
+        resolvedAnimeName: resolved.resolvedAnimeName,
+        mappingAnimeName: resolved.mappingAnimeName,
+        crEpisodeNum: resolved.crEpisodeNum,
       },
     });
     window.dispatchEvent(event);
@@ -1283,9 +1442,9 @@ function handleManualSearch() {
 }
 
 function handleManualSearchNoDiscussion() {
-  // Open local manual search modal directly on the Search tab using the resolved no-discussion title
-  const title = noDiscussionDetailTitle.value || props.discussion?.title || '';
-  openManualSearchModal(title, { animeName: title, crEpisodeNum: null, provider: currentProvider.value }, 'search');
+  // Route no-discussion manual search through the same resolver so the title/context
+  // uses the episode-matched Hayami anime name unless a manual mapping is already saved.
+  handleManualSearch();
 }
 
 async function handleUpvote(e?: Event) {
@@ -1561,6 +1720,7 @@ function handlePlainSubmit(draftKey: string) {
 }
 
 function handleCommentsLoaded(count: number) {
+  showRedditAuthPrompt.value = false;
   totalComments.value = count;
   console.log('Comments loaded:', count);
   // Clear Reddit-only loading state once comments render
@@ -1579,6 +1739,11 @@ function handleCommentsLoaded(count: number) {
     }
     pendingLocalComments.value = [];
   }
+}
+
+function handleDiscussionMeta(meta: { title?: string; author?: string }) {
+  fetchedDiscussionTitle.value = meta?.title || null;
+  fetchedDiscussionAuthor.value = meta?.author || null;
 }
 
 function handleSortChange(e: Event) {
@@ -1613,7 +1778,7 @@ onMounted(() => {
     const crEpisodeNum = detail.crEpisodeNum;
     const resolvedAnimeName = typeof detail?.resolvedAnimeName === 'string' ? detail.resolvedAnimeName.trim() : '';
     const fallbackAnimeName = typeof animeInfo?.animeName === 'string' ? animeInfo.animeName.trim() : '';
-    const animeNameForMapper = resolvedAnimeName || fallbackAnimeName || mappingAnimeName;
+    const animeNameForMapper = resolvedAnimeName || mappingAnimeName || fallbackAnimeName;
     const initialParts: string[] = [];
     if (animeNameForMapper) initialParts.push(animeNameForMapper);
     if (typeof crEpisodeNum === 'number') initialParts.push(`Episode ${crEpisodeNum}`);
@@ -1640,9 +1805,25 @@ onMounted(() => {
     const detail = (ev as CustomEvent)?.detail?.animeInfo || null;
     openDisqusSearchModal(detail);
   };
+  const runtimeMessageHandler = (message: any) => {
+    if (!message || typeof message !== 'object') return;
+    if (message.action === 'hayami_redditLoginCompleted') {
+      toast.success('Reddit login completed. Reloading comments...');
+      refreshRedditCommentsAfterLogin();
+      return;
+    }
+
+    if (message.action === 'hayami_providerAuthCompleted') {
+      const provider = String(message.provider || '').toLowerCase() as Provider;
+      if (provider !== 'youtube' && provider !== 'mal' && provider !== 'anilist') return;
+      toast.success(`${provider === 'mal' ? 'MAL' : provider === 'anilist' ? 'AniList' : 'YouTube'} sign-in completed. Reloading comments...`);
+      refreshCurrentProviderAfterAuth(provider);
+    }
+  };
   window.addEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
   window.addEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
   window.addEventListener('keydown', escHandler);
+  browser.runtime.onMessage.addListener(runtimeMessageHandler);
 
   onUnmounted(() => {
     if (wrongAnimeDebounceHandle) {
@@ -1652,6 +1833,7 @@ onMounted(() => {
     window.removeEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
     window.removeEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
     window.removeEventListener('keydown', escHandler);
+    browser.runtime.onMessage.removeListener(runtimeMessageHandler);
   });
 });
 
@@ -1717,6 +1899,8 @@ watch(
     const marker = discussion.id || discussion.fullname || discussion.permalink || null;
     if (marker && marker !== lastDiscussionId.value) {
       lastDiscussionId.value = marker;
+      fetchedDiscussionTitle.value = null;
+      fetchedDiscussionAuthor.value = null;
       redditCommentsKey.value++;
     }
   },
@@ -1739,6 +1923,9 @@ async function handleProviderChange(provider: Provider) {
   }
 
   if (provider !== 'reddit') {
+    showRedditAuthPrompt.value = false;
+    fetchedDiscussionTitle.value = null;
+    fetchedDiscussionAuthor.value = null;
     clearNoDiscussionFlag();
     showTopReplyEditor.value = false;
   }
@@ -1835,7 +2022,7 @@ defineExpose({
 
     <section id="reddit-inline-discussion" ref="inlineSectionRef" style="margin-top: 0; width: 100%;">
       <!-- Reddit header -->
-      <div v-if="currentProvider === 'reddit'" class="ri-header">
+      <div v-if="currentProvider === 'reddit' && !showRedditAuthPrompt" class="ri-header">
         <div class="ri-title-row pt-1">
           <h3 class="ri-title">
             {{ displayTitle }}
@@ -1862,7 +2049,7 @@ defineExpose({
           </div>
         </div>
         <div class="ri-meta" v-if="currentProvider === 'reddit' && !isNoDiscussion">
-          <span class="ri-author">u/{{ discussion.author }}</span>
+          <span class="ri-author">u/{{ displayAuthor }}</span>
           <div class="ri-post-actions" v-if="!isNoDiscussion">
             <button
               v-if="!isArchived"
@@ -1947,7 +2134,7 @@ defineExpose({
       </div>
 
       <!-- Toolbar - only visible for Reddit provider -->
-      <div v-if="currentProvider === 'reddit' && !isNoDiscussion" class="ri-toolbar">
+      <div v-if="currentProvider === 'reddit' && !isNoDiscussion && !showRedditAuthPrompt" class="ri-toolbar">
         <div class="ri-sort">
           Sort by:
           <select 
@@ -1978,7 +2165,7 @@ defineExpose({
 
       <!-- Top reply host - only visible for Reddit provider -->
       <div
-        v-if="currentProvider === 'reddit' && !isArchived && showTopReplyEditor && !isReplyingToComment"
+        v-if="currentProvider === 'reddit' && !isArchived && showTopReplyEditor && !isReplyingToComment && !showRedditAuthPrompt"
         id="ri-top-reply-host"
         class="ri-top-reply-container"
       >
@@ -2010,7 +2197,7 @@ defineExpose({
 
       <!-- Archived notice - only visible for Reddit provider -->
       <div
-        v-if="currentProvider === 'reddit' && isArchived"
+        v-if="currentProvider === 'reddit' && isArchived && !showRedditAuthPrompt"
         class="ri-archived-notice"
       >
         <strong>
@@ -2039,8 +2226,26 @@ defineExpose({
         </div>
 
         <!-- Reddit comments list - only mounted when loaded, on Reddit, and we have a valid discussion id -->
+        <div
+          v-if="currentProvider === 'reddit' && showRedditAuthPrompt && !isLoading"
+          class="ri-inline-no-discussion"
+          style="border-color: rgba(255, 103, 64, 0.45);"
+        >
+          <p class="ri-inline-no-discussion__lead">Reddit sign-in required</p>
+          <p class="ri-inline-no-discussion__title">You're not currently logged in to Reddit.</p>
+          <p class="ri-inline-no-discussion__hint">{{ redditAuthReason }}</p>
+          <button
+            class="ri-inline-no-discussion__cta"
+            type="button"
+            :disabled="isStartingGuidedRedditLogin"
+            @click="startGuidedRedditLogin"
+          >
+            {{ isStartingGuidedRedditLogin ? 'Opening login...' : 'Login with Reddit' }}
+          </button>
+        </div>
+
         <RedditCommentList
-          v-if="currentProvider === 'reddit' && !!discussionId"
+          v-if="currentProvider === 'reddit' && !!discussionId && !showRedditAuthPrompt"
           :key="`reddit-${discussionId}-${redditCommentsKey}`"
           :discussion-id="discussionId"
           :link-fullname="postFullname"
@@ -2055,6 +2260,8 @@ defineExpose({
           :empty-message="redditEmptyMessage"
           ref="redditListRef"
           @comments-loaded="handleCommentsLoaded"
+          @auth-required="handleRedditAuthRequired"
+          @discussion-meta="handleDiscussionMeta"
           @reply="handleReplyToComment"
           @collapse="handleCommentCollapse"
         >

@@ -6,6 +6,7 @@ import {
   getStoredProfilePic,
   logout,
 } from '@/utils/redditAuth';
+import { redditClientIdItem } from '@/config/storage';
 import {
   authenticateWithYouTube,
   isYouTubeAuthenticated,
@@ -139,15 +140,67 @@ export function useAccountManagement() {
 
   // Authentication check functions
   async function checkRedditAuth() {
+    const account = accounts.value.find(acc => acc.id === 'reddit');
+    if (account) account.isLoading = true;
     try {
-      const authenticated = await isAuthenticated();
+      const configuredClientId = (await redditClientIdItem.getValue())?.trim() || '';
+      let authenticated = false;
+
+      if (configuredClientId) {
+        authenticated = await isAuthenticated();
+      } else {
+        try {
+          const cookieState = await browser.runtime.sendMessage({ action: 'hayami_checkRedditTokenCookie' });
+          authenticated = !!cookieState?.loggedIn;
+          // Cookie mode should not trigger Reddit profile requests on popup open.
+          // We only use cookie presence as the source of truth for connected state.
+          // Username/avatar are read from stored values and fetched only when missing.
+          if (authenticated) {
+            const storedUsername = await getStoredUsername();
+            const storedProfilePic = await getStoredProfilePic();
+            username.value = storedUsername;
+            profilePic.value = storedProfilePic;
+
+            if (!storedUsername) {
+              try {
+                const profile = await browser.runtime.sendMessage({ action: 'hayami_getRedditCookieSessionProfile' });
+                if (profile?.loggedIn && profile?.username) {
+                  username.value = profile.username;
+                  profilePic.value = profile?.profilePic || null;
+                  await browser.storage.local.set({
+                    reddit_username: profile.username,
+                    reddit_profile_pic: profile?.profilePic || null,
+                  });
+                }
+              } catch {
+                // Ignore profile hydrate failures; connected state remains cookie-driven.
+              }
+            }
+          } else {
+            username.value = null;
+            profilePic.value = null;
+          }
+        } catch {
+          authenticated = false;
+          username.value = null;
+          profilePic.value = null;
+        }
+      }
+
       isLoggedIn.value = authenticated;
       if (authenticated) {
-        username.value = await getStoredUsername();
-        profilePic.value = await getStoredProfilePic();
+        if (configuredClientId) {
+          username.value = await getStoredUsername();
+          profilePic.value = await getStoredProfilePic();
+        }
+      } else {
+        username.value = null;
+        profilePic.value = null;
       }
     } catch (error) {
       console.error('Error checking Reddit auth status:', error);
+    } finally {
+      if (account) account.isLoading = false;
     }
   }
 
@@ -186,14 +239,62 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
     
     try {
-      const result = await authenticateWithReddit();
-      if (!result.success) {
-        throw new Error(result.error || 'Reddit login failed');
+      const configuredClientId = (await redditClientIdItem.getValue())?.trim() || '';
+
+      if (configuredClientId) {
+        const result = await authenticateWithReddit();
+        if (!result.success) {
+          throw new Error(result.error || 'Reddit login failed');
+        }
+        isLoggedIn.value = true;
+        username.value = result.username || null;
+        profilePic.value = await getStoredProfilePic();
+        updateAccountStates();
+        return;
       }
-      isLoggedIn.value = true;
-      username.value = result.username || null;
-      profilePic.value = await getStoredProfilePic();
-      updateAccountStates();
+
+      const popup = await browser.runtime.sendMessage({
+        action: 'hayami_openRedditLoginGuided',
+        url: 'https://www.reddit.com/login',
+      });
+      if (!popup?.success) {
+        throw new Error(popup?.error || 'Failed to open Reddit login popup');
+      }
+
+      // Cookie-based login runs in the browser session. Don't block the popup loading UI
+      // while user completes login in the separate Reddit popup window.
+      void (async () => {
+        const deadline = Date.now() + 60000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          try {
+            const res = await browser.runtime.sendMessage({ action: 'hayami_checkRedditTokenCookie' });
+            if (res?.loggedIn) {
+              isLoggedIn.value = true;
+              try {
+                const profile = await browser.runtime.sendMessage({ action: 'hayami_getRedditCookieSessionProfile' });
+                username.value = profile?.username || null;
+                profilePic.value = profile?.profilePic || null;
+                if (profile?.username || profile?.profilePic) {
+                  await browser.storage.local.set({
+                    reddit_username: profile?.username || null,
+                    reddit_profile_pic: profile?.profilePic || null,
+                  });
+                }
+              } catch {
+                username.value = null;
+                profilePic.value = null;
+              }
+              updateAccountStates();
+              return;
+            }
+          } catch {
+            // keep polling until timeout
+          }
+        }
+      })();
+
+      return;
     } catch (error) {
       console.error('Reddit login error:', error);
       throw error;
@@ -207,6 +308,12 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
     
     try {
+      const configuredClientId = (await redditClientIdItem.getValue())?.trim() || '';
+      if (!configuredClientId) {
+        // Cookie-based mode cannot log out browser Reddit cookies from extension scope.
+        return;
+      }
+
       await logout();
       isLoggedIn.value = false;
       username.value = null;

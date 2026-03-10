@@ -98,6 +98,10 @@ async function handleAniListRedirect(ctx: ContentScriptContext): Promise<void> {
   const result = await completeAniListImplicitGrant(window.location.hash || '');
 
   if (result.success) {
+    try {
+      await browser.runtime.sendMessage({ action: 'hayami_providerAuthFlowCompleted', provider: 'anilist' });
+    } catch {}
+
     status.replaceWith(
       renderMessage(
         'AniList connected',
@@ -186,6 +190,10 @@ async function handleMALRedirect(ctx: ContentScriptContext): Promise<void> {
   const result = await completeMALRedirect(window.location.href || '');
 
   if (result.success) {
+    try {
+      await browser.runtime.sendMessage({ action: 'hayami_providerAuthFlowCompleted', provider: 'mal' });
+    } catch {}
+
     status.replaceWith(
       renderMessage(
         'MyAnimeList connected',

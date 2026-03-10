@@ -34,6 +34,11 @@ interface MalTokenResponse {
 export interface MalAuthResult {
   success: boolean;
   error?: string;
+  message?: string;
+}
+
+interface MalAuthOptions {
+  openInTab?: boolean;
 }
 
 function generateRandomString(length = 64): string {
@@ -73,7 +78,7 @@ async function exchangeViaProxy(body: Record<string, string>): Promise<MalTokenR
   return json as MalTokenResponse;
 }
 
-export async function authenticateWithMAL(): Promise<MalAuthResult> {
+export async function authenticateWithMAL(options: MalAuthOptions = {}): Promise<MalAuthResult> {
   try {
     if (!MAL_CLIENT_ID) {
       return { success: false, error: 'MAL client ID is not configured' };
@@ -102,14 +107,22 @@ export async function authenticateWithMAL(): Promise<MalAuthResult> {
 
     const urlStr = authUrl.toString();
 
-    if (browser?.windows?.create) {
+    const shouldOpenTab = options.openInTab === true;
+    if (shouldOpenTab && browser?.tabs?.create) {
+      await browser.tabs.create({ url: urlStr, active: true });
+    } else if (browser?.windows?.create) {
+      const canUseWindowMetrics = typeof window !== 'undefined';
       await browser.windows.create({
         url: urlStr,
         type: 'popup',
         width: 520,
         height: 760,
-        left: Math.round(window.screenX + (window.outerWidth - 520) / 2),
-        top: Math.round(window.screenY + (window.outerHeight - 760) / 2),
+        ...(canUseWindowMetrics
+          ? {
+              left: Math.round(window.screenX + (window.outerWidth - 520) / 2),
+              top: Math.round(window.screenY + (window.outerHeight - 760) / 2),
+            }
+          : {}),
       });
     } else if (browser?.tabs?.create) {
       await browser.tabs.create({ url: urlStr, active: true });
@@ -147,7 +160,7 @@ export async function completeMALRedirect(url: string): Promise<MalAuthResult> {
     }
 
     const { [STORAGE_KEYS.oauthState]: storedState, [STORAGE_KEYS.codeVerifier]: storedVerifier } =
-      await browser.storage.local.get([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
+      await browser.storage.local.get([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]) as Record<string, string | undefined>;
 
     if (!storedState || returnedState !== storedState) {
       return { success: false, error: 'Security validation failed' };
@@ -212,11 +225,15 @@ export async function getMALAccessToken(interactive = false): Promise<string | n
     STORAGE_KEYS.accessToken,
     STORAGE_KEYS.refreshToken,
     STORAGE_KEYS.tokenExpiry,
-  ]);
+  ]) as Record<string, string | number | undefined>;
 
-  const accessToken = storage[STORAGE_KEYS.accessToken];
-  const refreshToken = storage[STORAGE_KEYS.refreshToken];
-  const expiry = storage[STORAGE_KEYS.tokenExpiry];
+  const accessTokenRaw = storage[STORAGE_KEYS.accessToken];
+  const refreshTokenRaw = storage[STORAGE_KEYS.refreshToken];
+  const expiryRaw = storage[STORAGE_KEYS.tokenExpiry];
+
+  const accessToken = typeof accessTokenRaw === 'string' ? accessTokenRaw : undefined;
+  const refreshToken = typeof refreshTokenRaw === 'string' ? refreshTokenRaw : undefined;
+  const expiry = typeof expiryRaw === 'number' ? expiryRaw : undefined;
 
   if (accessToken && expiry && Date.now() < expiry - 60_000) {
     return accessToken;
@@ -233,8 +250,9 @@ export async function getMALAccessToken(interactive = false): Promise<string | n
       const renewed = await browser.storage.local.get([
         STORAGE_KEYS.accessToken,
         STORAGE_KEYS.tokenExpiry,
-      ]);
-      return renewed[STORAGE_KEYS.accessToken] || null;
+      ]) as Record<string, string | number | undefined>;
+      const renewedToken = renewed[STORAGE_KEYS.accessToken];
+      return typeof renewedToken === 'string' ? renewedToken : null;
     }
   }
 
