@@ -21,6 +21,7 @@ import {
   embedImagesItem,
   imgurFrontendItem,
   imgurOdsItem,
+  imgurVideoCdnItem,
   imgchestApiKeyItem,
   imgurClientIdItem,
   redditEditorModeItem,
@@ -35,6 +36,7 @@ import {
   seriesMappingItem,
   type ImgurFrontendOption,
   type ImgurOdsOption,
+  type ImgurVideoCdnOption,
 } from '@/config/storage';
 import { initializeImgurRegionDefaultsOnce } from '@/entrypoints/content/images/imgur';
 import backIcon from '@/assets/backIcon.svg';
@@ -55,6 +57,7 @@ type SettingValueMap = {
   embedImages: boolean;
   imgurFrontend: ImgurFrontendOption;
   imgurOds: ImgurOdsOption;
+  imgurVideoCdn: ImgurVideoCdnOption;
   commentsProvider: CommentProviderOption;
   redditEditorMode: RedditEditorMode;
   redditDefaultSort: RedditSortOption;
@@ -265,6 +268,26 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => imgurOdsItem.setValue(value),
     successMessage: (value) => `Imgur ODS set to ${value}`,
     errorMessage: 'Failed to save Imgur ODS',
+    advanced: true,
+  },
+  {
+    key: 'imgurVideoCdn',
+    type: 'select',
+    category: 'image-previews',
+    label: 'Imgur video CDN',
+    description: 'How direct Imgur MP4 previews are delivered.',
+    options: [
+      { value: 'imgur', label: 'Imgur (default)' },
+      { value: 'ttok', label: 'TTOK' },
+    ],
+    fallback: 'imgur',
+    load: async () => {
+      const value = await imgurVideoCdnItem.getValue();
+      return value === 'ttok' || value === 'imgur' ? value : 'imgur';
+    },
+    save: (value) => imgurVideoCdnItem.setValue(value),
+    successMessage: (value) => `Imgur video CDN set to ${value}`,
+    errorMessage: 'Failed to save Imgur video CDN',
     advanced: true,
   },
   {
@@ -495,6 +518,7 @@ const settingValues = reactive<SettingValueMap>({
   embedImages: true,
   imgurFrontend: 'imgur',
   imgurOds: 'imgur',
+  imgurVideoCdn: 'imgur',
   commentsProvider: 'reddit',
   redditEditorMode: 'editor',
   redditShowFlairs: true,

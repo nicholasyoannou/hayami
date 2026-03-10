@@ -1,5 +1,8 @@
 import { crProxyFetch } from '@/utils/redditApi';
 
+let disqusPublicApiKeyCache: string | null | undefined;
+let disqusPublicApiKeyInFlight: Promise<string | null> | null = null;
+
 function parseEpisodeNumber(value?: string | null): number | null {
   if (!value) return null;
   const m = String(value).match(/(?:episode|ep|e)[\s._-]*(\d{1,3})/i) || String(value).match(/\b(\d{1,3})\b/);
@@ -85,7 +88,7 @@ function scoreThreadForAnime(animeInfo: { animeName: string; episodeName?: strin
  * Fetches Disqus public API key by requesting known Disqus bundles or login page
  * and extracting the public key.
  */
-export async function getDisqusPublicApiKey(): Promise<string | null> {
+async function fetchDisqusPublicApiKey(): Promise<string | null> {
   try {
     const urls = [
       'https://disqus.disqus.com/polls.js',
@@ -121,6 +124,27 @@ export async function getDisqusPublicApiKey(): Promise<string | null> {
     console.warn('Failed to fetch Disqus public API key', e);
   }
   return null;
+}
+
+export async function getDisqusPublicApiKey(): Promise<string | null> {
+  if (typeof disqusPublicApiKeyCache !== 'undefined') {
+    return disqusPublicApiKeyCache;
+  }
+
+  if (!disqusPublicApiKeyInFlight) {
+    disqusPublicApiKeyInFlight = (async () => {
+      const key = await fetchDisqusPublicApiKey();
+      // Cache both found and missing results to avoid repeated bundle fetches.
+      disqusPublicApiKeyCache = key;
+      return key;
+    })();
+  }
+
+  try {
+    return await disqusPublicApiKeyInFlight;
+  } finally {
+    disqusPublicApiKeyInFlight = null;
+  }
 }
 
 /**
@@ -172,6 +196,9 @@ export async function listThreadsForForumSince(forum: string, sinceTs: number, a
  */
 export async function findThreadForAnime(animeInfo: { animeName: string; episodeName?: string; releaseDate?: string }, forum = 'channel-discussanime'): Promise<any | null> {
   try {
+    const apiKey = await getDisqusPublicApiKey();
+    if (!apiKey) return null;
+
     // Compute since timestamp: START OF THE DAY (00:00:00) one day BEFORE the releaseDate
     let sinceTs = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
     if (animeInfo.releaseDate) {
@@ -203,7 +230,7 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
 
     for (let attempt = 0; attempt <= 3; attempt++) {
       const adjustedTs = attempt === 0 ? sinceTs : sinceTs + (hoursToNudge * 3600 * attempt);
-      const threads = await listThreadsForForumSince(forum, adjustedTs);
+      const threads = await listThreadsForForumSince(forum, adjustedTs, apiKey);
       if (!threads || threads.length === 0) continue;
 
       for (const t of threads) {
@@ -219,7 +246,7 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
     if (matchedThread) return matchedThread;
 
     // Fallback normalized/word matching
-    const threads = await listThreadsForForumSince(forum, sinceTs);
+    const threads = await listThreadsForForumSince(forum, sinceTs, apiKey);
     if (!threads || threads.length === 0) return null;
 
     const normalizedName = name.replace(/[:\-–—!?.,()\[\]]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -264,6 +291,9 @@ export async function findThreadByLink(
   forum = 'channel-discussanime'
 ): Promise<any | null> {
   try {
+    const apiKey = await getDisqusPublicApiKey();
+    if (!apiKey) return null;
+
     const rawUrl = String(threadUrl || '').trim();
     if (!rawUrl) return null;
 
@@ -311,7 +341,7 @@ export async function findThreadByLink(
     });
     if (!wantedCanonical && !wantedSlug) return null;
 
-    const threads = await listThreadsForForumSince(forum, sinceTs);
+    const threads = await listThreadsForForumSince(forum, sinceTs, apiKey);
     console.log('[DisqusApi][findThreadByLink] fetched threads', threads?.length || 0);
 
     if (Array.isArray(threads) && threads.length > 0) {
@@ -361,12 +391,6 @@ export async function findThreadByLink(
     // Fallback: query the thread directly by URL so we can recover title metadata
     // even when it is outside of the timeline window used above.
     try {
-      const key = await getDisqusPublicApiKey();
-      if (!key) {
-        console.log('[DisqusApi][findThreadByLink] details lookup skipped: missing API key');
-        return null;
-      }
-
       const linkCandidates = Array.from(new Set([
         rawUrl,
         rawUrl.replace(/\/+$/, ''),
@@ -374,7 +398,7 @@ export async function findThreadByLink(
       ].filter(Boolean)));
 
       for (const linkCandidate of linkCandidates) {
-        const detailsUrl = `https://disqus.com/api/3.0/threads/details.json?forum=${encodeURIComponent(forum)}&thread:link=${encodeURIComponent(linkCandidate)}&api_key=${encodeURIComponent(key)}`;
+        const detailsUrl = `https://disqus.com/api/3.0/threads/details.json?forum=${encodeURIComponent(forum)}&thread:link=${encodeURIComponent(linkCandidate)}&api_key=${encodeURIComponent(apiKey)}`;
         const detailsRes = await crProxyFetch(detailsUrl, { credentials: 'include' } as any);
         if (!detailsRes || !detailsRes.ok) {
           console.log('[DisqusApi][findThreadByLink] details lookup response not ok', {
@@ -468,6 +492,9 @@ export async function searchThreadsForAnime(
   forum = 'channel-discussanime'
 ): Promise<any[]> {
   try {
+    const apiKey = await getDisqusPublicApiKey();
+    if (!apiKey) return [];
+
     // Compute since timestamp like findThreadForAnime, defaulting to 7 days back
     let sinceTs = Math.floor(Date.now() / 1000) - 7 * 24 * 3600;
     if (animeInfo.releaseDate) {
@@ -480,7 +507,7 @@ export async function searchThreadsForAnime(
       }
     }
 
-    const threads = await listThreadsForForumSince(forum, sinceTs);
+    const threads = await listThreadsForForumSince(forum, sinceTs, apiKey);
     if (!threads || threads.length === 0) return [];
 
     const scored = threads.map((t) => ({ thread: t, score: scoreThreadForAnime(animeInfo, t) }));

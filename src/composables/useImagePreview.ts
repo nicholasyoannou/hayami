@@ -1,11 +1,25 @@
 import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
-import type { ImgurOdsOption } from '@/config/storage';
-import { applyImgurOdsUrl } from '@/entrypoints/content/images/imgur';
+import type { ImgurOdsOption, ImgurVideoCdnOption } from '@/config/storage';
+import { applyFlyimgUrl, applyImgurOdsUrl, applyImgurVideoCdnUrl } from '@/entrypoints/content/images/imgur';
 
 let currentImgurOdsProvider: ImgurOdsOption = 'imgur';
+let currentImgurVideoCdnProvider: ImgurVideoCdnOption = 'imgur';
 
 function setImgurOdsProvider(provider: ImgurOdsOption): void {
   currentImgurOdsProvider = provider;
+}
+
+function setImgurVideoCdnProvider(provider: ImgurVideoCdnOption): void {
+  currentImgurVideoCdnProvider = provider;
+}
+
+function isDirectImgurMp4Url(href: string): boolean {
+  try {
+    const parsed = new URL(href);
+    return /^i\.imgur\.com$/i.test(parsed.hostname) && /\.mp4(?:\?|#|$)/i.test(parsed.pathname + parsed.search + parsed.hash);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -15,6 +29,7 @@ export function useImagePreview() {
   const styleId = 'hayami-preview-styles';
   let stylesInjected = false;
   let imgPreviewEl: HTMLImageElement | null = null;
+  let videoPreviewEl: HTMLVideoElement | null = null;
   let imgPreviewHost: HTMLDivElement | null = null;
   let previewActiveHref: string | null = null;
   let imgPreviewSpinner: HTMLDivElement | null = null;
@@ -41,7 +56,8 @@ export function useImagePreview() {
   transition: opacity 140ms ease, transform 140ms ease;
   overflow: hidden;
 }
-.ri-img-tooltip img {
+.ri-img-tooltip img,
+.ri-img-tooltip video {
   display: block;
   max-width: 100%;
   max-height: 100%;
@@ -51,7 +67,8 @@ export function useImagePreview() {
   transform: scale(0.98);
   transition: opacity 160ms ease, transform 160ms ease;
 }
-.ri-img-tooltip:not(.loading) img {
+.ri-img-tooltip:not(.loading) img,
+.ri-img-tooltip:not(.loading) video {
   opacity: 1;
   transform: scale(1);
 }
@@ -180,6 +197,7 @@ export function useImagePreview() {
     galleryPreloadTriggered = true;
     galleryPreloadedImages = [];
     galleryImages.forEach((src, idx) => {
+      if (isVideoUrl(src)) return;
       if (!src) return;
       if (idx === galleryIndex && imgPreviewEl && imgPreviewEl.src === src) return;
       const pre = new Image();
@@ -202,6 +220,15 @@ export function useImagePreview() {
       imgPreviewHost.style.opacity = '0';
     }
     try { if (imgPreviewEl) { imgPreviewEl.src = ''; imgPreviewEl.onload = null; imgPreviewEl.onerror = null; } } catch {}
+    try {
+      if (videoPreviewEl) {
+        videoPreviewEl.pause();
+        videoPreviewEl.removeAttribute('src');
+        videoPreviewEl.load();
+        videoPreviewEl.onloadeddata = null;
+        videoPreviewEl.onerror = null;
+      }
+    } catch {}
     try { galleryImages = null; galleryIndex = 0; dotsWindowStart = 0; } catch {}
     galleryPreloadedImages = [];
     galleryPreloadTriggered = false;
@@ -211,13 +238,36 @@ export function useImagePreview() {
   }
 
   function displayGalleryImage(targetIndex: number, reason: string): void {
-    if (!galleryImages || galleryImages.length <= 0 || !imgPreviewEl || !imgPreviewHost) return;
+    if (!galleryImages || galleryImages.length <= 0 || !imgPreviewHost) return;
     const clamped = ((targetIndex % galleryImages.length) + galleryImages.length) % galleryImages.length;
     galleryIndex = clamped;
     const nextSrc = galleryImages[clamped];
+    const video = isVideoUrl(nextSrc);
+
+    if (video) {
+      if (!videoPreviewEl) return;
+      if (imgPreviewEl) imgPreviewEl.style.display = 'none';
+      videoPreviewEl.style.display = 'none';
+      imgPreviewHost.classList.add('loading');
+      if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner!);
+      videoPreviewEl.dataset.riOriginalSrc = nextSrc;
+      videoPreviewEl.dataset.riFallbackAttempted = '0';
+      videoPreviewEl.src = proxifyImageUrl(nextSrc);
+      try {
+        void videoPreviewEl.play();
+      } catch {}
+      renderDots();
+      return;
+    }
+
+    if (!imgPreviewEl) return;
     const preloaded = galleryPreloadedImages.find((img) => img.src === nextSrc && img.complete);
 
     imgPreviewEl.src = nextSrc;
+    if (videoPreviewEl) {
+      videoPreviewEl.pause();
+      videoPreviewEl.style.display = 'none';
+    }
 
     if (preloaded) {
       if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner);
@@ -235,11 +285,16 @@ export function useImagePreview() {
   }
 
   function updateImageSize(): void {
-    if (!imgPreviewHost || !imgPreviewEl) return;
+    if (!imgPreviewHost) return;
     const maxW = Math.min(window.innerWidth * 0.4, 800);
     const maxH = Math.min(window.innerHeight * 0.5, 640);
-    const natW = imgPreviewEl.naturalWidth || 0;
-    const natH = imgPreviewEl.naturalHeight || 0;
+    const isVideo = Boolean(videoPreviewEl && videoPreviewEl.style.display !== 'none');
+    const natW = isVideo
+      ? (videoPreviewEl?.videoWidth || 0)
+      : (imgPreviewEl?.naturalWidth || 0);
+    const natH = isVideo
+      ? (videoPreviewEl?.videoHeight || 0)
+      : (imgPreviewEl?.naturalHeight || 0);
 
     if (natW === 0 || natH === 0) {
       imgPreviewHost.style.width = '';
@@ -296,6 +351,17 @@ export function useImagePreview() {
       imgPreviewEl.alt = '';
       imgPreviewHost!.appendChild(imgPreviewEl);
     }
+    if (!videoPreviewEl) {
+      videoPreviewEl = document.createElement('video');
+      videoPreviewEl.controls = false;
+      videoPreviewEl.muted = true;
+      videoPreviewEl.defaultMuted = true;
+      videoPreviewEl.loop = true;
+      videoPreviewEl.autoplay = true;
+      videoPreviewEl.playsInline = true;
+      videoPreviewEl.style.display = 'none';
+      imgPreviewHost!.appendChild(videoPreviewEl);
+    }
     // Only create dots container if there are multiple images
     if (multi && multi.length > 1 && !galleryDots) {
       galleryDots = document.createElement('div');
@@ -331,6 +397,7 @@ export function useImagePreview() {
     try {
       galleryImages = multi.map((u) => {
         try {
+          if (isVideoUrl(u)) return u;
           return applyImgurOdsUrl(u, currentImgurOdsProvider);
         } catch {
           return u;
@@ -365,7 +432,7 @@ export function useImagePreview() {
   }
 
   function setupImageLoadHandlers(): void {
-    if (!imgPreviewEl) return;
+    if (!imgPreviewEl || !videoPreviewEl) return;
 
     imgPreviewEl.onload = () => {
       try {
@@ -377,6 +444,43 @@ export function useImagePreview() {
     };
 
     imgPreviewEl.onerror = () => {
+      try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
+      try { if (imgPreviewHost) imgPreviewHost.classList.remove('loading'); } catch {}
+      try { if (imgPreviewHost) imgPreviewHost.style.display = 'none'; } catch {}
+    };
+
+    videoPreviewEl.onloadeddata = () => {
+      try {
+        try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
+        if (imgPreviewHost) imgPreviewHost.classList.remove('loading');
+        if (videoPreviewEl) {
+          videoPreviewEl.style.display = 'block';
+          videoPreviewEl.muted = true;
+          videoPreviewEl.defaultMuted = true;
+          void videoPreviewEl.play();
+        }
+        updateImageSize();
+      } catch {}
+    };
+
+    videoPreviewEl.onerror = () => {
+      try {
+        const original = videoPreviewEl?.dataset.riOriginalSrc || '';
+        const fallbackAttempted = videoPreviewEl?.dataset.riFallbackAttempted === '1';
+        if (
+          videoPreviewEl
+          && currentImgurVideoCdnProvider === 'ttok'
+          && !fallbackAttempted
+          && isDirectImgurMp4Url(original)
+        ) {
+          videoPreviewEl.dataset.riFallbackAttempted = '1';
+          videoPreviewEl.src = applyFlyimgUrl(original);
+          try {
+            void videoPreviewEl.play();
+          } catch {}
+          return;
+        }
+      } catch {}
       try { if (imgPreviewSpinner && imgPreviewSpinner.parentElement) imgPreviewSpinner.parentElement.removeChild(imgPreviewSpinner); } catch {}
       try { if (imgPreviewHost) imgPreviewHost.classList.remove('loading'); } catch {}
       try { if (imgPreviewHost) imgPreviewHost.style.display = 'none'; } catch {}
@@ -393,14 +497,31 @@ export function useImagePreview() {
   }
 
   function loadSingleImage(href: string): void {
-    if (!imgPreviewEl) return;
+    if (!imgPreviewEl || !videoPreviewEl || !imgPreviewHost) return;
     galleryImages = null;
+    if (isVideoUrl(href)) {
+      imgPreviewEl.style.display = 'none';
+      videoPreviewEl.style.display = 'none';
+      imgPreviewHost.classList.add('loading');
+      if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner!);
+      videoPreviewEl.dataset.riOriginalSrc = href;
+      videoPreviewEl.dataset.riFallbackAttempted = '0';
+      videoPreviewEl.src = proxifyImageUrl(href);
+      try {
+        void videoPreviewEl.play();
+      } catch {}
+      return;
+    }
+
+    videoPreviewEl.pause();
+    videoPreviewEl.style.display = 'none';
     imgPreviewEl.src = proxifyImageUrl(href);
   }
 
   function cleanup(): void {
     hidePreview();
     imgPreviewEl = null;
+    videoPreviewEl = null;
     imgPreviewHost = null;
     imgPreviewSpinner = null;
   }
@@ -434,10 +555,17 @@ function isImageLink(href: string): boolean {
   }
   if (/images\.duckduckgo\.com\/iu\//i.test(href)) return true;
   if (/cdn\.swisscows\.com\/image\?/i.test(href)) return true;
-  return /\.(png|jpe?g|gif|webp|bmp|svg)(?:\?|#|$)/i.test(href);
+  return /\.(png|jpe?g|gif|webp|bmp|svg|mp4)(?:\?|#|$)/i.test(href);
+}
+
+function isVideoUrl(href: string): boolean {
+  return /\.mp4(?:\?|#|$)/i.test(href);
 }
 
 function proxifyImageUrl(href: string): string {
+  if (isVideoUrl(href)) {
+    return applyImgurVideoCdnUrl(href, currentImgurVideoCdnProvider);
+  }
   return applyImgurOdsUrl(href, currentImgurOdsProvider);
 }
 
@@ -461,4 +589,4 @@ function extractYouTubeId(href: string): string | null {
   return null;
 }
 
-export { isImageLink, proxifyImageUrl, isYouTubeLink, extractYouTubeId, setImgurOdsProvider };
+export { isImageLink, proxifyImageUrl, isYouTubeLink, extractYouTubeId, setImgurOdsProvider, setImgurVideoCdnProvider };

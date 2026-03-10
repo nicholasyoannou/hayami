@@ -10,12 +10,15 @@ import {
   imgurClientIdItem,
   imgurFrontendItem,
   imgurOdsItem,
+  imgurVideoCdnItem,
   imgurRegionDefaultsInitializedItem,
   type ImgurFrontendOption,
   type ImgurOdsOption,
+  type ImgurVideoCdnOption,
 } from '@/config/storage';
 
 const PROXY_PREFIX = 'https://external-content.duckduckgo.com/iu/?u=';
+const TTOK_VIDEO_PROXY_PREFIX = 'https://api.ttok.com/api/proxy';
 
 const IMGUR_FRONTEND_BASES: Record<Exclude<ImgurFrontendOption, 'imgur'>, string> = {
   nerdvpn: 'https://imgur.nerdvpn.de',
@@ -54,6 +57,7 @@ export async function initializeImgurRegionDefaultsOnce(): Promise<void> {
     if (useRegionalDefaults) {
       await imgurFrontendItem.setValue('nerdvpn');
       await imgurOdsItem.setValue('duckduckgo');
+      await imgurVideoCdnItem.setValue('ttok');
     }
 
     await imgurRegionDefaultsInitializedItem.setValue(true);
@@ -109,7 +113,7 @@ export function applyImgurOdsUrl(rawUrl: string, provider: ImgurOdsOption): stri
     }
 
     if (provider === 'flyimg') {
-      return `https://demo.flyimg.io/upload/q_100/${rawUrl}`;
+      return `https://demo.flyimg.io/upload/q_70/${rawUrl}`;
     }
 
     if (provider === 'swisscows') {
@@ -117,6 +121,34 @@ export function applyImgurOdsUrl(rawUrl: string, provider: ImgurOdsOption): stri
     }
 
     return rawUrl;
+  } catch {
+    return rawUrl;
+  }
+}
+
+export function applyFlyimgUrl(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const isDirectImgur = /^i\.imgur\.com$/i.test(parsed.hostname);
+    if (!isDirectImgur) return rawUrl;
+    return `https://demo.flyimg.io/upload/q_70/${rawUrl}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+export function applyImgurVideoCdnUrl(rawUrl: string, provider: ImgurVideoCdnOption): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const isDirectImgur = /^i\.imgur\.com$/i.test(parsed.hostname);
+    const isMp4 = /\.mp4(?:\?|#|$)/i.test(parsed.pathname + parsed.search + parsed.hash);
+    if (!isDirectImgur || !isMp4 || provider === 'imgur') return rawUrl;
+
+    const proxied = new URL(TTOK_VIDEO_PROXY_PREFIX);
+    proxied.searchParams.set('url', rawUrl);
+    proxied.searchParams.set('type', 'video');
+    proxied.searchParams.set('fn', 'download');
+    return proxied.toString();
   } catch {
     return rawUrl;
   }

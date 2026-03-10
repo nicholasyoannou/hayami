@@ -5,6 +5,7 @@ import {
   isYouTubeLink,
   extractYouTubeId,
   setImgurOdsProvider,
+  setImgurVideoCdnProvider,
 } from '@/composables/useImagePreview';
 import { browser } from 'wxt/browser';
 import {
@@ -20,8 +21,10 @@ import {
   imgurClientIdItem,
   imgurFrontendItem,
   imgurOdsItem,
+  imgurVideoCdnItem,
   type ImgurFrontendOption,
   type ImgurOdsOption,
+  type ImgurVideoCdnOption,
 } from '@/config/storage';
 
 let cachedImgchestApiKey: string | null | undefined;
@@ -49,6 +52,15 @@ async function refreshImgurImagePreferences(): Promise<void> {
   } catch {
     setImgurOdsProvider('imgur');
     try { sessionStorage.setItem('ri-imgur-ods', 'imgur'); } catch {}
+  }
+
+  try {
+    const videoCdn = await imgurVideoCdnItem.getValue();
+    setImgurVideoCdnProvider(videoCdn as ImgurVideoCdnOption);
+    try { sessionStorage.setItem('ri-imgur-video-cdn', videoCdn); } catch {}
+  } catch {
+    setImgurVideoCdnProvider('imgur');
+    try { sessionStorage.setItem('ri-imgur-video-cdn', 'imgur'); } catch {}
   }
 }
 
@@ -185,7 +197,7 @@ function parsePostimgUrl(rawUrl: string): { kind: 'gallery' | 'single'; id: stri
 function extractPostimgImageUrls(html: string): string[] {
   // postimg pages include direct media links under i.postimg.cc; extract and de-duplicate in source order
   const text = html.replace(/\\\//g, '/');
-  const re = /https?:\/\/i\.postimg\.cc\/[A-Za-z0-9_-]+\/[^\s'"<>]+?\.(?:png|jpe?g|gif|webp|bmp|svg)(?:\?[^\s'"<>]*)?/gi;
+  const re = /https?:\/\/i\.postimg\.cc\/[A-Za-z0-9_-]+\/[^\s'"<>]+?\.(?:png|jpe?g|gif|webp|bmp|svg|mp4)(?:\?[^\s'"<>]*)?/gi;
   const out: string[] = [];
   const seen = new Set<string>();
 
@@ -242,7 +254,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     if (keys.some((key) => key.includes('embed_images'))) {
       refreshEmbedImagesEnabled(preview);
     }
-    if (keys.some((key) => key.includes('imgur_frontend') || key.includes('imgur_ods'))) {
+    if (keys.some((key) => key.includes('imgur_frontend') || key.includes('imgur_ods') || key.includes('imgur_video_cdn'))) {
       refreshImgurImagePreferences();
     }
   };
@@ -392,7 +404,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
                 // Fall back to trying common i.imgur extensions.
                 if (!resolved) {
-                  const exts = ['.jpg', '.png', '.gif', '.webp'];
+                  const exts = ['.jpg', '.png', '.gif', '.webp', '.mp4'];
                   for (const ext of exts) {
                     const tryUrl = `https://i.imgur.com/${id}${ext}`;
                     try {

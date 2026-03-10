@@ -49,6 +49,7 @@ export const imgurClientIdItem = storage.defineItem<string | null>(
 
 export type ImgurFrontendOption = 'imgur' | 'nerdvpn' | 'bcow';
 export type ImgurOdsOption = 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows';
+export type ImgurVideoCdnOption = 'imgur' | 'ttok';
 
 export const imgurFrontendItem = storage.defineItem<ImgurFrontendOption>(
   'local:imgur_frontend',
@@ -57,6 +58,11 @@ export const imgurFrontendItem = storage.defineItem<ImgurFrontendOption>(
 
 export const imgurOdsItem = storage.defineItem<ImgurOdsOption>(
   'local:imgur_ods',
+  { fallback: 'imgur' }
+);
+
+export const imgurVideoCdnItem = storage.defineItem<ImgurVideoCdnOption>(
+  'local:imgur_video_cdn',
   { fallback: 'imgur' }
 );
 
