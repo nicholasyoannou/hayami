@@ -186,7 +186,7 @@ const manualSearchResults = ref<any[]>([]);
 const manualSearchLoading = ref(false);
 const manualSearchError = ref<string | null>(null);
 const manualDialogTab = ref<'search' | 'episode'>('episode');
-const manualEpisodeOptions = ref<Array<{ episode: number; url: string }>>([]);
+const manualEpisodeOptions = ref<Array<{ episode: number; url: string; isDub?: boolean }>>([]);
 const manualEpisodeLoading = ref(false);
 const manualEpisodeError = ref<string | null>(null);
 const manualEpisodeSelected = ref<number | null>(null);
@@ -200,6 +200,8 @@ const wrongAnimeLoading = ref(false);
 const wrongAnimeError = ref<string | null>(null);
 const animeCommunityMedia = ref<AniListSearchMedia | null>(null);
 const malManualMedia = ref<MalSearchMedia | null>(null);
+const manualAniwaveIsDub = ref(false);
+const manualAniwaveEpisodeVariants = ref<Array<{ episode: number; subUrl: string; dubUrl: string }>>([]);
 let wrongAnimeDebounceHandle: ReturnType<typeof setTimeout> | null = null;
 
 const manualEpisodeProviderLabel = computed(() => {
@@ -211,6 +213,11 @@ const manualEpisodeProviderLabel = computed(() => {
   return 'Reddit';
 });
 const isAniwaveManualMode = computed(() => manualEpisodeProvider.value === 'aniwave');
+const hasAniwaveDubOptions = computed(() => manualAniwaveEpisodeVariants.value.some((item) => !!item.dubUrl));
+const hasAniwaveSubOptions = computed(() => manualAniwaveEpisodeVariants.value.some((item) => !!item.subUrl));
+const showAniwaveDubToggle = computed(
+  () => isAniwaveManualMode.value && hasAniwaveDubOptions.value && hasAniwaveSubOptions.value,
+);
 const isAniListEpisodeManualMode = computed(
   () => manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist',
 );
@@ -443,12 +450,105 @@ function getMapperResultDisplayName(result: any): string {
   return 'Unknown title';
 }
 
-function getMapperEpisodeOptions(result: any): Array<{ episode: number; url: string }> {
+function getAniwaveEpisodeVariants(result: any): Array<{ episode: number; subUrl: string; dubUrl: string }> {
+  const episodes = result?.episodes;
+  if (!Array.isArray(episodes)) return [];
+
+  const byEpisode = new Map<number, { subUrl: string; dubUrl: string }>();
+  for (const ep of episodes) {
+    const episodeNumber = Number(ep?.episode_number);
+    if (!Number.isFinite(episodeNumber)) continue;
+
+    const docIdRaw = ep?.docID || ep?.docId || ep?.doc_id;
+    const docId = typeof docIdRaw === 'string' ? docIdRaw.trim() : '';
+    if (!docId) continue;
+
+    const current = byEpisode.get(episodeNumber) || { subUrl: '', dubUrl: '' };
+    if (ep?.is_dub === true) {
+      if (!current.dubUrl) current.dubUrl = docId;
+    } else if (!current.subUrl) {
+      current.subUrl = docId;
+    }
+    byEpisode.set(episodeNumber, current);
+  }
+
+  return Array.from(byEpisode.entries())
+    .map(([episode, urls]) => ({ episode, subUrl: urls.subUrl, dubUrl: urls.dubUrl }))
+    .sort((a, b) => a.episode - b.episode);
+}
+
+function buildAniwaveOptionsFromVariants(
+  variants: Array<{ episode: number; subUrl: string; dubUrl: string }>,
+  requireDub: boolean,
+): Array<{ episode: number; url: string; isDub?: boolean }> {
+  const useDub = requireDub && variants.some((item) => !!item.dubUrl);
+  const out: Array<{ episode: number; url: string; isDub?: boolean }> = [];
+  for (const item of variants) {
+    if (useDub) {
+      if (item.dubUrl) out.push({ episode: item.episode, url: item.dubUrl, isDub: true });
+      continue;
+    }
+
+    if (item.subUrl) {
+      out.push({ episode: item.episode, url: item.subUrl, isDub: false });
+      continue;
+    }
+
+    if (item.dubUrl) {
+      out.push({ episode: item.episode, url: item.dubUrl, isDub: true });
+    }
+  }
+
+  return out;
+}
+
+function applyAniwaveEpisodeToggleFromVariants() {
+  const variants = manualAniwaveEpisodeVariants.value;
+  if (!variants.length) {
+    manualEpisodeOptions.value = [];
+    return;
+  }
+
+  const hasDub = variants.some((item) => !!item.dubUrl);
+  if (manualAniwaveIsDub.value && !hasDub) {
+    manualAniwaveIsDub.value = false;
+  }
+
+  const selectedEpisode = manualEpisodeSelected.value;
+  manualEpisodeOptions.value = buildAniwaveOptionsFromVariants(variants, manualAniwaveIsDub.value);
+
+  if (manualEpisodeOptions.value.length === 0) {
+    manualEpisodeSelected.value = null;
+    manualEpisodeError.value = manualAniwaveIsDub.value
+      ? 'No Aniwave dub episode map found for this title.'
+      : 'No Aniwave episode map found for this title.';
+    return;
+  }
+
+  manualEpisodeError.value = null;
+  if (selectedEpisode !== null && manualEpisodeOptions.value.some((opt) => opt.episode === selectedEpisode)) {
+    manualEpisodeSelected.value = selectedEpisode;
+  } else {
+    manualEpisodeSelected.value = manualEpisodeOptions.value[0]?.episode ?? null;
+  }
+}
+
+function getMapperEpisodeOptions(
+  result: any,
+  options?: { provider?: ManualEpisodeProvider; aniwaveIsDub?: boolean },
+): Array<{ episode: number; url: string; isDub?: boolean }> {
   const episodes = result?.episodes;
   if (!episodes) return [];
 
   // Newer Aniwave payload shape: episodes[] with episode_number + docID
   if (Array.isArray(episodes)) {
+    const isAniwaveProvider = options?.provider === 'aniwave';
+
+    if (isAniwaveProvider) {
+      const variants = getAniwaveEpisodeVariants(result);
+      return buildAniwaveOptionsFromVariants(variants, options?.aniwaveIsDub === true);
+    }
+
     const byEpisode = new Map<number, string>();
     for (const ep of episodes) {
       const episodeNumber = Number(ep?.episode_number);
@@ -530,6 +630,8 @@ function openManualSearchModal(
   wrongAnimeError.value = null;
   animeCommunityMedia.value = null;
   malManualMedia.value = null;
+  manualAniwaveIsDub.value = false;
+  manualAniwaveEpisodeVariants.value = [];
   if (wrongAnimeDebounceHandle) {
     clearTimeout(wrongAnimeDebounceHandle);
     wrongAnimeDebounceHandle = null;
@@ -541,10 +643,12 @@ function openManualSearchModal(
     malId: context?.malId ?? null,
   };
   manualMappingAnimeName.value = (context?.mappingAnimeName || context?.animeName || '').trim() || null;
-  void refreshManualMappingExists();
-  if (manualDialogTab.value === 'episode') {
-    void loadEpisodeOptions();
-  }
+  void (async () => {
+    await refreshManualMappingState();
+    if (manualDialogTab.value === 'episode') {
+      await loadEpisodeOptions();
+    }
+  })();
   if (resolvedProvider === 'reddit') {
     runManualSearch();
   }
@@ -572,6 +676,7 @@ async function loadEpisodeOptions() {
   manualEpisodeError.value = null;
   manualEpisodeOptions.value = [];
   manualEpisodeResolvedName.value = null;
+  manualAniwaveEpisodeVariants.value = [];
   wrongAnimeError.value = null;
   wrongAnimeResults.value = [];
   try {
@@ -664,7 +769,13 @@ async function loadEpisodeOptions() {
 
         if (manualEpisodeProvider.value === 'aniwave') {
           const ranked = allIndices
-            .map((idx) => ({ idx, count: getMapperEpisodeOptions(results[idx]).length }))
+            .map((idx) => ({
+              idx,
+              count: getMapperEpisodeOptions(results[idx], {
+                provider: manualEpisodeProvider.value,
+                aniwaveIsDub: manualAniwaveIsDub.value,
+              }).length,
+            }))
             .sort((a, b) => b.count - a.count)
             .map((x) => x.idx);
           preferred.push(...ranked);
@@ -678,8 +789,14 @@ async function loadEpisodeOptions() {
 
         for (const idx of Array.from(new Set(preferred)).filter((i) => i >= 0 && i < results.length)) {
           const res = results[idx];
-          const options = getMapperEpisodeOptions(res);
+          const options = getMapperEpisodeOptions(res, {
+            provider: manualEpisodeProvider.value,
+            aniwaveIsDub: manualAniwaveIsDub.value,
+          });
           if (options.length > 0) {
+            if (manualEpisodeProvider.value === 'aniwave') {
+              manualAniwaveEpisodeVariants.value = getAniwaveEpisodeVariants(res);
+            }
             manualEpisodeOptions.value = options;
             populatedFromMapper = manualEpisodeOptions.value.length > 0;
             manualEpisodeResolvedName.value = getMapperResultDisplayName(res) || cleanedSeries;
@@ -705,7 +822,9 @@ async function loadEpisodeOptions() {
     }
 
     if (!populatedFromMapper && manualEpisodeProvider.value === 'aniwave') {
-      manualEpisodeError.value = 'No Aniwave episode map found for this title.';
+      manualEpisodeError.value = manualAniwaveIsDub.value
+        ? 'No Aniwave dub episode map found for this title.'
+        : 'No Aniwave episode map found for this title.';
       return;
     }
 
@@ -793,6 +912,8 @@ function selectWrongAnime(result: any) {
     wrongAnimeResults.value = [];
     wrongAnimeError.value = null;
     wrongAnimeQuery.value = name;
+    manualMappingAnimeName.value = name;
+    void refreshManualMappingState();
     void loadEpisodeOptions();
     return;
   }
@@ -808,6 +929,8 @@ function selectWrongAnime(result: any) {
     wrongAnimeResults.value = [];
     wrongAnimeError.value = null;
     wrongAnimeQuery.value = name;
+    manualMappingAnimeName.value = name;
+    void refreshManualMappingState();
     void loadEpisodeOptions();
     return;
   }
@@ -819,6 +942,8 @@ function selectWrongAnime(result: any) {
   wrongAnimeResults.value = [];
   wrongAnimeError.value = null;
   wrongAnimeQuery.value = name;
+  manualMappingAnimeName.value = name;
+  void refreshManualMappingState();
   void loadEpisodeOptions();
 }
 
@@ -871,19 +996,25 @@ function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecom
   return 'reddit';
 }
 
-async function refreshManualMappingExists() {
+async function refreshManualMappingState() {
   const animeName = (manualMappingAnimeName.value || '').trim();
   if (!animeName) {
     manualMappingExists.value = false;
+    manualAniwaveIsDub.value = false;
     return;
   }
 
   try {
-    const mapping = await getSeriesMapping(animeName, getManualMappingPlatform());
+    const platform = getManualMappingPlatform();
+    const mapping = await getSeriesMapping(animeName, platform);
     manualMappingExists.value = !!mapping;
+    if (platform === 'aniwave') {
+      manualAniwaveIsDub.value = mapping?.aniwaveIsDub === true;
+    }
   } catch (error) {
     console.warn('[ManualMapping] Failed to read existing mapping', error);
     manualMappingExists.value = false;
+    manualAniwaveIsDub.value = false;
   }
 }
 
@@ -923,6 +1054,7 @@ function confirmEpisodeSelection() {
         redditUrl: provider === 'reddit' ? chosen?.url : undefined,
         provider,
         selectedAnimeName,
+        aniwaveIsDub: provider === 'aniwave' ? manualAniwaveIsDub.value : undefined,
       },
     }));
   } catch (e) {
@@ -931,6 +1063,14 @@ function confirmEpisodeSelection() {
     manualSearchOpen.value = false;
   }
 }
+
+watch(manualAniwaveIsDub, () => {
+  if (!manualSearchOpen.value) return;
+  if (manualEpisodeProvider.value !== 'aniwave') return;
+  if (manualDialogTab.value !== 'episode') return;
+  if (manualEpisodeLoading.value) return;
+  applyAniwaveEpisodeToggleFromVariants();
+});
 
 async function runDisqusSearch() {
   if (!disqusSearchAnimeInfo.value) return;
@@ -1554,7 +1694,7 @@ watch(
 
 watch([manualEpisodeProvider, manualMappingAnimeName], () => {
   if (!manualSearchOpen.value) return;
-  void refreshManualMappingExists();
+  void refreshManualMappingState();
 });
 
 watch(
@@ -2053,6 +2193,28 @@ defineExpose({
             </div>
           </div>
 
+          <div
+            v-if="showAniwaveDubToggle"
+            class="inline-flex items-center rounded-lg border border-[#2f2f2f] bg-[#0b0b0b] p-1"
+          >
+            <button
+              type="button"
+              class="px-3 py-1.5 text-xs rounded-md transition-colors"
+              :class="!manualAniwaveIsDub ? 'bg-[#2f6feb] text-white' : 'text-[#b8c2cf] hover:text-white'"
+              @click="manualAniwaveIsDub = false"
+            >
+              Sub
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1.5 text-xs rounded-md transition-colors"
+              :class="manualAniwaveIsDub ? 'bg-[#2f6feb] text-white' : 'text-[#b8c2cf] hover:text-white'"
+              @click="manualAniwaveIsDub = true"
+            >
+              Dub
+            </button>
+          </div>
+
           <div v-if="wrongAnimeOpen" class="rounded-lg border border-[#2f2f2f] bg-[#0f0f0f] p-3 text-xs text-white/80 space-y-2">
             <div class="text-[#ccc]">{{ isAniListEpisodeManualMode ? 'Search AniList for the correct series.' : (isMalEpisodeManualMode ? 'Search MyAnimeList for the correct series.' : 'Search Hayami for the correct series.') }}</div>
             <div class="flex gap-2">
@@ -2131,6 +2293,7 @@ defineExpose({
                   :value="opt.episode"
                 />
                 <span>Episode {{ opt.episode }}</span>
+                <span v-if="isAniwaveManualMode" class="text-[11px] text-[#9db2c8]">{{ opt.isDub ? 'Dub' : 'Sub' }}</span>
               </label>
               <a
                 v-if="opt.url"

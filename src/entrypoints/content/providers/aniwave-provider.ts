@@ -33,6 +33,7 @@ export class AniwaveProvider extends BaseProvider {
   private servedImages = new Map<string, string>();
   private apiAnimeName: string | null = null;
   private apiEpisodeNumber: number | null = null;
+  private apiIsDub: boolean | null = null;
   private static iconFontInjected = false;
 
   private assets = {
@@ -57,6 +58,7 @@ export class AniwaveProvider extends BaseProvider {
     this.hideReplyContext = false;
     this.apiAnimeName = null;
     this.apiEpisodeNumber = null;
+    this.apiIsDub = null;
     this.servedImages.clear();
   }
 
@@ -74,6 +76,8 @@ export class AniwaveProvider extends BaseProvider {
 
     let mappedAnimeName = animeInfo.animeName;
     let episodeNumber: string | number = rawEpisode;
+    let preferDub = false;
+    this.apiIsDub = null;
 
     try {
       const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName, 'aniwave') : null;
@@ -81,6 +85,7 @@ export class AniwaveProvider extends BaseProvider {
       if (mapperAnimeName) {
         mappedAnimeName = mapperAnimeName;
       }
+      preferDub = mapping?.aniwaveIsDub === true;
 
       const rawEpisodeNum = Number(rawEpisode);
       const hasRawEpisode = Number.isFinite(rawEpisodeNum);
@@ -96,7 +101,7 @@ export class AniwaveProvider extends BaseProvider {
     container.innerHTML = this.renderLoading(mappedAnimeName, episodeNumber);
 
     try {
-      const docId = await this.resolveDocId(mappedAnimeName, episodeNumber);
+      const docId = await this.resolveDocId(mappedAnimeName, episodeNumber, preferDub);
       if (!docId) {
         container.innerHTML = this.renderError('Unable to locate Aniwave thread for this episode.');
         return;
@@ -382,7 +387,11 @@ export class AniwaveProvider extends BaseProvider {
     });
   }
 
-  private async resolveDocId(animeName: string, episodeNumber: string | number | null): Promise<string | null> {
+  private async resolveDocId(
+    animeName: string,
+    episodeNumber: string | number | null,
+    preferDub: boolean,
+  ): Promise<string | null> {
     try {
       const params = new URLSearchParams({
         series_name: animeName,
@@ -418,12 +427,19 @@ export class AniwaveProvider extends BaseProvider {
         : null;
 
       if (episodes.length) {
+        const preferredIsDub = preferDub;
         const match = epNumber !== null
-          ? episodes.find((ep) => Number(ep.episode_number) === epNumber && ep.is_dub === false)
+          ? episodes.find((ep) => Number(ep.episode_number) === epNumber && (ep.is_dub === true) === preferredIsDub)
             || episodes.find((ep) => Number(ep.episode_number) === epNumber)
           : null;
 
-        const chosen = match || episodes.find((ep) => ep.is_dub === false) || episodes[0];
+        const chosen = match
+          || episodes.find((ep) => (ep.is_dub === true) === preferredIsDub)
+          || episodes.find((ep) => ep.is_dub === false)
+          || episodes[0];
+        if (chosen && typeof chosen.is_dub === 'boolean') {
+          this.apiIsDub = chosen.is_dub;
+        }
         if (chosen?.episode_number !== undefined) {
           this.setApiEpisodeNumber(chosen.episode_number);
         } else if (epNumber !== null) {
@@ -434,6 +450,9 @@ export class AniwaveProvider extends BaseProvider {
       }
 
       if (primary) {
+        if (typeof (primary as any).is_dub === 'boolean') {
+          this.apiIsDub = Boolean((primary as any).is_dub);
+        }
         if ((primary as any).episode_number !== undefined) {
           this.setApiEpisodeNumber((primary as any).episode_number);
         }
@@ -510,11 +529,12 @@ export class AniwaveProvider extends BaseProvider {
   }
 
   private renderLoading(animeName: string, episodeNumber: string | number | null): string {
+    const dubSuffix = this.apiIsDub ? ' - dub' : '';
     return `
       <div class="aniwave-thread">
         <div class="aniwave-header">
           <h2 class="aniwave-title">Comments - ${escapeHtml(animeName)}</h2>
-          <div class="aniwave-meta">Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave</div>
+          <div class="aniwave-meta">Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave${dubSuffix}</div>
         </div>
         <div class="aniwave-loader">Loading Aniwave comments…</div>
       </div>
@@ -565,7 +585,7 @@ export class AniwaveProvider extends BaseProvider {
         <div class="aniwave-header">
           <h2 class="aniwave-title">Comments - ${escapeHtml(animeName)}</h2>
           <div class="aniwave-meta">
-            Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave - ${countText}
+            Episode ${escapeHtml(String(episodeNumber || '?'))} - Aniwave${this.apiIsDub ? ' - dub' : ''} - ${countText}
             <span class="aniwave-meta-info" aria-label="Aniwave comments are archived only (2016–2024)">
               <img class="aniwave-meta-icon" src="${escapeHtml(this.assets.infoIcon)}" alt="Info" />
               <span class="aniwave-meta-tooltip">Aniwave comments are archived only (2016–2024).</span>

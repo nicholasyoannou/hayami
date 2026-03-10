@@ -128,7 +128,11 @@ export const chibiOverridesItem = storage.defineItem<Record<string, any>>(
 
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
 export const seriesMappingItem = storage.defineItem<
-  Record<string, Record<string, Record<string, { episodeOffset: number; mapperAnimeName?: string }>>>
+  Record<string, Record<string, Record<string, {
+    episodeOffset: number;
+    mapperAnimeName?: string;
+    aniwaveIsDub?: boolean;
+  }>>>
 >(
   'local:series_mapping',
   { fallback: {} }

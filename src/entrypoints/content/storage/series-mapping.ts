@@ -4,6 +4,7 @@ import { resolveAdapter } from '../adapters/site-registry';
 export interface SeriesMapping {
   episodeOffset: number;
   mapperAnimeName?: string;
+  aniwaveIsDub?: boolean;
 }
 
 export type SeriesMappingPlatform =

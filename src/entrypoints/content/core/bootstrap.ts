@@ -214,6 +214,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       const selectedAnimeName = typeof ev?.detail?.selectedAnimeName === 'string'
         ? ev.detail.selectedAnimeName.trim()
         : '';
+      const aniwaveIsDub = ev?.detail?.aniwaveIsDub === true;
       if (!Number.isFinite(selectedEpisode)) return;
 
       const metadataEpisode = await resolveCurrentCrunchyrollEpisodeForOffset();
@@ -231,6 +232,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
+          aniwaveIsDub: mappingPlatform === 'aniwave' ? aniwaveIsDub : undefined,
         }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal');
         toast.success(`Saved episode mapping: current=${currentEp}, ${mappingPlatform}=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
