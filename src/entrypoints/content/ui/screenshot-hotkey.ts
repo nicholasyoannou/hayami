@@ -80,16 +80,11 @@ export function setupScreenshotHotkey(ctx: ContentScriptContext): void {
       toast.success('Screenshot saved');
     }
     if (msg?.action === 'hayami_screenshot_error') {
-      const detail = typeof msg.error === 'string' ? msg.error : '';
-      if (detail.includes('Screenshot permission was not granted')) {
-        toast.error('Allow “All sites” access to use screenshots');
-        return;
-      }
       toast.error('Could not take screenshot');
     }
   });
 
-  // Triggered by browser command (Ctrl+Shift+S); background requests screenshot permission when needed.
+  // Triggered by browser command (Ctrl+Shift+S) via activeTab; no in-page key handling here.
 
   ctx.onInvalidated(() => {
     hotkeyAttached = false;

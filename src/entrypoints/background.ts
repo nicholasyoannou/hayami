@@ -102,53 +102,27 @@ async function purgeHostPermissionsForHost(host: string, origin?: string) {
 const POLL_RULE_ID = 99001;
 const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
 
+/** Debounce guard: ignore duplicate screenshot requests within this window (ms) */
+let lastScreenshotMs = 0;
+const SCREENSHOT_DEBOUNCE_MS = 500;
+
+async function performScreenshot(tabId: number, windowId: number): Promise<void> {
+  const now = Date.now();
+  if (now - lastScreenshotMs < SCREENSHOT_DEBOUNCE_MS) return;
+  lastScreenshotMs = now;
+  try {
+    const dataUrl = await browser.tabs.captureVisibleTab(windowId, { format: 'png' });
+    await browser.tabs.sendMessage(tabId, { action: 'hayami_screenshot_ready', dataUrl });
+  } catch (err) {
+    try {
+      await browser.tabs.sendMessage(tabId, { action: 'hayami_screenshot_error', error: err instanceof Error ? err.message : String(err) });
+    } catch {
+      // content script may not be present (e.g. navigated away)
+    }
+  }
+}
+
 const CONTEXT_MENU_ID = 'hayami-configure-site';
-const SCREENSHOT_PERMISSION_ERROR = "Either the 'activeTab' or '<all_urls>' permission is required";
-
-function isScreenshotPermissionError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes(SCREENSHOT_PERMISSION_ERROR);
-}
-
-async function ensureScreenshotPermission(): Promise<boolean> {
-  const permissions = browser.permissions;
-  if (!permissions?.contains || !permissions?.request) return false;
-
-  try {
-    const origins = ['<all_urls>'];
-    const alreadyGranted = await permissions.contains({ origins });
-    if (alreadyGranted) return true;
-    return await permissions.request({ origins });
-  } catch (error) {
-    console.warn('Screenshot permission request failed', error);
-    return false;
-  }
-}
-
-async function sendScreenshotMessage(tabId: number, payload: Record<string, unknown>): Promise<void> {
-  try {
-    await browser.tabs.sendMessage(tabId, payload);
-  } catch {
-    // Ignore when the current tab has no active content script to receive screenshot status updates.
-  }
-}
-
-async function captureVisibleTabWithPermission(): Promise<string> {
-  try {
-    return await browser.tabs.captureVisibleTab(undefined, { format: 'png' });
-  } catch (error) {
-    if (!isScreenshotPermissionError(error)) {
-      throw error;
-    }
-
-    const granted = await ensureScreenshotPermission();
-    if (!granted) {
-      throw new Error('Screenshot permission was not granted');
-    }
-
-    return await browser.tabs.captureVisibleTab(undefined, { format: 'png' });
-  }
-}
 
 async function requestSitePermission(url: string): Promise<boolean> {
   try {
@@ -327,14 +301,10 @@ export default defineBackground(() => {
 
     if (command === 'capture-screenshot') {
       try {
-        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-        if (!tab?.id) return;
-        try {
-          const dataUrl = await captureVisibleTabWithPermission();
-          await sendScreenshotMessage(tab.id, { action: 'hayami_screenshot_ready', dataUrl });
-        } catch (err) {
-          await sendScreenshotMessage(tab.id, { action: 'hayami_screenshot_error', error: err instanceof Error ? err.message : String(err) });
-        }
+        // lastFocusedWindow is more robust than currentWindow for fullscreen mode
+        const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+        if (!tab?.id || !tab.windowId) return;
+        await performScreenshot(tab.id, tab.windowId);
       } catch (e) {
         console.warn('Screenshot command failed', e);
       }
@@ -445,7 +415,25 @@ export default defineBackground(() => {
       return true;
     }
 
-    // Screenshot capture is handled via browser command using activeTab; no per-origin permission flow needed.
+    // Screenshot capture is handled via browser command or content-script keyboard fallback.
+
+    if (message.action === 'hayami_take_screenshot') {
+      const tabId = sender.tab?.id;
+      const windowId = sender.tab?.windowId;
+      if (!tabId || !windowId) {
+        sendResponse({ ok: false, error: 'no-tab' });
+        return false;
+      }
+      (async () => {
+        try {
+          await performScreenshot(tabId, windowId);
+          sendResponse({ ok: true });
+        } catch (err) {
+          sendResponse({ ok: false, error: err instanceof Error ? err.message : String(err) });
+        }
+      })();
+      return true;
+    }
 
     if (message.action === 'hayami_closeTab') {
       const tabId = sender.tab?.id;

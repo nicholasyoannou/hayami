@@ -21,6 +21,7 @@ const filteredEntrypoints = process.env.NODE_ENV === 'production'
       'onboarding',
       'popup',
       'pwa',
+      'screenshot-frame-shortcut',
     ]
   : undefined;
 
