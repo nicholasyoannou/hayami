@@ -94,6 +94,10 @@ export const hostPermissions = [
       'https://myanimelist.net/*',
       'https://api.imgchest.com/*',
       'https://imgchest.com/*',
+      'https://api.imgur.com/*',
+      'https://imgur.com/*',
+      'https://*.imgur.com/*',
+      'https://catbox.moe/*',
       'https://postimg.cc/*',
       'https://*.postimg.cc/*',
       'https://api.bilibili.com/*',
@@ -102,5 +106,6 @@ export const hostPermissions = [
       'https://www.netflix.com/*',
       'https://api.hayami.moe/*',
       'https://hayami.moe/*',
-      'https://anilist.co/*'
+      'https://anilist.co/*',
+      '<all_urls>'
 ];

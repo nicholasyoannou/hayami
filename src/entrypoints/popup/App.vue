@@ -23,6 +23,9 @@ import {
   imgurOdsItem,
   imgurVideoCdnItem,
   imgchestApiKeyItem,
+  screenshotEnabledItem,
+  screenshotDestinationItem,
+  screenshotSiteRulesItem,
   imgurClientIdItem,
   redditEditorModeItem,
   redditShowFlairsItem,
@@ -37,6 +40,8 @@ import {
   type ImgurFrontendOption,
   type ImgurOdsOption,
   type ImgurVideoCdnOption,
+  type ScreenshotDestinationOption,
+  type ScreenshotSiteRule,
 } from '@/config/storage';
 import { initializeImgurRegionDefaultsOnce } from '@/entrypoints/content/images/imgur';
 import backIcon from '@/assets/backIcon.svg';
@@ -45,6 +50,7 @@ import settingsIcon from '@/assets/settingsIcon.svg';
 import accountIcon from '@/assets/accountIcon.svg';
 import accountsIcon from '@/assets/accountsIcon.svg';
 import generalIcon from '@/assets/settingsScreen/general.svg';
+import screenshotIcon from '@/assets/settingsScreen/screenshotIcon.svg';
 import imagePreviewsIcon from '@/assets/settingsScreen/imagePreviews.svg';
 import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms.svg';
 import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
@@ -59,6 +65,8 @@ type SettingValueMap = {
   imgurOds: ImgurOdsOption;
   imgurVideoCdn: ImgurVideoCdnOption;
   commentsProvider: CommentProviderOption;
+  screenshotEnabled: boolean;
+  screenshotDestination: ScreenshotDestinationOption;
   redditEditorMode: RedditEditorMode;
   redditDefaultSort: RedditSortOption;
   redditShowFlairs: boolean;
@@ -74,7 +82,7 @@ type SettingValueMap = {
 };
 
 type SettingKey = keyof SettingValueMap;
-type SettingCategoryId = 'general' | 'image-previews' | 'provider';
+type SettingCategoryId = 'general' | 'screenshots' | 'image-previews' | 'provider';
 type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail';
 type SettingsNavItem = {
   id: SettingCategoryId | 'discussion-platforms' | 'custom-sites';
@@ -150,6 +158,50 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => displayModeItem.setValue(value),
     successMessage: () => 'Default display mode saved',
     errorMessage: 'Failed to save Default display mode',
+  },
+  {
+    key: 'screenshotEnabled',
+    type: 'toggle',
+    category: 'screenshots',
+    label: 'Enable screenshots',
+    description: 'Turn Ctrl+Shift+S screenshot capture on or off.',
+    fallback: false,
+    load: async () => Boolean(await screenshotEnabledItem.getValue()),
+    save: (value) => screenshotEnabledItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Screenshot feature enabled' : 'Screenshot feature disabled'),
+    errorMessage: 'Failed to update screenshot setting',
+  },
+  {
+    key: 'screenshotDestination',
+    type: 'select',
+    category: 'screenshots',
+    label: 'Screenshot destination',
+    description: 'Choose where Ctrl+Shift+S screenshots are sent.',
+    options: [
+      { value: 'local', label: 'Save to device' },
+      { value: 'imagechest', label: 'Upload to ImageChest' },
+      { value: 'imgur', label: 'Upload to Imgur' },
+      { value: 'catbox', label: 'Upload to Catbox' },
+      { value: 'both', label: 'Save + upload to ImageChest' },
+      { value: 'local-imgur', label: 'Save + upload to Imgur' },
+      { value: 'local-catbox', label: 'Save + upload to Catbox' },
+    ],
+    fallback: 'local',
+    load: async () => {
+      const value = await screenshotDestinationItem.getValue();
+      return value === 'imagechest' || value === 'imgur' || value === 'catbox' || value === 'both' || value === 'local-imgur' || value === 'local-catbox' || value === 'local' ? value : 'local';
+    },
+    save: (value) => screenshotDestinationItem.setValue(value),
+    successMessage: (value) => {
+      if (value === 'imagechest') return 'Screenshots set to upload to ImageChest';
+      if (value === 'imgur') return 'Screenshots set to upload to Imgur';
+      if (value === 'catbox') return 'Screenshots set to upload to Catbox';
+      if (value === 'both') return 'Screenshots set to save and upload';
+      if (value === 'local-imgur') return 'Screenshots set to save and upload to Imgur';
+      if (value === 'local-catbox') return 'Screenshots set to save and upload to Catbox';
+      return 'Screenshots set to save locally';
+    },
+    errorMessage: 'Failed to save screenshot destination',
   },
   {
     key: 'commentTextSizeIncrease',
@@ -472,6 +524,12 @@ const settingsCategories = [
     icon: imagePreviewsIcon,
     settings: settingDefinitions.filter((setting) => setting.category === 'image-previews'),
   },
+  {
+    id: 'screenshots',
+    label: 'Screenshots',
+    icon: screenshotIcon,
+    settings: settingDefinitions.filter((setting) => setting.category === 'screenshots'),
+  },
 ];
 
 const settingsNavItems: SettingsNavItem[] = [
@@ -499,6 +557,12 @@ const settingsNavItems: SettingsNavItem[] = [
     icon: imagePreviewsIcon,
     kind: 'settings',
   },
+  {
+    id: 'screenshots',
+    label: 'Screenshots',
+    icon: screenshotIcon,
+    kind: 'settings',
+  },
 ];
 
 const providerSections = commentProviderOptions.map((provider) => ({
@@ -520,6 +584,8 @@ const settingValues = reactive<SettingValueMap>({
   imgurOds: 'imgur',
   imgurVideoCdn: 'imgur',
   commentsProvider: 'reddit',
+  screenshotEnabled: false,
+  screenshotDestination: 'local',
   redditEditorMode: 'editor',
   redditShowFlairs: true,
   redditFlairPosition: 'inline',
@@ -549,7 +615,13 @@ const activeSettingsCategory = computed(() =>
 );
 const imagePreviewAdvancedExpanded = ref(false);
 const activeCategoryPrimarySettings = computed(() =>
-  (activeSettingsCategory.value?.settings || []).filter((setting) => !setting.advanced),
+  (activeSettingsCategory.value?.settings || []).filter((setting) => {
+    if (setting.advanced) return false;
+    if (activeSettingsCategory.value?.id === 'screenshots' && setting.key === 'screenshotEnabled') {
+      return false;
+    }
+    return true;
+  }),
 );
 const activeCategoryAdvancedSettings = computed(() =>
   (activeSettingsCategory.value?.settings || []).filter((setting) => Boolean(setting.advanced)),
@@ -562,6 +634,14 @@ const sortedCustomSiteMappings = computed(() =>
   [...customSiteMappings.value].sort((a, b) => (a.origin || '').localeCompare(b.origin || '')),
 );
 const selectedCustomSite = ref<CustomSiteMapping | null>(null);
+const screenshotSiteRules = ref<ScreenshotSiteRule[]>([]);
+const screenshotFeatureEnabled = computed(() => Boolean(settingValues.screenshotEnabled));
+
+async function handleScreenshotFeatureToggle(enabled: boolean) {
+  const setting = settingDefinitions.find((item) => item.key === 'screenshotEnabled');
+  if (!setting) return;
+  await handleSettingChange(setting, enabled as SettingValueMap[SettingKey]);
+}
 
 // Use shared account management
 const { refreshAllAccounts, getAccount, getAccountActions, anyAccountLoading } = useAccountManagement();
@@ -599,6 +679,7 @@ onMounted(async () => {
   await initializeImgurRegionDefaultsOnce();
   await loadAllSettings();
   await loadCustomSiteMappings();
+  await loadScreenshotSiteRules();
   await applyInitialRouteParams();
 
   window.addEventListener('message', handleFeedbackMessage);
@@ -713,6 +794,9 @@ function handleFeedbackKeydown(event: KeyboardEvent) {
 }
 
 function isSettingDisabled(setting: SettingDefinition) {
+  if (setting.category === 'screenshots' && setting.key !== 'screenshotEnabled' && !screenshotFeatureEnabled.value) {
+    return true;
+  }
   return setting.category === 'image-previews' && setting.key !== 'embedImages' && !imagePreviewsEnabled.value;
 }
 
@@ -727,6 +811,91 @@ function handleStorageChange(
   if (Object.keys(changes).some((key) => key.includes('custom_site_mappings'))) {
     void loadCustomSiteMappings();
   }
+
+  if (Object.keys(changes).some((key) => key.includes('screenshot_site_rules'))) {
+    void loadScreenshotSiteRules();
+  }
+}
+
+function normalizeHostForScreenshotRule(input: string): string | null {
+  const trimmed = (input || '').trim().toLowerCase();
+  if (!trimmed) return null;
+
+  try {
+    const maybeUrl = trimmed.includes('://') ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(maybeUrl);
+    const hostname = parsed.hostname.trim().toLowerCase();
+    return hostname || null;
+  } catch {
+    const normalized = trimmed
+      .replace(/^https?:\/\//, '')
+      .split('/')[0]
+      .split(':')[0]
+      .trim();
+    return normalized || null;
+  }
+}
+
+async function loadScreenshotSiteRules() {
+  try {
+    const rules = await screenshotSiteRulesItem.getValue();
+    screenshotSiteRules.value = (Array.isArray(rules) ? rules : [])
+      .map((rule) => ({
+        host: String(rule?.host || '').trim().toLowerCase(),
+        selector: String(rule?.selector || '').trim(),
+        enabled: Boolean(rule?.enabled),
+      }))
+      .filter((rule) => Boolean(rule.host) && Boolean(rule.selector));
+  } catch (error) {
+    console.warn('Failed to load screenshot site rules', error);
+    screenshotSiteRules.value = [];
+  }
+}
+
+async function saveScreenshotSiteRules() {
+  await screenshotSiteRulesItem.setValue(screenshotSiteRules.value);
+}
+
+async function removeScreenshotSiteRule(host: string) {
+  screenshotSiteRules.value = screenshotSiteRules.value.filter((rule) => rule.host !== host);
+  await saveScreenshotSiteRules();
+  showSuccess('Screenshot site rule removed');
+}
+
+async function toggleScreenshotSiteRule(host: string, enabled: boolean) {
+  const target = screenshotSiteRules.value.find((rule) => rule.host === host);
+  if (!target) return;
+  target.enabled = enabled;
+  await saveScreenshotSiteRules();
+  showSuccess(enabled ? 'Screenshot site rule enabled' : 'Screenshot site rule disabled');
+}
+
+async function openKeyboardShortcuts() {
+  try {
+    await browser.tabs.create({ url: 'chrome://extensions/shortcuts' });
+  } catch (error) {
+    console.warn('Failed to open keyboard shortcuts page', error);
+    showError('Could not open keyboard shortcuts page');
+  }
+}
+
+async function startScreenshotElementPicker() {
+  try {
+    const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+    if (typeof tab?.id !== 'number') {
+      showError('No active tab found for element picker');
+      return;
+    }
+
+    await browser.tabs.sendMessage(tab.id, { action: 'hayami_startScreenshotElementPicker' });
+  } catch (error) {
+    console.warn('Failed to start screenshot element picker', error);
+    showError('Could not start element picker on this page');
+    return;
+  }
+
+  // Let picking continue in-page without popup focus.
+  window.close();
 }
 
 function getFaviconUrl(origin: string) {
@@ -960,7 +1129,13 @@ async function applyInitialRouteParams() {
 
   if (openSettings) {
     currentView.value = 'settings';
-    selectedSettingsCategory.value = section === 'custom-sites' ? 'custom-sites' : section === 'discussion-platforms' ? 'discussion-platforms' : 'general';
+    selectedSettingsCategory.value = section === 'custom-sites'
+      ? 'custom-sites'
+      : section === 'discussion-platforms'
+        ? 'discussion-platforms'
+        : section === 'screenshots'
+          ? 'screenshots'
+          : 'general';
     settingsScreen.value = section === 'custom-sites' ? 'custom-sites' : section === 'discussion-platforms' ? 'providers' : 'category';
 
     const shouldAutoConnect =
@@ -1177,6 +1352,90 @@ function handleAniListLogout() {
                 </div>
 
                 <div class="space-y-3">
+                  <div
+                    v-if="activeSettingsCategory.id === 'screenshots'"
+                    class="rounded-xl bg-white/5 px-4 py-3"
+                  >
+                    <p class="text-sm text-white/80">Screenshot keybind</p>
+                    <p class="text-xs text-white/60">Capture screenshot: Ctrl+Shift+S</p>
+                    <button
+                      type="button"
+                      class="mt-2 inline-block text-xs font-semibold text-cyan-300 hover:text-cyan-200"
+                      @click="openKeyboardShortcuts"
+                    >
+                      Open keyboard shortcuts
+                    </button>
+                  </div>
+
+                  <div
+                    v-if="activeSettingsCategory.id === 'screenshots'"
+                    class="rounded-xl bg-white/5 px-4 py-3"
+                  >
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex-1">
+                        <p class="text-sm text-white/80">Enable screenshots</p>
+                        <p class="text-xs text-white/60">Turn Ctrl+Shift+S screenshot capture on or off.</p>
+                      </div>
+                      <label class="relative inline-flex items-center">
+                        <input
+                          type="checkbox"
+                          class="peer sr-only"
+                          :checked="Boolean(settingValues.screenshotEnabled)"
+                          @change="(e) => handleScreenshotFeatureToggle((e.target as HTMLInputElement).checked)"
+                        />
+                        <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div
+                    v-if="activeSettingsCategory.id === 'screenshots'"
+                    class="rounded-xl bg-white/5 px-4 py-3"
+                    :class="!screenshotFeatureEnabled ? 'opacity-50 pointer-events-none' : ''"
+                  >
+                    <p class="text-sm text-white/80">Per-site element screenshots</p>
+                    <p class="text-xs text-white/60">Optional: crop screenshots to one element for a specific host.</p>
+
+                    <button
+                      type="button"
+                      class="mt-2 inline-block rounded-md bg-cyan-400/20 px-3 py-1 text-xs font-semibold text-cyan-200 hover:bg-cyan-400/30"
+                      @click="startScreenshotElementPicker"
+                    >
+                      Pick from page
+                    </button>
+
+                    <div v-if="screenshotSiteRules.length" class="mt-3 space-y-2">
+                      <div
+                        v-for="rule in screenshotSiteRules"
+                        :key="rule.host"
+                        class="flex items-center justify-between gap-3 rounded-xl bg-black/15 px-3 py-2"
+                      >
+                        <div class="min-w-0 flex-1">
+                          <p class="truncate text-xs font-semibold text-white/85">{{ rule.host }}</p>
+                          <p class="truncate text-xs text-white/60">{{ rule.selector }}</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <label class="relative inline-flex items-center">
+                            <input
+                              type="checkbox"
+                              class="peer sr-only"
+                              :checked="Boolean(rule.enabled)"
+                              @change="(e) => toggleScreenshotSiteRule(rule.host, (e.target as HTMLInputElement).checked)"
+                            />
+                            <div class="peer h-5 w-9 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-3 after:w-3 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></div>
+                          </label>
+                          <button
+                            type="button"
+                            class="rounded-md bg-rose-500/20 px-2 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-500/30"
+                            @click="removeScreenshotSiteRule(rule.host)"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
                   <template v-for="setting in activeCategoryPrimarySettings" :key="setting.key">
                     <div
                       class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-4 py-3"
