@@ -163,10 +163,6 @@ function softResetForWatchNavigation(): void {
  * Main bootstrap function for content script initialization
  */
 export async function bootstrapContent(ctx: ContentScriptContext): Promise<void> {
-  // Keep screenshot hotkey support active even in focused iframe contexts.
-  ensureToaster(ctx);
-  setupScreenshotHotkey(ctx);
-
   // Early bailout: Check if this site is potentially supported
   const currentUrl = window.location.href;
   const { isWatchPage } = useWatchPageDetection();
@@ -185,6 +181,8 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   setContentScriptContext(ctx);
 
   debug.log('Hayami extension loaded');
+  ensureToaster(ctx);
+  setupScreenshotHotkey(ctx);
   setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
 
   if (customMapping || hasWatchUrl) {
