@@ -8,6 +8,8 @@ export { bbcodeToHtml, renderYouTubeComments };
 
 export default defineContentScript({
   matches: hostPermissions,
+  allFrames: true,
+  matchAboutBlank: true,
   main(ctx: ContentScriptContext) {
     bootstrapContent(ctx);
   },

@@ -43,6 +43,14 @@ function extractCrunchyrollEpisodeIdFromUrl(url: string): string | null {
   return match?.[1] || null;
 }
 
+function isTopFrameWindow(): boolean {
+  try {
+    return window.self === window.top;
+  } catch {
+    return false;
+  }
+}
+
 async function resolveCurrentCrunchyrollEpisodeForOffset(): Promise<number | null> {
   const episodeId = extractCrunchyrollEpisodeIdFromUrl(window.location.href);
   if (!episodeId) return null;
@@ -163,6 +171,15 @@ function softResetForWatchNavigation(): void {
  * Main bootstrap function for content script initialization
  */
 export async function bootstrapContent(ctx: ContentScriptContext): Promise<void> {
+  setupScreenshotHotkey(ctx);
+
+  if (!isTopFrameWindow()) {
+    debug.log('Hayami: Skipping main bootstrap in subframe');
+    return;
+  }
+
+  ensureToaster(ctx);
+
   // Early bailout: Check if this site is potentially supported
   const currentUrl = window.location.href;
   const { isWatchPage } = useWatchPageDetection();
@@ -181,8 +198,6 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   setContentScriptContext(ctx);
 
   debug.log('Hayami extension loaded');
-  ensureToaster(ctx);
-  setupScreenshotHotkey(ctx);
   setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
 
   if (customMapping || hasWatchUrl) {

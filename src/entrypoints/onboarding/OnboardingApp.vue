@@ -181,12 +181,14 @@ async function persistMediaKeys() {
               label="Imgur Client ID"
               placeholder="e.g. 123abc..."
               type="text"
+              @save="persistMediaKeys"
             />
             <ApiKeyInput
               v-model="imagechestApiKey"
               label="ImageChest API Key"
               placeholder="e.g. ich_xxx..."
               type="text"
+              @save="persistMediaKeys"
             />
           </div>
           <img

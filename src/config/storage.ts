@@ -76,6 +76,29 @@ export const imgchestApiKeyItem = storage.defineItem<string | null>(
   { fallback: null }
 );
 
+export type ScreenshotDestinationOption = 'local' | 'imagechest' | 'imgur' | 'catbox' | 'both' | 'local-imgur' | 'local-catbox';
+
+export const screenshotEnabledItem = storage.defineItem<boolean>(
+  'local:screenshot_enabled',
+  { fallback: false }
+);
+
+export const screenshotDestinationItem = storage.defineItem<ScreenshotDestinationOption>(
+  'local:screenshot_destination',
+  { fallback: 'local' }
+);
+
+export type ScreenshotSiteRule = {
+  host: string;
+  selector: string;
+  enabled: boolean;
+};
+
+export const screenshotSiteRulesItem = storage.defineItem<ScreenshotSiteRule[]>(
+  'local:screenshot_site_rules',
+  { fallback: [] }
+);
+
 export const redditClientIdItem = storage.defineItem<string | null>(
   'local:reddit_client_id',
   { fallback: null }

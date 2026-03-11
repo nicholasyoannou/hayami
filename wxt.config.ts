@@ -54,6 +54,7 @@ export default defineConfig({
       'scripting',
       'activeTab',
       'tabs',
+      'downloads',
       'contextMenus',
       'declarativeNetRequest'
     ],
