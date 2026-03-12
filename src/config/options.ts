@@ -44,3 +44,10 @@ export const redditFlairPositionOptions = [
 ] as const;
 
 export type RedditFlairPositionOption = (typeof redditFlairPositionOptions)[number]['value'];
+
+export const redditDeepReplyModeOptions = [
+  { value: 'popup', label: 'Open in Hayami popup' },
+  { value: 'reddit', label: 'Open on Reddit' },
+] as const;
+
+export type RedditDeepReplyModeOption = (typeof redditDeepReplyModeOptions)[number]['value'];

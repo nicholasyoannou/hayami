@@ -86,7 +86,7 @@ export class AniListProvider extends BaseProvider {
 
       if (!anilistId) {
         console.warn('[AniList] Missing AniList ID, unable to fetch threads');
-        toast.error('AniList ID missing', { description: 'Unable to fetch AniList forums for this episode.' });
+        toast.error('AniList ID missing', { description: 'Unable to fetch AniList post for this episode.' });
         clearLoadingState('AniList missing anilistId');
         return;
       }

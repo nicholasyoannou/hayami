@@ -75,7 +75,7 @@ const currentUsername = ref<string | null>(null);
 const redditListRef = ref<any>(null);
 const pendingLocalComments = ref<Array<{ comment: RedditComment; parentId?: string }>>([]);
 const showTopReplyEditor = ref(false);
-const replyTarget = ref<{ id: string; author?: string; parentFullname: string } | null>(null);
+const replyTarget = ref<{ id: string; key: string; author?: string; parentFullname: string } | null>(null);
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
 const redditFlairPosition = ref<'inline' | 'below'>('inline');
@@ -1599,8 +1599,10 @@ function handleAddCommentClick() {
 function handleReplyToComment(comment: RedditComment) {
   if (isArchived.value || isNoDiscussion.value) return;
   const fullname = comment.id?.startsWith('t1_') ? comment.id : `t1_${comment.id}`;
+  const replyKey = comment.id || comment.permalink || String(comment.created_utc ?? '');
   replyTarget.value = {
     id: comment.id,
+    key: replyKey,
     author: comment.author,
     parentFullname: fullname,
   };
@@ -2267,7 +2269,7 @@ defineExpose({
         >
           <template #reply-editor="{ comment }">
             <TipTapCommentEditor
-              v-if="redditEditorMode === 'editor' && replyTarget?.id === comment.id && showTopReplyEditor"
+              v-if="redditEditorMode === 'editor' && replyTarget?.key === (comment.id || comment.permalink || String(comment.created_utc ?? '')) && showTopReplyEditor"
               :disabled="isPostingTopComment"
               :placeholder="replyPlaceholder"
               class="ri-reply-editor"
@@ -2275,7 +2277,7 @@ defineExpose({
               @cancel="handleTopReplyCancel"
             />
             <div
-              v-else-if="redditEditorMode === 'markdown' && replyTarget?.id === comment.id && showTopReplyEditor"
+              v-else-if="redditEditorMode === 'markdown' && replyTarget?.key === (comment.id || comment.permalink || String(comment.created_utc ?? '')) && showTopReplyEditor"
               class="ri-reply-editor ri-plain-editor"
             >
               <textarea

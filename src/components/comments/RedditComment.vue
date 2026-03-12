@@ -14,6 +14,9 @@ const props = defineProps<{
   highlightIds?: Set<string>;
   onReply?: (comment: RedditComment) => void;
   loadMoreHandler?: (commentId: string) => Promise<void>;
+  maxInlineDepth?: number;
+  deepReplyMode?: 'popup' | 'reddit';
+  allowDeepView?: boolean;
   subreddit?: string;
   currentUsername?: string | null;
   showFlairs?: boolean;
@@ -24,6 +27,7 @@ const emit = defineEmits<{
   reply: [comment: RedditComment];
   loadMore: [comment: RedditComment];
   collapse: [commentId: string, collapsed: boolean];
+  openDeepView: [comment: RedditComment];
 }>();
 
 const depth = computed(() => props.depth ?? 0);
@@ -211,6 +215,7 @@ const downvoteFilledIconUrl = getRuntimeUrl('assets/commentAssets/downvoteFilled
 const replyIconUrl = getRuntimeUrl('assets/commentAssets/reply.svg');
 const shareIconUrl = getRuntimeUrl('assets/commentAssets/share.svg');
 const stickiedIconUrl = getRuntimeUrl('assets/commentAssets/reddit/stickied.svg');
+const leadListIconUrl = getRuntimeUrl('assets/commentAssets/reddit/lead_list.svg');
 
 // Avatar cache (shared across instances via module scope would be better, but this works)
 const avatarCache = new Map<string, string | null>();
@@ -498,6 +503,43 @@ async function handleLoadMoreChildren() {
   }
 }
 
+function buildRedditCommentUrl(): string | null {
+  const permalink = props.comment.permalink;
+  if (permalink) {
+    return permalink.startsWith('http') ? permalink : `https://www.reddit.com${permalink}`;
+  }
+  const linkId = props.comment.link_id;
+  if (linkId) {
+    return `https://www.reddit.com/comments/${String(linkId).replace(/^t3_/, '')}`;
+  }
+  return null;
+}
+
+function handleDeepReplyAction(): boolean {
+  if (!isDeepInline.value || !allowDeepView.value) return false;
+  if (deepReplyMode.value === 'reddit') {
+    const url = buildRedditCommentUrl();
+    if (!url) {
+      toast.error('Unable to open Reddit for this thread');
+      return true;
+    }
+    window.open(url, '_blank', 'noopener');
+    return true;
+  }
+  emit('openDeepView', props.comment);
+  return true;
+}
+
+function handleShowMoreReplies() {
+  if (handleDeepReplyAction()) return;
+  showReplies.value = true;
+}
+
+function handleShowMoreChildren() {
+  if (handleDeepReplyAction()) return;
+  void handleLoadMoreChildren();
+}
+
 function handleReply() {
   if (props.onReply) {
     props.onReply(props.comment);
@@ -623,6 +665,9 @@ function handleShare() {
 
 // Limited replies for initial render
 const visibleReplies = computed(() => {
+  if (allowDeepView.value && isDeepInline.value) {
+    return [];
+  }
   if (showReplies.value) {
     return localReplies.value;
   }
@@ -631,6 +676,17 @@ const visibleReplies = computed(() => {
 });
 
 const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies.value.length);
+
+const maxInlineDepth = computed(() => {
+  const raw = Math.floor(Number(props.maxInlineDepth ?? 8));
+  if (!Number.isFinite(raw)) return 8;
+  return Math.max(1, raw);
+});
+
+const isDeepInline = computed(() => depth.value + 1 >= maxInlineDepth.value);
+const deepReplyMode = computed(() => (props.deepReplyMode === 'reddit' ? 'reddit' : 'popup'));
+const allowDeepView = computed(() => props.allowDeepView !== false);
+const showDeepViewIcon = computed(() => isDeepInline.value && allowDeepView.value);
 </script>
 
 <template>
@@ -797,7 +853,7 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
       <!-- Children -->
       <!-- Render children section if there are visible replies OR if there are more children to load -->
       <div 
-        v-if="!isCollapsed && (visibleReplies.length > 0 || hasMoreChildren)" 
+        v-if="!isCollapsed && (visibleReplies.length > 0 || hasMoreChildren || hasMoreReplies)" 
         class="ri-children"
         :class="{ 
           'spine-hover': isSpineHover
@@ -822,21 +878,31 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           :highlight-ids="highlightIds"
           :on-reply="onReply"
           :load-more-handler="loadMoreHandler"
+          :max-inline-depth="maxInlineDepth"
+          :deep-reply-mode="deepReplyMode"
+          :allow-deep-view="allowDeepView"
           :show-flairs="showFlairs"
           :flair-position="flairPosition"
           @reply="(c) => emit('reply', c)"
           @collapse="(id, state) => emit('collapse', id, state)"
+          @open-deep-view="(c) => emit('openDeepView', c)"
         >
-          <template #reply-editor="slotProps">
-            <slot name="reply-editor" v-bind="slotProps" />
+          <template #reply-editor>
+            <slot name="reply-editor" :comment="reply" />
           </template>
         </RedditComment>
         
         <button 
           v-if="hasMoreReplies"
           class="ri-load-more"
-          @click.stop="showReplies = true"
+          @click.stop="handleShowMoreReplies"
         >
+          <span
+            v-if="showDeepViewIcon"
+            class="ri-load-more-icon"
+            :style="{ '--ri-load-more-icon': `url('${leadListIconUrl}')` }"
+            aria-hidden="true"
+          ></span>
           {{ localReplies.length - visibleReplies.length }} more replies
         </button>
 
@@ -844,8 +910,14 @@ const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies
           v-if="hasMoreChildren"
           class="ri-load-more"
           :disabled="loadingMoreChildren"
-          @click.stop="handleLoadMoreChildren"
+          @click.stop="handleShowMoreChildren"
         >
+          <span
+            v-if="showDeepViewIcon"
+            class="ri-load-more-icon"
+            :style="{ '--ri-load-more-icon': `url('${leadListIconUrl}')` }"
+            aria-hidden="true"
+          ></span>
           {{ loadingMoreChildren ? 'Loading…' : `${remainingChildrenCount} more replies` }}
         </button>
       </div>

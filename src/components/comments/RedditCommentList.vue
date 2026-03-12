@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
-import { redditCommentTextSizeIncreaseItem } from '@/config/storage';
+import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem } from '@/config/storage';
 import { getCurrentUsername } from '@/utils/redditAuth';
 
 const props = defineProps<{
@@ -37,11 +37,19 @@ const highlightIds = ref<Set<string>>(new Set());
 const rootMoreIds = ref<string[]>([]);
 
 const textSizeIncrease = ref(0);
+const deepReplyMode = ref<'popup' | 'reddit'>('popup');
+const maxInlineDepth = ref(8);
 
 function clampTextSizeIncrease(value: unknown): number {
   const amount = Math.floor(Number(value));
   if (!Number.isFinite(amount)) return 0;
   return Math.max(0, Math.min(6, amount));
+}
+
+function clampMaxInlineDepth(value: unknown): number {
+  const depth = Math.floor(Number(value));
+  if (!Number.isFinite(depth)) return 8;
+  return Math.max(2, Math.min(12, depth));
 }
 
 // Load text size increase from storage
@@ -50,6 +58,19 @@ onMounted(async () => {
     textSizeIncrease.value = clampTextSizeIncrease(await redditCommentTextSizeIncreaseItem.getValue());
   } catch (error) {
     console.warn('Failed to load comment text size increase:', error);
+  }
+
+  try {
+    const mode = await redditDeepReplyModeItem.getValue();
+    deepReplyMode.value = mode === 'reddit' ? 'reddit' : 'popup';
+  } catch (error) {
+    console.warn('Failed to load Reddit deep reply mode:', error);
+  }
+
+  try {
+    maxInlineDepth.value = clampMaxInlineDepth(await redditMaxInlineDepthItem.getValue());
+  } catch (error) {
+    console.warn('Failed to load Reddit max inline depth:', error);
   }
 });
 
@@ -62,6 +83,16 @@ const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' 
 const textSizeStyles = computed(() => ({
   '--ri-comment-text-size-increase': `${effectiveTextSizeIncrease.value}px`,
 }));
+
+const deepViewRoot = ref<RedditCommentData | null>(null);
+
+function openDeepView(comment: RedditCommentData) {
+  deepViewRoot.value = comment;
+}
+
+function closeDeepView() {
+  deepViewRoot.value = null;
+}
 
 // Pagination state
 const pageSize = 20;
@@ -428,10 +459,14 @@ defineExpose({
         :emoji-map="emojiMap"
         :highlight-ids="highlightIds"
         :load-more-handler="loadMoreForComment"
+        :max-inline-depth="maxInlineDepth"
+        :deep-reply-mode="deepReplyMode"
+        :allow-deep-view="true"
         :show-flairs="props.showFlairs"
         :flair-position="flairPosition"
         @reply="handleReply"
         @collapse="handleCollapse"
+        @open-deep-view="openDeepView"
       >
         <template #reply-editor="slotProps">
           <slot name="reply-editor" v-bind="slotProps" />
@@ -466,6 +501,42 @@ defineExpose({
         </div>
       </div>
     </template>
+
+    <div v-if="deepViewRoot" class="ri-deep-view" @click.self="closeDeepView">
+      <div class="ri-deep-view-card">
+        <div class="ri-deep-view-header">
+          <button class="ri-deep-view-back" @click="closeDeepView">
+            Back to all comments
+          </button>
+          <div class="ri-deep-view-title">Reply thread</div>
+        </div>
+        <div class="ri-deep-view-body">
+          <RedditComment
+            v-if="deepViewRoot"
+            :comment="deepViewRoot"
+            :subreddit="subreddit"
+            :current-username="props.currentUsername"
+            :depth="0"
+            :is-archived="isArchived"
+            :is-locked="isLocked"
+            :emoji-map="emojiMap"
+            :highlight-ids="highlightIds"
+            :load-more-handler="loadMoreForComment"
+            :max-inline-depth="maxInlineDepth"
+            :deep-reply-mode="deepReplyMode"
+            :allow-deep-view="false"
+            :show-flairs="props.showFlairs"
+            :flair-position="flairPosition"
+            @reply="handleReply"
+            @collapse="handleCollapse"
+          >
+            <template #reply-editor="slotProps">
+              <slot name="reply-editor" v-bind="slotProps" />
+            </template>
+          </RedditComment>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 

@@ -5,6 +5,7 @@ import type {
   RedditEditorMode,
   RedditSortOption,
   RedditFlairPositionOption,
+  RedditDeepReplyModeOption,
 } from './options';
 
 // Canonical storage items for the extension (WXT storage wrapper)
@@ -28,6 +29,16 @@ export const redditShowFlairsItem = storage.defineItem<boolean>(
 export const redditFlairPositionItem = storage.defineItem<RedditFlairPositionOption>(
   'local:reddit_flair_position',
   { fallback: 'inline' }
+);
+
+export const redditDeepReplyModeItem = storage.defineItem<RedditDeepReplyModeOption>(
+  'local:reddit_deep_reply_mode',
+  { fallback: 'popup' }
+);
+
+export const redditMaxInlineDepthItem = storage.defineItem<number>(
+  'local:reddit_max_inline_depth',
+  { fallback: 7 }
 );
 
 export const displayModeItem = storage.defineItem<DisplayModeOption>(

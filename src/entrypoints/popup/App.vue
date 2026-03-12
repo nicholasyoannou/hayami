@@ -8,11 +8,13 @@ import {
   redditEditorOptions,
   redditSortOptions,
   redditFlairPositionOptions,
+  redditDeepReplyModeOptions,
   type CommentProviderOption,
   type DisplayModeOption,
   type RedditEditorMode,
   type RedditSortOption,
   type RedditFlairPositionOption,
+  type RedditDeepReplyModeOption,
 } from '@/config/options';
 import {
   commentsProviderItem,
@@ -33,6 +35,8 @@ import {
   redditCommentTextSizeIncreaseItem,
   redditClientIdItem,
   redditDefaultSortItem,
+  redditDeepReplyModeItem,
+  redditMaxInlineDepthItem,
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
@@ -71,6 +75,8 @@ type SettingValueMap = {
   redditDefaultSort: RedditSortOption;
   redditShowFlairs: boolean;
   redditFlairPosition: RedditFlairPositionOption;
+  redditDeepReplyMode: RedditDeepReplyModeOption;
+  redditMaxInlineDepth: number;
   commentTextSizeIncrease: number;
   imgurClientId: string;
   imgchestApiKey: string;
@@ -80,7 +86,6 @@ type SettingValueMap = {
   aniwaveAutoExpandDepth: number;
   aniwaveHideReplyContext: boolean;
 };
-
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'screenshots' | 'image-previews' | 'provider';
 type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail';
@@ -101,18 +106,18 @@ type SettingDefinition<K extends SettingKey = SettingKey> = {
   category: SettingCategoryId;
   providerId?: CommentProviderOption;
   fallback: SettingValueMap[K];
-  load: () => Promise<SettingValueMap[K]>;
-  save: (value: SettingValueMap[K]) => Promise<void>;
-  successMessage: (value: SettingValueMap[K]) => string;
+  load: () => Promise<any>;
+  save: (value: any) => Promise<void>;
+  successMessage: (value: any) => string;
   errorMessage?: string;
-  options?: OptionEntry<SettingValueMap[K]>[];
+  options?: ReadonlyArray<OptionEntry<any>>;
   min?: number;
   max?: number;
   step?: number;
   placeholder?: string;
-  formatValue?: (value: SettingValueMap[K]) => string;
-  onAfterLoad?: (value: SettingValueMap[K]) => void | Promise<void>;
-  onAfterSave?: (value: SettingValueMap[K]) => void | Promise<void>;
+  formatValue?: (value: any) => string;
+  onAfterLoad?: (value: any) => void | Promise<void>;
+  onAfterSave?: (value: any) => void | Promise<void>;
   advanced?: boolean;
 };
 
@@ -390,6 +395,7 @@ const settingDefinitions: SettingDefinition[] = [
     },
     successMessage: (value) => (value ? 'Reddit Client ID saved' : 'Reddit Client ID cleared'),
     errorMessage: 'Failed to save Reddit Client ID',
+    advanced: true,
   },
   {
     key: 'redditEditorMode',
@@ -457,6 +463,46 @@ const settingDefinitions: SettingDefinition[] = [
     save: async (value) => redditFlairPositionItem.setValue(value === 'below' ? 'below' : 'inline'),
     successMessage: (value) => (value === 'below' ? 'Flairs moved below username' : 'Flairs shown inline'),
     errorMessage: 'Failed to update flair position',
+  },
+  {
+    key: 'redditMaxInlineDepth',
+    type: 'slider',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Inline reply depth limit',
+    description: 'Replies deeper than this open in a popup/new tab.',
+    min: 2,
+    max: 12,
+    step: 1,
+    formatValue: (value) => `Depth ${Number(value) || 2}`,
+    fallback: 7,
+    load: async () => {
+      const raw = await redditMaxInlineDepthItem.getValue();
+      const num = Math.floor(Number(raw));
+      if (!Number.isFinite(num) || num < 2) return 7;
+      return Math.min(12, num);
+    },
+    save: async (value) => redditMaxInlineDepthItem.setValue(Math.max(2, Math.min(12, Math.floor(Number(value) || 2)))),
+    successMessage: (value) => `Inline depth limit set to ${value}`,
+    errorMessage: 'Failed to update inline depth limit',
+    advanced: true,
+  },
+  {
+    key: 'redditDeepReplyMode',
+    type: 'select',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Deep replies open in',
+    description: 'Choose how deep replies are displayed.',
+    options: redditDeepReplyModeOptions,
+    fallback: 'popup',
+    load: async () => {
+      const value = await redditDeepReplyModeItem.getValue();
+      return value === 'reddit' ? 'reddit' : 'popup';
+    },
+    save: async (value) => redditDeepReplyModeItem.setValue(value === 'reddit' ? 'reddit' : 'popup'),
+    successMessage: (value) => (value === 'reddit' ? 'Deep replies open on Reddit' : 'Deep replies open in popup'),
+    errorMessage: 'Failed to update deep reply behavior',
   },
   {
     key: 'aniwaveAutoExpandAll',
@@ -577,6 +623,10 @@ const providerSections = commentProviderOptions.map((provider) => ({
 const selectedProvider = ref<CommentProviderOption>(providerSections[0]?.id || commentProviderOptions[0].value);
 const activeProviderSection = computed(() => providerSections.find((provider) => provider.id === selectedProvider.value));
 
+watch(selectedProvider, () => {
+  providerAdvancedExpanded.value = false;
+});
+
 const settingValues = reactive<SettingValueMap>({
   displayMode: 'popup',
   embedImages: true,
@@ -587,8 +637,11 @@ const settingValues = reactive<SettingValueMap>({
   screenshotEnabled: false,
   screenshotDestination: 'local',
   redditEditorMode: 'editor',
+  redditDefaultSort: 'confidence',
   redditShowFlairs: true,
   redditFlairPosition: 'inline',
+  redditDeepReplyMode: 'popup',
+  redditMaxInlineDepth: 7,
   redditClientId: '',
   commentTextSizeIncrease: 0,
   imgurClientId: '',
@@ -614,6 +667,7 @@ const activeSettingsCategory = computed(() =>
   settingsCategories.find((category) => category.id === selectedSettingsCategory.value),
 );
 const imagePreviewAdvancedExpanded = ref(false);
+const providerAdvancedExpanded = ref(false);
 const activeCategoryPrimarySettings = computed(() =>
   (activeSettingsCategory.value?.settings || []).filter((setting) => {
     if (setting.advanced) return false;
@@ -625,6 +679,12 @@ const activeCategoryPrimarySettings = computed(() =>
 );
 const activeCategoryAdvancedSettings = computed(() =>
   (activeSettingsCategory.value?.settings || []).filter((setting) => Boolean(setting.advanced)),
+);
+const activeProviderPrimarySettings = computed(() =>
+  (activeProviderSection.value?.settings || []).filter((setting) => !setting.advanced),
+);
+const activeProviderAdvancedSettings = computed(() =>
+  (activeProviderSection.value?.settings || []).filter((setting) => Boolean(setting.advanced)),
 );
 
 const customSiteMappings = ref<CustomSiteMapping[]>([]);
@@ -716,13 +776,13 @@ onBeforeUnmount(() => {
 async function loadSetting(setting: SettingDefinition) {
   try {
     const value = await setting.load();
-    settingValues[setting.key] = value ?? setting.fallback;
+    (settingValues as Record<SettingKey, SettingValueMap[SettingKey]>)[setting.key] = value ?? setting.fallback;
     if (setting.onAfterLoad) {
-      await setting.onAfterLoad(settingValues[setting.key]);
+      await setting.onAfterLoad((settingValues as Record<SettingKey, SettingValueMap[SettingKey]>)[setting.key]);
     }
   } catch (error) {
     console.warn(`Failed to load ${setting.label}`, error);
-    settingValues[setting.key] = setting.fallback;
+    (settingValues as Record<SettingKey, SettingValueMap[SettingKey]>)[setting.key] = setting.fallback;
   }
 }
 
@@ -755,7 +815,7 @@ function showError(message: string) {
 
 async function handleSettingChange(setting: SettingDefinition, value: SettingValueMap[SettingKey]) {
   try {
-    settingValues[setting.key] = value as SettingValueMap[typeof setting.key];
+    (settingValues as Record<SettingKey, SettingValueMap[SettingKey]>)[setting.key] = value as SettingValueMap[SettingKey];
     await setting.save(value as SettingValueMap[typeof setting.key]);
     if (setting.onAfterSave) {
       await setting.onAfterSave(value as SettingValueMap[typeof setting.key]);
@@ -821,8 +881,8 @@ function isSettingDisabled(setting: SettingDefinition) {
 }
 
 function handleStorageChange(
-  changes: Record<string, browser.storage.StorageChange>,
-  areaName: browser.storage.StorageName,
+  changes: Record<string, any>,
+  areaName: string,
 ) {
   if (areaName === 'sync' && ('hayamiPlusApiKey' in changes || 'hayamiPlusSubscriptionId' in changes)) {
     reloadSetting('hayamiPlusApiKey');
@@ -1549,7 +1609,7 @@ function handleAniListLogout() {
 
                         <template v-else-if="setting.type === 'apiKey'">
                           <ApiKeyInput
-                            v-model="settingValues[setting.key]"
+                            v-model="(settingValues[setting.key] as string)"
                             :label="setting.label"
                             :placeholder="setting.placeholder"
                             :info-url="setting.infoUrl"
@@ -1667,7 +1727,7 @@ function handleAniListLogout() {
 
                             <template v-else-if="setting.type === 'apiKey'">
                               <ApiKeyInput
-                                v-model="settingValues[setting.key]"
+                                v-model="(settingValues[setting.key] as string)"
                                 :label="setting.label"
                                 :placeholder="setting.placeholder"
                                 :info-url="setting.infoUrl"
@@ -1844,8 +1904,8 @@ function handleAniListLogout() {
                       <div class="text-base font-semibold text-white/90">{{ activeProviderSection.label }}</div>
                     </div>
 
-                    <div v-if="activeProviderSection.settings.length" class="space-y-3">
-                      <template v-for="setting in activeProviderSection.settings" :key="setting.key">
+                    <div v-if="activeProviderPrimarySettings.length || activeProviderAdvancedSettings.length" class="space-y-3">
+                      <template v-for="setting in activeProviderPrimarySettings" :key="setting.key">
                         <div class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-3 py-3">
                           <div v-if="setting.type !== 'apiKey'" class="flex-1">
                             <p class="text-sm text-white/80">{{ setting.label }}</p>
@@ -1915,7 +1975,7 @@ function handleAniListLogout() {
 
                             <template v-else-if="setting.type === 'apiKey'">
                               <ApiKeyInput
-                                v-model="settingValues[setting.key]"
+                                v-model="(settingValues[setting.key] as string)"
                                 :label="setting.label"
                                 :placeholder="setting.placeholder"
                                 :info-url="setting.infoUrl"
@@ -1925,6 +1985,102 @@ function handleAniListLogout() {
                           </div>
                         </div>
                       </template>
+
+                      <div
+                        v-if="activeProviderSection.id === 'reddit' && activeProviderAdvancedSettings.length"
+                        class="rounded-xl bg-white/5 px-3 py-3"
+                      >
+                        <button
+                          class="flex w-full items-center justify-between text-left text-sm font-semibold text-white/85"
+                          @click="providerAdvancedExpanded = !providerAdvancedExpanded"
+                        >
+                          <span>Advanced</span>
+                          <span class="text-xs text-white/60">{{ providerAdvancedExpanded ? 'Hide' : 'Expand' }}</span>
+                        </button>
+
+                        <div v-if="providerAdvancedExpanded" class="mt-3 space-y-3">
+                          <template v-for="setting in activeProviderAdvancedSettings" :key="setting.key">
+                            <div class="flex items-start justify-between gap-3 rounded-xl bg-black/15 px-3 py-3">
+                              <div v-if="setting.type !== 'apiKey'" class="flex-1">
+                                <p class="text-sm text-white/80">{{ setting.label }}</p>
+                                <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
+                              </div>
+                              <div v-else-if="setting.description" class="flex-1">
+                                <p class="text-xs text-white/60">{{ setting.description }}</p>
+                              </div>
+                              <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
+                                <template v-if="setting.type === 'select'">
+                                  <select
+                                    class="rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
+                                    :value="settingValues[setting.key]"
+                                    @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
+                                  >
+                                    <option
+                                      v-for="option in setting.options"
+                                      :key="option.value"
+                                      :value="option.value"
+                                      class="bg-[#1f2329]"
+                                    >
+                                      {{ option.label }}
+                                    </option>
+                                  </select>
+                                </template>
+
+                                <template v-else-if="setting.type === 'toggle'">
+                                  <label class="relative inline-flex items-center">
+                                    <input
+                                      type="checkbox"
+                                      class="peer sr-only"
+                                      :checked="Boolean(settingValues[setting.key])"
+                                      @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
+                                    />
+                                    <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                                  </label>
+                                </template>
+
+                                <template v-else-if="setting.type === 'segmented'">
+                                  <div class="flex gap-2 text-sm font-semibold">
+                                    <button
+                                      v-for="option in setting.options"
+                                      :key="option.value"
+                                      class="rounded-lg px-3 py-2"
+                                      :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
+                                      @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
+                                    >
+                                      {{ option.label }}
+                                    </button>
+                                  </div>
+                                </template>
+
+                                <template v-else-if="setting.type === 'slider'">
+                                  <div class="flex items-center gap-3">
+                                    <input
+                                      type="range"
+                                      :min="setting.min"
+                                      :max="setting.max"
+                                      :step="setting.step"
+                                      :value="settingValues[setting.key] as number"
+                                      @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
+                                      class="w-24"
+                                    />
+                                    <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
+                                  </div>
+                                </template>
+
+                                <template v-else-if="setting.type === 'apiKey'">
+                                  <ApiKeyInput
+                                    v-model="(settingValues[setting.key] as string)"
+                                    :label="setting.label"
+                                    :placeholder="setting.placeholder"
+                                    :info-url="setting.infoUrl"
+                                    @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
+                                  />
+                                </template>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
                     </div>
 
                     <div v-else class="text-sm text-white/60">No settings available for this platform.</div>

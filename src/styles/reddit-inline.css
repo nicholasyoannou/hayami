@@ -804,8 +804,19 @@
   font-size: 12px;
   font-weight: 600;
   text-align: left;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.ri-load-more-icon {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  background: var(--ri-load-more-icon) center / contain no-repeat;
+  filter: brightness(0) saturate(100%) invert(78%) sepia(6%) saturate(0%) hue-rotate(225deg) brightness(94%) contrast(87%);
 }
 
 .ri-load-more:hover:not(:disabled) {
@@ -817,6 +828,83 @@
 .ri-load-more:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Deep reply popup */
+.ri-deep-view {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.ri-deep-view-card {
+  width: min(980px, 96vw);
+  max-height: min(80vh, 880px);
+  background: #101010;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+}
+
+.ri-deep-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #262626;
+  background: #0c0c0c;
+  border-radius: 12px 12px 0 0;
+}
+
+.ri-deep-view-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #bdbdbd;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.ri-deep-view-back {
+  background: #1c1c1c;
+  border: 1px solid #333;
+  color: #f5f5f5;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ri-deep-view-back:hover {
+  background: #242424;
+  border-color: #444;
+}
+
+.ri-deep-view-body {
+  padding: 16px;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a #141414;
+}
+
+.ri-deep-view-body::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ri-deep-view-body::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 8px;
+}
+
+.ri-deep-view-body::-webkit-scrollbar-track {
+  background: #141414;
 }
 
 /* Flair emoji images - small inline icons */
