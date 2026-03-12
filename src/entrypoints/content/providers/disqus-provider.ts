@@ -150,6 +150,89 @@ function hasResolvedTitle(thread: DisqusThread | null | undefined): boolean {
   return !!(String(thread.clean_title || '').trim() || String(thread.title || '').trim());
 }
 
+function normalizeMapperText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function asNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return null;
+}
+
+function entryEpisodeCount(entry: any): number {
+  if (!entry?.episodes || typeof entry.episodes !== 'object') return 0;
+  return Object.keys(entry.episodes).length;
+}
+
+function entryHasEpisode(entry: any, epNum: number): boolean {
+  if (!entry?.episodes || typeof entry.episodes !== 'object') return false;
+  return !!(entry.episodes[String(epNum)] || entry.episodes[epNum]);
+}
+
+function scoreDisqusMapperEntry(entry: any, animeInfo: AnimeInfo, epNum: number): number {
+  let score = 0;
+
+  const targetMal = asNumber(animeInfo?.malId);
+  const targetAni = asNumber(animeInfo?.anilistId);
+  const entryMal = asNumber(entry?.external_sites?.mal_id);
+  const entryAni = asNumber(entry?.external_sites?.anilist_id);
+
+  if (targetMal !== null) {
+    score += entryMal === targetMal ? 1200 : -900;
+  }
+  if (targetAni !== null) {
+    score += entryAni === targetAni ? 1200 : -900;
+  }
+
+  if (entryHasEpisode(entry, epNum)) {
+    score += 1000;
+  }
+
+  const targetName = normalizeMapperText(animeInfo?.animeName || '');
+  const entryName = normalizeMapperText(entry?.anime_name || entry?.title || entry?.name || '');
+  if (targetName && entryName) {
+    if (targetName === entryName) {
+      score += 500;
+    } else if (entryName.includes(targetName) || targetName.includes(entryName)) {
+      score += 250;
+    }
+  }
+
+  // Prefer entries with broader episode coverage when duplicates exist.
+  score += Math.min(entryEpisodeCount(entry), 400);
+
+  const ts = Date.parse(String(entry?.last_updated || ''));
+  if (Number.isFinite(ts)) {
+    score += Math.floor(ts / 86400000); // day-level tie-breaker
+  }
+
+  return score;
+}
+
+function rankDisqusMapperEntries(results: any[], animeInfo: AnimeInfo, epNum: number): any[] {
+  const ranked = results
+    .map((entry, idx) => ({ entry, idx, score: scoreDisqusMapperEntry(entry, animeInfo, epNum) }))
+    .sort((a, b) => b.score - a.score || b.idx - a.idx);
+
+  if (ranked.length > 0) {
+    console.log('[DisqusProvider][series-mapper] ranked candidates', ranked.slice(0, 3).map((r) => ({
+      idx: r.idx,
+      score: r.score,
+      anime_name: r.entry?.anime_name,
+      episodeCount: entryEpisodeCount(r.entry),
+      last_updated: r.entry?.last_updated,
+    })));
+  }
+
+  return ranked.map((r) => r.entry);
+}
+
 async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
   try {
     await browser.runtime.sendMessage({ action: 'hayami_blockDisqusPoll', enable });
@@ -392,7 +475,8 @@ export class DisqusProvider extends BaseProvider {
         if (mapperData?.results?.length) {
           const epNum = mappedEp ?? rawEp ?? 1;
           console.log('[DisqusProvider][series-mapper] selected episode number', epNum);
-          for (const entry of mapperData.results) {
+          const rankedEntries = rankDisqusMapperEntries(mapperData.results, animeInfoForMapper, epNum);
+          for (const entry of rankedEntries) {
             const maybeUrl = entry?.episodes?.[epNum] || entry?.episodes?.[String(epNum)];
             if (maybeUrl) {
               console.log('[DisqusProvider][series-mapper] candidate URL', maybeUrl);
