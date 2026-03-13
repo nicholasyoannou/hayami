@@ -15,8 +15,7 @@ import {
 } from './discussion-manager';
 import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
-import { getCustomAnimeInfo } from '../ui/site-mapper';
-import { setupSiteMapperHotkey, loadCustomMappingForOrigin } from '../ui/site-mapper';
+import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mapper/site-mapper-utils';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
 import { setupScreenshotHotkey } from '../ui/screenshot-hotkey';
 import { isSupportedLocation } from '../sites/registry';
@@ -36,6 +35,26 @@ import {
   setSearchInProgress,
 } from '../state';
 import { getUiManager } from './ui-manager';
+
+let siteMapperHotkeySetupPromise: Promise<void> | null = null;
+
+async function setupSiteMapperHotkeyLazy(ctx: ContentScriptContext): Promise<void> {
+  if (siteMapperHotkeySetupPromise) {
+    await siteMapperHotkeySetupPromise;
+    return;
+  }
+
+  siteMapperHotkeySetupPromise = import('../ui/site-mapper/site-mapper-overlay')
+    .then((module) => {
+      module.setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
+    })
+    .catch((error) => {
+      siteMapperHotkeySetupPromise = null;
+      throw error;
+    });
+
+  await siteMapperHotkeySetupPromise;
+}
 
 function extractCrunchyrollEpisodeIdFromUrl(url: string): string | null {
   const match = url.match(/\/watch\/([A-Za-z0-9]+)/);
@@ -178,7 +197,33 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   }
 
   ensureToaster(ctx);
-  setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
+  try {
+    await setupSiteMapperHotkeyLazy(ctx);
+  } catch (error) {
+    console.warn('[Bootstrap] Failed to initialize site mapper hotkey', error);
+  }
+
+  let featureInitialized = false;
+
+  const ensureFeatureInitialized = () => {
+    if (featureInitialized) return;
+
+    initState();
+    setContentScriptContext(ctx);
+
+    wirePreviewHandlers(ctx);
+    setupYouTubeModalListener();
+    setupGalleryModalListener();
+
+    featureInitialized = true;
+    debug.log('Hayami extension loaded');
+  };
+
+  const deactivateFeature = () => {
+    if (!featureInitialized) return;
+    resetUiAndState(false);
+    featureInitialized = false;
+  };
 
   // Early bailout: Check if this site is potentially supported
   const currentUrl = window.location.href;
@@ -189,14 +234,10 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   const customMapping = await loadCustomMappingForOrigin();
 
   if (!hasWatchUrl && !customMapping && !hasSiteMatch) {
-    debug.log('Hayami: Site not supported, skipping initialization');
-    return;
+    debug.log('Hayami: Site not supported yet, waiting for SPA navigation');
+  } else {
+    ensureFeatureInitialized();
   }
-
-  initState();
-  setContentScriptContext(ctx);
-
-  debug.log('Hayami extension loaded');
 
   if (customMapping || hasWatchUrl) {
     queueHandleWatchPage(ctx);
@@ -321,8 +362,12 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
     // Keep the feature active on custom-mapped and supported pages, not only /watch URLs.
     if (!onWatchPage && !customMapping && !hasSiteMatch) {
-      resetUiAndState(false);
+      deactivateFeature();
       return;
+    }
+
+    if (!featureInitialized) {
+      ensureFeatureInitialized();
     }
 
     // Stay mounted between navigations to avoid visible reflows; only clear
@@ -331,13 +376,9 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     queueHandleWatchPage(ctx);
   });
 
-  wirePreviewHandlers(ctx);
-  setupYouTubeModalListener();
-  setupGalleryModalListener();
-
-  ctx.addEventListener(window, 'beforeunload', () => resetUiAndState(false));
+  ctx.addEventListener(window, 'beforeunload', () => deactivateFeature());
 
   ctx.onInvalidated(() => {
-    resetUiAndState(false);
+    deactivateFeature();
   });
 }

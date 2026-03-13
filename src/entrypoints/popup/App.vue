@@ -70,6 +70,10 @@ import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms
 import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
 import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
+import KomentoPendingPermissionsCard from './KomentoPendingPermissionsCard.vue';
+import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
+import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
+import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
 import type { KomentoSourceRegistryEntry } from '@/komentoscript';
 
@@ -679,7 +683,6 @@ const activeProviderAdvancedSettings = computed(() =>
 const customSiteMappings = ref<CustomSiteMapping[]>([]);
 const isLoadingCustomSites = ref(false);
 const removingSiteOrigin = ref<string | null>(null);
-const importCustomMappingsInput = ref<HTMLInputElement | null>(null);
 const sortedCustomSiteMappings = computed(() =>
   [...customSiteMappings.value].sort((a, b) => (a.origin || '').localeCompare(b.origin || '')),
 );
@@ -1648,10 +1651,6 @@ async function exportCustomSiteMapping(site: CustomSiteMapping) {
   }
 }
 
-function triggerCustomMappingsImport() {
-  importCustomMappingsInput.value?.click();
-}
-
 async function onImportCustomMappingsFileChange(event: Event) {
   const input = event.target as HTMLInputElement;
   const file = input?.files?.[0] || null;
@@ -2063,92 +2062,19 @@ function handleAniListLogout() {
       <template v-else>
         <transition name="fade" mode="out-in">
           <section v-if="currentView === 'home'" key="home" class="space-y-6">
-            <div
-              v-if="hasKomentoPendingPermissions"
-              class="rounded-3xl border border-amber-300/30 bg-amber-500/10 px-5 py-5 shadow-md"
-            >
-              <div>
-                <p class="text-base font-semibold text-amber-100 w-full">KomentoScript host permissions needed</p>
-                <p class="text-xs text-amber-200/80 mt-1">
-                  Approve hosts from synced sources so Hayami can inject on those sites.
-                </p>
-              </div>
-
-              <div class="mt-3 flex items-center justify-end">
-                <button
-                  class="rounded-full bg-amber-300/20 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-300/30 disabled:opacity-60"
-                  :disabled="komentoPendingPermissionLoading || komentoApprovingPermissions || !hasKomentoPendingPermissions"
-                  @click="approveAllKomentoPendingPermissions"
-                >
-                  {{ komentoApprovingPermissions ? 'Approving...' : 'Approve all hosts' }}
-                </button>
-              </div>
-
-              <template v-if="!komentoPendingPermissionLoading">
-                <p class="text-xs text-amber-100/80 mt-2">
-                  Pending hosts: {{ komentoPendingOrigins.length }} across {{ komentoPendingPermissionSources.length }} source{{ komentoPendingPermissionSources.length === 1 ? '' : 's' }}.
-                </p>
-
-                <div v-if="komentoPendingPreview.length" class="mt-3 space-y-2">
-                  <div
-                    v-for="item in komentoPendingPreview"
-                    :key="`${item.sourceLabel}-${item.origin}`"
-                    class="flex items-center gap-3 rounded-xl bg-black/15 px-3 py-2"
-                  >
-                    <img
-                      :src="getFaviconUrl(item.origin)"
-                      :alt="formatOrigin(item.origin)"
-                      class="h-6 w-6 rounded bg-white/5"
-                      referrerpolicy="no-referrer"
-                    />
-                    <div class="min-w-0 flex-1">
-                      <div class="truncate text-sm font-semibold text-white/90">{{ formatOrigin(item.origin) }}</div>
-                      <div class="truncate text-xs text-white/60">Synced from: {{ item.sourceLabel }}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="komentoPendingPermissionSources.length" class="mt-3 space-y-2">
-                  <div
-                    v-for="source in komentoPendingPermissionSources"
-                    :key="source.sourceId"
-                    class="rounded-xl bg-black/15 px-3 py-2"
-                  >
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="truncate text-sm font-semibold text-white/90">{{ source.sourceLabel }}</div>
-                        <div class="text-xs text-white/60">{{ source.sourceType }} · {{ source.pendingOrigins.length }} host{{ source.pendingOrigins.length === 1 ? '' : 's' }}</div>
-                      </div>
-                      <button
-                        class="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
-                        @click="toggleKomentoPendingSourceExpanded(source.sourceId)"
-                      >
-                        {{ isKomentoPendingSourceExpanded(source.sourceId) ? 'Hide list' : 'Expand list' }}
-                      </button>
-                    </div>
-
-                    <div v-if="isKomentoPendingSourceExpanded(source.sourceId)" class="mt-2 space-y-2">
-                      <div
-                        v-for="origin in source.pendingOrigins"
-                        :key="`${source.sourceId}-${origin}`"
-                        class="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2"
-                      >
-                        <img
-                          :src="getFaviconUrl(origin)"
-                          :alt="formatOrigin(origin)"
-                          class="h-5 w-5 rounded bg-white/5"
-                          referrerpolicy="no-referrer"
-                        />
-                        <div class="min-w-0 flex-1">
-                          <div class="truncate text-xs font-semibold text-white/90">{{ formatOrigin(origin) }}</div>
-                          <div class="truncate text-[11px] text-white/60">{{ origin }}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
-            </div>
+            <KomentoPendingPermissionsCard
+              :loading="komentoPendingPermissionLoading"
+              :approving="komentoApprovingPermissions"
+              :has-pending="hasKomentoPendingPermissions"
+              :pending-origins="komentoPendingOrigins"
+              :pending-permission-sources="komentoPendingPermissionSources"
+              :pending-preview="komentoPendingPreview"
+              :is-pending-source-expanded="isKomentoPendingSourceExpanded"
+              :toggle-pending-source-expanded="toggleKomentoPendingSourceExpanded"
+              :approve-all-pending-permissions="approveAllKomentoPendingPermissions"
+              :get-favicon-url="getFaviconUrl"
+              :format-origin="formatOrigin"
+            />
 
             <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
               <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
@@ -2178,94 +2104,6 @@ function handleAniListLogout() {
                   Manage or add accounts
                 </button>
               </div>
-            </div>
-
-            <div
-              v-if="komentoPendingPermissionLoading || hasKomentoPendingPermissions"
-              class="rounded-3xl border border-amber-300/30 bg-amber-500/10 px-5 py-5 shadow-md"
-            >
-              <div class="mb-2 flex items-center justify-between gap-3">
-                <div>
-                  <p class="text-base font-semibold text-amber-100">KomentoScript host permissions needed</p>
-                  <p class="text-xs text-amber-200/80">
-                    Approve hosts from synced sources so Hayami can inject on those sites.
-                  </p>
-                </div>
-                <button
-                  class="rounded-full bg-amber-300/20 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-300/30 disabled:opacity-60"
-                  :disabled="komentoPendingPermissionLoading || komentoApprovingPermissions || !hasKomentoPendingPermissions"
-                  @click="approveAllKomentoPendingPermissions"
-                >
-                  {{ komentoApprovingPermissions ? 'Approving...' : 'Approve all hosts' }}
-                </button>
-              </div>
-
-              <div v-if="komentoPendingPermissionLoading" class="text-xs text-amber-100/80">Loading host permission needs...</div>
-
-              <template v-else>
-                <p class="text-xs text-amber-100/80">
-                  Pending hosts: {{ komentoPendingOrigins.length }} across {{ komentoPendingPermissionSources.length }} source{{ komentoPendingPermissionSources.length === 1 ? '' : 's' }}.
-                </p>
-
-                <div v-if="komentoPendingPreview.length" class="mt-3 space-y-2">
-                  <div
-                    v-for="item in komentoPendingPreview"
-                    :key="`${item.sourceLabel}-${item.origin}`"
-                    class="flex items-center gap-3 rounded-xl bg-black/15 px-3 py-2"
-                  >
-                    <img
-                      :src="getFaviconUrl(item.origin)"
-                      :alt="formatOrigin(item.origin)"
-                      class="h-6 w-6 rounded bg-white/5"
-                      referrerpolicy="no-referrer"
-                    />
-                    <div class="min-w-0 flex-1">
-                      <div class="truncate text-sm font-semibold text-white/90">{{ formatOrigin(item.origin) }}</div>
-                      <div class="truncate text-xs text-white/60">Synced from: {{ item.sourceLabel }}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div v-if="komentoPendingPermissionSources.length" class="mt-3 space-y-2">
-                  <div
-                    v-for="source in komentoPendingPermissionSources"
-                    :key="source.sourceId"
-                    class="rounded-xl bg-black/15 px-3 py-2"
-                  >
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="min-w-0">
-                        <div class="truncate text-sm font-semibold text-white/90">{{ source.sourceLabel }}</div>
-                        <div class="text-xs text-white/60">{{ source.sourceType }} · {{ source.pendingOrigins.length }} host{{ source.pendingOrigins.length === 1 ? '' : 's' }}</div>
-                      </div>
-                      <button
-                        class="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
-                        @click="toggleKomentoPendingSourceExpanded(source.sourceId)"
-                      >
-                        {{ isKomentoPendingSourceExpanded(source.sourceId) ? 'Hide list' : 'Expand list' }}
-                      </button>
-                    </div>
-
-                    <div v-if="isKomentoPendingSourceExpanded(source.sourceId)" class="mt-2 space-y-2">
-                      <div
-                        v-for="origin in source.pendingOrigins"
-                        :key="`${source.sourceId}-${origin}`"
-                        class="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2"
-                      >
-                        <img
-                          :src="getFaviconUrl(origin)"
-                          :alt="formatOrigin(origin)"
-                          class="h-5 w-5 rounded bg-white/5"
-                          referrerpolicy="no-referrer"
-                        />
-                        <div class="min-w-0 flex-1">
-                          <div class="truncate text-xs font-semibold text-white/90">{{ formatOrigin(origin) }}</div>
-                          <div class="truncate text-[11px] text-white/60">{{ origin }}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </template>
             </div>
 
             <div class="pt-1 text-center text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
@@ -2611,535 +2449,92 @@ function handleAniListLogout() {
               </template>
 
               <template v-else-if="settingsScreen === 'custom-sites'">
-                <div class="mb-3 flex items-center justify-between">
-                  <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
-                    <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
-                    <span>Back</span>
-                  </button>
-                  <div class="flex items-center gap-2 text-lg font-semibold">
-                    <img :src="customSitesIcon" alt="Custom websites" class="h-6 w-6 settings-icon" />
-                    <span>Custom websites</span>
-                  </div>
-                </div>
-
-                <div class="space-y-4">
-                  <div class="space-y-2 rounded-xl bg-white/5 px-3 py-3">
-                    <input
-                      ref="importCustomMappingsInput"
-                      type="file"
-                      accept="application/json,.json"
-                      class="hidden"
-                      @change="onImportCustomMappingsFileChange"
-                    />
-                    <p class="text-xs text-white/60">
-                      To add/edit a mapping, right click the site and choose "Configure site with Hayami".
-                    </p>
-                    <div class="flex items-center justify-between text-sm text-white/80">
-                      <span>Mapped sites</span>
-                      <div class="flex items-center gap-2">
-                        <button
-                          class="rounded-full bg-cyan-500/20 px-3 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/30"
-                          @click="triggerCustomMappingsImport"
-                        >
-                          Import
-                        </button>
-                        <button
-                          class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-60"
-                          @click="loadCustomSiteMappings"
-                          :disabled="isLoadingCustomSites"
-                        >
-                          Refresh
-                        </button>
-                      </div>
-                    </div>
-                    <div v-if="isLoadingCustomSites" class="text-sm text-white/70">Loading custom sites...</div>
-                    <div v-else-if="sortedCustomSiteMappings.length === 0" class="text-sm text-white/70">No custom sites yet.</div>
-                    <div v-else class="space-y-2">
-                      <div
-                        v-for="site in sortedCustomSiteMappings"
-                        :key="site.origin"
-                        class="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2"
-                      >
-                        <img
-                          :src="getFaviconUrl(site.origin)"
-                          :alt="formatOrigin(site.origin)"
-                          class="h-6 w-6 rounded bg-white/5"
-                          referrerpolicy="no-referrer"
-                        />
-                        <div class="flex-1">
-                          <div class="text-sm font-semibold text-white/90">{{ formatOrigin(site.origin) }}</div>
-                          <div v-if="site.display" class="text-xs text-white/60">Placement: {{ formatPlacementLabel(site.display) }}</div>
-                        </div>
-                        <button
-                          class="rounded-full bg-white/15 px-2 py-2 text-xs font-semibold text-white hover:bg-white/20"
-                          @click="openCustomSiteDetail(site)"
-                          aria-label="View mapping info"
-                          title="View mapping info"
-                        >
-                          <img :src="infoIcon" alt="Info" class="h-4 w-4" />
-                        </button>
-                        <button
-                          class="rounded-full bg-rose-500/80 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
-                          @click="removeCustomSite(site)"
-                          :disabled="removingSiteOrigin === site.origin"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <CustomSitesSettingsPanel
+                  :back-icon="backIcon"
+                  :custom-sites-icon="customSitesIcon"
+                  :info-icon="infoIcon"
+                  :is-loading-custom-sites="isLoadingCustomSites"
+                  :sorted-custom-site-mappings="sortedCustomSiteMappings"
+                  :removing-site-origin="removingSiteOrigin"
+                  :on-back="() => { settingsScreen = 'menu'; }"
+                  :on-import-mappings-file-change="onImportCustomMappingsFileChange"
+                  :on-load-custom-site-mappings="loadCustomSiteMappings"
+                  :on-open-custom-site-detail="openCustomSiteDetail"
+                  :on-remove-custom-site="removeCustomSite"
+                  :get-favicon-url="getFaviconUrl"
+                  :format-origin="formatOrigin"
+                  :format-placement-label="formatPlacementLabel"
+                />
               </template>
 
               <template v-else-if="settingsScreen === 'komentoscript'">
-                <div class="mb-3 flex items-center justify-between">
-                  <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
-                    <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
-                    <span>Back</span>
-                  </button>
-                  <div class="flex items-center gap-2 text-lg font-semibold">
-                    <img :src="settingsIcon" alt="KomentoScript Sync" class="h-6 w-6 settings-icon" />
-                    <span>KomentoScript Sync</span>
-                  </div>
-                </div>
-
-                <div class="space-y-3">
-                  <div class="rounded-xl bg-white/5 px-4 py-3">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex-1">
-                        <p class="text-sm text-white/80">Enable KomentoScript</p>
-                        <p class="text-xs text-white/60">Use synced KomentoScript packs to configure supported sites.</p>
-                      </div>
-                      <label class="relative inline-flex items-center">
-                        <input
-                          type="checkbox"
-                          class="peer sr-only"
-                          :checked="komentoSyncEnabled"
-                          @change="(e) => saveKomentoToggle('enabled', (e.target as HTMLInputElement).checked)"
-                        />
-                        <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="rounded-xl bg-white/5 px-4 py-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex-1">
-                        <p class="text-sm text-white/80">Use synced mappings</p>
-                        <p class="text-xs text-white/60">Apply KomentoScript placement and selector fallback when no local custom mapping exists.</p>
-                      </div>
-                      <label class="relative inline-flex items-center">
-                        <input
-                          type="checkbox"
-                          class="peer sr-only"
-                          :checked="komentoUseSyncedMappings"
-                          @change="(e) => saveKomentoToggle('useSynced', (e.target as HTMLInputElement).checked)"
-                        />
-                        <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="rounded-xl bg-white/5 px-4 py-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex-1">
-                        <p class="text-sm text-white/80">Weekly auto-sync</p>
-                        <p class="text-xs text-white/60">Background alarm syncs enabled KomentoScript sources every 7 days.</p>
-                      </div>
-                      <label class="relative inline-flex items-center">
-                        <input
-                          type="checkbox"
-                          class="peer sr-only"
-                          :checked="komentoAutoSync"
-                          @change="(e) => saveKomentoToggle('autoSync', (e.target as HTMLInputElement).checked)"
-                        />
-                        <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-2" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
-                    <div class="flex items-center justify-between gap-3">
-                      <div>
-                        <p class="text-sm text-white/80">Sync status</p>
-                        <p class="text-xs text-white/60">Last sync: {{ komentoLastSyncText }}</p>
-                        <p class="text-xs text-white/60">Cached packs: {{ komentoCachedPackCount }}</p>
-                        <p class="text-xs text-white/60">Sources: {{ komentoSyncState?.sourcesSucceeded || 0 }}/{{ komentoSyncState?.sourcesAttempted || 0 }}</p>
-                      </div>
-                      <button
-                        class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-60"
-                        :disabled="komentoSyncing"
-                        @click="runKomentoSyncNow"
-                      >
-                        {{ komentoSyncing ? 'Syncing...' : 'Sync now' }}
-                      </button>
-                    </div>
-                    <p v-if="komentoSyncState?.lastError" class="text-xs text-rose-300/90 break-all">{{ komentoSyncState.lastError }}</p>
-                  </div>
-
-                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
-                    <div class="flex items-center justify-between gap-3">
-                      <p class="text-sm text-white/80">Sources</p>
-                      <button
-                        class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15"
-                        @click="resetKomentoSourceDraft"
-                      >
-                        New source
-                      </button>
-                    </div>
-
-                    <div class="rounded-lg bg-black/15 p-3 space-y-2">
-                      <p class="text-xs font-semibold text-white/80">{{ komentoSourceFormTitle }}</p>
-                      <input
-                        v-model="komentoSourceDraft.id"
-                        type="text"
-                        placeholder="Source ID (e.g. hayami-official)"
-                        class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
-                      />
-                      <input
-                        v-model="komentoSourceDraft.url"
-                        type="url"
-                        placeholder="https://example.com/komentoscript.json"
-                        class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
-                      />
-                      <div class="grid grid-cols-2 gap-2">
-                        <select
-                          v-model="komentoSourceDraft.type"
-                          class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white"
-                        >
-                          <option value="hayami-official" class="bg-[#1f2329]">hayami-official</option>
-                          <option value="third-party" class="bg-[#1f2329]">third-party</option>
-                          <option value="local" class="bg-[#1f2329]">local</option>
-                        </select>
-                        <input
-                          v-model.number="komentoSourceDraft.priority"
-                          type="number"
-                          placeholder="Priority"
-                          class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
-                        />
-                      </div>
-                      <label class="flex items-center gap-2 text-xs text-white/70">
-                        <input v-model="komentoSourceDraft.enabled" type="checkbox" />
-                        Enabled
-                      </label>
-                      <div class="flex items-center gap-2">
-                        <button
-                          class="rounded-full bg-emerald-500/30 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/40"
-                          @click="saveKomentoSourceDraft"
-                        >
-                          {{ komentoSourceEditingId ? 'Save source' : 'Add source' }}
-                        </button>
-                        <button
-                          v-if="komentoSourceEditingId"
-                          class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/20"
-                          @click="resetKomentoSourceDraft"
-                        >
-                          Cancel edit
-                        </button>
-                      </div>
-                    </div>
-
-                    <div v-if="komentoSourcesSorted.length === 0" class="text-xs text-white/60">No sources configured.</div>
-                    <div v-else class="space-y-2">
-                      <div
-                        v-for="(source, sourceIndex) in komentoSourcesSorted"
-                        :key="source.id"
-                        class="rounded-lg bg-black/15 px-3 py-2"
-                      >
-                        <div class="flex items-center justify-between gap-3">
-                          <div class="min-w-0 flex-1">
-                            <div class="truncate text-xs font-semibold text-white/90">{{ source.id }} <span class="text-white/50">({{ source.type }})</span></div>
-                            <div class="truncate text-xs text-white/60">{{ source.url }}</div>
-                            <div class="text-[11px] text-white/50">Priority: {{ source.priority || 0 }}</div>
-                          </div>
-                          <div class="flex items-center gap-2">
-                            <button
-                              class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
-                              :disabled="sourceIndex === 0"
-                              @click="moveKomentoSource(source.id, -1)"
-                              title="Move up"
-                            >
-                              ↑
-                            </button>
-                            <button
-                              class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
-                              :disabled="sourceIndex === komentoSourcesSorted.length - 1"
-                              @click="moveKomentoSource(source.id, 1)"
-                              title="Move down"
-                            >
-                              ↓
-                            </button>
-                            <label class="relative inline-flex items-center">
-                              <input
-                                type="checkbox"
-                                class="peer sr-only"
-                                :checked="Boolean(source.enabled)"
-                                @change="(e) => toggleKomentoSource(source.id, (e.target as HTMLInputElement).checked)"
-                              />
-                              <div class="peer h-5 w-9 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-3 after:w-3 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></div>
-                            </label>
-                            <button
-                              class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20"
-                              @click="editKomentoSource(source)"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              class="rounded-md bg-rose-500/20 px-2 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-500/30"
-                              @click="removeKomentoSource(source.id)"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </div>
-
-                        <div class="mt-2">
-                          <button
-                            class="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
-                            @click="toggleKomentoSourceExpanded(source.id)"
-                          >
-                            {{ isKomentoSourceExpanded(source.id) ? 'Hide mapped sites' : `Mapped sites (${getKomentoMappedOrigins(source.id).length})` }}
-                          </button>
-
-                          <div v-if="isKomentoSourceExpanded(source.id)" class="mt-2 space-y-2">
-                            <div
-                              v-if="getKomentoMappedOrigins(source.id).length === 0"
-                              class="text-xs text-white/60"
-                            >
-                              No mapped sites in current cached packs.
-                            </div>
-                            <div v-else class="space-y-2">
-                              <div
-                                v-for="origin in getKomentoMappedOrigins(source.id)"
-                                :key="origin"
-                                class="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2"
-                              >
-                                <img
-                                  :src="getFaviconUrl(origin)"
-                                  :alt="formatOrigin(origin)"
-                                  class="h-6 w-6 rounded bg-white/5"
-                                  referrerpolicy="no-referrer"
-                                />
-                                <div class="min-w-0 flex-1">
-                                  <div class="text-sm font-semibold text-white/90">{{ formatOrigin(origin) }}</div>
-                                  <div class="truncate text-xs text-white/60">{{ origin }}</div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-2" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
-                    <p class="text-sm text-white/80">Recent sync history</p>
-                    <div v-if="komentoRecentHistory.length === 0" class="text-xs text-white/60">No sync history yet.</div>
-                    <div v-else class="space-y-2">
-                      <div
-                        v-for="entry in komentoRecentHistory"
-                        :key="`${entry.at}-${entry.reason}`"
-                        class="rounded-lg bg-black/15 px-3 py-2"
-                      >
-                        <div class="flex items-center justify-between gap-2">
-                          <div class="text-xs font-semibold" :class="entry.ok ? 'text-emerald-200' : 'text-rose-200'">
-                            {{ entry.ok ? 'Success' : 'Failed' }} · {{ entry.reason }}
-                          </div>
-                          <div class="text-[11px] text-white/50">{{ formatKomentoHistoryWhen(entry.at) }}</div>
-                        </div>
-                        <div class="text-[11px] text-white/60">
-                          Sources: {{ entry.sourcesSucceeded }}/{{ entry.sourcesAttempted }} · Packs: {{ entry.packsLoaded }}
-                        </div>
-                        <div v-if="entry.firstError" class="mt-1 text-[11px] text-rose-200/90 break-all">{{ entry.firstError }}</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <KomentoScriptSettingsPanel
+                  :back-icon="backIcon"
+                  :settings-icon="settingsIcon"
+                  :komento-sync-enabled="komentoSyncEnabled"
+                  :komento-use-synced-mappings="komentoUseSyncedMappings"
+                  :komento-auto-sync="komentoAutoSync"
+                  :komento-last-sync-text="komentoLastSyncText"
+                  :komento-cached-pack-count="komentoCachedPackCount"
+                  :komento-syncing="komentoSyncing"
+                  :komento-sync-state="komentoSyncState"
+                  :komento-source-form-title="komentoSourceFormTitle"
+                  :komento-source-draft="komentoSourceDraft"
+                  :komento-source-editing-id="komentoSourceEditingId"
+                  :komento-sources-sorted="komentoSourcesSorted"
+                  :komento-cached-packs="komentoCachedPacks"
+                  :komento-recent-history="komentoRecentHistory"
+                  :komento-expanded-source-id="komentoExpandedSourceId"
+                  :komento-pending-permission-sources="komentoPendingPermissionSources"
+                  :komento-pending-origins="komentoPendingOrigins"
+                  :komento-pending-permission-loading="komentoPendingPermissionLoading"
+                  :komento-approving-permissions="komentoApprovingPermissions"
+                  :komento-pending-expanded-source-id="komentoPendingExpandedSourceId"
+                  :on-back="() => { settingsScreen = 'menu'; }"
+                  :on-save-toggle="saveKomentoToggle"
+                  :on-run-sync-now="runKomentoSyncNow"
+                  :on-reset-source-draft="resetKomentoSourceDraft"
+                  :on-save-source-draft="saveKomentoSourceDraft"
+                  :on-toggle-source="toggleKomentoSource"
+                  :on-move-source="moveKomentoSource"
+                  :on-edit-source="editKomentoSource"
+                  :on-remove-source="removeKomentoSource"
+                  :on-toggle-source-expanded="toggleKomentoSourceExpanded"
+                  :on-toggle-pending-source-expanded="toggleKomentoPendingSourceExpanded"
+                  :on-approve-all-pending-permissions="approveAllKomentoPendingPermissions"
+                  :is-source-expanded="isKomentoSourceExpanded"
+                  :get-mapped-origins="getKomentoMappedOrigins"
+                  :format-history-when="formatKomentoHistoryWhen"
+                  :get-favicon-url="getFaviconUrl"
+                  :format-origin="formatOrigin"
+                  :is-pending-source-expanded="isKomentoPendingSourceExpanded"
+                />
               </template>
 
               <template v-else-if="settingsScreen === 'custom-site-detail' && selectedCustomSite">
-                <div class="mb-3 flex items-center justify-between">
-                  <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="backToCustomSites()">
-                    <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
-                    <span>Back</span>
-                  </button>
-                  <div class="flex items-center gap-2 text-lg font-semibold">
-                    <img :src="customSitesIcon" alt="Custom websites" class="h-6 w-6 settings-icon" />
-                    <span>{{ formatOrigin(selectedCustomSite.origin) }}</span>
-                  </div>
-                </div>
-
-                <div class="space-y-4">
-                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-2">
-                    <div class="flex items-center gap-3">
-                      <img
-                        :src="getFaviconUrl(selectedCustomSite.origin)"
-                        :alt="formatOrigin(selectedCustomSite.origin)"
-                        class="h-7 w-7 rounded bg-white/5"
-                        referrerpolicy="no-referrer"
-                      />
-                      <div>
-                        <div class="text-sm font-semibold text-white/90">{{ formatOrigin(selectedCustomSite.origin) }}</div>
-                        <div class="text-xs text-white/60">{{ selectedCustomSite.origin }}</div>
-                      </div>
-                    </div>
-                    <div class="flex items-center justify-between gap-2 text-xs text-white/60">
-                      <span>Placement: {{ formatPlacementLabel(selectedCustomSite.display) }}</span>
-                      <button
-                        class="rounded-full bg-cyan-500/20 px-3 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/30"
-                        @click="exportCustomSiteMapping(selectedCustomSite)"
-                        aria-label="Export mapping"
-                        title="Export mapping"
-                      >
-                        Export
-                      </button>
-                    </div>
-                    <div class="grid grid-cols-1 gap-2 text-xs text-white/70 sm:grid-cols-2">
-                      <div class="rounded-lg bg-black/10 px-3 py-2">
-                        <div class="font-semibold text-white/80">Mount selector</div>
-                        <div class="truncate text-white/60">{{ selectedCustomSite.mountSelector || '—' }}</div>
-                      </div>
-                      <div class="rounded-lg bg-black/10 px-3 py-2">
-                        <div class="font-semibold text-white/80">Anchor selector</div>
-                        <div class="truncate text-white/60">{{ selectedCustomSite.anchorSelector || '—' }}</div>
-                      </div>
-                      <div class="rounded-lg bg-black/10 px-3 py-2">
-                        <div class="font-semibold text-white/80">Title selector</div>
-                        <div class="truncate text-white/60">{{ selectedCustomSite.titleSelector || '—' }}</div>
-                      </div>
-                      <div class="rounded-lg bg-black/10 px-3 py-2">
-                        <div class="font-semibold text-white/80">Episode selector</div>
-                        <div class="truncate text-white/60">{{ selectedCustomSite.episodeSelector || '—' }}</div>
-                      </div>
-                      <div class="rounded-lg bg-black/10 px-3 py-2">
-                        <div class="font-semibold text-white/80">Side padding</div>
-                        <div class="truncate text-white/60">{{ selectedCustomSite.sidePadding ?? 0 }}px</div>
-                      </div>
-                    </div>
-
-                    <div class="mt-3 rounded-lg bg-black/10 px-3 py-3">
-                      <button
-                        type="button"
-                        class="flex w-full items-center justify-between gap-3 text-left"
-                        @click="customSiteAdvancedExpanded = !customSiteAdvancedExpanded"
-                      >
-                        <div class="flex items-center gap-2 text-xs font-semibold text-white/85">
-                          <img :src="infoIcon" alt="Advanced" class="h-4 w-4 settings-icon" />
-                          <span>Advanced options</span>
-                        </div>
-                        <span class="text-[11px] text-white/55">{{ customSiteAdvancedExpanded ? 'Hide' : 'Show' }}</span>
-                      </button>
-
-                      <div v-if="customSiteAdvancedExpanded" class="mt-3 space-y-3">
-                        <div class="text-xs font-semibold text-white/80">Custom website path globs</div>
-                        <p class="text-[11px] text-white/60">
-                          Limit where this mapping runs. Use * as wildcard. Example: /watch/*, /play/*, /anime/*
-                        </p>
-
-                        <div class="space-y-2">
-                          <div class="text-[11px] font-semibold text-emerald-200/90">Include paths (allowed)</div>
-                          <div class="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85 hover:bg-white/15"
-                              @click="addCustomSitePathGlob('include', '/watch/*')"
-                            >
-                              + /watch/*
-                            </button>
-                            <button
-                              type="button"
-                              class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85 hover:bg-white/15"
-                              @click="addCustomSitePathGlob('include', '/play/*')"
-                            >
-                              + /play/*
-                            </button>
-                          </div>
-                          <div class="flex flex-wrap gap-2" v-if="customSiteIncludePathGlobsDraft.length">
-                            <span
-                              v-for="glob in customSiteIncludePathGlobsDraft"
-                              :key="`include-${glob}`"
-                              class="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-2.5 py-1 text-[11px] text-emerald-100"
-                            >
-                              <span>{{ glob }}</span>
-                              <button
-                                type="button"
-                                class="rounded-full bg-black/25 px-1 text-[10px] leading-none hover:bg-black/40"
-                                @click="removeCustomSitePathGlob('include', glob)"
-                                aria-label="Remove include glob"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          </div>
-                          <div class="flex items-center gap-2">
-                            <input
-                              v-model="customSiteIncludePathInput"
-                              type="text"
-                              class="min-w-0 flex-1 rounded-lg bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/45 focus:outline focus:outline-2 focus:outline-white/30"
-                              placeholder="Add include glob, e.g. /anime/*"
-                              @keydown.enter.prevent="addCustomSitePathGlob('include')"
-                            />
-                            <button
-                              type="button"
-                              class="rounded-lg bg-emerald-500/25 px-3 py-2 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/35"
-                              @click="addCustomSitePathGlob('include')"
-                            >
-                              Add
-                            </button>
-                          </div>
-                        </div>
-
-                        <div class="space-y-2">
-                          <div class="text-[11px] font-semibold text-rose-200/90">Exclude paths (blocked)</div>
-                          <div class="flex flex-wrap gap-2" v-if="customSiteExcludePathGlobsDraft.length">
-                            <span
-                              v-for="glob in customSiteExcludePathGlobsDraft"
-                              :key="`exclude-${glob}`"
-                              class="inline-flex items-center gap-2 rounded-full bg-rose-500/20 px-2.5 py-1 text-[11px] text-rose-100"
-                            >
-                              <span>{{ glob }}</span>
-                              <button
-                                type="button"
-                                class="rounded-full bg-black/25 px-1 text-[10px] leading-none hover:bg-black/40"
-                                @click="removeCustomSitePathGlob('exclude', glob)"
-                                aria-label="Remove exclude glob"
-                              >
-                                ×
-                              </button>
-                            </span>
-                          </div>
-                          <div class="flex items-center gap-2">
-                            <input
-                              v-model="customSiteExcludePathInput"
-                              type="text"
-                              class="min-w-0 flex-1 rounded-lg bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/45 focus:outline focus:outline-2 focus:outline-white/30"
-                              placeholder="Add exclude glob, e.g. /watch/premium/*"
-                              @keydown.enter.prevent="addCustomSitePathGlob('exclude')"
-                            />
-                            <button
-                              type="button"
-                              class="rounded-lg bg-rose-500/25 px-3 py-2 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/35"
-                              @click="addCustomSitePathGlob('exclude')"
-                            >
-                              Add
-                            </button>
-                          </div>
-                        </div>
-
-                        <div class="flex justify-end">
-                          <button
-                            type="button"
-                            class="rounded-lg bg-cyan-500/25 px-3 py-2 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/35 disabled:cursor-not-allowed disabled:opacity-60"
-                            :disabled="customSitePathGlobsSaving"
-                            @click="saveSelectedCustomSitePathGlobs"
-                          >
-                            {{ customSitePathGlobsSaving ? 'Saving...' : 'Save path globs' }}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                <CustomSiteDetailPanel
+                  :back-icon="backIcon"
+                  :custom-sites-icon="customSitesIcon"
+                  :info-icon="infoIcon"
+                  :selected-custom-site="selectedCustomSite"
+                  :custom-site-advanced-expanded="customSiteAdvancedExpanded"
+                  :custom-site-include-path-globs-draft="customSiteIncludePathGlobsDraft"
+                  :custom-site-exclude-path-globs-draft="customSiteExcludePathGlobsDraft"
+                  :custom-site-include-path-input="customSiteIncludePathInput"
+                  :custom-site-exclude-path-input="customSiteExcludePathInput"
+                  :custom-site-path-globs-saving="customSitePathGlobsSaving"
+                  :on-back="backToCustomSites"
+                  :on-export-mapping="exportCustomSiteMapping"
+                  :on-toggle-advanced="() => { customSiteAdvancedExpanded = !customSiteAdvancedExpanded; }"
+                  :on-add-path-glob="addCustomSitePathGlob"
+                  :on-remove-path-glob="removeCustomSitePathGlob"
+                  :on-set-include-path-input="(value) => { customSiteIncludePathInput = value; }"
+                  :on-set-exclude-path-input="(value) => { customSiteExcludePathInput = value; }"
+                  :on-save-path-globs="saveSelectedCustomSitePathGlobs"
+                  :get-favicon-url="getFaviconUrl"
+                  :format-origin="formatOrigin"
+                  :format-placement-label="formatPlacementLabel"
+                />
               </template>
 
 

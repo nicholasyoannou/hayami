@@ -5,7 +5,7 @@ import type { App as VueApp, Component } from 'vue';
 import { createApp, reactive, h } from 'vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
-import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from '../ui/site-mapper';
+import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from '../ui/site-mapper/site-mapper-utils';
 import { resolveAdapter } from '../adapters/site-registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { injectExtensionStyles } from '../utils/style-injection';

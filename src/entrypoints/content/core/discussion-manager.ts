@@ -5,44 +5,24 @@
  * It includes Reddit/Disqus/MAL/YouTube provider integration, search orchestration, and UI rendering.
  */
 
-import type { App as VueApp } from 'vue';
-import { createApp, h } from 'vue';
 import { toast } from 'vue-sonner';
 
-// Reddit API imports
-import { 
-  searchAnimeDiscussion, 
-  extractEpisodeNumber, 
-  searchSeriesDiscussionsByDate, 
-  searchCustomPosts, 
-  extensionFetch,
-  getSubredditAboutCached,
-  type RedditCommentSort,
-} from '@/utils/redditApi';
-import { fetchHayami } from '@/utils/hayamiApi';
+import type { RedditCommentSort } from '@/utils/redditApi';
 
 
-
-// Authentication utilities
-import { isAuthenticated, getStoredUsername } from '@/utils/redditAuth';
 
 // Markdown & text utilities
 import { escapeHtml } from '@/utils/markdown';
 
-// Disqus API
-import { findThreadForAnime, findThreadByLink } from '@/utils/disqusApi';
-
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
 import { 
-  RedditAuthPrompt, 
   RedditManualSearchPanel,
-  type RedditPost 
 } from '@/components/overlays';
 
 // Type imports
 import { AnimeInfo } from '../types';
-import type { MapperResult, MapperMatchedResult, CommentProvider, ProviderContext } from '../types/data';
+import type { CommentProvider, ProviderContext } from '../types/data';
 
 // Mapping utilities
 import {
@@ -54,9 +34,6 @@ import {
 } from '../mapping';
 
 // Template renderers
-import { renderNoDiscussionPanel } from '../templates';
-
-
 // UI utilities
 import { removeCommentsSkeletonLoading } from '../ui';
 import { displayModeStorage, type DisplayMode } from '@/composables/useDisplayMode';
@@ -69,7 +46,6 @@ import { useDiscussionStore } from '@/store/discussion';
 // State management
 import {
   useContentState,
-  setInlineDiscussionApp,
   setLastAnimeInfo,
   setSearchInProgress,
   setRedditCommentsCleanup,
@@ -77,12 +53,9 @@ import {
 } from '../state';
 
 // Provider manager
-import { switchProvider, cleanupProvider } from '../providers';
-import { getCurrentYouTubeOrder } from '../providers/youtube-provider';
 
 // DOM & utility helpers
 import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageWrapper } from '../utils/dom-helpers';
-import { handleError } from '../utils/error-handler';
 import { debug } from '@/utils/debug';
 import { findExactDateMatch } from '../utils/date-utils';
 import { resolveAdapter } from '../mapping';
@@ -92,13 +65,10 @@ import {
   getCustomMountAnchor,
   applySidePadding,
   getCustomSiteMapping,
-} from '../ui/site-mapper';
+} from '../ui/site-mapper/site-mapper-utils';
 
 // MAL utilities
 import { extractMalIdFromMapperResult, extractSeasonNumber } from '../utils/mal-utils';
-
-// Style injection
-import { injectExtensionStyles } from '../utils/style-injection';
 
 // =============================================================================
 // OPTION REGISTRY HELPERS
@@ -111,6 +81,49 @@ const FALLBACK_SUB_ICON = 'https://www.redditstatic.com/desktop2x/img/favicon/ap
 
 let preferredProvider: CommentProvider = 'reddit';
 let activeUiProvider: CommentProvider | null = null;
+
+type RedditApiModule = typeof import('@/utils/redditApi');
+type RedditRuntimeModule = typeof import('./reddit-runtime');
+type DisqusRuntimeModule = typeof import('./disqus-runtime');
+type RedditSearchRuntimeModule = typeof import('./reddit-search-runtime');
+
+let redditApiModulePromise: Promise<RedditApiModule> | null = null;
+let redditRuntimeModulePromise: Promise<RedditRuntimeModule> | null = null;
+let disqusRuntimeModulePromise: Promise<DisqusRuntimeModule> | null = null;
+let redditSearchRuntimeModulePromise: Promise<RedditSearchRuntimeModule> | null = null;
+
+function getRedditApiModule(): Promise<RedditApiModule> {
+  if (!redditApiModulePromise) {
+    redditApiModulePromise = import('@/utils/redditApi');
+  }
+  return redditApiModulePromise;
+}
+
+function getRedditRuntimeModule(): Promise<RedditRuntimeModule> {
+  if (!redditRuntimeModulePromise) {
+    redditRuntimeModulePromise = import('./reddit-runtime');
+  }
+  return redditRuntimeModulePromise;
+}
+
+function getDisqusRuntimeModule(): Promise<DisqusRuntimeModule> {
+  if (!disqusRuntimeModulePromise) {
+    disqusRuntimeModulePromise = import('./disqus-runtime');
+  }
+  return disqusRuntimeModulePromise;
+}
+
+function getRedditSearchRuntimeModule(): Promise<RedditSearchRuntimeModule> {
+  if (!redditSearchRuntimeModulePromise) {
+    redditSearchRuntimeModulePromise = import('./reddit-search-runtime');
+  }
+  return redditSearchRuntimeModulePromise;
+}
+
+function extractEpisodeNumberText(input: string): string | null {
+  const parsed = parseEpisodeFromTitle(input || '');
+  return Number.isFinite(parsed) ? String(parsed) : null;
+}
 
 function normalizeRedditDiscussion(discussion: any): void {
   if (!discussion) return;
@@ -135,11 +148,6 @@ function normalizeRedditDiscussion(discussion: any): void {
   if (typeof discussion.score !== 'number' && typeof discussion.ups === 'number') {
     discussion.score = discussion.ups;
   }
-}
-
-function sanitizeRedditIconUrl(iconUrl?: string | null): string | null {
-  if (!iconUrl) return null;
-  return iconUrl.replace(/&amp;/g, '&').trim();
 }
 
 // Accessor helper to always use the current state instance
@@ -308,247 +316,24 @@ function setMalIdOnLastAnimeInfo(malId?: number | null): void {
  * Fetch anime data from r-anime-wiki-mapper service
  */
 async function fetchAnimeMapperData(animeName: string): Promise<any | null> {
-  try {
-    const encodedName = encodeURIComponent(animeName);
-    const response = await fetchHayami(`https://api.hayami.moe/anime/${encodedName}`);
-    
-    if (!response.ok) {
-      console.log('Mapper service returned non-OK status:', response.status);
-      return null;
-    }
-    
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.log('Error fetching from mapper service:', error);
-    return null;
-  }
+  const { fetchAnimeMapperData: fetchMapper } = await getRedditSearchRuntimeModule();
+  return fetchMapper(animeName);
 }
 
 /**
  * Extract Reddit post ID from a Reddit URL and fetch post data
  */
 export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
-  try {
-    // Extract post ID from URL
-    // New format: https://www.reddit.com/r/anime/comments/7q5lbx
-    // Old format: https://www.reddit.com/j412g2
-    let postId: string | null = null;
-    
-    // Try new format first: /comments/[postId]
-    const commentsMatch = redditUrl.match(/\/comments\/([a-z0-9]+)/i);
-    if (commentsMatch && commentsMatch[1]) {
-      postId = commentsMatch[1];
-    } else {
-      // Try old format: https://www.reddit.com/[postId]
-      // Extract the path after the domain (e.g., /j412g2)
-      const urlObj = new URL(redditUrl);
-      const pathParts = urlObj.pathname.split('/').filter(p => p.length > 0);
-      if (pathParts.length > 0) {
-        // Take the last non-empty path segment as the post ID
-        const lastPart = pathParts[pathParts.length - 1];
-        // Validate it looks like a Reddit post ID (alphanumeric, typically 5-7 chars)
-        if (/^[a-z0-9]{4,10}$/i.test(lastPart)) {
-          postId = lastPart;
-        }
-      }
-    }
-    
-    if (!postId) {
-      console.log('Could not extract post ID from URL:', redditUrl);
-      return null;
-    }
-    
-    // Check if user is authenticated
-    const authenticated = await isAuthenticated();
-
-    if (authenticated) {
-      // Authenticated mode should only use OAuth endpoints.
-      try {
-        const { makeRedditRequest } = await import('@/utils/redditAuth');
-        const infoResponse = await makeRedditRequest<any>(`/api/info.json?id=t3_${postId}`);
-        if (infoResponse && infoResponse.data && infoResponse.data.children && infoResponse.data.children.length > 0) {
-          const postData = infoResponse.data.children[0].data;
-          const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-          console.log('[fetchRedditPostFromUrl] Post fullname from API:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
-          return {
-            id: postData.id,
-            title: postData.title,
-            author: postData.author,
-            score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
-            num_comments: postData.num_comments,
-            created_utc: postData.created_utc,
-            permalink: postData.permalink,
-            url: postData.url,
-            archived: postData.archived,
-            locked: postData.locked,
-            subreddit: postData.subreddit,
-            subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
-            subreddit_primary_color: (postData.primary_color && postData.primary_color.trim()) || (postData.key_color && postData.key_color.trim()) || null,
-            fullname: fullname,
-            likes: postData.likes,
-          };
-        }
-
-        const commentsResponse = await makeRedditRequest<any[]>(`/comments/${encodeURIComponent(postId)}.json?raw_json=1`);
-        if (Array.isArray(commentsResponse) && commentsResponse.length > 0) {
-          const postData = commentsResponse[0]?.data?.children?.[0]?.data;
-          if (postData) {
-            const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-            debug.log('[fetchRedditPostFromUrl] Post fullname from OAuth comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
-            return {
-              id: postData.id,
-              title: postData.title,
-              author: postData.author,
-              score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
-              num_comments: postData.num_comments,
-              created_utc: postData.created_utc,
-              permalink: postData.permalink,
-              url: postData.url,
-              archived: postData.archived,
-              locked: postData.locked,
-              subreddit: postData.subreddit,
-              subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
-              fullname: fullname,
-              likes: postData.likes,
-            };
-          }
-        }
-      } catch (e) {
-        console.log('Error fetching post info via OAuth endpoints:', e);
-      }
-
-      return {
-        id: postId,
-        title: 'Episode Discussion',
-        author: 'unknown',
-        score: 0,
-        num_comments: 0,
-        created_utc: Math.floor(Date.now() / 1000),
-        permalink: redditUrl.replace('https://www.reddit.com', ''),
-        url: redditUrl,
-      };
-    }
-    
-    // For unauthenticated requests, prefer the lightweight info endpoint to avoid fetching comments twice
-    try {
-      const infoUrl = `https://www.reddit.com/api/info.json?id=t3_${encodeURIComponent(postId)}&raw_json=1`;
-      const resp = await extensionFetch(infoUrl, { credentials: 'include' } as any);
-      if (resp.ok) {
-        const result = await resp.json();
-        const postData = result?.data?.children?.[0]?.data;
-        if (postData) {
-          const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-          debug.log('[fetchRedditPostFromUrl] Post fullname from info endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
-          return {
-            id: postData.id,
-            title: postData.title,
-            author: postData.author,
-            score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
-            num_comments: postData.num_comments,
-            created_utc: postData.created_utc,
-            permalink: postData.permalink,
-            url: postData.url,
-            archived: postData.archived,
-            locked: postData.locked,
-            subreddit: postData.subreddit,
-            subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
-            fullname: fullname, // t3_ prefixed fullname for voting
-            likes: postData.likes, // true=upvoted, false=downvoted, null=none
-          };
-        }
-      }
-    } catch (e) {
-      console.log('Error fetching post info via info endpoint:', e);
-    }
-
-    const storedOAuthUsername = await getStoredUsername();
-    if (storedOAuthUsername) {
-      return {
-        id: postId,
-        title: 'Episode Discussion',
-        author: 'unknown',
-        score: 0,
-        num_comments: 0,
-        created_utc: Math.floor(Date.now() / 1000),
-        permalink: redditUrl.replace('https://www.reddit.com', ''),
-        url: redditUrl,
-      };
-    }
-
-    // Fallback: if info lookup fails, fall back to the comments endpoint
-    try {
-      const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?raw_json=1`;
-      const resp = await extensionFetch(url, { credentials: 'include' } as any);
-      if (resp.ok) {
-        const result = await resp.json();
-        // Reddit returns an array where [0] is the post listing, [1] is comments
-        if (result && Array.isArray(result) && result.length > 0) {
-          const postListing = result[0];
-          if (postListing?.data?.children?.[0]?.data) {
-            const postData = postListing.data.children[0].data;
-            // Convert to format expected by displayDiscussionDependingOnMode
-            const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-            debug.log('[fetchRedditPostFromUrl] Post fullname from comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
-            return {
-              id: postData.id,
-              title: postData.title,
-              author: postData.author,
-              score: typeof postData.score === 'number' ? postData.score : (typeof postData.ups === 'number' ? postData.ups : 0),
-              num_comments: postData.num_comments,
-              created_utc: postData.created_utc,
-              permalink: postData.permalink,
-              url: postData.url,
-              archived: postData.archived,
-              locked: postData.locked,
-              subreddit: postData.subreddit,
-              subreddit_icon_url: sanitizeRedditIconUrl(postData.icon_img) || sanitizeRedditIconUrl(postData.community_icon),
-              fullname: fullname, // t3_ prefixed fullname for voting
-              likes: postData.likes, // true=upvoted, false=downvoted, null=none
-            };
-          }
-        }
-      }
-    } catch (e) {
-      console.log('Error fetching post info via comments endpoint:', e);
-    }
-    
-    // Fallback: construct post object from URL
-    return {
-      id: postId,
-      title: 'Episode Discussion',
-      author: 'unknown',
-      score: 0,
-      num_comments: 0,
-      created_utc: Math.floor(Date.now() / 1000),
-      permalink: redditUrl.replace('https://www.reddit.com', ''),
-      url: redditUrl,
-    };
-  } catch (error) {
-    console.error('Error fetching Reddit post from URL:', error);
-    return null;
-  }
+  const { fetchRedditPostFromUrl: fetchPost } = await getRedditRuntimeModule();
+  return fetchPost(redditUrl);
 }
 
 /**
  * Fetch subreddit icon and primary color from subreddit's about endpoint if missing
  */
 async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string | null; primaryColor: string | null }> {
-  if (!subreddit) return { iconUrl: null, primaryColor: null };
-  try {
-    const about = await getSubredditAboutCached(subreddit);
-    if (about) {
-      const iconUrl = sanitizeRedditIconUrl(about?.data?.icon_img) || sanitizeRedditIconUrl(about?.data?.community_icon) || null;
-      const primaryColor = about?.data?.primary_color || about?.data?.key_color || null;
-      return {
-        iconUrl: iconUrl || null,
-        primaryColor: (primaryColor && primaryColor.trim()) || null,
-      };
-    }
-  } catch (e) {
-    console.log('Error fetching subreddit info:', e);
-  }
-  return { iconUrl: null, primaryColor: null };
+  const { fetchSubredditInfo: fetchSubreddit } = await getRedditRuntimeModule();
+  return fetchSubreddit(subreddit);
 }
 
 // =============================================================================
@@ -610,7 +395,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     const animeInfoForMapper = mapperAnimeName !== animeInfo.animeName
       ? { ...animeInfo, animeName: mapperAnimeName }
       : animeInfo;
-    const rawEpisodeStr = extractEpisodeNumber(animeInfo.episodeName || '');
+    const rawEpisodeStr = extractEpisodeNumberText(animeInfo.episodeName || '');
     const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
     const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
     const mappedEpisodeStr = mappedEpisodeNum !== null ? String(mappedEpisodeNum) : null;
@@ -653,7 +438,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         try {
           const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
           if (mappedDisqusUrl) {
-            const mappedThread = (await findThreadByLink(animeInfo, mappedDisqusUrl)) || buildDisqusThreadFromUrl(mappedDisqusUrl);
+            const { findMappedDisqusThread } = await getDisqusRuntimeModule();
+            const mappedThread = await findMappedDisqusThread(animeInfo, mappedDisqusUrl);
             if (mappedThread) {
               const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
               cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
@@ -673,7 +459,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
               for (const entry of mapperData.results) {
                 const maybeUrl = entry?.episodes?.[desired] || entry?.episodes?.[Number(desired)];
                 if (!maybeUrl) continue;
-                const mappedThread = (await findThreadByLink(animeInfo, maybeUrl)) || buildDisqusThreadFromUrl(maybeUrl);
+                const { findMappedDisqusThread } = await getDisqusRuntimeModule();
+                const mappedThread = await findMappedDisqusThread(animeInfo, maybeUrl);
                 if (mappedThread) {
                   const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
                   cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
@@ -685,7 +472,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
             }
           }
 
-          const thread = await findThreadForAnime(animeInfo);
+          const { findDirectDisqusThread } = await getDisqusRuntimeModule();
+          const thread = await findDirectDisqusThread(animeInfo);
           if (thread) {
             await embedDisqusThreadDependingOnMode(thread, animeInfo);
             await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
@@ -721,6 +509,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     // fallback paths (we added unauthenticated search/comments/morechildren)
     // so the UI won't force the user to log in just to view threads. Keep
     // the auth prompt available for actions that require OAuth (posting/voting).
+    const { isAuthenticated } = await import('@/utils/redditAuth');
     const authenticated = await isAuthenticated();
     if (!authenticated) {
       console.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
@@ -832,6 +621,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       if (used) return;
     }
 
+    const { searchSeriesDiscussionsByDate } = await getRedditApiModule();
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
 
     // Check if any result matches the exact release date (same day)
@@ -876,7 +666,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
   } catch (error) {
     console.error('Error searching for discussion:', error);
     try {
-      const epStr = mappedEpisodeStr ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '?');
+      const epStr = extractEpisodeNumberText(animeInfo?.episodeName || '') || '?';
       await showNoDiscussionMessage(animeInfo?.animeName || 'this series', String(epStr || '?'));
     } catch (fallbackErr) {
       console.warn('Failed to show no-discussion fallback after error', fallbackErr);
@@ -888,53 +678,6 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     if (!handoffLoadingToProvider) {
       useDiscussionStore().clearLoading();
     }
-  }
-}
-
-async function tryAutoSelectFromManualSearch(animeInfo: AnimeInfo, mappedEpisodeNum?: number | null): Promise<void> {
-  try {
-    const ep = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '');
-    const query = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
-    
-    console.log('Trying manual search with query:', query);
-    const results = await searchCustomPosts(query);
-    
-    if (!results || results.length === 0) {
-      await showNoDiscussionMessage(animeInfo.animeName, String(ep || '?'));
-      return;
-    }
-    
-    // Check if any result matches the exact release date
-    const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
-    
-    if (exactDateMatch) {
-      // Auto-select the post that matches the exact release date
-      console.log('Auto-selected from manual search (exact date match):', exactDateMatch.title);
-      await displayDiscussionDependingOnMode(exactDateMatch);
-      return;
-    }
-    
-    // No exact date match - show "no discussion" message with option to search
-    await showNoDiscussionMessage(animeInfo.animeName, String(ep || '?'));
-  } catch (err) {
-    console.warn('Manual search flow failed, showing fallback UI', err);
-    const ep = mappedEpisodeNum ?? (extractEpisodeNumber(animeInfo?.episodeName || '') || '?');
-    await showNoDiscussionMessage(animeInfo.animeName, String(ep || '?'));
-  }
-}
-
-async function fallbackBySeriesAndDate(animeInfo: AnimeInfo, crEpisodeNum?: number): Promise<void> {
-  try {
-    const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
-    if (results.length === 0) {
-      await showNoDiscussionMessage(animeInfo.animeName, crEpisodeNum ? String(crEpisodeNum) : '?');
-      return;
-    }
-
-    // Let the user pick which one matches this episode (respects inline no-comments mode fallback)
-    await showSelectionUI(animeInfo, results, crEpisodeNum);
-  } catch (err) {
-    console.error('Fallback search error:', err);
   }
 }
 
@@ -950,13 +693,6 @@ async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?
   }
 
   await displayDiscussionDependingOnMode(posts[0]);
-}
-
-export function showAuthPrompt(): void {
-  getUiManager().mountWithPropsFactory(RedditAuthPrompt, ({ close }) => ({
-    onClose: close,
-    onLogin: close,
-  }));
 }
 
 async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
@@ -1085,7 +821,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
           const infoForMapper = mapperAnimeName !== info.animeName
             ? { ...info, animeName: mapperAnimeName }
             : info;
-          const rawEpisodeStr = extractEpisodeNumber(info.episodeName || '');
+          const rawEpisodeStr = extractEpisodeNumberText(info.episodeName || '');
           const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
           const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
@@ -1295,49 +1031,17 @@ function mountLoadingShell(): void {
   }
 }
 
-function buildDisqusThreadFromUrl(threadUrl: string): any | null {
-  if (!threadUrl) return null;
-  const safeUrl = threadUrl.trim();
-  let slug = '';
-  try {
-    slug = new URL(safeUrl).pathname.split('/').filter(Boolean).pop() || '';
-  } catch {
-    slug = safeUrl.split('/').filter(Boolean).pop() || '';
-  }
-  const identifier = slug || safeUrl;
-
-  return {
-    title: '',
-    clean_title: '',
-    link: safeUrl,
-    id: identifier,
-    identifier,
-    forum: 'channel-discussanime',
-    slug,
-  };
-}
-
-function hasResolvedDisqusTitle(thread: any): boolean {
-  if (!thread) return false;
-  return !!(String(thread.clean_title || '').trim() || String(thread.title || '').trim());
-}
-
 async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
   const currentState = state();
   const cache = currentState.discussionCache;
   const cacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
 
   let finalThread = thread;
-  if (!hasResolvedDisqusTitle(finalThread) && finalThread?.link) {
+  if (finalThread?.link) {
     try {
-      const hydrated = await findThreadByLink(animeInfo, String(finalThread.link));
-      if (hydrated) {
-        finalThread = {
-          ...finalThread,
-          ...hydrated,
-          title: String(hydrated?.title || finalThread?.title || ''),
-          clean_title: String(hydrated?.clean_title || hydrated?.title || finalThread?.clean_title || ''),
-        };
+      const { hydrateDisqusThreadTitle } = await getDisqusRuntimeModule();
+      finalThread = await hydrateDisqusThreadTitle(animeInfo, finalThread);
+      if (finalThread && (finalThread.title || finalThread.clean_title)) {
         console.log('[Disqus] Hydrated cached thread title before render', {
           title: finalThread?.title,
           clean_title: finalThread?.clean_title,
@@ -1471,14 +1175,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       }
     };
 
-    const applyRedditSortOptions = () => {
-      manager.wireSortOptions('reddit', currentSort);
-    };
-
-    const applyYouTubeSortOptions = () => {
-      manager.wireSortOptions('youtube', getCurrentYouTubeOrder());
-    };
-
     // Build provider context for provider manager
     const buildProviderContext = (): ProviderContext => ({
       animeInfo: currentState.lastAnimeInfo,
@@ -1522,7 +1218,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             const infoForMapper = mapperAnimeName !== info.animeName
               ? { ...info, animeName: mapperAnimeName }
               : info;
-            const rawEpisodeStr = extractEpisodeNumber(info.episodeName || '');
+            const rawEpisodeStr = extractEpisodeNumberText(info.episodeName || '');
             const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
             const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
@@ -1631,7 +1327,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 export function handleWrongClick(): void {
   const lastInfo = state().lastAnimeInfo;
   if (!lastInfo) return;
-  const crEpisodeNumStr = extractEpisodeNumber(lastInfo.episodeName || '');
+  const crEpisodeNumStr = extractEpisodeNumberText(lastInfo.episodeName || '');
   const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
   showManualSearchUI(lastInfo, crEpisodeNum);
 }
@@ -1647,7 +1343,11 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
     console.warn('[ManualSearch] Failed to dispatch manual search event, using Vue component fallback', e);
     getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
       onClose: close,
-      onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
+      onSearch: async (query: string) => {
+        if (!query) return [];
+        const { searchCustomPosts } = await getRedditApiModule();
+        return await searchCustomPosts(query);
+      },
       onSelect: async (post: any, index: number) => {
         if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
           const redditEp = parseEpisodeFromTitle(post.title);

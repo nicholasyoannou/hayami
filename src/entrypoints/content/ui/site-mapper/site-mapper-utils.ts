@@ -9,8 +9,6 @@ import {
   komentoScriptUseSyncedMappingsItem,
 } from '@/config/storage';
 import {
-  mergeEffectiveKomentoTarget,
-  collectMatchingKomentoTargets,
   type KomentoExtractField,
   type KomentoExtractPipeline,
   type KomentoScriptPack,
@@ -76,6 +74,11 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
     const komentoEnabled = Boolean(await komentoScriptEnabledItem.getValue());
     const useSynced = Boolean(await komentoScriptUseSyncedMappingsItem.getValue());
     if (komentoEnabled && useSynced) {
+      const {
+        mergeEffectiveKomentoTarget,
+        collectMatchingKomentoTargets,
+      } = await import('@/komentoscript');
+
       const cached = (await komentoScriptCachedPacksItem.getValue()) || [];
       const packs = cached
         .map((entry) => (entry && typeof entry === 'object' ? (entry as any).pack : null))
