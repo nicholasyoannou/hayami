@@ -7,6 +7,7 @@ import type {
   RedditFlairPositionOption,
   RedditDeepReplyModeOption,
 } from './options';
+import type { KomentoScriptPack, KomentoSourceRegistryEntry } from '@/komentoscript';
 
 // Canonical storage items for the extension (WXT storage wrapper)
 // All keys are prefixed with the storage area: local:, sync:, session:, managed:
@@ -154,12 +155,6 @@ export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
   { fallback: {} }
 );
 
-// Chibi overrides per origin
-export const chibiOverridesItem = storage.defineItem<Record<string, any>>(
-  'local:chibi_overrides',
-  { fallback: {} }
-);
-
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
 export const seriesMappingItem = storage.defineItem<
   Record<string, Record<string, Record<string, {
@@ -170,4 +165,88 @@ export const seriesMappingItem = storage.defineItem<
 >(
   'local:series_mapping',
   { fallback: {} }
+);
+
+export const DEFAULT_KOMENTOSCRIPT_SOURCES: KomentoSourceRegistryEntry[] = [
+  {
+    id: 'hayami-official',
+    type: 'hayami-official',
+    url: 'https://api.hayami.moe/komentoscript/manifest.json',
+    enabled: true,
+    priority: 100,
+    refreshMinutes: 10080,
+    trust: 'official',
+  },
+];
+
+export type KomentoCachedPackEntry = {
+  sourceId: string;
+  fetchedAt: string;
+  pack: KomentoScriptPack;
+};
+
+export type KomentoSyncState = {
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  sourcesAttempted: number;
+  sourcesSucceeded: number;
+  packsLoaded: number;
+};
+
+export type KomentoSyncHistoryEntry = {
+  at: string;
+  reason: string;
+  ok: boolean;
+  sourcesAttempted: number;
+  sourcesSucceeded: number;
+  packsLoaded: number;
+  firstError?: string | null;
+};
+
+export const komentoScriptEnabledItem = storage.defineItem<boolean>(
+  'local:komentoscript_enabled',
+  { fallback: true }
+);
+
+export const komentoScriptUseSyncedMappingsItem = storage.defineItem<boolean>(
+  'local:komentoscript_use_synced_mappings',
+  { fallback: true }
+);
+
+export const komentoScriptAutoSyncItem = storage.defineItem<boolean>(
+  'local:komentoscript_auto_sync',
+  { fallback: true }
+);
+
+export const komentoScriptSourceRegistryItem = storage.defineItem<KomentoSourceRegistryEntry[]>(
+  'local:komentoscript_sources',
+  { fallback: DEFAULT_KOMENTOSCRIPT_SOURCES }
+);
+
+export const komentoScriptCachedPacksItem = storage.defineItem<KomentoCachedPackEntry[]>(
+  'local:komentoscript_cached_packs',
+  { fallback: [] }
+);
+
+export const komentoScriptEtagsItem = storage.defineItem<Record<string, string>>(
+  'local:komentoscript_etags',
+  { fallback: {} }
+);
+
+export const komentoScriptSyncStateItem = storage.defineItem<KomentoSyncState>(
+  'local:komentoscript_sync_state',
+  {
+    fallback: {
+      lastSyncedAt: null,
+      lastError: null,
+      sourcesAttempted: 0,
+      sourcesSucceeded: 0,
+      packsLoaded: 0,
+    },
+  }
+);
+
+export const komentoScriptSyncHistoryItem = storage.defineItem<KomentoSyncHistoryEntry[]>(
+  'local:komentoscript_sync_history',
+  { fallback: [] }
 );

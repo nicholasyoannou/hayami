@@ -72,6 +72,7 @@ export class AniwaveProvider extends BaseProvider {
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
     this.validateAnimeInfo(context.animeInfo);
     const animeInfo = context.animeInfo;
+    container.style.display = 'block';
     const rawEpisode = extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeNumber || '';
 
     let mappedAnimeName = animeInfo.animeName;

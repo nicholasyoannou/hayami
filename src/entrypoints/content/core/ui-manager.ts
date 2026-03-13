@@ -17,6 +17,7 @@ export type InlineDiscussionExposed = {
   clearLoading?: () => void;
   handleProviderChange?: (provider: CommentProvider) => void;
   updateSortOptions?: (provider: CommentProvider, currentSort: string) => void;
+  getExternalCommentsElement?: () => HTMLElement | null;
 };
 
 type PopupShell = {
@@ -51,6 +52,21 @@ type MountedEntry = {
   props: Record<string, unknown>;
   mountPoint?: HTMLElement | null;
 };
+
+function resolveExposed(app: VueApp): InlineDiscussionExposed | null {
+  const instance: any = (app as any)?._instance;
+  const direct = instance?.exposed;
+  if (direct) {
+    return direct as InlineDiscussionExposed;
+  }
+
+  const child = instance?.subTree?.component?.exposed;
+  if (child) {
+    return child as InlineDiscussionExposed;
+  }
+
+  return null;
+}
 
 class UiManager {
   private inlineUi: { remove: () => void; mount: () => void; root?: HTMLElement; container?: HTMLElement } | null = null;
@@ -99,7 +115,7 @@ class UiManager {
             },
           });
           app.mount(mountPoint);
-          const exposed = (app as any)._instance?.exposed ?? null;
+          const exposed = resolveExposed(app);
           this.apps.set('inline', { app, exposed, host: wrapper, props, mountPoint });
           setInlineDiscussionApp(app);
           return app;
@@ -136,8 +152,8 @@ class UiManager {
         },
       });
       app.mount(mountPoint);
-      const exposed = (app as any)._instance?.exposed ?? null;
-      this.apps.set('popup', { app, exposed, props });
+      const exposed = resolveExposed(app);
+      this.apps.set('popup', { app, exposed, props, mountPoint });
       return;
     }
 
@@ -164,7 +180,7 @@ class UiManager {
         const props = reactive({ ...options.props });
         const app = createApp(options.component, props);
         app.mount(wrapper);
-        const exposed = (app as any)._instance?.exposed ?? null;
+        const exposed = resolveExposed(app);
         this.apps.set('overlay', { app, exposed, host: wrapper, props });
         return app;
       },
@@ -209,13 +225,30 @@ class UiManager {
       },
     });
     app.mount(entry.mountPoint);
-    const exposed = (app as any)._instance?.exposed ?? null;
+    const exposed = resolveExposed(app);
     this.apps.set('inline', { app, exposed, host: entry.host, props: nextProps, mountPoint: entry.mountPoint });
     setInlineDiscussionApp(app);
   }
 
   getExposed<T>(mode: UiMode): T | null {
-    return (this.apps.get(mode)?.exposed ?? null) as T | null;
+    const entry = this.apps.get(mode);
+    if (!entry) {
+      return null;
+    }
+
+    if (!entry.exposed) {
+      entry.exposed = resolveExposed(entry.app);
+    }
+
+    return (entry.exposed ?? null) as T | null;
+  }
+
+  getMountPoint(mode: UiMode): HTMLElement | null {
+    const entry = this.apps.get(mode);
+    if (!entry) {
+      return null;
+    }
+    return entry.mountPoint ?? entry.host ?? null;
   }
 
   isMounted(mode: UiMode): boolean {

@@ -192,7 +192,19 @@ const flagNoDiscussionHost = () => {
 };
 // Ref for external comments container (Disqus/YouTube)
 const externalCommentsRef = ref<HTMLElement | null>(null);
-const shouldHideExternalComments = computed(() => currentProvider.value !== 'reddit' && isLoading.value);
+let nonRedditLoadingFailsafe: ReturnType<typeof setTimeout> | null = null;
+
+function clearExternalCommentsSurface() {
+  const el = externalCommentsRef.value;
+  if (!el) return;
+  el.innerHTML = '';
+}
+
+function clearNonRedditLoadingFailsafe() {
+  if (!nonRedditLoadingFailsafe) return;
+  clearTimeout(nonRedditLoadingFailsafe);
+  nonRedditLoadingFailsafe = null;
+}
 // Share button state
 const shareLabel = ref('Share');
 const isShareCopied = ref(false);
@@ -1805,6 +1817,9 @@ function handleSearchInput(e: Event) {
 
 // Monitor reactive state changes
 watch(() => isLoading.value, (newVal) => {
+  const inPopupShell = Boolean(inlineSectionRef.value?.closest('#hayami-popup-shell'));
+  if (inPopupShell) return;
+
   const hostDivImmediate = document.getElementById('ri-inline-vue-host');
   if (!hostDivImmediate && newVal === false) {
     isLoading.value = true;
@@ -1958,6 +1973,8 @@ async function handleProviderChange(provider: Provider) {
   console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
   if (currentProvider.value === provider) return;
 
+  clearNonRedditLoadingFailsafe();
+
   // Enter loading immediately so Reddit shows skeleton instead of "no episode" while resolving
   isLoading.value = true;
   discussionStore.startLoading();
@@ -1965,9 +1982,16 @@ async function handleProviderChange(provider: Provider) {
   // Immediately reflect the target provider to hide prior provider UI while loading
   currentProvider.value = provider;
 
+  // Remove stale external provider DOM so previous platform remnants never bleed into transitions.
+  clearExternalCommentsSurface();
+
   if (provider === 'reddit') {
     redditCommentsKey.value++;
   }
+
+  const hasResolvedRedditDiscussion = provider === 'reddit' && Boolean(
+    discussionId.value || props.discussion?.fullname || props.discussion?.permalink,
+  );
 
   if (provider !== 'reddit') {
     showRedditAuthPrompt.value = false;
@@ -1978,6 +2002,30 @@ async function handleProviderChange(provider: Provider) {
   }
 
   providerHook.changeProvider(provider);
+
+  if (hasResolvedRedditDiscussion) {
+    // Returning to Reddit with an already-resolved thread should not depend solely on
+    // provider-side clear callbacks, which can race during rapid provider toggles.
+    setTimeout(() => {
+      if (currentProvider.value !== 'reddit') return;
+      if (!isLoading.value) return;
+      isLoading.value = false;
+      discussionStore.clearLoading();
+      clearNoDiscussionFlag();
+    }, 0);
+  }
+
+  if (provider !== 'reddit') {
+    // Failsafe for popup-mode provider switches: if a provider path misses clearLoading,
+    // do not keep the external panel hidden forever.
+    nonRedditLoadingFailsafe = setTimeout(() => {
+      if (currentProvider.value !== provider) return;
+      if (!isLoading.value) return;
+      console.warn('[InlineDiscussion] Non-Reddit loading fallback triggered for provider:', provider);
+      isLoading.value = false;
+      discussionStore.clearLoading();
+    }, 4000);
+  }
 
   nextTick(() => {
     if (props.onProviderChange) {
@@ -2035,6 +2083,7 @@ onMounted(() => {
 onUnmounted(() => {
   noDiscussionObserver?.disconnect();
   noDiscussionObserver = null;
+  clearNonRedditLoadingFailsafe();
 });
 
 // Expose methods for content script to call - must be after function definitions
@@ -2292,7 +2341,7 @@ defineExpose({
         </div>
 
         <RedditCommentList
-          v-if="currentProvider === 'reddit' && !!discussionId && !showRedditAuthPrompt"
+          v-if="currentProvider === 'reddit' && !!discussionId && !showRedditAuthPrompt && !isLoading"
           :key="`reddit-${discussionId}-${redditCommentsKey}`"
           :discussion-id="discussionId"
           :link-fullname="postFullname"
@@ -2347,7 +2396,7 @@ defineExpose({
         <div 
           ref="externalCommentsRef" 
           class="ri-external-comments"
-          :style="{ display: (currentProvider === 'reddit' || shouldHideExternalComments) ? 'none' : 'block' }"
+          :style="{ display: (currentProvider === 'reddit' || isLoading) ? 'none' : 'block' }"
         />
       </div>
     </section>

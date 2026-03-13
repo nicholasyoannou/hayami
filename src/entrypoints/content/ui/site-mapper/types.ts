@@ -3,6 +3,8 @@ export type DisplayPlacement = 'below' | 'insert' | 'replace' | 'popup' | 'icon'
 export interface CustomSiteMapping {
   origin: string;
   display: DisplayPlacement;
+  includePathGlobs?: string[];
+  excludePathGlobs?: string[];
   anchorSelector: string;
   mountSelector: string;
   titleSelector: string;

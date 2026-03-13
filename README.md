@@ -54,7 +54,5 @@ The extras:
 
 ##### *Manually-added sites can be configured through the 'Configure site with Hayami' right-click context menu option. You have to choose the anime title and episode number selectors yourself for Hayami to work properly, but once set up, Hayami will remember the configuration for future visits.
 
-## Want to support Hayami?
-If you enjoy using Hayami and would like to support its development, consider subscribing to [Hayami Plus](https://hayami.moe/plus) costing a buck ($1 USD) a month. Hayami Plus allows API-based rate limits instead of IP-based rate limits, and your subscription helps fund ongoing development and maintenance of the project, both on the backend, and the extension itself. Like giving something for support also, which may grow over time.
-
-It's paid? Nope, Hayami will <span style="font-weight:bold;">always</span> be free to use. Hayami Plus is entirely optional, and will stay that way.
+## Support
+If you enjoy using Hayami and want to help improve the project, share feedback through the extension popup and report bugs or ideas on the repository.

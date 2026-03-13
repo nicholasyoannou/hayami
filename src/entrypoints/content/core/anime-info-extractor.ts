@@ -3,7 +3,6 @@
  * Provides functions to extract anime and episode information from the current page
  */
 
-import { detectChibi } from '../chibi';
 import { getSiteDetectorsForLocation } from '../sites/registry';
 import type { AnimeInfo } from '../types';
 import {
@@ -18,10 +17,8 @@ type Detector = {
   detect: () => Promise<AnimeInfo | null>;
 };
 
-function buildDetectionPlan(location: Location, includeChibi: boolean = true): Detector[] {
-  const plan: Detector[] = getSiteDetectorsForLocation(location);
-  if (includeChibi) plan.push(chibiDetector);
-  return plan;
+function buildDetectionPlan(location: Location): Detector[] {
+  return getSiteDetectorsForLocation(location);
 }
 
 async function runDetectionPlan(detectors: Detector[]): Promise<AnimeInfo | null> {
@@ -37,77 +34,10 @@ async function runDetectionPlan(detectors: Detector[]): Promise<AnimeInfo | null
 }
 
 /**
- * Extracts anime info using Chibi universal detection
- * @returns Promise resolving to anime info or null if not found
- */
-export async function getChibiAnimeInfo(): Promise<{ animeName: string; episodeName: string; releaseDate?: string } | null> {
-  try {
-    console.log('[Episode Detection] Attempting Chibi detection on URL:', window.location.href);
-    const detected = await detectChibi(document, window.location);
-    console.log('[Episode Detection] Chibi raw detection:', detected);
-    if (!detected || !detected.title) return null;
-
-    const title = typeof detected.title === 'string' ? detected.title.trim() : String(detected.title ?? '').trim();
-    if (!title) return null;
-
-    let episodeRaw = detected.episode;
-    console.log('[Episode Detection] Chibi episode raw value:', { episodeRaw, type: typeof episodeRaw });
-    
-    // Smart fallback: If chibi extracted a low number but the page shows " - {larger_number}",
-    // prefer the larger number (likely the actual episode, not the season number)
-    if (typeof episodeRaw === 'number' && episodeRaw < 20) {
-      const h1Element = document.querySelector('.theatre-info h1');
-      if (h1Element) {
-        const fullText = h1Element.textContent?.trim() || '';
-        // Look for pattern like " - 16" after season info
-        const episodeMatch = fullText.match(/\s-\s(\d+)/);
-        if (episodeMatch && episodeMatch[1]) {
-          const betterEpisode = Number(episodeMatch[1]);
-          // If we found a larger number via the " - " pattern, use it
-          if (!isNaN(betterEpisode) && betterEpisode > episodeRaw) {
-            console.log('[Episode Detection] Corrected episode number via " - " pattern:', {
-              chibiExtracted: episodeRaw,
-              corrected: betterEpisode,
-              fullText
-            });
-            episodeRaw = betterEpisode;
-          }
-        }
-      }
-    }
-    
-    let episodeName = '';
-    if (typeof episodeRaw === 'number') {
-      episodeName = `Episode ${episodeRaw}`;
-    } else if (typeof episodeRaw === 'string' && episodeRaw.trim()) {
-      const trimmed = episodeRaw.trim();
-      episodeName = /^episode/i.test(trimmed) ? trimmed : `Episode ${trimmed}`;
-    }
-
-    console.log('[Episode Detection] Chibi final episodeName:', episodeName);
-    if (!episodeName) return null;
-
-    return {
-      animeName: title,
-      episodeName,
-      releaseDate: undefined,
-    };
-  } catch (e) {
-    console.warn('[chibi] detection failed', e);
-    return null;
-  }
-}
-
-const chibiDetector: Detector = {
-  id: 'chibi',
-  detect: () => getChibiAnimeInfo(),
-};
-
-/**
  * Runs the ordered detection plan based on the current location.
  */
 export async function detectAnimeInfo(): Promise<AnimeInfo | null> {
-  const plan = buildDetectionPlan(window.location, true);
+  const plan = buildDetectionPlan(window.location);
   return runDetectionPlan(plan);
 }
 
@@ -135,7 +65,7 @@ export function observeAnimeInfoOnce(
 
     let info: AnimeInfo | null = null;
     try {
-      const plan = buildDetectionPlan(window.location, true);
+      const plan = buildDetectionPlan(window.location);
       info = await runDetectionPlan(plan);
     } finally {
       // Lightweight backoff to avoid spamming when metadata is late

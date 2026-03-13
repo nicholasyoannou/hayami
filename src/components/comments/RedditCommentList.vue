@@ -86,8 +86,19 @@ const textSizeStyles = computed(() => ({
 
 const deepViewRoot = ref<RedditCommentData | null>(null);
 
+function findCommentById(list: RedditCommentData[], commentId: string): RedditCommentData | null {
+  for (const comment of list) {
+    if (comment.id === commentId) return comment;
+    if (Array.isArray(comment.replies) && comment.replies.length > 0) {
+      const nested = findCommentById(comment.replies, commentId);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 function openDeepView(comment: RedditCommentData) {
-  deepViewRoot.value = comment;
+  deepViewRoot.value = findCommentById(comments.value, comment.id) ?? comment;
 }
 
 function closeDeepView() {
@@ -523,6 +534,7 @@ defineExpose({
         <div class="ri-deep-view-body">
           <RedditComment
             v-if="deepViewRoot"
+            :key="`deep:${deepViewRoot.id}`"
             :comment="deepViewRoot"
             :subreddit="subreddit"
             :current-username="props.currentUsername"

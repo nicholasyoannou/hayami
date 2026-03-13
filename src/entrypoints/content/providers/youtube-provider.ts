@@ -59,6 +59,7 @@ export class YouTubeProvider extends BaseProvider {
         DISQUS_CONTAINER_RETRY_ATTEMPTS,
         DISQUS_CONTAINER_RETRY_DELAY_MS,
       );
+      container.style.display = 'block';
       safeClear(container);
 
       const app = createApp(ProviderAuthRequired, {
@@ -129,6 +130,7 @@ export class YouTubeProvider extends BaseProvider {
           DISQUS_CONTAINER_RETRY_ATTEMPTS,
           DISQUS_CONTAINER_RETRY_DELAY_MS
         );
+        container.style.display = 'block';
         
         safeClear(container);
         
@@ -212,6 +214,7 @@ export class YouTubeProvider extends BaseProvider {
         return;
       }
 
+      commentsSection.style.display = 'block';
       safeClear(commentsSection);
 
       // Mount YouTube comment component

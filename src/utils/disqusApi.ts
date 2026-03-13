@@ -31,6 +31,15 @@ function decodeBasicHtmlEntities(text: string): string {
     .replace(/&nbsp;/g, ' ');
 }
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function extractDiscussionTitleFromHtml(html: string): string | null {
   if (!html) return null;
 
@@ -398,7 +407,10 @@ export async function findThreadByLink(
       ].filter(Boolean)));
 
       for (const linkCandidate of linkCandidates) {
-        const detailsUrl = `https://disqus.com/api/3.0/threads/details.json?forum=${encodeURIComponent(forum)}&thread:link=${encodeURIComponent(linkCandidate)}&api_key=${encodeURIComponent(apiKey)}`;
+        const threadParam = isHttpUrl(linkCandidate)
+          ? `thread:link=${encodeURIComponent(linkCandidate)}`
+          : `thread=${encodeURIComponent(`ident:${extractSlug(linkCandidate) || linkCandidate}`)}`;
+        const detailsUrl = `https://disqus.com/api/3.0/threads/details.json?forum=${encodeURIComponent(forum)}&${threadParam}&api_key=${encodeURIComponent(apiKey)}`;
         const detailsRes = await crProxyFetch(detailsUrl, { credentials: 'include' } as any);
         if (!detailsRes || !detailsRes.ok) {
           console.log('[DisqusApi][findThreadByLink] details lookup response not ok', {

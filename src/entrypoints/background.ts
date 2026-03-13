@@ -3,7 +3,22 @@ import { exchangeCodeForToken as exchangeRedditCode } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 import { authenticateWithAniList } from '@/utils/anilistAuth';
-import { screenshotEnabledItem } from '@/config/storage';
+import {
+  customSiteMappingsItem,
+  komentoScriptAutoSyncItem,
+  komentoScriptCachedPacksItem,
+  komentoScriptEnabledItem,
+  komentoScriptSourceRegistryItem,
+  komentoScriptSyncStateItem,
+  screenshotEnabledItem,
+} from '@/config/storage';
+import {
+  KOMENTOSCRIPT_WEEKLY_ALARM,
+  ensureKomentoSourceRegistryInitialized,
+  ensureKomentoSyncAlarm,
+  shouldRunStartupKomentoSync,
+  syncKomentoScripts,
+} from '@/komentoscript';
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
 
@@ -11,6 +26,243 @@ type SupportedProviderAuth = 'youtube' | 'mal' | 'anilist';
 const pendingAuthSourceTabs: Partial<Record<SupportedProviderAuth, number>> = {};
 let screenshotEnabledCache = false;
 let screenshotEnabledLoaded = false;
+let komentoSyncInProgress = false;
+let komentoSyncStartedAt = 0;
+let komentoSyncBadgeTimer: number | undefined;
+
+function originToPattern(origin: string): string {
+  return `${origin.replace(/\/$/, '')}/*`;
+}
+
+async function setActionBadge(text: string, color: string): Promise<void> {
+  try {
+    if (!browser.action?.setBadgeText || !browser.action?.setBadgeBackgroundColor) return;
+    await browser.action.setBadgeText({ text });
+    await browser.action.setBadgeBackgroundColor({ color });
+  } catch {
+    // no-op
+  }
+}
+
+function formatSyncBadgeElapsed(seconds: number): string {
+  if (seconds < 100) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${Math.min(minutes, 99)}m`;
+}
+
+async function getUniqueKomentoOrigins(): Promise<string[]> {
+  const cached = (await komentoScriptCachedPacksItem.getValue()) || [];
+  const out = new Set<string>();
+  for (const entry of cached) {
+    const targets = Array.isArray((entry as any)?.pack?.targets) ? (entry as any).pack.targets : [];
+    for (const target of targets) {
+      const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
+      for (const raw of origins) {
+        const origin = String(raw || '').trim();
+        if (!origin) continue;
+        try {
+          const normalized = new URL(origin).origin;
+          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+            out.add(normalized);
+          }
+        } catch {
+          // ignore invalid origins
+        }
+      }
+    }
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+async function getUniqueCustomMappingOrigins(): Promise<string[]> {
+  const map = (await customSiteMappingsItem.getValue()) || {};
+  const out = new Set<string>();
+  for (const key of Object.keys(map)) {
+    const origin = String(key || '').trim();
+    if (!origin) continue;
+    try {
+      const normalized = new URL(origin).origin;
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        out.add(normalized);
+      }
+    } catch {
+      // ignore invalid origins
+    }
+  }
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+async function getAllManagedOrigins(): Promise<string[]> {
+  const [komentoOrigins, customOrigins] = await Promise.all([
+    getUniqueKomentoOrigins(),
+    getUniqueCustomMappingOrigins(),
+  ]);
+  return [...new Set([...komentoOrigins, ...customOrigins])].sort((a, b) => a.localeCompare(b));
+}
+
+async function getMissingKomentoOrigins(): Promise<string[]> {
+  const permissions = browser.permissions;
+  if (!permissions?.contains) return [];
+  const origins = await getAllManagedOrigins();
+  const checks = await Promise.all(
+    origins.map(async (origin) => {
+      try {
+        const granted = await new Promise<boolean>((resolve) => {
+          permissions.contains({ origins: [originToPattern(origin)] }, (ok) => resolve(Boolean(ok)));
+        });
+        return { origin, granted };
+      } catch {
+        return { origin, granted: false };
+      }
+    }),
+  );
+  return checks.filter((item) => !item.granted).map((item) => item.origin);
+}
+
+async function refreshKomentoBadge(): Promise<void> {
+  if (komentoSyncInProgress) {
+    const elapsed = Math.max(1, Math.floor((Date.now() - komentoSyncStartedAt) / 1000));
+    await setActionBadge(formatSyncBadgeElapsed(elapsed), '#2563eb');
+    return;
+  }
+
+  const missing = await getMissingKomentoOrigins();
+  if (missing.length > 0) {
+    await setActionBadge('!', '#dc2626');
+    return;
+  }
+
+  await setActionBadge('', '#6b7280');
+}
+
+async function startKomentoSyncBadge(): Promise<void> {
+  komentoSyncInProgress = true;
+  komentoSyncStartedAt = Date.now();
+  if (komentoSyncBadgeTimer) {
+    clearInterval(komentoSyncBadgeTimer);
+    komentoSyncBadgeTimer = undefined;
+  }
+  await refreshKomentoBadge();
+  komentoSyncBadgeTimer = setInterval(() => {
+    void refreshKomentoBadge();
+  }, 1000) as unknown as number;
+}
+
+async function stopKomentoSyncBadge(): Promise<void> {
+  komentoSyncInProgress = false;
+  if (komentoSyncBadgeTimer) {
+    clearInterval(komentoSyncBadgeTimer);
+    komentoSyncBadgeTimer = undefined;
+  }
+  await refreshKomentoBadge();
+}
+
+async function runKomentoSyncWithBadge(reason: string) {
+  await startKomentoSyncBadge();
+  try {
+    return await syncKomentoScripts(reason);
+  } finally {
+    await stopKomentoSyncBadge();
+  }
+}
+
+async function getKomentoPendingPermissionsSummary() {
+  const permissions = browser.permissions;
+  const [cached, sources, customMap] = await Promise.all([
+    komentoScriptCachedPacksItem.getValue(),
+    komentoScriptSourceRegistryItem.getValue(),
+    customSiteMappingsItem.getValue(),
+  ]);
+  const sourceIndex = new Map(
+    (Array.isArray(sources) ? sources : []).map((source) => [String((source as any)?.id || ''), source as any]),
+  );
+
+  const bySource = new Map<string, Set<string>>();
+  const allOrigins = new Set<string>();
+  for (const entry of Array.isArray(cached) ? cached : []) {
+    const sourceId = String((entry as any)?.sourceId || 'unknown');
+    if (!bySource.has(sourceId)) bySource.set(sourceId, new Set<string>());
+    const targets = Array.isArray((entry as any)?.pack?.targets) ? (entry as any).pack.targets : [];
+    for (const target of targets) {
+      const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
+      for (const raw of origins) {
+        const origin = String(raw || '').trim();
+        if (!origin) continue;
+        try {
+          const normalized = new URL(origin).origin;
+          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+            bySource.get(sourceId)?.add(normalized);
+            allOrigins.add(normalized);
+          }
+        } catch {
+          // ignore invalid origins
+        }
+      }
+    }
+  }
+
+  const customOrigins = new Set<string>();
+  const customMappingObject = customMap && typeof customMap === 'object' ? customMap as Record<string, unknown> : {};
+  for (const key of Object.keys(customMappingObject)) {
+    const raw = String(key || '').trim();
+    if (!raw) continue;
+    try {
+      const normalized = new URL(raw).origin;
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        customOrigins.add(normalized);
+        allOrigins.add(normalized);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (customOrigins.size > 0) {
+    bySource.set('custom-websites', customOrigins);
+  }
+
+  const granted = new Set<string>();
+  if (permissions?.contains) {
+    await Promise.all(
+      [...allOrigins].map(async (origin) => {
+        try {
+          const ok = await new Promise<boolean>((resolve) => {
+            permissions.contains({ origins: [originToPattern(origin)] }, (value) => resolve(Boolean(value)));
+          });
+          if (ok) granted.add(origin);
+        } catch {
+          // ignore
+        }
+      }),
+    );
+  }
+
+  const items = [...bySource.entries()]
+    .map(([sourceId, origins]) => {
+      const pendingOrigins = [...origins].filter((origin) => !granted.has(origin)).sort((a, b) => a.localeCompare(b));
+      const source = sourceIndex.get(sourceId);
+      return {
+        sourceId,
+        sourceType: sourceId === 'custom-websites'
+          ? 'custom-websites'
+          : String(source?.type || (sourceId === 'hayami-official' ? 'hayami-official' : 'third-party')),
+        sourceLabel: sourceId === 'custom-websites'
+          ? 'Custom websites'
+          : String(source?.id || sourceId),
+        pendingOrigins,
+      };
+    })
+    .filter((item) => item.pendingOrigins.length > 0)
+    .sort((a, b) => a.sourceLabel.localeCompare(b.sourceLabel));
+
+  const flatOrigins = [...new Set(items.flatMap((item) => item.pendingOrigins))].sort((a, b) => a.localeCompare(b));
+  return {
+    totalPendingOrigins: flatOrigins.length,
+    sourcesWithPending: items.length,
+    items,
+    allPendingOrigins: flatOrigins,
+  };
+}
 
 async function getScreenshotFeatureEnabledCached(): Promise<boolean> {
   if (screenshotEnabledLoaded) return screenshotEnabledCache;
@@ -23,12 +275,32 @@ async function getScreenshotFeatureEnabledCached(): Promise<boolean> {
   return screenshotEnabledCache;
 }
 
-function syncScreenshotFeatureEnabledCache(changes: Record<string, browser.storage.StorageChange>, areaName: browser.storage.StorageName): void {
+function syncScreenshotFeatureEnabledCache(changes: Record<string, any>, areaName: string): void {
   if (areaName !== 'local') return;
   const change = changes['screenshot_enabled'] || changes['local:screenshot_enabled'];
   if (!change) return;
   screenshotEnabledCache = Boolean(change.newValue);
   screenshotEnabledLoaded = true;
+}
+
+function handleKomentoStorageChange(changes: Record<string, any>, areaName: string): void {
+  if (areaName !== 'local') return;
+  const shouldReconfigure =
+    Boolean(changes['komentoscript_enabled'])
+    || Boolean(changes['komentoscript_auto_sync'])
+    || Boolean(changes['komentoscript_sources']);
+  const shouldRefreshBadge =
+    shouldReconfigure
+    || Boolean(changes['komentoscript_cached_packs'])
+    || Boolean(changes['komentoscript_sync_state'])
+    || Boolean(changes['custom_site_mappings'])
+    || Boolean(changes['local:custom_site_mappings']);
+  if (shouldReconfigure) {
+    void ensureKomentoSyncAlarm();
+  }
+  if (shouldRefreshBadge) {
+    void refreshKomentoBadge();
+  }
 }
 
 async function unregisterContentScriptsForHost(host: string): Promise<void> {
@@ -589,6 +861,28 @@ export default defineBackground(() => {
 
   void getScreenshotFeatureEnabledCached();
   browser.storage.onChanged.addListener(syncScreenshotFeatureEnabledCache);
+  browser.storage.onChanged.addListener(handleKomentoStorageChange);
+
+  void ensureKomentoSourceRegistryInitialized();
+  void ensureKomentoSyncAlarm();
+  void (async () => {
+    if (await shouldRunStartupKomentoSync()) {
+      await runKomentoSyncWithBadge('startup');
+    }
+    await refreshKomentoBadge();
+  })();
+
+  browser.permissions?.onAdded?.addListener(() => {
+    void refreshKomentoBadge();
+  });
+  browser.permissions?.onRemoved?.addListener(() => {
+    void refreshKomentoBadge();
+  });
+
+  browser.alarms?.onAlarm?.addListener((alarm) => {
+    if (!alarm || alarm.name !== KOMENTOSCRIPT_WEEKLY_ALARM) return;
+    void runKomentoSyncWithBadge('weekly-alarm');
+  });
 
   domainPermissionToggle();
 
@@ -639,6 +933,9 @@ export default defineBackground(() => {
   // Listen for extension installation
   browser.runtime.onInstalled.addListener(async (details) => {
     await registerContextMenu();
+    await ensureKomentoSourceRegistryInitialized();
+    await ensureKomentoSyncAlarm();
+    await runKomentoSyncWithBadge(details.reason === 'install' ? 'install' : 'update');
     if (details.reason === 'install') {
       console.log('Extension installed - opening onboarding');
       await browser.tabs.create({
@@ -671,11 +968,11 @@ export default defineBackground(() => {
               'object',
               'ping',
               'other'
-            ]
+            ] as const,
           }
         }]
       : [];
-    await dnr.updateSessionRules({ removeRuleIds, addRules });
+    await dnr.updateSessionRules({ removeRuleIds, addRules: addRules as any });
   };
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1513,6 +1810,100 @@ export default defineBackground(() => {
         }
       })();
       return true; // keep message channel open for async response
+    }
+
+    if (message.action === 'hayami_komento_syncNow') {
+      (async () => {
+        try {
+          const result = await runKomentoSyncWithBadge('manual');
+          await ensureKomentoSyncAlarm();
+          sendResponse(result);
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_komento_getPendingPermissions') {
+      (async () => {
+        try {
+          const summary = await getKomentoPendingPermissionsSummary();
+          sendResponse({ ok: true, ...summary });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_komento_requestPendingPermissions') {
+      (async () => {
+        try {
+          const requestedOrigins: string[] = Array.isArray(message.origins)
+            ? message.origins.reduce((acc: string[], value: unknown) => {
+                const normalized = String(value || '').trim();
+                if (normalized) acc.push(normalized);
+                return acc;
+              }, [])
+            : [];
+          if (requestedOrigins.length === 0) {
+            sendResponse({ ok: false, error: 'No origins provided' });
+            return;
+          }
+
+          const normalizedOrigins = Array.from(new Set<string>(requestedOrigins));
+          const patterns = normalizedOrigins.map((origin) => originToPattern(origin));
+          const permissions = browser.permissions;
+          if (!permissions?.request) {
+            sendResponse({ ok: false, error: 'permissions.request unavailable' });
+            return;
+          }
+
+          const granted = await new Promise<boolean>((resolve) => {
+            try {
+              permissions.request({ origins: patterns }, (value) => {
+                void (browser as any).runtime?.lastError;
+                resolve(Boolean(value));
+              });
+            } catch {
+              resolve(false);
+            }
+          });
+
+          const summary = await getKomentoPendingPermissionsSummary();
+          await refreshKomentoBadge();
+          sendResponse({ ok: granted, granted, ...summary });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_komento_getSyncStatus') {
+      (async () => {
+        try {
+          const [enabled, autoSync, sources, state, packs] = await Promise.all([
+            komentoScriptEnabledItem.getValue(),
+            komentoScriptAutoSyncItem.getValue(),
+            komentoScriptSourceRegistryItem.getValue(),
+            komentoScriptSyncStateItem.getValue(),
+            komentoScriptCachedPacksItem.getValue(),
+          ]);
+          sendResponse({
+            ok: true,
+            enabled: Boolean(enabled),
+            autoSync: Boolean(autoSync),
+            sources: Array.isArray(sources) ? sources : [],
+            state: state || null,
+            cachedPackCount: Array.isArray(packs) ? packs.length : 0,
+          });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
     }
 
     // Return false for unhandled messages (allows other listeners to process)

@@ -228,65 +228,6 @@ async function handleMALRedirect(ctx: ContentScriptContext): Promise<void> {
   });
 }
 
-async function handleHayamiPlusRedirect(ctx: ContentScriptContext): Promise<void> {
-  console.log('[HayamiPlus] Handling redirect for:', window.location.href);
-  
-  resetPageChrome();
-  document.body.innerHTML = '';
-
-  const status = renderMessage('Activating Hayami Plus...', 'Give us a second to save your subscription.');
-  document.body.append(status);
-
-  // Get URL parameters
-  const urlParams = new URLSearchParams(window.location.search);
-  const apiKey = urlParams.get('apiKey');
-  const subscriptionId = urlParams.get('subscriptionId');
-
-  console.log('[HayamiPlus] Extracted params:', { apiKey, subscriptionId });
-
-  if (apiKey && subscriptionId) {
-    try {
-      // Save to sync storage
-      await browser.storage.sync.set({
-        hayamiPlusApiKey: apiKey,
-        hayamiPlusSubscriptionId: subscriptionId
-      });
-
-      console.log('[HayamiPlus] Successfully saved credentials to storage');
-
-      status.replaceWith(
-        renderMessage(
-          'Hayami Plus Activated!',
-          'Your subscription has been successfully linked. You can leave this page open or return to the Hayami popup when you are ready.',
-          '#10b981'
-        )
-      );
-    } catch (error) {
-      console.error('[HayamiPlus] Error saving credentials:', error);
-      status.replaceWith(
-        renderMessage(
-          'Hayami Plus activation failed',
-          'We could not save your subscription. Please try again.',
-          '#fca5a5'
-        )
-      );
-    }
-  } else {
-    console.warn('[HayamiPlus] Missing parameters');
-    status.replaceWith(
-      renderMessage(
-        'Hayami Plus activation failed',
-        'Missing required parameters. Please try again from the subscription page.',
-        '#fca5a5'
-      )
-    );
-  }
-
-  ctx.onInvalidated(() => {
-    document.getElementById('hayami-pwa-shell')?.remove();
-  });
-}
-
 export async function mountPwaShell(ctx: ContentScriptContext): Promise<void> {
   const path = window.location.pathname || '';
   console.log('[PWA Shell] Checking path:', path);
@@ -306,12 +247,6 @@ export async function mountPwaShell(ctx: ContentScriptContext): Promise<void> {
   if (path.startsWith('/pwa/link/mal')) {
     console.log('[PWA Shell] Handling MAL redirect');
     await handleMALRedirect(ctx);
-    return;
-  }
-
-  if (path.startsWith('/pwa/hayamiPlus')) {
-    console.log('[PWA Shell] Handling HayamiPlus redirect');
-    await handleHayamiPlusRedirect(ctx);
     return;
   }
 

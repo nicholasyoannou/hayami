@@ -12,8 +12,6 @@ import {
   isMapperHotkeyAttached,
   setMapperHotkeyAttached,
 } from './site-mapper-utils';
-import { matchChibiPage, evaluateChibiWithOverrides, loadChibiOverrideForOrigin, saveChibiOverrideForOrigin } from '../../chibi';
-import type { ChibiOverrideEntry } from '../../chibi';
 import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { customSiteMappingsItem, displayModeItem } from '@/config/storage';
@@ -182,10 +180,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       <div class="preview-card">
         <div class="section-title">Extraction preview</div>
         <div class="preview-line" id="extractionPreview">Awaiting preview…</div>
-        <div class="hint" id="previewHint">Uses MALSync when available; otherwise your selectors.</div>
+        <div class="hint" id="previewHint">Uses your selectors for title and episode extraction.</div>
         <div class="preview-actions">
           <button class="pick" id="previewExtraction">Preview extraction</button>
-          <button class="pick" id="resetOverrides">Reset overrides</button>
+          <button class="pick" id="resetOverrides">Reset mapping</button>
         </div>
       </div>
       <div class="actions">
@@ -207,7 +205,6 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const previewHint = shadow.getElementById('previewHint') as HTMLElement | null;
     const previewBtn = shadow.getElementById('previewExtraction') as HTMLButtonElement | null;
     const resetOverridesBtn = shadow.getElementById('resetOverrides') as HTMLButtonElement | null;
-    const chibiMatch = matchChibiPage(location.href);
 
     const fieldGroups: Record<string, HTMLElement | null> = {
       mount: shadow.querySelector('[data-field="mount"]') as HTMLElement | null,
@@ -278,7 +275,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       if (previewHint) {
         const inlineModes: DisplayPlacement[] = ['below', 'insert', 'replace'];
         previewHint.textContent = inlineModes.includes(selectedPlacement)
-          ? 'Preview uses MALSync if available; otherwise your selectors.'
+          ? 'Preview uses your selectors for extraction.'
           : 'Popup mode uses your extraction selectors for preview only.';
       }
     }
@@ -304,8 +301,6 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       });
     });
 
-    let storedChibiOverride: ChibiOverrideEntry | null = null;
-
     const identifierFallback = (): string => {
       try {
         const url = new URL(location.href);
@@ -327,8 +322,43 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const updateResetButtonVisibility = () => {
       if (!resetOverridesBtn) return;
       const hasMapping = Boolean(currentMapping);
-      const hasOverride = Boolean(storedChibiOverride);
-      resetOverridesBtn.style.display = hasMapping || hasOverride ? '' : 'none';
+      resetOverridesBtn.style.display = hasMapping ? '' : 'none';
+    };
+
+    const toPathGlob = (pathname: string): string => {
+      const raw = String(pathname || '/').trim() || '/';
+      const normalized = raw.startsWith('/') ? raw : `/${raw}`;
+      const compact = normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized;
+
+      const segments = compact.split('/').filter(Boolean);
+      if (segments.length === 0) return '/';
+
+      // Auto-scope to the section root: /w/slug -> /w/*, /watch/title -> /watch/*.
+      return `/${segments[0]}/*`;
+    };
+
+    const sanitizePathGlobs = (value: unknown): string[] => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((item) => String(item || '').trim())
+        .filter((item) => item.length > 0);
+    };
+
+    const compactIncludePathGlobs = (globs: string[]): string[] => {
+      const unique = Array.from(new Set(globs));
+      const wildcardPrefixes = unique
+        .filter((glob) => glob.endsWith('/*'))
+        .map((glob) => glob.slice(0, -2));
+
+      if (wildcardPrefixes.length === 0) return unique;
+
+      return unique.filter((glob) => {
+        for (const prefix of wildcardPrefixes) {
+          if (glob === `${prefix}/*`) return true;
+          if (glob.startsWith(`${prefix}/`)) return false;
+        }
+        return true;
+      });
     };
 
     const runExtractionPreview = () => {
@@ -338,29 +368,13 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       const manualEpisode = extractFromSelector(episodeInput.value);
       const usingManual = Boolean(manualTitle || manualEpisode);
 
-      if (usingManual) {
+      if (usingManual || titleInput.value.trim() || episodeInput.value.trim()) {
         const parts = [
           manualTitle ? `Title: ${manualTitle}` : 'Title: (none)',
           manualEpisode ? `Episode: ${manualEpisode}` : 'Episode: (none)',
           `Identifier: ${identifierFallback()}`,
           'Source: selectors',
         ];
-        extractionPreview.textContent = parts.join(' | ');
-        return;
-      }
-
-      if (chibiMatch) {
-        const overridesToUse = storedChibiOverride && storedChibiOverride.key === chibiMatch.page.key ? storedChibiOverride.overrides : undefined;
-        const result = evaluateChibiWithOverrides(chibiMatch, overridesToUse, document, window.location);
-        const parts = [
-          result.title ? `Title: ${result.title}` : 'Title: (none)',
-          result.episode !== undefined && result.episode !== null ? `Episode: ${result.episode}` : 'Episode: (none)',
-          result.identifier ? `Identifier: ${result.identifier}` : `Identifier: ${identifierFallback()}`,
-          `Source: ${result.source === 'override' ? 'MALSync override' : 'MALSync default'}`,
-        ];
-        if (result.errors?.length) {
-          parts.push(`Errors: ${result.errors.slice(0, 3).join('; ')}`);
-        }
         extractionPreview.textContent = parts.join(' | ');
         return;
       }
@@ -375,12 +389,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     };
 
     updateResetButtonVisibility();
-
-    void (async () => {
-      storedChibiOverride = await loadChibiOverrideForOrigin(location.origin);
-      updateResetButtonVisibility();
-      runExtractionPreview();
-    })();
+    runExtractionPreview();
 
     previewBtn?.addEventListener('click', (ev) => {
       ev.preventDefault();
@@ -400,7 +409,6 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
           delete map[location.origin];
           await customSiteMappingsItem.setValue(map);
         }
-        await saveChibiOverrideForOrigin(location.origin, null);
         currentMapping = null;
         setCustomSiteMapping(null);
         mountInput.value = '';
@@ -412,7 +420,6 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         (anchorInput as any)._hayamiXPath = '';
         (titleInput as any)._hayamiXPath = '';
         (episodeInput as any)._hayamiXPath = '';
-        storedChibiOverride = null;
         selectedPlacement = 'below';
         syncTabSelection();
         updateFieldVisibility();
@@ -560,9 +567,16 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       const placement = selectedPlacement || 'below';
       const parsedPadding = paddingInput ? Number.parseFloat(paddingInput.value) : NaN;
       const sidePadding = Number.isFinite(parsedPadding) && parsedPadding >= 0 ? parsedPadding : 0;
+      const currentPathGlob = toPathGlob(window.location.pathname);
+      const mergedIncludes = compactIncludePathGlobs([
+        ...sanitizePathGlobs(currentMapping?.includePathGlobs),
+        currentPathGlob,
+      ]);
       const mapping: CustomSiteMapping = {
         origin: location.origin,
         display: placement,
+        includePathGlobs: mergedIncludes,
+        excludePathGlobs: sanitizePathGlobs(currentMapping?.excludePathGlobs),
         anchorSelector: anchorInput.value.trim(),
         mountSelector: mountInput.value.trim() || anchorInput.value.trim() || 'body',
         titleSelector: titleInput.value.trim(),
@@ -574,15 +588,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         episodeXPath: (episodeInput as any)._hayamiXPath || currentMapping?.episodeXPath || '',
       };
 
-      const chibiOverrideEntry = chibiMatch && storedChibiOverride && storedChibiOverride.key === chibiMatch.page.key
-        ? storedChibiOverride
-        : null;
-
       try {
         const map = (await customSiteMappingsItem.getValue()) || {};
         map[location.origin] = mapping;
         await customSiteMappingsItem.setValue(map);
-        await saveChibiOverrideForOrigin(location.origin, chibiOverrideEntry);
         currentMapping = mapping;
         setCustomSiteMapping(mapping);
         toast.success('Site mapping saved');

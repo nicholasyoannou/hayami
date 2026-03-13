@@ -19,6 +19,7 @@ import {
 import { getContainerWithRetry } from '../utils/dom-helpers';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
+import { safeClear } from '../utils/dom-helpers';
 
 export class MalProvider extends BaseProvider {
   readonly name: CommentProvider = 'mal';
@@ -140,6 +141,10 @@ export class MalProvider extends BaseProvider {
         DISQUS_CONTAINER_RETRY_ATTEMPTS,
         DISQUS_CONTAINER_RETRY_DELAY_MS
       );
+
+      // Previous provider cleanup (e.g., Disqus) may hide this shared container.
+      container.style.display = 'block';
+      safeClear(container);
       
       // Mount MAL forum component
       const parsedEpisode = (() => {
@@ -188,6 +193,9 @@ export class MalProvider extends BaseProvider {
     }
 
     this.validateAnimeInfo(animeInfo);
+
+    container.style.display = 'block';
+    safeClear(container);
     
     // Mount MAL forum component
     const app = createApp(MALForumView, {

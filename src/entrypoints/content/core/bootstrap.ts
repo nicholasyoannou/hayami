@@ -19,7 +19,6 @@ import { getCustomAnimeInfo } from '../ui/site-mapper';
 import { setupSiteMapperHotkey, loadCustomMappingForOrigin } from '../ui/site-mapper';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
 import { setupScreenshotHotkey } from '../ui/screenshot-hotkey';
-import { matchChibiPage } from '../chibi';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/redditApi';
 import { fetchCrunchyrollEpisodeMetadata, saveSeriesMapping, deleteSeriesMapping } from '../mapping';
@@ -179,17 +178,17 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   }
 
   ensureToaster(ctx);
+  setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
 
   // Early bailout: Check if this site is potentially supported
   const currentUrl = window.location.href;
   const { isWatchPage } = useWatchPageDetection();
   const hasWatchUrl = isWatchPage(currentUrl);
-  const hasChibiMatch = matchChibiPage(currentUrl) !== null;
   const hasSiteMatch = isSupportedLocation(window.location);
 
   const customMapping = await loadCustomMappingForOrigin();
 
-  if (!hasWatchUrl && !hasChibiMatch && !customMapping && !hasSiteMatch) {
+  if (!hasWatchUrl && !customMapping && !hasSiteMatch) {
     debug.log('Hayami: Site not supported, skipping initialization');
     return;
   }
@@ -198,7 +197,6 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   setContentScriptContext(ctx);
 
   debug.log('Hayami extension loaded');
-  setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
 
   if (customMapping || hasWatchUrl) {
     queueHandleWatchPage(ctx);
@@ -313,18 +311,22 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     }
   });
 
-  ctx.addEventListener(window, 'wxt:locationchange', (event: { newUrl: URL }) => {
+  ctx.addEventListener(window, 'wxt:locationchange', async (event: { newUrl: URL }) => {
     const newUrl = event.newUrl?.href;
     debug.log('URL changed to:', newUrl);
     const onWatchPage = isWatchPage(newUrl);
 
-    if (!onWatchPage) {
+    const customMapping = await loadCustomMappingForOrigin();
+    const hasSiteMatch = isSupportedLocation(window.location);
+
+    // Keep the feature active on custom-mapped and supported pages, not only /watch URLs.
+    if (!onWatchPage && !customMapping && !hasSiteMatch) {
       resetUiAndState(false);
       return;
     }
 
-    // Stay mounted between episode navigations to avoid visible reflows; only clear
-    // ephemeral state so the next episode can render cleanly.
+    // Stay mounted between navigations to avoid visible reflows; only clear
+    // ephemeral state so the next page can render cleanly.
     softResetForWatchNavigation();
     queueHandleWatchPage(ctx);
   });

@@ -2,11 +2,47 @@ import type { CustomSiteMapping, DisplayPlacement } from './types';
 import { CUSTOM_SITE_MAPPINGS_KEY } from './types';
 import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
-import { customSiteMappingsItem } from '@/config/storage';
+import {
+  customSiteMappingsItem,
+  komentoScriptCachedPacksItem,
+  komentoScriptEnabledItem,
+  komentoScriptUseSyncedMappingsItem,
+} from '@/config/storage';
+import {
+  mergeEffectiveKomentoTarget,
+  collectMatchingKomentoTargets,
+  type KomentoExtractField,
+  type KomentoExtractPipeline,
+  type KomentoScriptPack,
+} from '@/komentoscript';
 
 let customSiteMapping: CustomSiteMapping | null = null;
+let komentoExtractedAnimeInfo: { animeName: string; episodeName: string } | null = null;
 let mapperHotkeyAttached = false;
 let launchButton: HTMLButtonElement | null = null;
+
+function globToRegex(glob: string): RegExp {
+  const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+function sanitizePathGlobs(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => String(item || '').trim())
+    .filter((item) => item.length > 0);
+}
+
+function mappingMatchesPath(mapping: CustomSiteMapping, pathname: string): boolean {
+  const include = sanitizePathGlobs((mapping as any).includePathGlobs);
+  const exclude = sanitizePathGlobs((mapping as any).excludePathGlobs);
+
+  const included = include.length === 0 || include.some((glob) => globToRegex(glob).test(pathname));
+  if (!included) return false;
+
+  const excluded = exclude.some((glob) => globToRegex(glob).test(pathname));
+  return !excluded;
+}
 
 export function getCustomSiteMapping(): CustomSiteMapping | null {
   return customSiteMapping;
@@ -28,12 +64,145 @@ export function applySidePadding(target: HTMLElement | null | undefined): void {
 }
 
 export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | null> {
+  komentoExtractedAnimeInfo = null;
   try {
     const map = (await customSiteMappingsItem.getValue()) || {};
-    const entry = map[location.origin];
-    if (entry) {
-      customSiteMapping = entry as CustomSiteMapping;
+    const entry = map[location.origin] as CustomSiteMapping | undefined;
+    if (entry && mappingMatchesPath(entry, location.pathname)) {
+      customSiteMapping = entry;
       return customSiteMapping;
+    }
+
+    const komentoEnabled = Boolean(await komentoScriptEnabledItem.getValue());
+    const useSynced = Boolean(await komentoScriptUseSyncedMappingsItem.getValue());
+    if (komentoEnabled && useSynced) {
+      const cached = (await komentoScriptCachedPacksItem.getValue()) || [];
+      const packs = cached
+        .map((entry) => (entry && typeof entry === 'object' ? (entry as any).pack : null))
+        .filter((pack): pack is KomentoScriptPack => Boolean(pack && Array.isArray(pack.targets)));
+
+      const candidates = collectMatchingKomentoTargets(packs, {
+        origin: location.origin,
+        pathname: location.pathname,
+      });
+      const effective = mergeEffectiveKomentoTarget(candidates);
+      if (effective?.target) {
+        const fromExtract = (field: KomentoExtractField | undefined): { selector?: string; xPath?: string } => {
+          if (!field || typeof field !== 'object' || Array.isArray(field)) return {};
+          const selector = typeof (field as any).selector === 'string' ? (field as any).selector.trim() : '';
+          const xPath = typeof (field as any).xPath === 'string' ? (field as any).xPath.trim() : '';
+          return { selector: selector || undefined, xPath: xPath || undefined };
+        };
+
+        const selectByXPath = (xpath?: string): Element | null => {
+          if (!xpath) return null;
+          try {
+            const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+            return (result.singleNodeValue as Element) || null;
+          } catch {
+            return null;
+          }
+        };
+
+        const elementText = (el: Element | null, attr: string = 'text'): string => {
+          if (!el) return '';
+          if (attr === 'text') return (el.textContent || '').trim();
+          if (attr === 'html') return ((el as HTMLElement).innerHTML || '').trim();
+          return (el.getAttribute(attr) || '').trim();
+        };
+
+        const runPipeline = (pipelineField?: KomentoExtractPipeline): string | null => {
+          if (!pipelineField || !Array.isArray(pipelineField.pipeline)) return null;
+          let current: any = document;
+          for (const step of pipelineField.pipeline) {
+            if (!Array.isArray(step) || step.length === 0) continue;
+            const [op, ...args] = step as any[];
+            switch (String(op)) {
+              case 'querySelector': {
+                const sel = String(args[0] || '');
+                current = current && typeof current.querySelector === 'function'
+                  ? current.querySelector(sel)
+                  : document.querySelector(sel);
+                break;
+              }
+              case 'text': {
+                current = current && typeof current === 'object' && 'textContent' in current
+                  ? String((current as Element).textContent || '')
+                  : String(current || '');
+                break;
+              }
+              case 'trim': {
+                current = String(current || '').trim();
+                break;
+              }
+              case 'regex': {
+                const pattern = String(args[0] || '');
+                const rx = new RegExp(pattern, 'i');
+                const m = String(current || '').match(rx);
+                current = m?.[1] || m?.[0] || '';
+                break;
+              }
+              case 'number': {
+                const num = Number(String(current || '').replace(/[^0-9.]/g, ''));
+                current = Number.isFinite(num) ? String(num) : '';
+                break;
+              }
+              default:
+                break;
+            }
+          }
+          const out = String(current || '').trim();
+          return out || null;
+        };
+
+        const titleExtract = fromExtract(effective.target.extract?.animeTitle);
+        const episodeExtract = fromExtract(effective.target.extract?.episodeNumber);
+        const placement = effective.target.placement;
+
+        const resolveExtractValue = (field: KomentoExtractField | undefined): string | null => {
+          if (!field || typeof field !== 'object' || Array.isArray(field)) return null;
+          if (Array.isArray((field as any).pipeline)) {
+            return runPipeline(field as KomentoExtractPipeline);
+          }
+          const selector = typeof (field as any).selector === 'string' ? (field as any).selector.trim() : '';
+          const xPath = typeof (field as any).xPath === 'string' ? (field as any).xPath.trim() : '';
+          const attr = typeof (field as any).attr === 'string' ? (field as any).attr : 'text';
+          const el = selector ? document.querySelector(selector) : selectByXPath(xPath);
+          const value = elementText(el, attr);
+          return value || null;
+        };
+
+        const extractedAnimeName = resolveExtractValue(effective.target.extract?.animeTitle);
+        const extractedEpisode = resolveExtractValue(effective.target.extract?.episodeNumber);
+        if (extractedAnimeName && extractedEpisode) {
+          komentoExtractedAnimeInfo = {
+            animeName: extractedAnimeName,
+            episodeName: extractedEpisode,
+          };
+        }
+
+        customSiteMapping = {
+          origin: location.origin,
+          display: (placement?.display || 'popup') as DisplayPlacement,
+          includePathGlobs: Array.isArray(effective.target.match?.pathGlobs)
+            ? effective.target.match.pathGlobs.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+            : [],
+          excludePathGlobs: Array.isArray(effective.target.match?.excludePathGlobs)
+            ? effective.target.match.excludePathGlobs.map((item: unknown) => String(item || '').trim()).filter(Boolean)
+            : [],
+          anchorSelector: placement?.anchorSelector || placement?.mountSelector || 'body',
+          mountSelector: placement?.mountSelector || placement?.anchorSelector || 'body',
+          titleSelector: titleExtract.selector || '',
+          episodeSelector: episodeExtract.selector || '',
+          sidePadding: Number.isFinite(placement?.sidePadding) ? Number(placement?.sidePadding) : 0,
+          anchorXPath: placement?.anchorXPath || '',
+          mountXPath: placement?.mountXPath || '',
+          titleXPath: titleExtract.xPath || '',
+          episodeXPath: episodeExtract.xPath || '',
+        };
+
+        return customSiteMapping;
+      }
     }
   } catch (e) {
     console.warn('[site-mapper] Failed to load custom mappings', e);
@@ -96,12 +265,28 @@ export async function getCustomMountAnchor(retries = 6, delayMs = 250): Promise<
 
 export function getCustomAnimeInfo(): { animeName: string; episodeName: string } | null {
   if (!customSiteMapping) return null;
-  const titleEl = customSiteMapping.titleSelector ? document.querySelector(customSiteMapping.titleSelector) : null;
-  const episodeEl = customSiteMapping.episodeSelector ? document.querySelector(customSiteMapping.episodeSelector) : null;
+  const evaluateXPath = (xpath?: string): Element | null => {
+    if (!xpath) return null;
+    try {
+      const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+      return (result.singleNodeValue as Element) || null;
+    } catch {
+      return null;
+    }
+  };
+  const titleEl = customSiteMapping.titleSelector
+    ? document.querySelector(customSiteMapping.titleSelector)
+    : evaluateXPath(customSiteMapping.titleXPath);
+  const episodeEl = customSiteMapping.episodeSelector
+    ? document.querySelector(customSiteMapping.episodeSelector)
+    : evaluateXPath(customSiteMapping.episodeXPath);
   const animeName = titleEl?.textContent?.trim();
   const episodeName = episodeEl?.textContent?.trim();
   if (animeName && episodeName) {
     return { animeName, episodeName };
+  }
+  if (komentoExtractedAnimeInfo?.animeName && komentoExtractedAnimeInfo?.episodeName) {
+    return komentoExtractedAnimeInfo;
   }
   return null;
 }
@@ -133,7 +318,8 @@ export function getAbsoluteXPathNoId(el: Element | null): string {
   let current: Element | null = el;
   while (current && current.nodeType === 1) {
     const tag = current.nodeName.toLowerCase();
-    const siblings = current.parentElement ? Array.from(current.parentElement.children).filter((c) => c.nodeName === current.nodeName) : [];
+    const currentNodeName = current.nodeName;
+    const siblings = current.parentElement ? Array.from(current.parentElement.children).filter((c) => c.nodeName === currentNodeName) : [];
     const index = siblings.length > 1 ? `[${siblings.indexOf(current) + 1}]` : '[1]';
     segments.unshift(`${tag}${index}`);
     current = current.parentElement;

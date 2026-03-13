@@ -20,6 +20,13 @@ import {
   commentsProviderItem,
   displayModeItem,
   customSiteMappingsItem,
+  komentoScriptAutoSyncItem,
+  komentoScriptCachedPacksItem,
+  komentoScriptEnabledItem,
+  komentoScriptSourceRegistryItem,
+  komentoScriptSyncHistoryItem,
+  komentoScriptSyncStateItem,
+  komentoScriptUseSyncedMappingsItem,
   embedImagesItem,
   imgurFrontendItem,
   imgurOdsItem,
@@ -46,6 +53,9 @@ import {
   type ImgurVideoCdnOption,
   type ScreenshotDestinationOption,
   type ScreenshotSiteRule,
+  type KomentoCachedPackEntry,
+  type KomentoSyncHistoryEntry,
+  type KomentoSyncState,
 } from '@/config/storage';
 import { initializeImgurRegionDefaultsOnce } from '@/entrypoints/content/images/imgur';
 import backIcon from '@/assets/backIcon.svg';
@@ -61,6 +71,14 @@ import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
 import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
+import type { KomentoSourceRegistryEntry } from '@/komentoscript';
+
+type KomentoPendingPermissionSource = {
+  sourceId: string;
+  sourceType: string;
+  sourceLabel: string;
+  pendingOrigins: string[];
+};
 
 type SettingValueMap = {
   displayMode: DisplayModeOption;
@@ -80,7 +98,6 @@ type SettingValueMap = {
   commentTextSizeIncrease: number;
   imgurClientId: string;
   imgchestApiKey: string;
-  hayamiPlusApiKey: string;
   redditClientId: string;
   aniwaveAutoExpandAll: boolean;
   aniwaveAutoExpandDepth: number;
@@ -88,12 +105,12 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'screenshots' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript';
 type SettingsNavItem = {
-  id: SettingCategoryId | 'discussion-platforms' | 'custom-sites';
+  id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript';
   label: string;
   icon: string;
-  kind: 'settings' | 'providers' | 'custom-sites';
+  kind: 'settings' | 'providers' | 'custom-sites' | 'komentoscript';
 };
 type OptionEntry<T> = { value: T; label: string };
 
@@ -238,39 +255,6 @@ const settingDefinitions: SettingDefinition[] = [
       return amount === 0 ? 'Comment text size reset to default' : `Comment text size increased by +${amount}px`;
     },
     errorMessage: 'Failed to save text size increase',
-  },
-  {
-    key: 'hayamiPlusApiKey',
-    type: 'apiKey',
-    category: 'general',
-    label: 'Hayami Plus API key',
-    placeholder: 'Enter Hayami Plus API key',
-    fallback: '',
-    load: async () => {
-      const result = (await browser.storage.sync.get(['hayamiPlusApiKey', 'hayamiPlusSubscriptionId'])) as {
-        hayamiPlusApiKey?: string;
-        hayamiPlusSubscriptionId?: string;
-      };
-      const value = result.hayamiPlusApiKey || '';
-      hayamiPlusActive.value = Boolean(result.hayamiPlusApiKey || result.hayamiPlusSubscriptionId);
-      return value;
-    },
-    save: async (value) => {
-      const trimmed = (value || '').trim();
-      if (trimmed) {
-        await browser.storage.sync.set({ hayamiPlusApiKey: trimmed });
-      } else {
-        await browser.storage.sync.remove(['hayamiPlusApiKey']);
-      }
-
-      const status = (await browser.storage.sync.get(['hayamiPlusApiKey', 'hayamiPlusSubscriptionId'])) as {
-        hayamiPlusApiKey?: string;
-        hayamiPlusSubscriptionId?: string;
-      };
-      hayamiPlusActive.value = Boolean(status.hayamiPlusApiKey || status.hayamiPlusSubscriptionId);
-    },
-    successMessage: (value) => (value ? 'Hayami Plus API key saved' : 'Hayami Plus API key cleared'),
-    errorMessage: 'Failed to save Hayami Plus API key',
   },
   {
     key: 'embedImages',
@@ -598,6 +582,12 @@ const settingsNavItems: SettingsNavItem[] = [
     kind: 'custom-sites',
   },
   {
+    id: 'komentoscript',
+    label: 'KomentoScript Sync',
+    icon: settingsIcon,
+    kind: 'komentoscript',
+  },
+  {
     id: 'image-previews',
     label: 'Image previews',
     icon: imagePreviewsIcon,
@@ -646,7 +636,6 @@ const settingValues = reactive<SettingValueMap>({
   commentTextSizeIncrease: 0,
   imgurClientId: '',
   imgchestApiKey: '',
-  hayamiPlusApiKey: '',
   aniwaveAutoExpandAll: true,
   aniwaveAutoExpandDepth: 3,
   aniwaveHideReplyContext: false,
@@ -690,19 +679,233 @@ const activeProviderAdvancedSettings = computed(() =>
 const customSiteMappings = ref<CustomSiteMapping[]>([]);
 const isLoadingCustomSites = ref(false);
 const removingSiteOrigin = ref<string | null>(null);
+const importCustomMappingsInput = ref<HTMLInputElement | null>(null);
 const sortedCustomSiteMappings = computed(() =>
   [...customSiteMappings.value].sort((a, b) => (a.origin || '').localeCompare(b.origin || '')),
 );
 const selectedCustomSite = ref<CustomSiteMapping | null>(null);
+const customSiteIncludePathGlobsDraft = ref<string[]>([]);
+const customSiteExcludePathGlobsDraft = ref<string[]>([]);
+const customSiteIncludePathInput = ref('');
+const customSiteExcludePathInput = ref('');
+const customSitePathGlobsSaving = ref(false);
+const customSiteAdvancedExpanded = ref(false);
 const screenshotSiteRules = ref<ScreenshotSiteRule[]>([]);
 const screenshotFeatureEnabled = computed(() => Boolean(settingValues.screenshotEnabled));
 const screenshotShortcutLabel = ref('Not set');
+const komentoSyncEnabled = ref(true);
+const komentoUseSyncedMappings = ref(true);
+const komentoAutoSync = ref(true);
+const komentoSources = ref<KomentoSourceRegistryEntry[]>([]);
+const komentoSyncState = ref<KomentoSyncState | null>(null);
+const komentoSyncHistory = ref<KomentoSyncHistoryEntry[]>([]);
+const komentoCachedPacks = ref<KomentoCachedPackEntry[]>([]);
+const komentoCachedPackCount = ref(0);
+const komentoSyncing = ref(false);
+const komentoExpandedSourceId = ref<string | null>(null);
+const komentoPendingPermissionSources = ref<KomentoPendingPermissionSource[]>([]);
+const komentoPendingOrigins = ref<string[]>([]);
+const komentoPendingPermissionLoading = ref(false);
+const komentoApprovingPermissions = ref(false);
+const komentoPendingExpandedSourceId = ref<string | null>(null);
+const komentoSourceDraft = reactive<KomentoSourceRegistryEntry>({
+  id: '',
+  type: 'third-party',
+  url: '',
+  enabled: true,
+  priority: 0,
+});
+const komentoSourceEditingId = ref<string | null>(null);
 const screenshotToggleDescription = computed(() => {
   if (!screenshotShortcutLabel.value || screenshotShortcutLabel.value === 'Not set') {
     return 'Turn screenshot capture on or off.';
   }
   return `Turn ${screenshotShortcutLabel.value} screenshot capture on or off.`;
 });
+
+const komentoLastSyncText = computed(() => {
+  const value = komentoSyncState.value?.lastSyncedAt;
+  if (!value) return 'Never';
+  const ms = Date.now() - Date.parse(value);
+  if (!Number.isFinite(ms) || ms < 0) return value;
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+});
+
+const komentoRecentHistory = computed(() =>
+  [...komentoSyncHistory.value]
+    .sort((a, b) => Date.parse(b.at || '') - Date.parse(a.at || ''))
+    .slice(0, 10),
+);
+
+const komentoSourceFormTitle = computed(() =>
+  komentoSourceEditingId.value ? 'Edit source' : 'Add source',
+);
+
+const komentoSourcesSorted = computed(() =>
+  [...komentoSources.value].sort((a, b) => {
+    const ap = Number(a.priority || 0);
+    const bp = Number(b.priority || 0);
+    if (ap !== bp) return bp - ap;
+    return String(a.id || '').localeCompare(String(b.id || ''));
+  }),
+);
+
+const komentoMappedOriginsBySource = computed<Record<string, string[]>>(() => {
+  const mapped: Record<string, Set<string>> = {};
+  for (const cachedEntry of komentoCachedPacks.value) {
+    const sourceId = String(cachedEntry?.sourceId || '');
+    if (!sourceId) continue;
+    if (!mapped[sourceId]) mapped[sourceId] = new Set<string>();
+    const targets = Array.isArray(cachedEntry?.pack?.targets) ? cachedEntry.pack.targets : [];
+    for (const target of targets) {
+      const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
+      for (const origin of origins) {
+        const value = String(origin || '').trim();
+        if (value) mapped[sourceId].add(value);
+      }
+    }
+  }
+
+  const out: Record<string, string[]> = {};
+  for (const [sourceId, originSet] of Object.entries(mapped)) {
+    out[sourceId] = [...originSet].sort((a, b) => a.localeCompare(b));
+  }
+  return out;
+});
+
+const hasKomentoPendingPermissions = computed(() => komentoPendingOrigins.value.length > 0);
+
+const komentoPendingPreview = computed(() => {
+  const preview: Array<{ origin: string; sourceLabel: string }> = [];
+  for (const source of komentoPendingPermissionSources.value) {
+    for (const origin of source.pendingOrigins) {
+      preview.push({ origin, sourceLabel: source.sourceLabel });
+      if (preview.length >= 4) return preview;
+    }
+  }
+  return preview;
+});
+
+function resetKomentoSourceDraft() {
+  komentoSourceDraft.id = '';
+  komentoSourceDraft.type = 'third-party';
+  komentoSourceDraft.url = '';
+  komentoSourceDraft.enabled = true;
+  komentoSourceDraft.priority = 0;
+  komentoSourceEditingId.value = null;
+}
+
+function editKomentoSource(source: KomentoSourceRegistryEntry) {
+  komentoSourceDraft.id = source.id;
+  komentoSourceDraft.type = source.type;
+  komentoSourceDraft.url = source.url;
+  komentoSourceDraft.enabled = Boolean(source.enabled);
+  komentoSourceDraft.priority = Number(source.priority || 0);
+  komentoSourceEditingId.value = source.id;
+}
+
+function formatKomentoHistoryWhen(input?: string): string {
+  if (!input) return 'Unknown time';
+  const epoch = Date.parse(input);
+  if (!Number.isFinite(epoch)) return input;
+  return new Date(epoch).toLocaleString();
+}
+
+function isKomentoSourceExpanded(sourceId: string): boolean {
+  return komentoExpandedSourceId.value === sourceId;
+}
+
+function toggleKomentoSourceExpanded(sourceId: string): void {
+  komentoExpandedSourceId.value = komentoExpandedSourceId.value === sourceId ? null : sourceId;
+}
+
+function getKomentoMappedOrigins(sourceId: string): string[] {
+  return komentoMappedOriginsBySource.value[sourceId] || [];
+}
+
+function isKomentoPendingSourceExpanded(sourceId: string): boolean {
+  return komentoPendingExpandedSourceId.value === sourceId;
+}
+
+function toggleKomentoPendingSourceExpanded(sourceId: string): void {
+  komentoPendingExpandedSourceId.value = komentoPendingExpandedSourceId.value === sourceId ? null : sourceId;
+}
+
+async function loadKomentoPendingPermissions() {
+  komentoPendingPermissionLoading.value = true;
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'hayami_komento_getPendingPermissions' }) as {
+      ok?: boolean;
+      items?: KomentoPendingPermissionSource[];
+      allPendingOrigins?: string[];
+      error?: string;
+    };
+    if (!response?.ok) {
+      if (response?.error) {
+        console.warn('Failed to load pending Komento permissions', response.error);
+      }
+      komentoPendingPermissionSources.value = [];
+      komentoPendingOrigins.value = [];
+      return;
+    }
+    komentoPendingPermissionSources.value = Array.isArray(response.items) ? response.items : [];
+    komentoPendingOrigins.value = Array.isArray(response.allPendingOrigins) ? response.allPendingOrigins : [];
+  } catch (error) {
+    console.warn('Failed to load pending Komento permissions', error);
+    komentoPendingPermissionSources.value = [];
+    komentoPendingOrigins.value = [];
+  } finally {
+    komentoPendingPermissionLoading.value = false;
+  }
+}
+
+async function approveAllKomentoPendingPermissions() {
+  if (!komentoPendingOrigins.value.length || komentoApprovingPermissions.value) return;
+  komentoApprovingPermissions.value = true;
+  try {
+    const response = await browser.runtime.sendMessage({
+      action: 'hayami_komento_requestPendingPermissions',
+      origins: komentoPendingOrigins.value,
+    }) as {
+      ok?: boolean;
+      granted?: boolean;
+      items?: KomentoPendingPermissionSource[];
+      allPendingOrigins?: string[];
+      error?: string;
+    };
+
+    if (!response?.ok) {
+      showError(response?.error || 'Could not request site permissions');
+      return;
+    }
+
+    komentoPendingPermissionSources.value = Array.isArray(response.items) ? response.items : [];
+    komentoPendingOrigins.value = Array.isArray(response.allPendingOrigins) ? response.allPendingOrigins : [];
+
+    if (response.granted) {
+      showSuccess('Site permissions updated');
+    } else {
+      showError('Permission request was dismissed');
+    }
+  } catch (error) {
+    console.warn('Failed to request Komento permissions', error);
+    showError('Could not request site permissions');
+  } finally {
+    komentoApprovingPermissions.value = false;
+    await loadKomentoPendingPermissions();
+  }
+}
+
+async function saveKomentoSources(next: KomentoSourceRegistryEntry[]) {
+  komentoSources.value = next;
+  await komentoScriptSourceRegistryItem.setValue(next);
+}
 
 async function loadScreenshotShortcutLabel() {
   try {
@@ -735,7 +938,6 @@ const feedbackButton = ref<HTMLButtonElement | null>(null);
 const showFeedbackFrame = ref(false);
 const feedbackFrameUrl = 'https://hayami.moe/appFeedb/feedbackiframe?source=hayami-extension';
 const feedbackAllowedOrigins = ['https://hayami.moe'];
-const hayamiPlusActive = ref(false);
 let successTimer: number | undefined;
 let errorTimer: number | undefined;
 
@@ -757,6 +959,8 @@ onMounted(async () => {
   await refreshAllAccounts();
   await initializeImgurRegionDefaultsOnce();
   await loadAllSettings();
+  await loadKomentoSyncStatus();
+  await loadKomentoPendingPermissions();
   await loadScreenshotShortcutLabel();
   await loadCustomSiteMappings();
   await loadScreenshotSiteRules();
@@ -788,6 +992,210 @@ async function loadSetting(setting: SettingDefinition) {
 
 async function loadAllSettings() {
   await Promise.all(settingDefinitions.map((setting) => loadSetting(setting)));
+}
+
+async function loadKomentoSyncStatus() {
+  try {
+    const [enabled, useSynced, autoSync, sources, state, cached, history] = await Promise.all([
+      komentoScriptEnabledItem.getValue(),
+      komentoScriptUseSyncedMappingsItem.getValue(),
+      komentoScriptAutoSyncItem.getValue(),
+      komentoScriptSourceRegistryItem.getValue(),
+      komentoScriptSyncStateItem.getValue(),
+      komentoScriptCachedPacksItem.getValue(),
+      komentoScriptSyncHistoryItem.getValue(),
+    ]);
+    komentoSyncEnabled.value = Boolean(enabled);
+    komentoUseSyncedMappings.value = Boolean(useSynced);
+    komentoAutoSync.value = Boolean(autoSync);
+    komentoSources.value = Array.isArray(sources) ? sources : [];
+    komentoSyncState.value = state || null;
+    komentoCachedPacks.value = Array.isArray(cached) ? cached : [];
+    komentoCachedPackCount.value = Array.isArray(cached) ? cached.length : 0;
+    komentoSyncHistory.value = Array.isArray(history) ? history : [];
+    await loadKomentoPendingPermissions();
+  } catch (error) {
+    console.warn('Failed to load KomentoScript sync status', error);
+  }
+}
+
+async function saveKomentoToggle(
+  key: 'enabled' | 'useSynced' | 'autoSync',
+  next: boolean,
+) {
+  try {
+    if (key === 'enabled') {
+      komentoSyncEnabled.value = next;
+      await komentoScriptEnabledItem.setValue(next);
+      showSuccess(next ? 'KomentoScript sync enabled' : 'KomentoScript sync disabled');
+    } else if (key === 'useSynced') {
+      komentoUseSyncedMappings.value = next;
+      await komentoScriptUseSyncedMappingsItem.setValue(next);
+      showSuccess(next ? 'Synced KomentoScript mappings enabled' : 'Synced KomentoScript mappings disabled');
+    } else {
+      komentoAutoSync.value = next;
+      await komentoScriptAutoSyncItem.setValue(next);
+      showSuccess(next ? 'Weekly KomentoScript sync enabled' : 'Weekly KomentoScript sync disabled');
+    }
+  } catch (error) {
+    console.warn('Failed to save KomentoScript setting', error);
+    showError('Could not save KomentoScript setting');
+    await loadKomentoSyncStatus();
+  }
+}
+
+async function toggleKomentoSource(sourceId: string, enabled: boolean) {
+  try {
+    const next = komentoSources.value.map((source) => (
+      source.id === sourceId ? { ...source, enabled } : source
+    ));
+    await saveKomentoSources(next);
+    showSuccess(enabled ? 'KomentoScript source enabled' : 'KomentoScript source disabled');
+  } catch (error) {
+    console.warn('Failed to toggle KomentoScript source', error);
+    showError('Could not update source state');
+    await loadKomentoSyncStatus();
+  }
+}
+
+async function saveKomentoSourceDraft() {
+  const id = (komentoSourceDraft.id || '').trim();
+  const url = (komentoSourceDraft.url || '').trim();
+  const priority = Number(komentoSourceDraft.priority || 0);
+
+  if (!id) {
+    showError('Source ID is required');
+    return;
+  }
+
+  if (!url) {
+    showError('Source URL is required');
+    return;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (!/^https?:$/i.test(parsed.protocol)) {
+      showError('Source URL must use http or https');
+      return;
+    }
+  } catch {
+    showError('Source URL is invalid');
+    return;
+  }
+
+  const draft: KomentoSourceRegistryEntry = {
+    id,
+    type: komentoSourceDraft.type,
+    url,
+    enabled: Boolean(komentoSourceDraft.enabled),
+    priority: Number.isFinite(priority) ? priority : 0,
+  };
+
+  const duplicateId = komentoSources.value.find(
+    (source) => source.id === draft.id && source.id !== komentoSourceEditingId.value,
+  );
+  if (duplicateId) {
+    showError('A source with this ID already exists');
+    return;
+  }
+
+  try {
+    const next = [...komentoSources.value];
+    if (komentoSourceEditingId.value) {
+      const index = next.findIndex((source) => source.id === komentoSourceEditingId.value);
+      if (index >= 0) {
+        next[index] = draft;
+      } else {
+        next.push(draft);
+      }
+    } else {
+      next.push(draft);
+    }
+    await saveKomentoSources(next);
+    showSuccess(komentoSourceEditingId.value ? 'KomentoScript source updated' : 'KomentoScript source added');
+    resetKomentoSourceDraft();
+  } catch (error) {
+    console.warn('Failed to save KomentoScript source', error);
+    showError('Could not save KomentoScript source');
+  }
+}
+
+async function removeKomentoSource(sourceId: string) {
+  try {
+    const next = komentoSources.value.filter((source) => source.id !== sourceId);
+    await saveKomentoSources(next);
+    if (komentoSourceEditingId.value === sourceId) {
+      resetKomentoSourceDraft();
+    }
+    showSuccess('KomentoScript source removed');
+  } catch (error) {
+    console.warn('Failed to remove KomentoScript source', error);
+    showError('Could not remove KomentoScript source');
+  }
+}
+
+async function moveKomentoSource(sourceId: string, direction: -1 | 1) {
+  try {
+    const sorted = [...komentoSourcesSorted.value];
+    const index = sorted.findIndex((source) => source.id === sourceId);
+    if (index < 0) return;
+
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= sorted.length) return;
+
+    const [item] = sorted.splice(index, 1);
+    if (!item) return;
+    sorted.splice(nextIndex, 0, item);
+
+    const topPriority = sorted.length - 1;
+    const next = sorted.map((source, i) => ({
+      ...source,
+      priority: topPriority - i,
+    }));
+
+    await saveKomentoSources(next);
+
+    if (komentoSourceEditingId.value === sourceId) {
+      const updated = next.find((source) => source.id === sourceId);
+      komentoSourceDraft.priority = Number(updated?.priority || 0);
+    }
+
+    showSuccess('Source priority updated');
+  } catch (error) {
+    console.warn('Failed to reorder KomentoScript source', error);
+    showError('Could not reorder KomentoScript source');
+  }
+}
+
+async function runKomentoSyncNow() {
+  komentoSyncing.value = true;
+  try {
+    const response = await browser.runtime.sendMessage({ action: 'hayami_komento_syncNow' }) as {
+      ok?: boolean;
+      state?: KomentoSyncState;
+      errors?: string[];
+      error?: string;
+    };
+
+    if (!response?.ok) {
+      showError(response?.error || 'KomentoScript sync failed');
+      return;
+    }
+
+    komentoSyncState.value = response.state || null;
+    if (Array.isArray(response.errors) && response.errors.length) {
+      showError(`Sync completed with issues: ${response.errors[0]}`);
+    } else {
+      showSuccess('KomentoScript sync completed');
+    }
+    await loadKomentoSyncStatus();
+  } catch (error) {
+    console.warn('Manual KomentoScript sync failed', error);
+    showError('Could not run KomentoScript sync');
+  } finally {
+    komentoSyncing.value = false;
+  }
 }
 
 async function reloadSetting(key: SettingKey) {
@@ -882,18 +1290,19 @@ function isSettingDisabled(setting: SettingDefinition) {
 
 function handleStorageChange(
   changes: Record<string, any>,
-  areaName: string,
+  _areaName: string,
 ) {
-  if (areaName === 'sync' && ('hayamiPlusApiKey' in changes || 'hayamiPlusSubscriptionId' in changes)) {
-    reloadSetting('hayamiPlusApiKey');
-  }
-
   if (Object.keys(changes).some((key) => key.includes('custom_site_mappings'))) {
     void loadCustomSiteMappings();
   }
 
   if (Object.keys(changes).some((key) => key.includes('screenshot_site_rules'))) {
     void loadScreenshotSiteRules();
+  }
+
+  if (Object.keys(changes).some((key) => key.includes('komentoscript_'))) {
+    void loadKomentoSyncStatus();
+    void loadKomentoPendingPermissions();
   }
 }
 
@@ -1014,6 +1423,279 @@ function formatPlacementLabel(placement?: DisplayPlacement) {
   return placement && labels[placement] ? labels[placement] : 'Custom mapping';
 }
 
+function normalizePathGlob(input: unknown): string | null {
+  const raw = String(input || '').trim();
+  if (!raw) return null;
+
+  let glob = raw.startsWith('/') ? raw : `/${raw}`;
+  glob = glob.length > 1 ? glob.replace(/\/+$/, '') : glob;
+  if (!glob) return null;
+
+  const segments = glob.split('/').filter(Boolean);
+  if (segments.length === 0) return '/';
+
+  // Keep scope broad and user-friendly for dynamic watch pages, e.g. /w/slug -> /w/*.
+  return `/${segments[0]}/*`;
+}
+
+function normalizePathGlobList(input: unknown): string[] {
+  const source = Array.isArray(input) ? input : [];
+  const normalized = source
+    .map((item) => normalizePathGlob(item))
+    .filter((item): item is string => Boolean(item));
+
+  const unique = Array.from(new Set(normalized));
+  const wildcardPrefixes = unique
+    .filter((glob) => glob.endsWith('/*'))
+    .map((glob) => glob.slice(0, -2));
+
+  if (wildcardPrefixes.length === 0) return unique;
+
+  return unique.filter((glob) => {
+    for (const prefix of wildcardPrefixes) {
+      if (glob === `${prefix}/*`) return true;
+      if (glob.startsWith(`${prefix}/`)) return false;
+    }
+    return true;
+  });
+}
+
+function hydrateSelectedCustomSitePathGlobDrafts() {
+  customSiteIncludePathGlobsDraft.value = normalizePathGlobList(selectedCustomSite.value?.includePathGlobs);
+  customSiteExcludePathGlobsDraft.value = normalizePathGlobList(selectedCustomSite.value?.excludePathGlobs);
+  customSiteIncludePathInput.value = '';
+  customSiteExcludePathInput.value = '';
+}
+
+function addCustomSitePathGlob(kind: 'include' | 'exclude', rawInput?: string) {
+  const normalized = normalizePathGlob(rawInput ?? (kind === 'include' ? customSiteIncludePathInput.value : customSiteExcludePathInput.value));
+  if (!normalized) return;
+
+  const target = kind === 'include' ? customSiteIncludePathGlobsDraft : customSiteExcludePathGlobsDraft;
+  target.value = normalizePathGlobList([...target.value, normalized]);
+
+  if (kind === 'include') {
+    customSiteIncludePathInput.value = '';
+  } else {
+    customSiteExcludePathInput.value = '';
+  }
+}
+
+function removeCustomSitePathGlob(kind: 'include' | 'exclude', glob: string) {
+  const target = kind === 'include' ? customSiteIncludePathGlobsDraft : customSiteExcludePathGlobsDraft;
+  target.value = target.value.filter((item) => item !== glob);
+}
+
+async function saveSelectedCustomSitePathGlobs() {
+  const site = selectedCustomSite.value;
+  if (!site?.origin || customSitePathGlobsSaving.value) return;
+
+  customSitePathGlobsSaving.value = true;
+  try {
+    const map = (await customSiteMappingsItem.getValue()) || {};
+    const existing = map[site.origin] as CustomSiteMapping | undefined;
+    if (!existing) {
+      showError('This custom site no longer exists');
+      await refreshSelectedCustomSite();
+      return;
+    }
+
+    const next: CustomSiteMapping = {
+      ...existing,
+      includePathGlobs: normalizePathGlobList(customSiteIncludePathGlobsDraft.value),
+      excludePathGlobs: normalizePathGlobList(customSiteExcludePathGlobsDraft.value),
+    };
+
+    map[site.origin] = next;
+    await customSiteMappingsItem.setValue(map);
+    await loadCustomSiteMappings();
+
+    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || next;
+    selectedCustomSite.value = updated;
+    hydrateSelectedCustomSitePathGlobDrafts();
+    showSuccess('Custom website path globs saved');
+  } catch (error) {
+    console.warn('Failed to save custom site path globs', error);
+    showError('Could not save path globs');
+  } finally {
+    customSitePathGlobsSaving.value = false;
+  }
+}
+
+function sanitizeImportedCustomSiteMapping(input: unknown): CustomSiteMapping | null {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+  const raw = input as Record<string, unknown>;
+  const originRaw = String(raw.origin || '').trim();
+  if (!originRaw) return null;
+
+  let origin = '';
+  try {
+    const url = new URL(originRaw);
+    if (!/^https?:$/.test(url.protocol)) return null;
+    origin = url.origin;
+  } catch {
+    return null;
+  }
+
+  const display = String(raw.display || 'popup');
+  const allowedDisplays: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup', 'icon'];
+  const normalizedDisplay = (allowedDisplays.includes(display as DisplayPlacement)
+    ? display
+    : 'popup') as DisplayPlacement;
+
+  const sanitizeGlobs = (val: unknown): string[] => {
+    if (!Array.isArray(val)) return [];
+    return val
+      .map((item) => String(item || '').trim())
+      .filter((item) => item.length > 0);
+  };
+
+  return {
+    origin,
+    display: normalizedDisplay,
+    includePathGlobs: sanitizeGlobs(raw.includePathGlobs),
+    excludePathGlobs: sanitizeGlobs(raw.excludePathGlobs),
+    anchorSelector: String(raw.anchorSelector || ''),
+    mountSelector: String(raw.mountSelector || ''),
+    titleSelector: String(raw.titleSelector || ''),
+    episodeSelector: String(raw.episodeSelector || ''),
+    sidePadding: Number.isFinite(Number(raw.sidePadding)) ? Number(raw.sidePadding) : 0,
+    anchorXPath: String(raw.anchorXPath || ''),
+    mountXPath: String(raw.mountXPath || ''),
+    titleXPath: String(raw.titleXPath || ''),
+    episodeXPath: String(raw.episodeXPath || ''),
+  };
+}
+
+function collectImportedCustomSiteMappings(payload: unknown): CustomSiteMapping[] {
+  const out: CustomSiteMapping[] = [];
+
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const mapping = sanitizeImportedCustomSiteMapping(item);
+      if (mapping) out.push(mapping);
+    }
+    return out;
+  }
+
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>;
+
+    const direct = sanitizeImportedCustomSiteMapping(obj);
+    if (direct) {
+      out.push(direct);
+      return out;
+    }
+
+    const wrappedCandidates = [obj.mapping, obj.mappings, obj.customSiteMappings, obj.custom_site_mappings];
+    for (const candidate of wrappedCandidates) {
+      if (Array.isArray(candidate)) {
+        for (const item of candidate) {
+          const mapping = sanitizeImportedCustomSiteMapping(item);
+          if (mapping) out.push(mapping);
+        }
+        if (out.length) return out;
+      }
+    }
+
+    const asMap = (obj.mappings && typeof obj.mappings === 'object' && !Array.isArray(obj.mappings))
+      ? obj.mappings as Record<string, unknown>
+      : (obj.custom_site_mappings && typeof obj.custom_site_mappings === 'object' && !Array.isArray(obj.custom_site_mappings))
+        ? obj.custom_site_mappings as Record<string, unknown>
+        : obj;
+
+    for (const value of Object.values(asMap)) {
+      const mapping = sanitizeImportedCustomSiteMapping(value);
+      if (mapping) out.push(mapping);
+    }
+  }
+
+  return out;
+}
+
+function buildCustomMappingExportFilename(site: CustomSiteMapping): string {
+  let host = 'site';
+  try {
+    host = new URL(site.origin).host.replace(/[^a-zA-Z0-9.-]/g, '_');
+  } catch {
+    host = String(site.origin || 'site').replace(/[^a-zA-Z0-9.-]/g, '_');
+  }
+  return `hayami-custom-mapping-${host}.json`;
+}
+
+async function exportCustomSiteMapping(site: CustomSiteMapping) {
+  try {
+    const payload = {
+      format: 'hayami.custom-site-mapping',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      mapping: site,
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = buildCustomMappingExportFilename(site);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    showSuccess('Custom site mapping exported');
+  } catch (error) {
+    console.warn('Failed to export custom site mapping', error);
+    showError('Could not export this site mapping');
+  }
+}
+
+function triggerCustomMappingsImport() {
+  importCustomMappingsInput.value?.click();
+}
+
+async function onImportCustomMappingsFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input?.files?.[0] || null;
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      showError('Import failed: invalid JSON file');
+      return;
+    }
+
+    const imported = collectImportedCustomSiteMappings(parsed);
+    if (imported.length === 0) {
+      showError('No valid custom site mappings found in file');
+      return;
+    }
+
+    const currentMap = (await customSiteMappingsItem.getValue()) || {};
+    let added = 0;
+    let updated = 0;
+    for (const mapping of imported) {
+      if (currentMap[mapping.origin]) {
+        updated += 1;
+      } else {
+        added += 1;
+      }
+      currentMap[mapping.origin] = mapping;
+    }
+
+    await customSiteMappingsItem.setValue(currentMap);
+    await loadCustomSiteMappings();
+    showSuccess(`Imported ${imported.length} mapping${imported.length === 1 ? '' : 's'} (${added} added, ${updated} updated)`);
+  } catch (error) {
+    console.warn('Failed to import custom site mappings', error);
+    showError('Could not import custom mappings');
+  } finally {
+    if (input) input.value = '';
+  }
+}
+
 function normalizeUrlToOrigin(input: string): string | null {
   const trimmed = (input || '').trim();
   if (!trimmed) return null;
@@ -1110,7 +1792,13 @@ async function loadCustomSiteMappings() {
   try {
     const map = (await customSiteMappingsItem.getValue()) || {};
     const mappings = Object.values(map || {}) as CustomSiteMapping[];
-    customSiteMappings.value = mappings.filter((entry) => Boolean(entry?.origin));
+    customSiteMappings.value = mappings
+      .filter((entry) => Boolean(entry?.origin))
+      .map((entry) => ({
+        ...entry,
+        includePathGlobs: normalizePathGlobList(entry?.includePathGlobs),
+        excludePathGlobs: normalizePathGlobList(entry?.excludePathGlobs),
+      }));
   } catch (error) {
     console.warn('Failed to load custom site mappings', error);
     showError('Failed to load custom websites');
@@ -1125,6 +1813,8 @@ async function openCustomSiteDetail(site: CustomSiteMapping) {
     selectedSettingsCategory.value = 'custom-sites';
     settingsScreen.value = 'custom-site-detail';
     selectedCustomSite.value = site;
+    customSiteAdvancedExpanded.value = false;
+    hydrateSelectedCustomSitePathGlobDrafts();
   } catch (error) {
     console.warn('Failed to open custom site detail', error);
     showError('Could not show site details');
@@ -1142,6 +1832,7 @@ async function refreshSelectedCustomSite() {
   const updated = customSiteMappings.value.find((entry) => entry.origin === selectedCustomSite.value?.origin);
   if (updated) {
     selectedCustomSite.value = updated;
+    hydrateSelectedCustomSitePathGlobDrafts();
   }
 }
 
@@ -1206,6 +1897,8 @@ async function applyInitialRouteParams() {
     const found = customSiteMappings.value.find((entry) => entry.origin === originParam);
     if (found) {
       selectedCustomSite.value = found;
+      customSiteAdvancedExpanded.value = false;
+      hydrateSelectedCustomSitePathGlobDrafts();
     } else {
       selectedCustomSite.value = null;
       settingsScreen.value = 'custom-sites';
@@ -1217,12 +1910,20 @@ async function applyInitialRouteParams() {
     currentView.value = 'settings';
     selectedSettingsCategory.value = section === 'custom-sites'
       ? 'custom-sites'
+      : section === 'komentoscript'
+        ? 'komentoscript'
       : section === 'discussion-platforms'
         ? 'discussion-platforms'
         : section === 'screenshots'
           ? 'screenshots'
           : 'general';
-    settingsScreen.value = section === 'custom-sites' ? 'custom-sites' : section === 'discussion-platforms' ? 'providers' : 'category';
+    settingsScreen.value = section === 'custom-sites'
+      ? 'custom-sites'
+      : section === 'discussion-platforms'
+        ? 'providers'
+        : section === 'komentoscript'
+          ? 'komentoscript'
+          : 'category';
 
     const shouldAutoConnect =
       section === 'discussion-platforms' &&
@@ -1362,6 +2063,93 @@ function handleAniListLogout() {
       <template v-else>
         <transition name="fade" mode="out-in">
           <section v-if="currentView === 'home'" key="home" class="space-y-6">
+            <div
+              v-if="hasKomentoPendingPermissions"
+              class="rounded-3xl border border-amber-300/30 bg-amber-500/10 px-5 py-5 shadow-md"
+            >
+              <div>
+                <p class="text-base font-semibold text-amber-100 w-full">KomentoScript host permissions needed</p>
+                <p class="text-xs text-amber-200/80 mt-1">
+                  Approve hosts from synced sources so Hayami can inject on those sites.
+                </p>
+              </div>
+
+              <div class="mt-3 flex items-center justify-end">
+                <button
+                  class="rounded-full bg-amber-300/20 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-300/30 disabled:opacity-60"
+                  :disabled="komentoPendingPermissionLoading || komentoApprovingPermissions || !hasKomentoPendingPermissions"
+                  @click="approveAllKomentoPendingPermissions"
+                >
+                  {{ komentoApprovingPermissions ? 'Approving...' : 'Approve all hosts' }}
+                </button>
+              </div>
+
+              <template v-if="!komentoPendingPermissionLoading">
+                <p class="text-xs text-amber-100/80 mt-2">
+                  Pending hosts: {{ komentoPendingOrigins.length }} across {{ komentoPendingPermissionSources.length }} source{{ komentoPendingPermissionSources.length === 1 ? '' : 's' }}.
+                </p>
+
+                <div v-if="komentoPendingPreview.length" class="mt-3 space-y-2">
+                  <div
+                    v-for="item in komentoPendingPreview"
+                    :key="`${item.sourceLabel}-${item.origin}`"
+                    class="flex items-center gap-3 rounded-xl bg-black/15 px-3 py-2"
+                  >
+                    <img
+                      :src="getFaviconUrl(item.origin)"
+                      :alt="formatOrigin(item.origin)"
+                      class="h-6 w-6 rounded bg-white/5"
+                      referrerpolicy="no-referrer"
+                    />
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-sm font-semibold text-white/90">{{ formatOrigin(item.origin) }}</div>
+                      <div class="truncate text-xs text-white/60">Synced from: {{ item.sourceLabel }}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="komentoPendingPermissionSources.length" class="mt-3 space-y-2">
+                  <div
+                    v-for="source in komentoPendingPermissionSources"
+                    :key="source.sourceId"
+                    class="rounded-xl bg-black/15 px-3 py-2"
+                  >
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="truncate text-sm font-semibold text-white/90">{{ source.sourceLabel }}</div>
+                        <div class="text-xs text-white/60">{{ source.sourceType }} · {{ source.pendingOrigins.length }} host{{ source.pendingOrigins.length === 1 ? '' : 's' }}</div>
+                      </div>
+                      <button
+                        class="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
+                        @click="toggleKomentoPendingSourceExpanded(source.sourceId)"
+                      >
+                        {{ isKomentoPendingSourceExpanded(source.sourceId) ? 'Hide list' : 'Expand list' }}
+                      </button>
+                    </div>
+
+                    <div v-if="isKomentoPendingSourceExpanded(source.sourceId)" class="mt-2 space-y-2">
+                      <div
+                        v-for="origin in source.pendingOrigins"
+                        :key="`${source.sourceId}-${origin}`"
+                        class="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2"
+                      >
+                        <img
+                          :src="getFaviconUrl(origin)"
+                          :alt="formatOrigin(origin)"
+                          class="h-5 w-5 rounded bg-white/5"
+                          referrerpolicy="no-referrer"
+                        />
+                        <div class="min-w-0 flex-1">
+                          <div class="truncate text-xs font-semibold text-white/90">{{ formatOrigin(origin) }}</div>
+                          <div class="truncate text-[11px] text-white/60">{{ origin }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+
             <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
               <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
                 <img :src="accountIcon" alt="Connected accounts" class="h-6 w-6" />
@@ -1392,13 +2180,92 @@ function handleAniListLogout() {
               </div>
             </div>
 
-            <div v-if="!hayamiPlusActive" class="rounded-3xl bg-[#2b3038] px-6 py-6 text-center shadow-inner">
-              <div class="mb-2 flex items-center justify-center gap-2 text-lg font-semibold text-white">
-                <span>👍</span>
-                <span>Hayami?</span>
+            <div
+              v-if="komentoPendingPermissionLoading || hasKomentoPendingPermissions"
+              class="rounded-3xl border border-amber-300/30 bg-amber-500/10 px-5 py-5 shadow-md"
+            >
+              <div class="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-base font-semibold text-amber-100">KomentoScript host permissions needed</p>
+                  <p class="text-xs text-amber-200/80">
+                    Approve hosts from synced sources so Hayami can inject on those sites.
+                  </p>
+                </div>
+                <button
+                  class="rounded-full bg-amber-300/20 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-300/30 disabled:opacity-60"
+                  :disabled="komentoPendingPermissionLoading || komentoApprovingPermissions || !hasKomentoPendingPermissions"
+                  @click="approveAllKomentoPendingPermissions"
+                >
+                  {{ komentoApprovingPermissions ? 'Approving...' : 'Approve all hosts' }}
+                </button>
               </div>
-              <p class="text-sm text-white/80">Feel free to support the project (and gain some perks too) via <a class="underline" href="https://hayami.moe/plus" target="_blank" rel="noreferrer">Hayami Plus</a>.</p>
-              <p class="mt-2 text-xs text-white/70">$1/monthly, direct API calls rather than IP-based-rate-limits, and allows further, continuous development. Hayami will always be free.</p>
+
+              <div v-if="komentoPendingPermissionLoading" class="text-xs text-amber-100/80">Loading host permission needs...</div>
+
+              <template v-else>
+                <p class="text-xs text-amber-100/80">
+                  Pending hosts: {{ komentoPendingOrigins.length }} across {{ komentoPendingPermissionSources.length }} source{{ komentoPendingPermissionSources.length === 1 ? '' : 's' }}.
+                </p>
+
+                <div v-if="komentoPendingPreview.length" class="mt-3 space-y-2">
+                  <div
+                    v-for="item in komentoPendingPreview"
+                    :key="`${item.sourceLabel}-${item.origin}`"
+                    class="flex items-center gap-3 rounded-xl bg-black/15 px-3 py-2"
+                  >
+                    <img
+                      :src="getFaviconUrl(item.origin)"
+                      :alt="formatOrigin(item.origin)"
+                      class="h-6 w-6 rounded bg-white/5"
+                      referrerpolicy="no-referrer"
+                    />
+                    <div class="min-w-0 flex-1">
+                      <div class="truncate text-sm font-semibold text-white/90">{{ formatOrigin(item.origin) }}</div>
+                      <div class="truncate text-xs text-white/60">Synced from: {{ item.sourceLabel }}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="komentoPendingPermissionSources.length" class="mt-3 space-y-2">
+                  <div
+                    v-for="source in komentoPendingPermissionSources"
+                    :key="source.sourceId"
+                    class="rounded-xl bg-black/15 px-3 py-2"
+                  >
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="min-w-0">
+                        <div class="truncate text-sm font-semibold text-white/90">{{ source.sourceLabel }}</div>
+                        <div class="text-xs text-white/60">{{ source.sourceType }} · {{ source.pendingOrigins.length }} host{{ source.pendingOrigins.length === 1 ? '' : 's' }}</div>
+                      </div>
+                      <button
+                        class="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
+                        @click="toggleKomentoPendingSourceExpanded(source.sourceId)"
+                      >
+                        {{ isKomentoPendingSourceExpanded(source.sourceId) ? 'Hide list' : 'Expand list' }}
+                      </button>
+                    </div>
+
+                    <div v-if="isKomentoPendingSourceExpanded(source.sourceId)" class="mt-2 space-y-2">
+                      <div
+                        v-for="origin in source.pendingOrigins"
+                        :key="`${source.sourceId}-${origin}`"
+                        class="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2"
+                      >
+                        <img
+                          :src="getFaviconUrl(origin)"
+                          :alt="formatOrigin(origin)"
+                          class="h-5 w-5 rounded bg-white/5"
+                          referrerpolicy="no-referrer"
+                        />
+                        <div class="min-w-0 flex-1">
+                          <div class="truncate text-xs font-semibold text-white/90">{{ formatOrigin(origin) }}</div>
+                          <div class="truncate text-[11px] text-white/60">{{ origin }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </div>
 
             <div class="pt-1 text-center text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
@@ -1417,7 +2284,7 @@ function handleAniListLogout() {
                     v-for="item in settingsNavItems"
                     :key="item.id"
                     class="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-lg font-semibold transition hover:bg-white/10"
-                    @click="selectedSettingsCategory = item.id; settingsScreen = item.kind === 'providers' ? 'providers' : item.kind === 'custom-sites' ? 'custom-sites' : 'category'"
+                    @click="selectedSettingsCategory = item.id; settingsScreen = item.kind === 'providers' ? 'providers' : item.kind === 'custom-sites' ? 'custom-sites' : item.kind === 'komentoscript' ? 'komentoscript' : 'category'"
                   >
                     <img :src="item.icon" :alt="item.label" class="h-6 w-6 settings-icon" />
                     <span>{{ item.label }}</span>
@@ -1757,18 +2624,33 @@ function handleAniListLogout() {
 
                 <div class="space-y-4">
                   <div class="space-y-2 rounded-xl bg-white/5 px-3 py-3">
+                    <input
+                      ref="importCustomMappingsInput"
+                      type="file"
+                      accept="application/json,.json"
+                      class="hidden"
+                      @change="onImportCustomMappingsFileChange"
+                    />
                     <p class="text-xs text-white/60">
                       To add/edit a mapping, right click the site and choose "Configure site with Hayami".
                     </p>
                     <div class="flex items-center justify-between text-sm text-white/80">
                       <span>Mapped sites</span>
-                      <button
-                        class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-60"
-                        @click="loadCustomSiteMappings"
-                        :disabled="isLoadingCustomSites"
-                      >
-                        Refresh
-                      </button>
+                      <div class="flex items-center gap-2">
+                        <button
+                          class="rounded-full bg-cyan-500/20 px-3 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/30"
+                          @click="triggerCustomMappingsImport"
+                        >
+                          Import
+                        </button>
+                        <button
+                          class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-60"
+                          @click="loadCustomSiteMappings"
+                          :disabled="isLoadingCustomSites"
+                        >
+                          Refresh
+                        </button>
+                      </div>
                     </div>
                     <div v-if="isLoadingCustomSites" class="text-sm text-white/70">Loading custom sites...</div>
                     <div v-else-if="sortedCustomSiteMappings.length === 0" class="text-sm text-white/70">No custom sites yet.</div>
@@ -1809,6 +2691,272 @@ function handleAniListLogout() {
                 </div>
               </template>
 
+              <template v-else-if="settingsScreen === 'komentoscript'">
+                <div class="mb-3 flex items-center justify-between">
+                  <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
+                    <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
+                    <span>Back</span>
+                  </button>
+                  <div class="flex items-center gap-2 text-lg font-semibold">
+                    <img :src="settingsIcon" alt="KomentoScript Sync" class="h-6 w-6 settings-icon" />
+                    <span>KomentoScript Sync</span>
+                  </div>
+                </div>
+
+                <div class="space-y-3">
+                  <div class="rounded-xl bg-white/5 px-4 py-3">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex-1">
+                        <p class="text-sm text-white/80">Enable KomentoScript</p>
+                        <p class="text-xs text-white/60">Use synced KomentoScript packs to configure supported sites.</p>
+                      </div>
+                      <label class="relative inline-flex items-center">
+                        <input
+                          type="checkbox"
+                          class="peer sr-only"
+                          :checked="komentoSyncEnabled"
+                          @change="(e) => saveKomentoToggle('enabled', (e.target as HTMLInputElement).checked)"
+                        />
+                        <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="rounded-xl bg-white/5 px-4 py-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex-1">
+                        <p class="text-sm text-white/80">Use synced mappings</p>
+                        <p class="text-xs text-white/60">Apply KomentoScript placement and selector fallback when no local custom mapping exists.</p>
+                      </div>
+                      <label class="relative inline-flex items-center">
+                        <input
+                          type="checkbox"
+                          class="peer sr-only"
+                          :checked="komentoUseSyncedMappings"
+                          @change="(e) => saveKomentoToggle('useSynced', (e.target as HTMLInputElement).checked)"
+                        />
+                        <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="rounded-xl bg-white/5 px-4 py-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex-1">
+                        <p class="text-sm text-white/80">Weekly auto-sync</p>
+                        <p class="text-xs text-white/60">Background alarm syncs enabled KomentoScript sources every 7 days.</p>
+                      </div>
+                      <label class="relative inline-flex items-center">
+                        <input
+                          type="checkbox"
+                          class="peer sr-only"
+                          :checked="komentoAutoSync"
+                          @change="(e) => saveKomentoToggle('autoSync', (e.target as HTMLInputElement).checked)"
+                        />
+                        <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-2" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
+                    <div class="flex items-center justify-between gap-3">
+                      <div>
+                        <p class="text-sm text-white/80">Sync status</p>
+                        <p class="text-xs text-white/60">Last sync: {{ komentoLastSyncText }}</p>
+                        <p class="text-xs text-white/60">Cached packs: {{ komentoCachedPackCount }}</p>
+                        <p class="text-xs text-white/60">Sources: {{ komentoSyncState?.sourcesSucceeded || 0 }}/{{ komentoSyncState?.sourcesAttempted || 0 }}</p>
+                      </div>
+                      <button
+                        class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-60"
+                        :disabled="komentoSyncing"
+                        @click="runKomentoSyncNow"
+                      >
+                        {{ komentoSyncing ? 'Syncing...' : 'Sync now' }}
+                      </button>
+                    </div>
+                    <p v-if="komentoSyncState?.lastError" class="text-xs text-rose-300/90 break-all">{{ komentoSyncState.lastError }}</p>
+                  </div>
+
+                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
+                    <div class="flex items-center justify-between gap-3">
+                      <p class="text-sm text-white/80">Sources</p>
+                      <button
+                        class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15"
+                        @click="resetKomentoSourceDraft"
+                      >
+                        New source
+                      </button>
+                    </div>
+
+                    <div class="rounded-lg bg-black/15 p-3 space-y-2">
+                      <p class="text-xs font-semibold text-white/80">{{ komentoSourceFormTitle }}</p>
+                      <input
+                        v-model="komentoSourceDraft.id"
+                        type="text"
+                        placeholder="Source ID (e.g. hayami-official)"
+                        class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
+                      />
+                      <input
+                        v-model="komentoSourceDraft.url"
+                        type="url"
+                        placeholder="https://example.com/komentoscript.json"
+                        class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
+                      />
+                      <div class="grid grid-cols-2 gap-2">
+                        <select
+                          v-model="komentoSourceDraft.type"
+                          class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white"
+                        >
+                          <option value="hayami-official" class="bg-[#1f2329]">hayami-official</option>
+                          <option value="third-party" class="bg-[#1f2329]">third-party</option>
+                          <option value="local" class="bg-[#1f2329]">local</option>
+                        </select>
+                        <input
+                          v-model.number="komentoSourceDraft.priority"
+                          type="number"
+                          placeholder="Priority"
+                          class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
+                        />
+                      </div>
+                      <label class="flex items-center gap-2 text-xs text-white/70">
+                        <input v-model="komentoSourceDraft.enabled" type="checkbox" />
+                        Enabled
+                      </label>
+                      <div class="flex items-center gap-2">
+                        <button
+                          class="rounded-full bg-emerald-500/30 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/40"
+                          @click="saveKomentoSourceDraft"
+                        >
+                          {{ komentoSourceEditingId ? 'Save source' : 'Add source' }}
+                        </button>
+                        <button
+                          v-if="komentoSourceEditingId"
+                          class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/20"
+                          @click="resetKomentoSourceDraft"
+                        >
+                          Cancel edit
+                        </button>
+                      </div>
+                    </div>
+
+                    <div v-if="komentoSourcesSorted.length === 0" class="text-xs text-white/60">No sources configured.</div>
+                    <div v-else class="space-y-2">
+                      <div
+                        v-for="(source, sourceIndex) in komentoSourcesSorted"
+                        :key="source.id"
+                        class="rounded-lg bg-black/15 px-3 py-2"
+                      >
+                        <div class="flex items-center justify-between gap-3">
+                          <div class="min-w-0 flex-1">
+                            <div class="truncate text-xs font-semibold text-white/90">{{ source.id }} <span class="text-white/50">({{ source.type }})</span></div>
+                            <div class="truncate text-xs text-white/60">{{ source.url }}</div>
+                            <div class="text-[11px] text-white/50">Priority: {{ source.priority || 0 }}</div>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <button
+                              class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
+                              :disabled="sourceIndex === 0"
+                              @click="moveKomentoSource(source.id, -1)"
+                              title="Move up"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
+                              :disabled="sourceIndex === komentoSourcesSorted.length - 1"
+                              @click="moveKomentoSource(source.id, 1)"
+                              title="Move down"
+                            >
+                              ↓
+                            </button>
+                            <label class="relative inline-flex items-center">
+                              <input
+                                type="checkbox"
+                                class="peer sr-only"
+                                :checked="Boolean(source.enabled)"
+                                @change="(e) => toggleKomentoSource(source.id, (e.target as HTMLInputElement).checked)"
+                              />
+                              <div class="peer h-5 w-9 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-3 after:w-3 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></div>
+                            </label>
+                            <button
+                              class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20"
+                              @click="editKomentoSource(source)"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              class="rounded-md bg-rose-500/20 px-2 py-1 text-xs font-semibold text-rose-200 hover:bg-rose-500/30"
+                              @click="removeKomentoSource(source.id)"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="mt-2">
+                          <button
+                            class="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
+                            @click="toggleKomentoSourceExpanded(source.id)"
+                          >
+                            {{ isKomentoSourceExpanded(source.id) ? 'Hide mapped sites' : `Mapped sites (${getKomentoMappedOrigins(source.id).length})` }}
+                          </button>
+
+                          <div v-if="isKomentoSourceExpanded(source.id)" class="mt-2 space-y-2">
+                            <div
+                              v-if="getKomentoMappedOrigins(source.id).length === 0"
+                              class="text-xs text-white/60"
+                            >
+                              No mapped sites in current cached packs.
+                            </div>
+                            <div v-else class="space-y-2">
+                              <div
+                                v-for="origin in getKomentoMappedOrigins(source.id)"
+                                :key="origin"
+                                class="flex items-center gap-3 rounded-lg bg-white/10 px-3 py-2"
+                              >
+                                <img
+                                  :src="getFaviconUrl(origin)"
+                                  :alt="formatOrigin(origin)"
+                                  class="h-6 w-6 rounded bg-white/5"
+                                  referrerpolicy="no-referrer"
+                                />
+                                <div class="min-w-0 flex-1">
+                                  <div class="text-sm font-semibold text-white/90">{{ formatOrigin(origin) }}</div>
+                                  <div class="truncate text-xs text-white/60">{{ origin }}</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-2" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
+                    <p class="text-sm text-white/80">Recent sync history</p>
+                    <div v-if="komentoRecentHistory.length === 0" class="text-xs text-white/60">No sync history yet.</div>
+                    <div v-else class="space-y-2">
+                      <div
+                        v-for="entry in komentoRecentHistory"
+                        :key="`${entry.at}-${entry.reason}`"
+                        class="rounded-lg bg-black/15 px-3 py-2"
+                      >
+                        <div class="flex items-center justify-between gap-2">
+                          <div class="text-xs font-semibold" :class="entry.ok ? 'text-emerald-200' : 'text-rose-200'">
+                            {{ entry.ok ? 'Success' : 'Failed' }} · {{ entry.reason }}
+                          </div>
+                          <div class="text-[11px] text-white/50">{{ formatKomentoHistoryWhen(entry.at) }}</div>
+                        </div>
+                        <div class="text-[11px] text-white/60">
+                          Sources: {{ entry.sourcesSucceeded }}/{{ entry.sourcesAttempted }} · Packs: {{ entry.packsLoaded }}
+                        </div>
+                        <div v-if="entry.firstError" class="mt-1 text-[11px] text-rose-200/90 break-all">{{ entry.firstError }}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+
               <template v-else-if="settingsScreen === 'custom-site-detail' && selectedCustomSite">
                 <div class="mb-3 flex items-center justify-between">
                   <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="backToCustomSites()">
@@ -1835,7 +2983,17 @@ function handleAniListLogout() {
                         <div class="text-xs text-white/60">{{ selectedCustomSite.origin }}</div>
                       </div>
                     </div>
-                    <div class="text-xs text-white/60">Placement: {{ formatPlacementLabel(selectedCustomSite.display) }}</div>
+                    <div class="flex items-center justify-between gap-2 text-xs text-white/60">
+                      <span>Placement: {{ formatPlacementLabel(selectedCustomSite.display) }}</span>
+                      <button
+                        class="rounded-full bg-cyan-500/20 px-3 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/30"
+                        @click="exportCustomSiteMapping(selectedCustomSite)"
+                        aria-label="Export mapping"
+                        title="Export mapping"
+                      >
+                        Export
+                      </button>
+                    </div>
                     <div class="grid grid-cols-1 gap-2 text-xs text-white/70 sm:grid-cols-2">
                       <div class="rounded-lg bg-black/10 px-3 py-2">
                         <div class="font-semibold text-white/80">Mount selector</div>
@@ -1856,6 +3014,128 @@ function handleAniListLogout() {
                       <div class="rounded-lg bg-black/10 px-3 py-2">
                         <div class="font-semibold text-white/80">Side padding</div>
                         <div class="truncate text-white/60">{{ selectedCustomSite.sidePadding ?? 0 }}px</div>
+                      </div>
+                    </div>
+
+                    <div class="mt-3 rounded-lg bg-black/10 px-3 py-3">
+                      <button
+                        type="button"
+                        class="flex w-full items-center justify-between gap-3 text-left"
+                        @click="customSiteAdvancedExpanded = !customSiteAdvancedExpanded"
+                      >
+                        <div class="flex items-center gap-2 text-xs font-semibold text-white/85">
+                          <img :src="infoIcon" alt="Advanced" class="h-4 w-4 settings-icon" />
+                          <span>Advanced options</span>
+                        </div>
+                        <span class="text-[11px] text-white/55">{{ customSiteAdvancedExpanded ? 'Hide' : 'Show' }}</span>
+                      </button>
+
+                      <div v-if="customSiteAdvancedExpanded" class="mt-3 space-y-3">
+                        <div class="text-xs font-semibold text-white/80">Custom website path globs</div>
+                        <p class="text-[11px] text-white/60">
+                          Limit where this mapping runs. Use * as wildcard. Example: /watch/*, /play/*, /anime/*
+                        </p>
+
+                        <div class="space-y-2">
+                          <div class="text-[11px] font-semibold text-emerald-200/90">Include paths (allowed)</div>
+                          <div class="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85 hover:bg-white/15"
+                              @click="addCustomSitePathGlob('include', '/watch/*')"
+                            >
+                              + /watch/*
+                            </button>
+                            <button
+                              type="button"
+                              class="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white/85 hover:bg-white/15"
+                              @click="addCustomSitePathGlob('include', '/play/*')"
+                            >
+                              + /play/*
+                            </button>
+                          </div>
+                          <div class="flex flex-wrap gap-2" v-if="customSiteIncludePathGlobsDraft.length">
+                            <span
+                              v-for="glob in customSiteIncludePathGlobsDraft"
+                              :key="`include-${glob}`"
+                              class="inline-flex items-center gap-2 rounded-full bg-emerald-500/20 px-2.5 py-1 text-[11px] text-emerald-100"
+                            >
+                              <span>{{ glob }}</span>
+                              <button
+                                type="button"
+                                class="rounded-full bg-black/25 px-1 text-[10px] leading-none hover:bg-black/40"
+                                @click="removeCustomSitePathGlob('include', glob)"
+                                aria-label="Remove include glob"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <input
+                              v-model="customSiteIncludePathInput"
+                              type="text"
+                              class="min-w-0 flex-1 rounded-lg bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/45 focus:outline focus:outline-2 focus:outline-white/30"
+                              placeholder="Add include glob, e.g. /anime/*"
+                              @keydown.enter.prevent="addCustomSitePathGlob('include')"
+                            />
+                            <button
+                              type="button"
+                              class="rounded-lg bg-emerald-500/25 px-3 py-2 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/35"
+                              @click="addCustomSitePathGlob('include')"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="space-y-2">
+                          <div class="text-[11px] font-semibold text-rose-200/90">Exclude paths (blocked)</div>
+                          <div class="flex flex-wrap gap-2" v-if="customSiteExcludePathGlobsDraft.length">
+                            <span
+                              v-for="glob in customSiteExcludePathGlobsDraft"
+                              :key="`exclude-${glob}`"
+                              class="inline-flex items-center gap-2 rounded-full bg-rose-500/20 px-2.5 py-1 text-[11px] text-rose-100"
+                            >
+                              <span>{{ glob }}</span>
+                              <button
+                                type="button"
+                                class="rounded-full bg-black/25 px-1 text-[10px] leading-none hover:bg-black/40"
+                                @click="removeCustomSitePathGlob('exclude', glob)"
+                                aria-label="Remove exclude glob"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          </div>
+                          <div class="flex items-center gap-2">
+                            <input
+                              v-model="customSiteExcludePathInput"
+                              type="text"
+                              class="min-w-0 flex-1 rounded-lg bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/45 focus:outline focus:outline-2 focus:outline-white/30"
+                              placeholder="Add exclude glob, e.g. /watch/premium/*"
+                              @keydown.enter.prevent="addCustomSitePathGlob('exclude')"
+                            />
+                            <button
+                              type="button"
+                              class="rounded-lg bg-rose-500/25 px-3 py-2 text-[11px] font-semibold text-rose-100 hover:bg-rose-500/35"
+                              @click="addCustomSitePathGlob('exclude')"
+                            >
+                              Add
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="flex justify-end">
+                          <button
+                            type="button"
+                            class="rounded-lg bg-cyan-500/25 px-3 py-2 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/35 disabled:cursor-not-allowed disabled:opacity-60"
+                            :disabled="customSitePathGlobsSaving"
+                            @click="saveSelectedCustomSitePathGlobs"
+                          >
+                            {{ customSitePathGlobsSaving ? 'Saving...' : 'Save path globs' }}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

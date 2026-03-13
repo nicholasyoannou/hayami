@@ -431,18 +431,16 @@ async function handleUpvote() {
   else if (prevState === 'downvoted') delta = 2;
   else delta = 1;
   
-  score.value = prevScore + delta;
-  voteState.value = goingIdle ? 'idle' : 'upvoted';
+  applyLocalVoteState(goingIdle ? 'idle' : 'upvoted', prevScore + delta);
   
   isVoting.value = true;
   try {
-    const fullname = `t1_${props.comment.id}`;
+    const fullname = getCommentFullname(props.comment);
     const res = await voteThing(fullname, newDir, props.subreddit);
     
     if (!res.success) {
       // Revert
-      score.value = prevScore;
-      voteState.value = prevState;
+      applyLocalVoteState(prevState, prevScore);
       console.warn('Vote failed:', res.error);
       if (String(res.error || '').includes('403')) {
         toast.error('Voting requires updated Reddit permissions. Please re-login.');
@@ -469,18 +467,16 @@ async function handleDownvote() {
   else if (prevState === 'upvoted') delta = -2;
   else delta = -1;
   
-  score.value = prevScore + delta;
-  voteState.value = goingIdle ? 'idle' : 'downvoted';
+  applyLocalVoteState(goingIdle ? 'idle' : 'downvoted', prevScore + delta);
   
   isVoting.value = true;
   try {
-    const fullname = `t1_${props.comment.id}`;
+    const fullname = getCommentFullname(props.comment);
     const res = await voteThing(fullname, newDir, props.subreddit);
     
     if (!res.success) {
       // Revert
-      score.value = prevScore;
-      voteState.value = prevState;
+      applyLocalVoteState(prevState, prevScore);
       console.warn('Vote failed:', res.error);
       if (String(res.error || '').includes('403')) {
         toast.error('Voting requires updated Reddit permissions. Please re-login.');
@@ -504,15 +500,50 @@ async function handleLoadMoreChildren() {
 }
 
 function buildRedditCommentUrl(): string | null {
+  const base = 'https://www.reddit.com';
+  const commentId = String(props.comment.id || '').replace(/^t1_/, '').trim();
   const permalink = props.comment.permalink;
+
   if (permalink) {
-    return permalink.startsWith('http') ? permalink : `https://www.reddit.com${permalink}`;
+    try {
+      const parsed = new URL(permalink, base);
+      const path = parsed.pathname || '/';
+
+      const subredditPostMatch = path.match(/^\/r\/([^/]+)\/comments\/([^/]+)(?:\/[^/]+)?\/?/i);
+      if (subredditPostMatch) {
+        const [, subreddit, postId] = subredditPostMatch;
+        const postPath = `/r/${subreddit}/comments/${postId}/`;
+        return commentId ? `${base}${postPath}comment/${commentId}/` : `${base}${postPath}`;
+      }
+
+      const postMatch = path.match(/^\/comments\/([^/]+)(?:\/[^/]+)?\/?/i);
+      if (postMatch) {
+        const [, postId] = postMatch;
+        const postPath = `/comments/${postId}/`;
+        return commentId ? `${base}${postPath}comment/${commentId}/` : `${base}${postPath}`;
+      }
+
+      if (commentId) {
+        const normalizedPath = path.endsWith('/') ? path : `${path}/`;
+        return `${base}${normalizedPath}comment/${commentId}/`;
+      }
+
+      return `${base}${path}`;
+    } catch {
+      if (commentId) {
+        return `${base}/comments/${commentId}/comment/${commentId}/`;
+      }
+    }
   }
-  const linkId = props.comment.link_id;
+
+  const linkId = String(props.comment.link_id || '').replace(/^t3_/, '').trim();
+  if (linkId && commentId) {
+    return `${base}/comments/${linkId}/comment/${commentId}/`;
+  }
   if (linkId) {
-    return `https://www.reddit.com/comments/${String(linkId).replace(/^t3_/, '')}`;
+    return `${base}/comments/${linkId}/`;
   }
-  return null;
+  return commentId ? `${base}/comments/${commentId}/comment/${commentId}/` : null;
 }
 
 function handleDeepReplyAction(): boolean {
@@ -626,11 +657,14 @@ function handleCancelEdit() {
 }
 
 function handleShare() {
-  // Use permalink if available, otherwise construct from id
-  const base = 'https://www.reddit.com';
-  const url = props.comment.permalink 
-    ? (base + props.comment.permalink) 
-    : `${base}/comments/${props.comment.id}`;
+  const url = buildRedditCommentUrl();
+  if (!url) {
+    shareLabel.value = 'No link';
+    setTimeout(() => {
+      shareLabel.value = 'Share';
+    }, 1300);
+    return;
+  }
   
   const doCopy = async () => {
     try {
@@ -687,6 +721,33 @@ const isDeepInline = computed(() => depth.value + 1 >= maxInlineDepth.value);
 const deepReplyMode = computed(() => (props.deepReplyMode === 'reddit' ? 'reddit' : 'popup'));
 const allowDeepView = computed(() => props.allowDeepView !== false);
 const showDeepViewIcon = computed(() => isDeepInline.value && allowDeepView.value);
+
+function getCommentFullname(comment: RedditComment): string {
+  const existingFullname = String((comment as any).fullname || '').trim();
+  if (existingFullname) {
+    return existingFullname.startsWith('t1_') ? existingFullname : `t1_${existingFullname.replace(/^t1_/, '')}`;
+  }
+  const rawId = String(comment.id || '').trim().replace(/^t1_/, '');
+  return `t1_${rawId}`;
+}
+
+function applyLocalVoteState(nextState: 'upvoted' | 'downvoted' | 'idle', nextScore: number) {
+  voteState.value = nextState;
+  score.value = nextScore;
+  props.comment.likes = nextState === 'upvoted' ? true : nextState === 'downvoted' ? false : null;
+  props.comment.score = nextScore;
+}
+
+watch(
+  () => [props.comment.id, props.comment.score, props.comment.likes] as const,
+  ([, nextScore, nextLikes]) => {
+    if (!isVoting.value) {
+      score.value = Number(nextScore ?? 0);
+      voteState.value = nextLikes === true ? 'upvoted' : nextLikes === false ? 'downvoted' : 'idle';
+    }
+  },
+  { immediate: true }
+);
 
 function getCommentRenderKey(comment: RedditComment, index: number): string {
   const rawId = String(comment.id || '').replace(/^t1_/, '').trim();

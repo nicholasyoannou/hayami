@@ -60,6 +60,78 @@
   border-color: #ff6a33;
 }
 
+/* ==================== Provider Shared Panels ==================== */
+#reddit-inline-discussion .ri-auth-required,
+.ri-auth-required {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid #3a4559;
+  border-radius: 10px;
+  background: #101620;
+  color: #d8e6ff;
+}
+
+#reddit-inline-discussion .ri-auth-title,
+.ri-auth-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+#reddit-inline-discussion .ri-auth-description,
+.ri-auth-description {
+  margin: 0;
+  font-size: 13px;
+  color: #a9bad6;
+}
+
+#reddit-inline-discussion .ri-auth-button,
+.ri-auth-button {
+  margin-top: 4px;
+  appearance: none;
+  border: 1px solid #5b78a5;
+  background: #1d2c44;
+  color: #e6f0ff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+#reddit-inline-discussion .ri-auth-button:hover:not(:disabled),
+.ri-auth-button:hover:not(:disabled) {
+  background: #263958;
+  border-color: #7d9bcb;
+}
+
+#reddit-inline-discussion .ri-auth-button:disabled,
+.ri-auth-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+#reddit-inline-discussion .ri-mal-wrong-anime,
+.ri-mal-wrong-anime {
+  appearance: none;
+  border: 1px solid #4f6078;
+  background: #141b28;
+  color: #c7dbff;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+#reddit-inline-discussion .ri-mal-wrong-anime:hover,
+.ri-mal-wrong-anime:hover {
+  background: #1b2739;
+  border-color: #6482a8;
+}
+
 /* Remove top margin when Disqus is active (no top strip) */
 #reddit-inline-discussion:has(+ #disqus_thread),
 #reddit-inline-discussion:has(#disqus_thread) {

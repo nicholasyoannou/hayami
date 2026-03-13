@@ -22,14 +22,14 @@ import { ref, onMounted } from 'vue';
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
 
 const testDiscussion = ref({
-  id: '1qyeye7',
-  title: 'test',
+  id: '18da1zl',
+  title: 'some_test_commands',
   author: 'test_user',
-  permalink: '/r/test/comments/1qyeye7/test/',
+  permalink: '/r/test/comments/18da1zl/some_test_commands/',
   score: 1,
   num_comments: 0,
   subreddit: 'test',
-  fullname: 't3_1qyeye7'
+  fullname: 't3_18da1zl'
 });
 
 onMounted(() => {

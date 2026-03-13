@@ -110,6 +110,7 @@ const VALID_PROVIDERS = new Set<CommentProvider>(commentProviderOptions.map((opt
 const FALLBACK_SUB_ICON = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';
 
 let preferredProvider: CommentProvider = 'reddit';
+let activeUiProvider: CommentProvider | null = null;
 
 function normalizeRedditDiscussion(discussion: any): void {
   if (!discussion) return;
@@ -210,6 +211,26 @@ async function getPreferredProvider(): Promise<CommentProvider> {
  * Returns the .ri-external-comments element from the Vue component.
  */
 function getExternalCommentsContainer(): HTMLElement | null {
+  const manager = getUiManager();
+  const popupMounted = manager.isMounted('popup');
+
+  if (popupMounted) {
+    const popupExposed = manager.getExposed<InlineDiscussionExposed>('popup');
+    const popupContainer = popupExposed?.getExternalCommentsElement?.();
+    if (popupContainer && popupContainer.isConnected) {
+      return popupContainer;
+    }
+
+    const popupMount = manager.getMountPoint('popup');
+    const popupDomContainer = popupMount?.querySelector('.ri-external-comments') as HTMLElement | null;
+    if (popupDomContainer && popupDomContainer.isConnected) {
+      return popupDomContainer;
+    }
+
+    // In popup mode, never fall back to inline container.
+    return null;
+  }
+
   const container = getExternalContainerUtil(state().inlineDiscussionApp);
   if (container && container.isConnected) {
     return container;
@@ -569,9 +590,10 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
     const effectiveMode: DisplayMode = resolveEffectiveDisplayMode(placement as DisplayMode | null, adapterMode, storedMode);
     const isInlineMode = INLINE_DISPLAY_MODES.has(effectiveMode);
-    const resolvedProvider = options?.forceProvider ?? (await getPreferredProvider());
+    const resolvedProvider = options?.forceProvider ?? activeUiProvider ?? (await getPreferredProvider());
     const guardProviders = options?.skipProviderGuard !== true;
     preferredProvider = resolvedProvider;
+  activeUiProvider = resolvedProvider;
 
     // Apply any saved episode offset for this series so lookups align with user overrides
     const mappingPlatform = (
@@ -1012,18 +1034,19 @@ async function displayDiscussion(discussion: any): Promise<void> {
   const uiManager = getUiManager();
   void uiManager.showPopupPlaceholder('Loading comments…');
 
-  let activeProvider: CommentProvider = preferredProvider;
+  let activeProvider: CommentProvider = activeUiProvider ?? preferredProvider;
 
   const clearLoadingState = (context: string = 'popup') => {
+    const manager = getUiManager();
     try {
-      ensureInlineHost();
-      const exposed = uiManager.getExposed<InlineDiscussionExposed>('popup');
+      const exposed = manager.getExposed<InlineDiscussionExposed>('popup');
       if (exposed?.clearLoading) {
         exposed.clearLoading();
       }
-      discussionStore.clearLoading();
     } catch (e) {
       console.warn(`[Popup] Failed to clear loading state (${context})`, e);
+    } finally {
+      discussionStore.clearLoading();
     }
   };
 
@@ -1036,8 +1059,13 @@ async function displayDiscussion(discussion: any): Promise<void> {
   });
 
   const providerChangeCallback = (provider: CommentProvider) => {
+      activeUiProvider = provider;
     activeProvider = provider;
-    ensureInlineHost();
+
+    // Keep popup props in sync with user-selected provider to avoid UI drift.
+    uiManager.updateProps('popup', { provider });
+
+
     const exposed = uiManager.getExposed<InlineDiscussionExposed>('popup');
     if (exposed?.handleProviderChange) {
       exposed.handleProviderChange(provider);
@@ -1071,12 +1099,12 @@ async function displayDiscussion(discussion: any): Promise<void> {
               const key = Date.now();
               console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
               const manager = getUiManager();
-              manager.updateProps('inline', {
+              manager.updateProps('popup', {
                 discussion: postData,
                 provider: 'reddit',
                 redditCommentsKey: key,
               });
-              const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
+              const exposed = manager.getExposed<InlineDiscussionExposed>('popup');
               if (exposed?.handleProviderChange) {
                 exposed.handleProviderChange('reddit');
               }
@@ -1108,7 +1136,6 @@ async function displayDiscussion(discussion: any): Promise<void> {
   if (uiManager.isMounted('popup')) {
     uiManager.updateProps('popup', {
       discussion,
-      provider: activeProvider,
       onProviderChange: providerChangeCallback,
       providerContext: buildProviderContext(),
     });
@@ -1428,7 +1455,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     // Build container first so we can show skeletons while loading
     let currentSort: RedditCommentSort = storedRedditSort;
-    let activeProvider: CommentProvider = preferredProvider;
+    let activeProvider: CommentProvider = activeUiProvider ?? preferredProvider;
     const manager = getUiManager();
 
   // If the host was torn down by SPA nav, re-create it before touching the app
@@ -1466,6 +1493,11 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const providerChangeCallback = (provider: CommentProvider) => {
       console.log('=== [ProviderChangeCallback] START ===');
       activeProvider = provider;
+      activeUiProvider = provider;
+
+      // Keep inline props in sync with user-selected provider to avoid UI drift.
+      manager.updateProps('inline', { provider });
+
       console.log('Provider change callback received:', provider);
       console.log('lastAnimeInfo:', currentState.lastAnimeInfo);
       console.log(`Provider change started: ${provider}`);
