@@ -1151,6 +1151,10 @@ a {
   color: rgb(217,57,0); /* hover color */
 }
 
+.ri-actions .ri-action-btn.ri-reply:hover:not(:disabled) {
+  color: rgb(139,162,173);
+}
+
 
 /* Downvote hover state */
 .ri-actions .ri-vote-btn.ri-downvote:hover:not(:disabled) {

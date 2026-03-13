@@ -140,6 +140,16 @@ const visibleComments = computed(() => {
   return filteredComments.value.slice(0, renderedCount.value);
 });
 
+function getCommentRenderKey(comment: RedditCommentData, index: number): string {
+  const rawId = String(comment.id || '').replace(/^t1_/, '').trim();
+  if (rawId) return `id:${rawId}`;
+  const permalink = String(comment.permalink || '').trim();
+  if (permalink) return `permalink:${permalink}`;
+  const parent = String((comment as any).parent_id || '').replace(/^t1_/, '').trim();
+  const created = Number(comment.created_utc ?? 0);
+  return `fallback:${parent}:${created}:${index}`;
+}
+
 function mergeRepliesById(
   existing: RedditCommentData[] | undefined,
   incoming: RedditCommentData[] | undefined,
@@ -448,8 +458,8 @@ defineExpose({
     <!-- Comments (including case where we have rootMoreIds but no visible comments yet) -->
     <template v-else>
       <RedditComment
-        v-for="comment in visibleComments"
-        :key="comment.id"
+        v-for="(comment, commentIndex) in visibleComments"
+        :key="getCommentRenderKey(comment, commentIndex)"
         :comment="comment"
         :subreddit="subreddit"
         :current-username="props.currentUsername"

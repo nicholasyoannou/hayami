@@ -13,7 +13,7 @@ export const commentProviderOptions = [
   { value: 'disqus', label: 'Disqus' },
   { value: 'animecommunity', label: 'The Anime Community' },
   { value: 'aniwave', label: 'Aniwave' },
-  { value: 'anilist', label: 'AniList forums' },
+  { value: 'anilist', label: 'AniList' },
   { value: 'mal', label: 'MyAnimeList' },
   { value: 'youtube', label: 'YouTube' },
 ] as const;

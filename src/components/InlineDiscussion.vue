@@ -75,13 +75,51 @@ const currentUsername = ref<string | null>(null);
 const redditListRef = ref<any>(null);
 const pendingLocalComments = ref<Array<{ comment: RedditComment; parentId?: string }>>([]);
 const showTopReplyEditor = ref(false);
-const replyTarget = ref<{ id: string; key: string; author?: string; parentFullname: string } | null>(null);
+const replyTarget = ref<{ id: string; key: string; draftKey: string; author?: string; parentFullname: string } | null>(null);
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
 const redditFlairPosition = ref<'inline' | 'below'>('inline');
 const isPostingTopComment = ref(false);
 const replyDrafts = reactive<Record<string, string>>({});
 replyDrafts.root = '';
+
+function extractCommentIdFromPermalink(permalink?: string): string {
+  if (!permalink) return '';
+  const clean = permalink.split('?')[0] || '';
+  const segments = clean.split('/').filter(Boolean);
+  if (segments.length === 0) return '';
+  const last = segments[segments.length - 1] || '';
+  return last.replace(/^t1_/, '').trim();
+}
+
+function normalizeCommentId(raw?: string): string {
+  if (!raw) return '';
+  return raw.replace(/^t1_/, '').trim();
+}
+
+function resolveCommentId(comment: Pick<RedditComment, 'id' | 'permalink'>): string {
+  const fromId = normalizeCommentId(comment.id);
+  if (fromId) return fromId;
+  return extractCommentIdFromPermalink(comment.permalink);
+}
+
+function getReplyTargetKey(comment: Pick<RedditComment, 'id' | 'permalink' | 'created_utc' | 'parent_id'>): string {
+  const id = resolveCommentId(comment);
+  if (id) return `id:${id}`;
+
+  const permalink = (comment.permalink || '').trim();
+  if (permalink) return `permalink:${permalink}`;
+
+  const parent = normalizeCommentId(comment.parent_id);
+  const created = Number(comment.created_utc ?? 0);
+  return `fallback:${parent}:${created}`;
+}
+
+function getReplyDraftKey(comment: Pick<RedditComment, 'id' | 'permalink' | 'created_utc' | 'parent_id'>): string {
+  const id = resolveCommentId(comment);
+  if (id) return `id:${id}`;
+  return getReplyTargetKey(comment);
+}
 const loadDefaultSort = async () => {
   try {
     const stored = await redditDefaultSortItem.getValue();
@@ -1598,11 +1636,18 @@ function handleAddCommentClick() {
 
 function handleReplyToComment(comment: RedditComment) {
   if (isArchived.value || isNoDiscussion.value) return;
-  const fullname = comment.id?.startsWith('t1_') ? comment.id : `t1_${comment.id}`;
-  const replyKey = comment.id || comment.permalink || String(comment.created_utc ?? '');
+  const resolvedCommentId = resolveCommentId(comment);
+  if (!resolvedCommentId) {
+    toast.error('Could not open reply for this comment');
+    return;
+  }
+  const fullname = `t1_${resolvedCommentId}`;
+  const replyKey = getReplyTargetKey(comment);
+  const draftKey = getReplyDraftKey(comment);
   replyTarget.value = {
-    id: comment.id,
+    id: resolvedCommentId,
     key: replyKey,
+    draftKey,
     author: comment.author,
     parentFullname: fullname,
   };
@@ -1615,10 +1660,10 @@ function handleReplyToComment(comment: RedditComment) {
 
 function handleCommentCollapse(commentId: string, collapsed: boolean) {
   if (!collapsed) return;
-  if (replyTarget.value?.id === commentId) {
+  if (replyTarget.value?.id === normalizeCommentId(commentId)) {
     showTopReplyEditor.value = false;
     replyTarget.value = null;
-    replyDrafts[commentId] = '';
+    replyDrafts[`id:${normalizeCommentId(commentId)}`] = '';
   }
 }
 
@@ -1708,8 +1753,8 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
 
 function handleTopReplyCancel() {
   showTopReplyEditor.value = false;
-  if (replyTarget.value?.id) {
-    replyDrafts[replyTarget.value.id] = '';
+  if (replyTarget.value?.draftKey) {
+    replyDrafts[replyTarget.value.draftKey] = '';
   } else {
     replyDrafts.root = '';
   }
@@ -2269,7 +2314,7 @@ defineExpose({
         >
           <template #reply-editor="{ comment }">
             <TipTapCommentEditor
-              v-if="redditEditorMode === 'editor' && replyTarget?.key === (comment.id || comment.permalink || String(comment.created_utc ?? '')) && showTopReplyEditor"
+              v-if="redditEditorMode === 'editor' && replyTarget?.key === getReplyTargetKey(comment) && showTopReplyEditor"
               :disabled="isPostingTopComment"
               :placeholder="replyPlaceholder"
               class="ri-reply-editor"
@@ -2277,18 +2322,18 @@ defineExpose({
               @cancel="handleTopReplyCancel"
             />
             <div
-              v-else-if="redditEditorMode === 'markdown' && replyTarget?.key === (comment.id || comment.permalink || String(comment.created_utc ?? '')) && showTopReplyEditor"
+              v-else-if="redditEditorMode === 'markdown' && replyTarget?.key === getReplyTargetKey(comment) && showTopReplyEditor"
               class="ri-reply-editor ri-plain-editor"
             >
               <textarea
-                v-model="replyDrafts[comment.id]"
+                v-model="replyDrafts[getReplyDraftKey(comment)]"
                 class="ri-plain-textarea"
                 :placeholder="replyPlaceholder"
                 :disabled="isPostingTopComment"
                 rows="4"
               />
               <div class="ri-plain-actions">
-                <button class="ri-plain-btn primary" :disabled="isPostingTopComment" @click="handlePlainSubmit(comment.id)">Comment</button>
+                <button class="ri-plain-btn primary" :disabled="isPostingTopComment" @click="handlePlainSubmit(getReplyDraftKey(comment))">Comment</button>
                 <button class="ri-plain-btn" @click="handleTopReplyCancel">Cancel</button>
               </div>
             </div>

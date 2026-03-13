@@ -631,8 +631,18 @@ function parseComments(children: any[]): RedditComment[] {
     .filter(child => child.kind === 't1') // t1 = comment
     .map(child => {
       const data = child.data;
+      const rawPermalink = typeof data.permalink === 'string' ? data.permalink : undefined;
+      const permalinkCommentId = (() => {
+        if (!rawPermalink) return '';
+        const cleaned = rawPermalink.replace(/\/+$/, '');
+        const parts = cleaned.split('/').filter(Boolean);
+        const last = parts[parts.length - 1] || '';
+        return last.replace(/^t1_/, '').trim();
+      })();
+      const rawId = String(data.id || data.name || permalinkCommentId || '').replace(/^t1_/, '').trim();
+
       const comment: RedditComment = {
-        id: data.id,
+        id: rawId,
         author: data.author,
         body: data.body,
         body_html: data.body_html,
@@ -647,7 +657,7 @@ function parseComments(children: any[]): RedditComment[] {
         author_flair_richtext: data.author_flair_richtext,
         author_flair_background_color: data.author_flair_background_color || null,
         author_flair_text_color: data.author_flair_text_color || null,
-        permalink: data.permalink,
+        permalink: rawPermalink,
         total_awards_received: data.total_awards_received,
         all_awardings: data.all_awardings,
         link_id: data.link_id,
@@ -824,8 +834,18 @@ export async function getMoreChildren(
           ? scoreFromNumber
           : (scoreFromVotes ?? (legacyMeta?.score ?? 0));
 
-        // Normalize identifiers so we don't double-prefix t1_
-        const rawId = (d.id || '').replace(/^t1_/, '');
+        // Normalize identifiers so we don't double-prefix t1_.
+        // Some /api/morechildren responses omit `id` but include `name` (e.g. t1_xxx).
+        const rawPermalink = typeof d.permalink === 'string' ? d.permalink : undefined;
+        const permalinkCommentId = (() => {
+          if (!rawPermalink) return '';
+          const cleaned = rawPermalink.replace(/\/+$/, '');
+          const parts = cleaned.split('/').filter(Boolean);
+          const last = parts[parts.length - 1] || '';
+          return last.replace(/^t1_/, '').trim();
+        })();
+        const rawThingName = String((t as any)?.name || (t as any)?.data?.name || '').replace(/^t1_/, '').trim();
+        const rawId = String(d.id || d.name || rawThingName || permalinkCommentId || '').replace(/^t1_/, '').trim();
         const fullname = d.name || (rawId ? `t1_${rawId}` : undefined);
         const parentFullnameRaw = d.parent_id || d.parent || null;
         const parentFullname = parentFullnameRaw
@@ -848,7 +868,7 @@ export async function getMoreChildren(
           author_flair_richtext: d.author_flair_richtext || legacyMeta?.flairRichtext,
           author_flair_background_color: d.author_flair_background_color || null,
           author_flair_text_color: d.author_flair_text_color || null,
-          permalink: d.permalink,
+          permalink: rawPermalink,
           total_awards_received: d.total_awards_received,
           all_awardings: d.all_awardings,
           link_id: d.link_id || d.link,

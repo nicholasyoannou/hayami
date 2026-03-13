@@ -687,6 +687,16 @@ const isDeepInline = computed(() => depth.value + 1 >= maxInlineDepth.value);
 const deepReplyMode = computed(() => (props.deepReplyMode === 'reddit' ? 'reddit' : 'popup'));
 const allowDeepView = computed(() => props.allowDeepView !== false);
 const showDeepViewIcon = computed(() => isDeepInline.value && allowDeepView.value);
+
+function getCommentRenderKey(comment: RedditComment, index: number): string {
+  const rawId = String(comment.id || '').replace(/^t1_/, '').trim();
+  if (rawId) return `id:${rawId}`;
+  const permalink = String(comment.permalink || '').trim();
+  if (permalink) return `permalink:${permalink}`;
+  const parent = String((comment as any).parent_id || '').replace(/^t1_/, '').trim();
+  const created = Number(comment.created_utc ?? 0);
+  return `fallback:${parent}:${created}:${index}`;
+}
 </script>
 
 <template>
@@ -868,8 +878,8 @@ const showDeepViewIcon = computed(() => isDeepInline.value && allowDeepView.valu
         ></div>
 
         <RedditComment
-          v-for="reply in visibleReplies"
-          :key="reply.id"
+          v-for="(reply, replyIndex) in visibleReplies"
+          :key="getCommentRenderKey(reply, replyIndex)"
           :comment="reply"
           :depth="depth + 1"
           :is-archived="isArchived"
@@ -887,8 +897,8 @@ const showDeepViewIcon = computed(() => isDeepInline.value && allowDeepView.valu
           @collapse="(id, state) => emit('collapse', id, state)"
           @open-deep-view="(c) => emit('openDeepView', c)"
         >
-          <template #reply-editor>
-            <slot name="reply-editor" :comment="reply" />
+          <template #reply-editor="slotProps">
+            <slot name="reply-editor" v-bind="slotProps" />
           </template>
         </RedditComment>
         
