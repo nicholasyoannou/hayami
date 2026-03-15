@@ -95,11 +95,19 @@ function stripSeasonSuffix(animeName: string): string {
 export async function fetchAnimeMapperDataBySeriesName(
   seriesName: string,
   platform: 'reddit' | 'disqus' | 'aniwave' = 'reddit',
-  options?: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean; maxEpisodeCount?: number | null },
+  options?: {
+    malId?: number | null;
+    anilistId?: number | null;
+    isThirdPartySite?: boolean;
+    maxEpisodeCount?: number | null;
+    preserveSeasonSuffix?: boolean;
+  },
 ): Promise<any | null> {
   try {
     // Strip season suffix to get series title for broader search
-    const searchName = stripSeasonSuffix(seriesName);
+    const searchName = options?.preserveSeasonSuffix
+      ? String(seriesName || '').trim()
+      : stripSeasonSuffix(seriesName);
     const encodedSeries = encodeURIComponent(searchName);
     const platformParam = platform !== 'reddit' ? `&platform=${encodeURIComponent(platform)}` : '';
     
@@ -256,6 +264,12 @@ async function maybeCorrectRedditEpisodeViaSelftext(
  */
 export function extractEpisodeIdFromUrl(): string | null {
   try {
+    const host = window.location.hostname.toLowerCase();
+    const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
+    if (!isCrunchyrollHost) {
+      return null;
+    }
+
     const url = window.location.href;
     const match = url.match(/\/watch\/([A-Z0-9]+)/i);
     return match ? match[1] : null;
@@ -321,18 +335,42 @@ function refineMatchedIndexUsingCrunchyrollData(
       .filter((t) => t.length >= 3 && !stop.has(t) && !/^[0-9]+$/.test(t));
   };
 
+  const seriesTokens = new Set(tokenizeTitle(seriesTitle));
+  const scoreName = (name: string | undefined) => {
+    if (!seriesTokens.size || !name) return 0;
+    let score = 0;
+    for (const t of tokenizeTitle(name)) {
+      if (seriesTokens.has(t)) score += 1;
+    }
+    return score;
+  };
+
+  const currentCandidate = cleanedResults.find((r) => r.idx === matchedIndex) || null;
+  const currentSeriesScore = scoreName((results as any)[matchedIndex]?.anime_name);
+  const currentLooksReliable = Boolean(
+    currentCandidate
+    && currentCandidate.hasEpisodes
+    && coversRequiredEpisode(currentCandidate)
+    && currentSeriesScore > 0,
+  );
+
   if (safeAirYear) {
     const sameYear = cleanedResults.filter((r) => r.hasEpisodes && r.year === safeAirYear && coversRequiredEpisode(r));
     if (sameYear.length) {
-      const seriesTokens = new Set(tokenizeTitle(seriesTitle));
-      const scoreName = (name: string | undefined) => {
-        if (!seriesTokens.size || !name) return 0;
-        let score = 0;
-        for (const t of tokenizeTitle(name)) {
-          if (seriesTokens.has(t)) score += 1;
-        }
-        return score;
-      };
+      const sameYearBestSeriesScore = sameYear.reduce((best, entry) => {
+        const entryScore = scoreName((results as any)[entry.idx]?.anime_name);
+        return Math.max(best, entryScore);
+      }, 0);
+
+      if (currentLooksReliable && sameYearBestSeriesScore < currentSeriesScore) {
+        console.log('[Mapper Failover] Keeping current matched index despite air-year candidates due stronger series alignment:', {
+          matchedIndex,
+          airYear: safeAirYear,
+          currentSeriesScore,
+          sameYearBestSeriesScore,
+        });
+        return matchedIndex;
+      }
 
       let bestBySeries = sameYear[0].idx;
       let bestSeriesScore = scoreName((results as any)[bestBySeries]?.anime_name);
@@ -1172,9 +1210,19 @@ export async function tryMapperFailover(
     };
 
     const overrideEpisode = episodeOverride ?? null;
+    const host = window.location.hostname.toLowerCase();
+    const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
+    const isCrunchyrollWatchPath = window.location.pathname.includes('/watch/');
+    const shouldUseCrunchyrollMetadata = isCrunchyrollHost && isCrunchyrollWatchPath;
 
-    const episodeId = extractEpisodeIdFromUrl();
+    const episodeId = shouldUseCrunchyrollMetadata ? extractEpisodeIdFromUrl() : null;
     if (!episodeId) {
+      if (!shouldUseCrunchyrollMetadata) {
+        console.log('[Mapper Failover] Non-Crunchyroll watch context detected; skipping Crunchyroll metadata path', {
+          host: window.location.hostname,
+          path: window.location.pathname,
+        });
+      }
       console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
       const extractedEpisode = extractEpisodeFromInfo();
       const episodeFromInfo = overrideEpisode ?? extractedEpisode;
@@ -1221,7 +1269,11 @@ export async function tryMapperFailover(
         }
       }
       
-      const mapperResult = animeInfo?.animeName ? await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, platform, mapperOptions) : null;
+      const mapperResult = animeInfo?.animeName ? await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, platform, {
+        ...(mapperOptions || {}),
+        // Keep explicit season/part markers to avoid broad matches (e.g., S2 vs S2 Part 2).
+        preserveSeasonSuffix: true,
+      }) : null;
       if (!mapperResult || !Array.isArray((mapperResult as any).results) || !(mapperResult as any).results.length) {
         return null;
       }
@@ -1314,7 +1366,39 @@ export async function tryMapperFailover(
       let mapperUrl: string | null = null;
       let movieFallbackUrl: string | null = null;
       const isDisqus = platform === 'disqus';
-      const keyedCandidates: Array<{ idx: number; url: string; year: number | null }> = [];
+      const keyedCandidates: Array<{ idx: number; url: string; year: number | null; seriesScore: number }> = [];
+
+      const sourceAnimeName = String(animeInfo?.animeName || '').trim();
+      const sourceAnimeNorm = normalizeForMatch(sourceAnimeName);
+      const sourceAnimeLower = sourceAnimeName.toLowerCase();
+      const sourceHasPart2 = /part\s*2|cour\s*2|second\s*part|2nd\s*part/i.test(sourceAnimeLower);
+      const tokenizeName = (value: string): string[] => normalizeForMatch(value)
+        .split(' ')
+        .filter((t) => t.length >= 3 && !['season', 'part', 'the', 'and', 'of'].includes(t));
+      const sourceTokenSet = new Set(tokenizeName(sourceAnimeName));
+      const scoreSeriesCandidate = (candidateName: string): number => {
+        const candidateNorm = normalizeForMatch(candidateName);
+        if (!candidateNorm) return 0;
+
+        let score = 0;
+        if (sourceAnimeNorm && candidateNorm === sourceAnimeNorm) score += 200;
+        else if (sourceAnimeNorm && (candidateNorm.includes(sourceAnimeNorm) || sourceAnimeNorm.includes(candidateNorm))) score += 120;
+
+        const candidateLower = String(candidateName || '').toLowerCase();
+        const candidateHasPart2 = /part\s*2|cour\s*2|second\s*part|2nd\s*part/i.test(candidateLower);
+        if (sourceHasPart2 && candidateHasPart2) score += 40;
+        if (!sourceHasPart2 && candidateHasPart2) score -= 120;
+
+        if (sourceTokenSet.size > 0) {
+          let overlap = 0;
+          for (const token of tokenizeName(candidateName)) {
+            if (sourceTokenSet.has(token)) overlap += 1;
+          }
+          score += overlap * 8;
+        }
+
+        return score;
+      };
 
       for (const idx of order) {
         const res = results[idx];
@@ -1332,7 +1416,12 @@ export async function tryMapperFailover(
               if (desiredKeys.has(key) || desiredKeys.has(num)) {
                 console.log(`[Mapper Failover] Lightweight match via series lookup (idx=${idx}, key=${key})`);
                 console.log(`[Episode Detection] Matched episode key=${key} to URL:`, eps[key]);
-                keyedCandidates.push({ idx, url: eps[key], year: res.year === 'movies' ? null : Number.parseInt(res.year, 10) || null });
+                keyedCandidates.push({
+                  idx,
+                  url: eps[key],
+                  year: res.year === 'movies' ? null : Number.parseInt(res.year, 10) || null,
+                  seriesScore: scoreSeriesCandidate(String(res?.anime_name || '')),
+                });
               }
             }
           }
@@ -1349,11 +1438,13 @@ export async function tryMapperFailover(
 
       if (keyedCandidates.length) {
         keyedCandidates.sort((a, b) => {
+          if (a.seriesScore !== b.seriesScore) return b.seriesScore - a.seriesScore;
           const ya = a.year ?? -Infinity;
           const yb = b.year ?? -Infinity;
           if (ya !== yb) return yb - ya; // prefer newest year
           return a.idx - b.idx; // otherwise prefer lower idx (mapper preference)
         });
+        console.log('[Mapper Failover] Ranked lightweight keyed candidates:', keyedCandidates.slice(0, 3));
         mapperUrl = keyedCandidates[0].url;
       }
 
@@ -1462,6 +1553,25 @@ export async function tryMapperFailover(
     const seasonScore = results.map((r, idx) => ({ idx, score: scoreSeasonTitleMatch(r?.anime_name, seasonTitle) }));
     const bestSeason = seasonScore.reduce((best, cur) => (cur.score > best.score ? cur : best), { idx: -1, score: -1 });
 
+    const scoreSeriesTitleMatch = (candidateName: unknown, seriesName: unknown): number => {
+      const left = normalizeForMatch(String(candidateName || ''));
+      const right = normalizeForMatch(String(seriesName || ''));
+      if (!left || !right) return 0;
+      if (left === right) return 100;
+      if (left.includes(right) || right.includes(left)) return 80;
+
+      const leftTokens = new Set(left.split(' ').filter((token) => token.length >= 3));
+      const rightTokens = right.split(' ').filter((token) => token.length >= 3);
+      if (leftTokens.size === 0 || rightTokens.length === 0) return 0;
+
+      let overlap = 0;
+      for (const token of rightTokens) {
+        if (leftTokens.has(token)) overlap += 1;
+      }
+
+      return overlap;
+    };
+
     // Only override the mapper-provided match when the season-title similarity is meaningfully better AND the candidate
     // can actually cover the requested episode. This prevents short, unrelated shows (e.g., Yami Shibai 4-ep) from hijacking
     // a 24-episode season like Gachiakuta.
@@ -1470,8 +1580,10 @@ export async function tryMapperFailover(
       const matchedCandidate = matchedIndex !== undefined && matchedIndex !== null ? results[matchedIndex] : null;
       const matchedEpisodesCount = matchedCandidate?.episodes && typeof matchedCandidate.episodes === 'object' ? Object.keys(matchedCandidate.episodes).length : 0;
       const matchedSeasonScore = matchedCandidate ? scoreSeasonTitleMatch(matchedCandidate?.anime_name, seasonTitle) : 0;
+      const matchedSeriesScore = matchedCandidate ? scoreSeriesTitleMatch(matchedCandidate?.anime_name, seriesTitle) : 0;
       const bestCandidate = results[bestSeason.idx];
       const bestEpisodesCount = bestCandidate?.episodes && typeof bestCandidate.episodes === 'object' ? Object.keys(bestCandidate.episodes).length : 0;
+      const bestSeriesScore = scoreSeriesTitleMatch(bestCandidate?.anime_name, seriesTitle);
       const bestCoversEpisode = bestEpisodesCount >= crEpisodeCeiling;
       const matchedCoversEpisode = matchedEpisodesCount >= crEpisodeCeiling;
       const scoreGain = bestSeason.score - matchedSeasonScore;
@@ -1481,14 +1593,22 @@ export async function tryMapperFailover(
       const matchedAlignsAirYear = airYearForEpisode !== null && matchedYear === airYearForEpisode;
       const bestAlignsAirYear = airYearForEpisode !== null && bestYear === airYearForEpisode;
 
-      const allowOverride =
+      const allowOverrideByMatchConfidence =
         matchedIndex === undefined ||
         matchedIndex === null ||
-        matchedResult?.is_exact_match === false;
+        matchedResult?.is_exact_match === false ||
+        !matchedCoversEpisode;
+
+      const strongMatchedSeriesAnchor = matchedSeriesScore >= 3 || matchedSeriesScore >= bestSeriesScore;
+
+      const allowOverride =
+        allowOverrideByMatchConfidence &&
+        (!strongMatchedSeriesAnchor || !matchedCoversEpisode || bestSeriesScore > matchedSeriesScore);
 
       const shouldOverride =
         allowOverride &&
         bestCoversEpisode &&
+        bestSeriesScore >= 2 &&
         (!matchedCoversEpisode ||
           (bestAlignsAirYear && !matchedAlignsAirYear) ||
           scoreGain >= 5 ||
@@ -1511,7 +1631,17 @@ export async function tryMapperFailover(
           matchedIndex,
           score: bestSeason.score,
           scoreGain,
+          bestSeriesScore,
+          matchedSeriesScore,
           bestEpisodesCount,
+          matchedEpisodesCount,
+          crEpisodeCeiling,
+        });
+      } else if (!allowOverrideByMatchConfidence && matchedCandidate) {
+        console.log('[Mapper Failover] Keeping mapper matched_result due confidence/coverage:', {
+          matchedIndex,
+          matchedAnime: matchedCandidate?.anime_name,
+          matchedSeriesScore,
           matchedEpisodesCount,
           crEpisodeCeiling,
         });
@@ -1931,13 +2061,69 @@ export async function tryMapperFailover(
       }
     }
 
+    const toNumberOrNull = (value: unknown): number | null => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+      return null;
+    };
+
+    const sameMapperIdentity = (left: any, right: any): boolean => {
+      if (!left || !right) return false;
+
+      const leftMal = toNumberOrNull(left?.external_sites?.mal_id);
+      const rightMal = toNumberOrNull(right?.external_sites?.mal_id);
+      if (leftMal !== null && rightMal !== null && leftMal !== rightMal) return false;
+
+      const leftAni = toNumberOrNull(left?.external_sites?.anilist_id);
+      const rightAni = toNumberOrNull(right?.external_sites?.anilist_id);
+      if (leftAni !== null && rightAni !== null && leftAni !== rightAni) return false;
+
+      const leftName = normalizeForMatch(String(left?.anime_name || left?.title || left?.name || ''));
+      const rightName = normalizeForMatch(String(right?.anime_name || right?.title || right?.name || ''));
+      const leftYear = String(left?.year || '').trim();
+      const rightYear = String(right?.year || '').trim();
+
+      if (leftMal !== null && rightMal !== null) return true;
+      if (leftAni !== null && rightAni !== null) return true;
+
+      return !!leftName && leftName === rightName && leftYear === rightYear;
+    };
+
+    const mapperCandidates = ((mapperResult as any).results || [])
+      .filter((entry: any) => entry?.episodes && typeof entry.episodes === 'object')
+      .filter((entry: any) => sameMapperIdentity(entry, matchedSeason));
+
+    const rankedCandidates = mapperCandidates.length > 1
+      ? [...mapperCandidates].sort((a: any, b: any) => {
+          const at = Date.parse(String(a?.last_updated || ''));
+          const bt = Date.parse(String(b?.last_updated || ''));
+          if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return bt - at;
+          if (Number.isFinite(bt) && !Number.isFinite(at)) return 1;
+          if (Number.isFinite(at) && !Number.isFinite(bt)) return -1;
+          return 0;
+        })
+      : [matchedSeason];
+
     let mappedUrl: string | undefined;
-    for (const k of keyCandidates) {
-      if (matchedSeason.episodes[k as any]) {
-        mappedUrl = matchedSeason.episodes[k as any];
-        seasonEpisode = typeof k === 'number' ? k : parseInt(String(k), 10);
-        break;
+    for (const candidate of rankedCandidates) {
+      const candidateEpisodes = candidate?.episodes;
+      if (!candidateEpisodes || typeof candidateEpisodes !== 'object') continue;
+
+      for (const k of keyCandidates) {
+        if (candidateEpisodes[k as any]) {
+          mappedUrl = candidateEpisodes[k as any];
+          seasonEpisode = typeof k === 'number' ? k : parseInt(String(k), 10);
+          if (candidate !== matchedSeason) {
+            console.log('[Mapper Failover] Resolved episode via duplicate-record fallback', {
+              requestedEpisode: seasonEpisode,
+              matchedName: matchedSeason?.anime_name,
+              fallbackName: candidate?.anime_name,
+            });
+          }
+          break;
+        }
       }
+      if (mappedUrl) break;
     }
 
     // Numeric fallback: some mapper keys are zero-padded or stringy. Compare by numeric value.
@@ -1947,14 +2133,20 @@ export async function tryMapperFailover(
         .filter((n) => Number.isFinite(n));
       const desiredSet = new Set(desiredNums);
 
-      for (const key of Object.keys(matchedSeason.episodes)) {
-        const num = parseInt(key, 10);
-        if (Number.isFinite(num) && desiredSet.has(num)) {
-          mappedUrl = matchedSeason.episodes[key];
-          seasonEpisode = num;
-          console.log('[Mapper Failover] Numeric key match despite formatting:', { key, seasonEpisode });
-          break;
+      for (const candidate of rankedCandidates) {
+        const candidateEpisodes = candidate?.episodes;
+        if (!candidateEpisodes || typeof candidateEpisodes !== 'object') continue;
+
+        for (const key of Object.keys(candidateEpisodes)) {
+          const num = parseInt(key, 10);
+          if (Number.isFinite(num) && desiredSet.has(num)) {
+            mappedUrl = candidateEpisodes[key];
+            seasonEpisode = num;
+            console.log('[Mapper Failover] Numeric key match despite formatting:', { key, seasonEpisode });
+            break;
+          }
         }
+        if (mappedUrl) break;
       }
     }
 

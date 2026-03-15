@@ -42,7 +42,6 @@ export async function detectAnimeInfo(): Promise<AnimeInfo | null> {
 }
 
 /**
-/**
  * Sets up a MutationObserver to watch for the anime info to load
  * Disconnects after finding the info once (for performance)
  * @param ctx Content script context
@@ -50,7 +49,8 @@ export async function detectAnimeInfo(): Promise<AnimeInfo | null> {
  */
 export function observeAnimeInfoOnce(
   ctx: any,
-  onInfoFound: (info: AnimeInfo) => Promise<void>
+  onInfoFound: (info: AnimeInfo) => Promise<void>,
+  detectOverride?: () => Promise<AnimeInfo | null>
 ): void {
   // Disconnect previous observer to avoid duplicates
   const state = getState();
@@ -58,21 +58,47 @@ export function observeAnimeInfoOnce(
     state.activeObserver.disconnect();
   }
   let detectionInFlight = false;
+  let resolved = false;
+  let pollIntervalId: number | null = null;
+  let hardTimeoutId: number | null = null;
 
-  const observer = new MutationObserver(async () => {
-    if (detectionInFlight) return;
+  const stopWaiting = () => {
+    if (resolved) return;
+    resolved = true;
+    try {
+      observer.disconnect();
+    } catch {}
+    setActiveObserver(null);
+    if (pollIntervalId !== null) {
+      window.clearInterval(pollIntervalId);
+      pollIntervalId = null;
+    }
+    if (hardTimeoutId !== null) {
+      window.clearTimeout(hardTimeoutId);
+      hardTimeoutId = null;
+    }
+  };
+
+  const tryDetectAndEmit = async () => {
+    if (resolved || detectionInFlight) return;
     detectionInFlight = true;
 
     let info: AnimeInfo | null = null;
     try {
-      const plan = buildDetectionPlan(window.location);
-      info = await runDetectionPlan(plan);
+      if (detectOverride) {
+        info = await detectOverride();
+      } else {
+        const plan = buildDetectionPlan(window.location);
+        info = await runDetectionPlan(plan);
+      }
     } finally {
       // Lightweight backoff to avoid spamming when metadata is late
       window.setTimeout(() => {
         detectionInFlight = false;
       }, 300);
     }
+
+    if (resolved) return;
 
     if (info) {
       console.log('Anime Info Found:', info);
@@ -87,10 +113,13 @@ export function observeAnimeInfoOnce(
         console.log('Observer: already processed, skipping');
       }
 
-      // Disconnect the observer once we've found the info
-      observer.disconnect();
-      setActiveObserver(null);
+      // Stop waiting once we've found the info.
+      stopWaiting();
     }
+  };
+
+  const observer = new MutationObserver(async () => {
+    await tryDetectAndEmit();
   });
 
   // Optimize: Observe only the specific container instead of entire document.body
@@ -102,17 +131,45 @@ export function observeAnimeInfoOnce(
   if (targetContainer !== document.body) {
     observer.observe(targetContainer, {
       childList: true,
-      subtree: true  // Still need subtree for nested content, but scope is much smaller
+      subtree: true,
+      attributes: true,
+      characterData: true,
+      attributeFilter: ['class', 'data-testid', 'data-test', 'content']
     });
   } else {
     // Fallback: observe body but try to narrow scope
     observer.observe(document.body, {
       childList: true,
-      subtree: true
+      subtree: true,
+      attributes: true,
+      characterData: true,
+      attributeFilter: ['class', 'data-testid', 'data-test', 'content']
     });
   }
   
   setActiveObserver(observer);
+
+  // Immediate probe catches pages where content already rendered before observation starts.
+  void tryDetectAndEmit();
+
+  // Periodic fallback for SPA flows where selectors become valid without meaningful DOM mutations.
+  pollIntervalId = window.setInterval(() => {
+    void tryDetectAndEmit();
+  }, 500);
+
+  // Safety timeout to avoid keeping observers alive indefinitely on unsupported/failed pages.
+  hardTimeoutId = window.setTimeout(() => {
+    if (!resolved) {
+      console.warn('[Detect] Timed out waiting for anime info after 20s');
+      stopWaiting();
+    }
+  }, 20_000);
+
+  try {
+    ctx?.onInvalidated?.(() => {
+      stopWaiting();
+    });
+  } catch {}
 
   // Only log in development mode
   if (import.meta.env.DEV) {

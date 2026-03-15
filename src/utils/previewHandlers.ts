@@ -241,6 +241,7 @@ async function fetchPostimgImages(pageUrl: string): Promise<string[]> {
 export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   const preview = useImagePreview();
   const add = ctx.addEventListener.bind(ctx);
+  let hoveredPreviewAnchor: HTMLAnchorElement | null = null;
 
   // initialize embed-images flag and keep in sync with storage
   refreshEmbedImagesEnabled(preview);
@@ -269,6 +270,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!a) return;
     if (!a.closest('.ri-text')) return; // only inside comment bodies
+    hoveredPreviewAnchor = a;
     
     // Don't show preview if link is inside an unrevealed spoiler
     const spoiler = a.closest('.md-spoiler-text, .ri-spoiler') as HTMLElement | null;
@@ -495,6 +497,9 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   add(document, 'mouseout', (ev) => {
     const targetAnchor = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
     if (!targetAnchor || !targetAnchor.closest('.ri-text')) return;
+    if (hoveredPreviewAnchor === targetAnchor) {
+      hoveredPreviewAnchor = null;
+    }
 
     const toEl = ev.relatedTarget as HTMLElement | null;
     if (toEl && targetAnchor.contains(toEl)) return; // still inside same anchor
@@ -514,6 +519,16 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   // Keyboard navigation
   add(document, 'keydown', (ev) => {
+    const target = ev.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+
+    if (ev.key.toLowerCase() === 'm' && !ev.ctrlKey && !ev.metaKey && !ev.altKey && preview.isActive && hoveredPreviewAnchor) {
+      preview.setVideoMuted(false);
+      return;
+    }
+
     if (!preview.isActive || !preview.galleryImages || preview.galleryImages.length <= 1) return;
 
     if (ev.key === 'ArrowLeft') {

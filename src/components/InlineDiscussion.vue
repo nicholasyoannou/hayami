@@ -298,6 +298,8 @@ const manualEpisodeSelected = ref<number | null>(null);
 const manualEpisodeProvider = ref<ManualEpisodeProvider>('reddit');
 const manualEpisodeContext = ref<{ animeName?: string; crEpisodeNum?: number | null; anilistId?: number | null; malId?: number | null }>({ animeName: undefined, crEpisodeNum: null, anilistId: null, malId: null });
 const manualEpisodeResolvedName = ref<string | null>(null);
+const manualPreferredMapperResultId = ref<string | null>(null);
+const manualPreferredMapperResultName = ref<string | null>(null);
 const wrongAnimeOpen = ref(false);
 const wrongAnimeQuery = ref('');
 const wrongAnimeResults = ref<Array<any | AniListSearchMedia>>([]);
@@ -721,7 +723,15 @@ const filteredDisqusSearchResults = computed(() => {
 
 function openManualSearchModal(
   initialQuery?: string,
-  context?: { animeName?: string; crEpisodeNum?: number | null; provider?: Provider; anilistId?: number | null; malId?: number | null; mappingAnimeName?: string },
+  context?: {
+    animeName?: string;
+    baseAnimeName?: string;
+    crEpisodeNum?: number | null;
+    provider?: Provider;
+    anilistId?: number | null;
+    malId?: number | null;
+    mappingAnimeName?: string;
+  },
   initialTab: 'search' | 'episode' = 'episode'
 ) {
   const resolvedProvider = resolveManualEpisodeProvider(context?.provider || currentProvider.value);
@@ -734,6 +744,8 @@ function openManualSearchModal(
   manualEpisodeError.value = null;
   manualEpisodeSelected.value = null;
   manualEpisodeResolvedName.value = null;
+  manualPreferredMapperResultId.value = null;
+  manualPreferredMapperResultName.value = null;
   manualEpisodeProvider.value = resolvedProvider;
   wrongAnimeOpen.value = false;
   wrongAnimeQuery.value = '';
@@ -753,6 +765,7 @@ function openManualSearchModal(
     anilistId: context?.anilistId ?? null,
     malId: context?.malId ?? null,
   };
+  manualMappingLookupAnimeName.value = (context?.baseAnimeName || context?.mappingAnimeName || context?.animeName || '').trim() || null;
   manualMappingAnimeName.value = (context?.mappingAnimeName || context?.animeName || '').trim() || null;
   void (async () => {
     await refreshManualMappingState();
@@ -878,6 +891,24 @@ async function loadEpisodeOptions() {
 
         const preferred: number[] = [];
 
+        const normalizeForExactName = (value: unknown): string => String(value || '').trim().toLowerCase();
+        const preferredId = (manualPreferredMapperResultId.value || '').trim();
+        const preferredName = normalizeForExactName(
+          manualPreferredMapperResultName.value || manualEpisodeContext.value.animeName || '',
+        );
+
+        if (preferredId) {
+          const idMatchIdx = results.findIndex((entry: any) => String(entry?._id ?? entry?.id ?? '').trim() === preferredId);
+          if (idMatchIdx >= 0) preferred.push(idMatchIdx);
+        }
+
+        if (preferredName) {
+          const exactNameIdx = results.findIndex((entry: any) => (
+            normalizeForExactName(getMapperResultDisplayName(entry)) === preferredName
+          ));
+          if (exactNameIdx >= 0) preferred.push(exactNameIdx);
+        }
+
         if (manualEpisodeProvider.value === 'aniwave') {
           const ranked = allIndices
             .map((idx) => ({
@@ -911,6 +942,8 @@ async function loadEpisodeOptions() {
             manualEpisodeOptions.value = options;
             populatedFromMapper = manualEpisodeOptions.value.length > 0;
             manualEpisodeResolvedName.value = getMapperResultDisplayName(res) || cleanedSeries;
+            manualPreferredMapperResultId.value = String(res?._id ?? res?.id ?? '').trim() || manualPreferredMapperResultId.value;
+            manualPreferredMapperResultName.value = getMapperResultDisplayName(res) || manualPreferredMapperResultName.value;
             if (populatedFromMapper) {
               break;
             }
@@ -1047,6 +1080,11 @@ function selectWrongAnime(result: any) {
   }
 
   const name = getMapperResultDisplayName(result) || wrongAnimeQuery.value.trim();
+  const preferredIdRaw = result?._id ?? result?.id ?? null;
+  manualPreferredMapperResultId.value = preferredIdRaw === null || preferredIdRaw === undefined
+    ? null
+    : String(preferredIdRaw);
+  manualPreferredMapperResultName.value = name || null;
   manualEpisodeContext.value.animeName = name;
   manualEpisodeResolvedName.value = name;
   wrongAnimeOpen.value = false;
@@ -1096,6 +1134,7 @@ function setManualDialogTab(tab: 'search' | 'episode') {
 }
 
 const manualMappingAnimeName = ref<string | null>(null);
+const manualMappingLookupAnimeName = ref<string | null>(null);
 const manualMappingExists = ref(false);
 const manualResetInProgress = ref(false);
 
@@ -1108,7 +1147,7 @@ function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecom
 }
 
 async function refreshManualMappingState() {
-  const animeName = (manualMappingAnimeName.value || '').trim();
+  const animeName = (manualMappingLookupAnimeName.value || manualMappingAnimeName.value || '').trim();
   if (!animeName) {
     manualMappingExists.value = false;
     manualAniwaveIsDub.value = false;
@@ -1448,8 +1487,6 @@ function handleManualSearch() {
         || normalizeMapperDisplayName(getMapperResultDisplayName(matchedResult))
         || normalizeMapperDisplayName(getMapperResultDisplayName(results[0]))
         || preferredLookupName;
-            const mapperTitle = normalizeMapperDisplayName(getMapperResultDisplayName(res));
-            manualEpisodeResolvedName.value = mapperTitle || cleanedSeries;
 
       return {
         resolvedAnimeName: resolvedAnimeName || undefined,
@@ -1848,6 +1885,7 @@ onMounted(() => {
     const provider = detail?.provider || currentProvider.value;
     openManualSearchModal(initial, {
       animeName: animeNameForMapper || undefined,
+      baseAnimeName: fallbackAnimeName || undefined,
       crEpisodeNum,
       provider,
       anilistId: animeInfo?.anilistId,
@@ -1936,7 +1974,7 @@ watch(
   }
 );
 
-watch([manualEpisodeProvider, manualMappingAnimeName], () => {
+watch([manualEpisodeProvider, manualMappingLookupAnimeName, manualMappingAnimeName], () => {
   if (!manualSearchOpen.value) return;
   void refreshManualMappingState();
 });
@@ -2542,7 +2580,7 @@ defineExpose({
             <ul v-else-if="wrongAnimeResults.length" class="space-y-2 max-h-[180px] overflow-y-auto styled-scroll">
               <li
                 v-for="(item, idx) in wrongAnimeResults"
-                :key="idx"
+                :key="String(item?._id ?? item?.id ?? `${idx}-${getMapperResultDisplayName(item)}`)"
                 class="p-2 border border-[#262626] rounded-lg bg-[#0b0b0b] flex items-center justify-between gap-2"
               >
                 <template v-if="isAniListEpisodeManualMode || isMalEpisodeManualMode">

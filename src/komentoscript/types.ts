@@ -1,21 +1,8 @@
-export type KomentoSourceType = 'hayami-official' | 'third-party' | 'local';
-
-export type KomentoTrustLevel = 'official' | 'verified' | 'unverified';
-
 export type KomentoDisplayPlacement = 'below' | 'insert' | 'replace' | 'popup' | 'icon';
 
 export type KomentoMergeMode = 'replace' | 'deep';
 
 export type KomentoProviderKey = 'reddit' | 'aniwave' | 'disqus' | 'anilist' | 'mal' | string;
-
-export interface KomentoSourceMeta {
-  type: KomentoSourceType;
-  url?: string;
-  priority?: number;
-  etag?: string;
-  signature?: string;
-  trust?: KomentoTrustLevel;
-}
 
 export interface KomentoExtractSelector {
   selector?: string;
@@ -35,14 +22,11 @@ export interface KomentoExtractPipeline {
 export type KomentoExtractField = KomentoExtractSelector | KomentoExtractPipeline;
 
 export interface KomentoExtractBlock {
-  animeTitle?: KomentoExtractField;
-  episodeNumber?: KomentoExtractField;
-  seasonNumber?: KomentoExtractField;
-  sequenceNumber?: KomentoExtractField;
+  animeTitle: KomentoExtractField;
+  episodeNumber: KomentoExtractField;
   episodeReleaseDate?: KomentoExtractField;
   anilistId?: KomentoExtractField;
   malId?: KomentoExtractField;
-  [key: string]: KomentoExtractField | undefined;
 }
 
 export interface KomentoPlacement {
@@ -57,6 +41,21 @@ export interface KomentoPlacement {
     mountSelector?: string;
   };
 }
+
+export interface KomentoPlacementOption {
+  default?: boolean;
+  mountSelector?: string;
+  anchorSelector?: string;
+  mountXPath?: string;
+  anchorXPath?: string;
+  sidePadding?: number;
+  fallback?: {
+    display?: KomentoDisplayPlacement;
+    mountSelector?: string;
+  };
+}
+
+export type KomentoPlacementMap = Partial<Record<KomentoDisplayPlacement, KomentoPlacementOption>>;
 
 export interface KomentoProviderConfig {
   enabled?: boolean;
@@ -90,7 +89,7 @@ export interface KomentoTarget {
   mergeMode?: KomentoMergeMode;
   match: KomentoMatch;
   extract?: KomentoExtractBlock;
-  placement?: KomentoPlacement;
+  placement?: KomentoPlacement | KomentoPlacementMap;
   mapping?: KomentoMapping;
 }
 
@@ -103,7 +102,6 @@ export interface KomentoScriptPack {
   id: string;
   name?: string;
   updatedAt?: string;
-  source?: KomentoSourceMeta;
   appliesTo?: Array<'multi-site' | 'single-site' | string>;
   tags?: string[];
   profiles?: Record<string, KomentoProfile>;
@@ -112,12 +110,9 @@ export interface KomentoScriptPack {
 
 export interface KomentoSourceRegistryEntry {
   id: string;
-  type: KomentoSourceType;
   url: string;
   enabled: boolean;
-  priority?: number;
   refreshMinutes?: number;
-  trust?: KomentoTrustLevel;
 }
 
 export interface KomentoSourceRegistry {
@@ -138,7 +133,6 @@ export interface KomentoValidationResult {
 export interface KomentoRuntimeCandidate {
   pack: KomentoScriptPack;
   sourceId: string;
-  sourcePriority: number;
   target: KomentoTarget;
   targetPriority: number;
   updatedAtEpoch: number;
@@ -146,4 +140,5 @@ export interface KomentoRuntimeCandidate {
 
 export interface ResolveKomentoOptions {
   activeProfilesBySourceId?: Record<string, string | undefined>;
+  enabledTargetIdsBySourceId?: Record<string, string[] | undefined>;
 }

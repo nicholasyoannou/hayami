@@ -3,7 +3,6 @@ import { computed } from 'vue';
 
 type KomentoPendingPermissionSource = {
   sourceId: string;
-  sourceType: string;
   sourceLabel: string;
   pendingOrigins: string[];
 };
@@ -86,7 +85,7 @@ const shouldShow = computed(() => props.loading || props.hasPending);
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0">
               <div class="truncate text-sm font-semibold text-white/90">{{ source.sourceLabel }}</div>
-              <div class="text-xs text-white/60">{{ source.sourceType }} · {{ source.pendingOrigins.length }} host{{ source.pendingOrigins.length === 1 ? '' : 's' }}</div>
+              <div class="text-xs text-white/60">{{ source.pendingOrigins.length }} host{{ source.pendingOrigins.length === 1 ? '' : 's' }}</div>
             </div>
             <button
               class="rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold text-white hover:bg-white/20"

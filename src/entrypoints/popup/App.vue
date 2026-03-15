@@ -24,6 +24,7 @@ import {
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
   komentoScriptSourceRegistryItem,
+  komentoScriptTargetSelectionsItem,
   komentoScriptSyncHistoryItem,
   komentoScriptSyncStateItem,
   komentoScriptUseSyncedMappingsItem,
@@ -54,6 +55,7 @@ import {
   type ScreenshotDestinationOption,
   type ScreenshotSiteRule,
   type KomentoCachedPackEntry,
+  type KomentoTargetSelectionsBySource,
   type KomentoSyncHistoryEntry,
   type KomentoSyncState,
 } from '@/config/storage';
@@ -75,13 +77,17 @@ import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
 import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
-import type { KomentoSourceRegistryEntry } from '@/komentoscript';
+import { parseKomentoScriptPack, type KomentoScriptPack, type KomentoSourceRegistryEntry } from '@/komentoscript';
 
 type KomentoPendingPermissionSource = {
   sourceId: string;
-  sourceType: string;
   sourceLabel: string;
   pendingOrigins: string[];
+};
+
+type KomentoSourceTargetOption = {
+  targetId: string;
+  origins: string[];
 };
 
 type SettingValueMap = {
@@ -697,7 +703,6 @@ const screenshotSiteRules = ref<ScreenshotSiteRule[]>([]);
 const screenshotFeatureEnabled = computed(() => Boolean(settingValues.screenshotEnabled));
 const screenshotShortcutLabel = ref('Not set');
 const komentoSyncEnabled = ref(true);
-const komentoUseSyncedMappings = ref(true);
 const komentoAutoSync = ref(true);
 const komentoSources = ref<KomentoSourceRegistryEntry[]>([]);
 const komentoSyncState = ref<KomentoSyncState | null>(null);
@@ -711,12 +716,12 @@ const komentoPendingOrigins = ref<string[]>([]);
 const komentoPendingPermissionLoading = ref(false);
 const komentoApprovingPermissions = ref(false);
 const komentoPendingExpandedSourceId = ref<string | null>(null);
+const komentoTargetSelections = ref<KomentoTargetSelectionsBySource>({});
+const komentoSourceEditorOpen = ref(false);
 const komentoSourceDraft = reactive<KomentoSourceRegistryEntry>({
   id: '',
-  type: 'third-party',
   url: '',
   enabled: true,
-  priority: 0,
 });
 const komentoSourceEditingId = ref<string | null>(null);
 const screenshotToggleDescription = computed(() => {
@@ -743,7 +748,7 @@ const komentoLastSyncText = computed(() => {
 const komentoRecentHistory = computed(() =>
   [...komentoSyncHistory.value]
     .sort((a, b) => Date.parse(b.at || '') - Date.parse(a.at || ''))
-    .slice(0, 10),
+    .slice(0, 5),
 );
 
 const komentoSourceFormTitle = computed(() =>
@@ -752,12 +757,45 @@ const komentoSourceFormTitle = computed(() =>
 
 const komentoSourcesSorted = computed(() =>
   [...komentoSources.value].sort((a, b) => {
-    const ap = Number(a.priority || 0);
-    const bp = Number(b.priority || 0);
-    if (ap !== bp) return bp - ap;
     return String(a.id || '').localeCompare(String(b.id || ''));
   }),
 );
+
+const komentoTargetsBySource = computed<Record<string, KomentoSourceTargetOption[]>>(() => {
+  const bySource: Record<string, Map<string, Set<string>>> = {};
+
+  for (const cachedEntry of komentoCachedPacks.value) {
+    const sourceId = String(cachedEntry?.sourceId || '').trim();
+    if (!sourceId) continue;
+
+    if (!bySource[sourceId]) bySource[sourceId] = new Map<string, Set<string>>();
+    const targetIndex = bySource[sourceId]!;
+    const targets = Array.isArray(cachedEntry?.pack?.targets) ? cachedEntry.pack.targets : [];
+
+    for (const target of targets) {
+      const targetId = String(target?.targetId || '').trim();
+      if (!targetId) continue;
+      if (!targetIndex.has(targetId)) targetIndex.set(targetId, new Set<string>());
+      const originSet = targetIndex.get(targetId)!;
+      const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
+      for (const origin of origins) {
+        const normalized = String(origin || '').trim();
+        if (normalized) originSet.add(normalized);
+      }
+    }
+  }
+
+  const out: Record<string, KomentoSourceTargetOption[]> = {};
+  for (const [sourceId, targetIndex] of Object.entries(bySource)) {
+    out[sourceId] = [...targetIndex.entries()]
+      .map(([targetId, originSet]) => ({
+        targetId,
+        origins: [...originSet].sort((a, b) => a.localeCompare(b)),
+      }))
+      .sort((a, b) => a.targetId.localeCompare(b.targetId));
+  }
+  return out;
+});
 
 const komentoMappedOriginsBySource = computed<Record<string, string[]>>(() => {
   const mapped: Record<string, Set<string>> = {};
@@ -797,20 +835,168 @@ const komentoPendingPreview = computed(() => {
 
 function resetKomentoSourceDraft() {
   komentoSourceDraft.id = '';
-  komentoSourceDraft.type = 'third-party';
   komentoSourceDraft.url = '';
   komentoSourceDraft.enabled = true;
-  komentoSourceDraft.priority = 0;
   komentoSourceEditingId.value = null;
+  komentoSourceEditorOpen.value = false;
+}
+
+function openKomentoSourceDraft() {
+  komentoSourceDraft.id = '';
+  komentoSourceDraft.url = '';
+  komentoSourceDraft.enabled = true;
+  komentoSourceEditingId.value = null;
+  komentoSourceEditorOpen.value = true;
 }
 
 function editKomentoSource(source: KomentoSourceRegistryEntry) {
   komentoSourceDraft.id = source.id;
-  komentoSourceDraft.type = source.type;
   komentoSourceDraft.url = source.url;
   komentoSourceDraft.enabled = Boolean(source.enabled);
-  komentoSourceDraft.priority = Number(source.priority || 0);
   komentoSourceEditingId.value = source.id;
+  komentoSourceEditorOpen.value = true;
+}
+
+function slugifySourceIdPart(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function deriveSourceIdFromUrl(url: URL, existingIds: Set<string>, keepId?: string): string {
+  const host = slugifySourceIdPart(url.hostname.replace(/^www\./i, ''));
+  const path = slugifySourceIdPart(url.pathname || '');
+  const base = [host, path].filter(Boolean).join('.') || 'komentosource';
+
+  if (!existingIds.has(base) || base === keepId) return base;
+
+  let index = 2;
+  while (true) {
+    const candidate = `${base}-${index}`;
+    if (!existingIds.has(candidate) || candidate === keepId) return candidate;
+    index += 1;
+  }
+}
+
+function extractKomentoPacksPayload(payload: unknown): unknown[] {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === 'object' && Array.isArray((payload as any).packs)) {
+    return (payload as any).packs;
+  }
+  if (payload && typeof payload === 'object') return [payload];
+  return [];
+}
+
+function deriveSourceIdFromFileName(fileName: string, existingIds: Set<string>): string {
+  const trimmed = String(fileName || '').trim();
+  const withoutExtension = trimmed.replace(/\.[^.]+$/u, '');
+  const slug = slugifySourceIdPart(withoutExtension);
+  const base = `file.${slug || 'komentoscript'}`;
+
+  if (!existingIds.has(base)) return base;
+
+  let index = 2;
+  while (true) {
+    const candidate = `${base}-${index}`;
+    if (!existingIds.has(candidate)) return candidate;
+    index += 1;
+  }
+}
+
+async function onImportKomentoScriptsFileChange(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input?.files?.[0] || null;
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    let parsedPayload: unknown;
+    try {
+      parsedPayload = JSON.parse(text);
+    } catch {
+      showError('Import failed: invalid JSON file');
+      return;
+    }
+
+    const items = extractKomentoPacksPayload(parsedPayload);
+    if (!items.length) {
+      showError('No KomentoScript packs found in file');
+      return;
+    }
+
+    const validPacks: KomentoScriptPack[] = [];
+    let invalidCount = 0;
+    let firstError: string | null = null;
+
+    for (const item of items) {
+      const parsed = parseKomentoScriptPack(item);
+      if (!parsed.pack) {
+        invalidCount += 1;
+        if (!firstError) {
+          const issue = parsed.validation.issues.find((entry) => entry.severity === 'error') || parsed.validation.issues[0];
+          firstError = issue ? `${issue.path}: ${issue.message}` : 'Validation failed';
+        }
+        continue;
+      }
+      validPacks.push(parsed.pack);
+    }
+
+    if (!validPacks.length) {
+      showError(firstError ? `No valid KomentoScript packs found (${firstError})` : 'No valid KomentoScript packs found');
+      return;
+    }
+
+    const sourceUrl = `file://${file.name}`;
+    const existingSource = komentoSources.value.find((source) => source.url === sourceUrl) || null;
+    const existingIds = new Set(komentoSources.value.map((source) => source.id));
+    const sourceId = existingSource?.id || deriveSourceIdFromFileName(file.name, existingIds);
+    const fetchedAt = new Date().toISOString();
+
+    const existingCached = (await komentoScriptCachedPacksItem.getValue()) || [];
+    const nextCachedBase = existingCached.filter((entry) => entry.sourceId !== sourceId);
+    const importedCached: KomentoCachedPackEntry[] = validPacks.map((pack) => ({
+      sourceId,
+      fetchedAt,
+      pack,
+    }));
+    await komentoScriptCachedPacksItem.setValue([...nextCachedBase, ...importedCached]);
+
+    const nextSources = [...komentoSources.value];
+    const sourceIndex = nextSources.findIndex((source) => source.id === sourceId);
+    const importedSource: KomentoSourceRegistryEntry = {
+      id: sourceId,
+      url: sourceUrl,
+      enabled: true,
+    };
+    if (sourceIndex >= 0) {
+      nextSources[sourceIndex] = importedSource;
+    } else {
+      nextSources.push(importedSource);
+    }
+    await saveKomentoSources(nextSources);
+
+    const nextSelections = { ...komentoTargetSelections.value };
+    if (Object.prototype.hasOwnProperty.call(nextSelections, sourceId)) {
+      delete nextSelections[sourceId];
+      await persistKomentoTargetSelections(nextSelections);
+    }
+
+    await loadKomentoSyncStatus();
+    komentoExpandedSourceId.value = sourceId;
+
+    const importedCount = validPacks.length;
+    if (invalidCount > 0) {
+      showSuccess(`Imported ${importedCount} pack${importedCount === 1 ? '' : 's'} from file (${invalidCount} skipped)`);
+    } else {
+      showSuccess(`Imported ${importedCount} KomentoScript pack${importedCount === 1 ? '' : 's'} from file`);
+    }
+  } catch (error) {
+    console.warn('Failed to import KomentoScript file', error);
+    showError('Could not import KomentoScript file');
+  } finally {
+    if (input) input.value = '';
+  }
 }
 
 function formatKomentoHistoryWhen(input?: string): string {
@@ -830,6 +1016,74 @@ function toggleKomentoSourceExpanded(sourceId: string): void {
 
 function getKomentoMappedOrigins(sourceId: string): string[] {
   return komentoMappedOriginsBySource.value[sourceId] || [];
+}
+
+function getKomentoSourceTargetOptions(sourceId: string): KomentoSourceTargetOption[] {
+  return komentoTargetsBySource.value[sourceId] || [];
+}
+
+function hasSelectionOverride(sourceId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(komentoTargetSelections.value, sourceId);
+}
+
+function getSelectedTargetSet(sourceId: string): Set<string> | null {
+  if (!hasSelectionOverride(sourceId)) return null;
+  const selected = komentoTargetSelections.value[sourceId];
+  if (!Array.isArray(selected)) return new Set<string>();
+  return new Set(selected);
+}
+
+function isKomentoSourceTargetEnabled(sourceId: string, targetId: string): boolean {
+  const selectedSet = getSelectedTargetSet(sourceId);
+  if (!selectedSet) return true;
+  return selectedSet.has(targetId);
+}
+
+function allTargetIdsForSource(sourceId: string): string[] {
+  return getKomentoSourceTargetOptions(sourceId).map((item) => item.targetId);
+}
+
+async function persistKomentoTargetSelections(next: KomentoTargetSelectionsBySource): Promise<void> {
+  komentoTargetSelections.value = next;
+  await komentoScriptTargetSelectionsItem.setValue(next);
+}
+
+async function setKomentoSourceEnabledInternal(sourceId: string, enabled: boolean): Promise<void> {
+  const next = komentoSources.value.map((source) => (
+    source.id === sourceId ? { ...source, enabled } : source
+  ));
+  await saveKomentoSources(next);
+}
+
+async function setKomentoSourceTargetSelectionMode(sourceId: string, mode: 'all' | 'none'): Promise<void> {
+  const next: KomentoTargetSelectionsBySource = { ...komentoTargetSelections.value };
+  if (mode === 'all') {
+    delete next[sourceId];
+  } else {
+    next[sourceId] = [];
+  }
+  await persistKomentoTargetSelections(next);
+  await setKomentoSourceEnabledInternal(sourceId, mode === 'all');
+}
+
+async function toggleKomentoSourceTarget(sourceId: string, targetId: string, enabled: boolean): Promise<void> {
+  const allIds = allTargetIdsForSource(sourceId);
+  if (!allIds.length) return;
+
+  const selectedSet = getSelectedTargetSet(sourceId) || new Set(allIds);
+  if (enabled) selectedSet.add(targetId);
+  else selectedSet.delete(targetId);
+
+  const nextSelected = allIds.filter((id) => selectedSet.has(id));
+  const next: KomentoTargetSelectionsBySource = { ...komentoTargetSelections.value };
+  if (nextSelected.length === allIds.length) {
+    delete next[sourceId];
+  } else {
+    next[sourceId] = nextSelected;
+  }
+
+  await persistKomentoTargetSelections(next);
+  await setKomentoSourceEnabledInternal(sourceId, nextSelected.length > 0);
 }
 
 function isKomentoPendingSourceExpanded(sourceId: string): boolean {
@@ -999,23 +1253,25 @@ async function loadAllSettings() {
 
 async function loadKomentoSyncStatus() {
   try {
-    const [enabled, useSynced, autoSync, sources, state, cached, history] = await Promise.all([
+    const [enabled, autoSync, sources, state, cached, history, targetSelections] = await Promise.all([
       komentoScriptEnabledItem.getValue(),
-      komentoScriptUseSyncedMappingsItem.getValue(),
       komentoScriptAutoSyncItem.getValue(),
       komentoScriptSourceRegistryItem.getValue(),
       komentoScriptSyncStateItem.getValue(),
       komentoScriptCachedPacksItem.getValue(),
       komentoScriptSyncHistoryItem.getValue(),
+      komentoScriptTargetSelectionsItem.getValue(),
     ]);
     komentoSyncEnabled.value = Boolean(enabled);
-    komentoUseSyncedMappings.value = Boolean(useSynced);
     komentoAutoSync.value = Boolean(autoSync);
     komentoSources.value = Array.isArray(sources) ? sources : [];
     komentoSyncState.value = state || null;
     komentoCachedPacks.value = Array.isArray(cached) ? cached : [];
     komentoCachedPackCount.value = Array.isArray(cached) ? cached.length : 0;
     komentoSyncHistory.value = Array.isArray(history) ? history : [];
+    komentoTargetSelections.value = (targetSelections && typeof targetSelections === 'object')
+      ? targetSelections as KomentoTargetSelectionsBySource
+      : {};
     await loadKomentoPendingPermissions();
   } catch (error) {
     console.warn('Failed to load KomentoScript sync status', error);
@@ -1023,18 +1279,15 @@ async function loadKomentoSyncStatus() {
 }
 
 async function saveKomentoToggle(
-  key: 'enabled' | 'useSynced' | 'autoSync',
+  key: 'enabled' | 'autoSync',
   next: boolean,
 ) {
   try {
     if (key === 'enabled') {
       komentoSyncEnabled.value = next;
       await komentoScriptEnabledItem.setValue(next);
-      showSuccess(next ? 'KomentoScript sync enabled' : 'KomentoScript sync disabled');
-    } else if (key === 'useSynced') {
-      komentoUseSyncedMappings.value = next;
       await komentoScriptUseSyncedMappingsItem.setValue(next);
-      showSuccess(next ? 'Synced KomentoScript mappings enabled' : 'Synced KomentoScript mappings disabled');
+      showSuccess(next ? 'KomentoScript sync enabled' : 'KomentoScript sync disabled');
     } else {
       komentoAutoSync.value = next;
       await komentoScriptAutoSyncItem.setValue(next);
@@ -1047,38 +1300,19 @@ async function saveKomentoToggle(
   }
 }
 
-async function toggleKomentoSource(sourceId: string, enabled: boolean) {
-  try {
-    const next = komentoSources.value.map((source) => (
-      source.id === sourceId ? { ...source, enabled } : source
-    ));
-    await saveKomentoSources(next);
-    showSuccess(enabled ? 'KomentoScript source enabled' : 'KomentoScript source disabled');
-  } catch (error) {
-    console.warn('Failed to toggle KomentoScript source', error);
-    showError('Could not update source state');
-    await loadKomentoSyncStatus();
-  }
-}
-
 async function saveKomentoSourceDraft() {
-  const id = (komentoSourceDraft.id || '').trim();
   const url = (komentoSourceDraft.url || '').trim();
-  const priority = Number(komentoSourceDraft.priority || 0);
-
-  if (!id) {
-    showError('Source ID is required');
-    return;
-  }
+  const isEditing = Boolean(komentoSourceEditingId.value);
 
   if (!url) {
     showError('Source URL is required');
     return;
   }
 
+  let parsedUrl: URL;
   try {
-    const parsed = new URL(url);
-    if (!/^https?:$/i.test(parsed.protocol)) {
+    parsedUrl = new URL(url);
+    if (!/^https?:$/i.test(parsedUrl.protocol)) {
       showError('Source URL must use http or https');
       return;
     }
@@ -1087,12 +1321,14 @@ async function saveKomentoSourceDraft() {
     return;
   }
 
+  const existingIds = new Set(komentoSources.value.map((source) => source.id));
+  const currentEditingId = komentoSourceEditingId.value || undefined;
+  const resolvedId = currentEditingId || deriveSourceIdFromUrl(parsedUrl, existingIds, currentEditingId);
+
   const draft: KomentoSourceRegistryEntry = {
-    id,
-    type: komentoSourceDraft.type,
+    id: resolvedId,
     url,
-    enabled: Boolean(komentoSourceDraft.enabled),
-    priority: Number.isFinite(priority) ? priority : 0,
+    enabled: true,
   };
 
   const duplicateId = komentoSources.value.find(
@@ -1106,17 +1342,45 @@ async function saveKomentoSourceDraft() {
   try {
     const next = [...komentoSources.value];
     if (komentoSourceEditingId.value) {
+      const previousId = komentoSourceEditingId.value;
       const index = next.findIndex((source) => source.id === komentoSourceEditingId.value);
       if (index >= 0) {
         next[index] = draft;
       } else {
         next.push(draft);
       }
+
+      if (previousId !== draft.id && Object.prototype.hasOwnProperty.call(komentoTargetSelections.value, previousId)) {
+        const migrated = { ...komentoTargetSelections.value };
+        migrated[draft.id] = migrated[previousId] || [];
+        delete migrated[previousId];
+        await persistKomentoTargetSelections(migrated);
+      }
     } else {
       next.push(draft);
     }
     await saveKomentoSources(next);
-    showSuccess(komentoSourceEditingId.value ? 'KomentoScript source updated' : 'KomentoScript source added');
+    if (!isEditing) {
+      const response = await browser.runtime.sendMessage({ action: 'hayami_komento_syncNow' }) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!response?.ok) {
+        showError(response?.error || 'Source added, but sync failed');
+      }
+
+      await loadKomentoSyncStatus();
+      komentoExpandedSourceId.value = draft.id;
+      const options = getKomentoSourceTargetOptions(draft.id);
+      if (options.length > 0) {
+        await setKomentoSourceTargetSelectionMode(draft.id, 'all');
+        showSuccess('KomentoScript source added and enabled for all websites');
+      } else {
+        showSuccess('KomentoScript source added');
+      }
+    } else {
+      showSuccess('KomentoScript source updated');
+    }
     resetKomentoSourceDraft();
   } catch (error) {
     console.warn('Failed to save KomentoScript source', error);
@@ -1128,6 +1392,11 @@ async function removeKomentoSource(sourceId: string) {
   try {
     const next = komentoSources.value.filter((source) => source.id !== sourceId);
     await saveKomentoSources(next);
+    if (Object.prototype.hasOwnProperty.call(komentoTargetSelections.value, sourceId)) {
+      const trimmed = { ...komentoTargetSelections.value };
+      delete trimmed[sourceId];
+      await persistKomentoTargetSelections(trimmed);
+    }
     if (komentoSourceEditingId.value === sourceId) {
       resetKomentoSourceDraft();
     }
@@ -1135,39 +1404,6 @@ async function removeKomentoSource(sourceId: string) {
   } catch (error) {
     console.warn('Failed to remove KomentoScript source', error);
     showError('Could not remove KomentoScript source');
-  }
-}
-
-async function moveKomentoSource(sourceId: string, direction: -1 | 1) {
-  try {
-    const sorted = [...komentoSourcesSorted.value];
-    const index = sorted.findIndex((source) => source.id === sourceId);
-    if (index < 0) return;
-
-    const nextIndex = index + direction;
-    if (nextIndex < 0 || nextIndex >= sorted.length) return;
-
-    const [item] = sorted.splice(index, 1);
-    if (!item) return;
-    sorted.splice(nextIndex, 0, item);
-
-    const topPriority = sorted.length - 1;
-    const next = sorted.map((source, i) => ({
-      ...source,
-      priority: topPriority - i,
-    }));
-
-    await saveKomentoSources(next);
-
-    if (komentoSourceEditingId.value === sourceId) {
-      const updated = next.find((source) => source.id === sourceId);
-      komentoSourceDraft.priority = Number(updated?.priority || 0);
-    }
-
-    showSuccess('Source priority updated');
-  } catch (error) {
-    console.warn('Failed to reorder KomentoScript source', error);
-    showError('Could not reorder KomentoScript source');
   }
 }
 
@@ -2472,13 +2708,13 @@ function handleAniListLogout() {
                   :back-icon="backIcon"
                   :settings-icon="settingsIcon"
                   :komento-sync-enabled="komentoSyncEnabled"
-                  :komento-use-synced-mappings="komentoUseSyncedMappings"
                   :komento-auto-sync="komentoAutoSync"
                   :komento-last-sync-text="komentoLastSyncText"
                   :komento-cached-pack-count="komentoCachedPackCount"
                   :komento-syncing="komentoSyncing"
                   :komento-sync-state="komentoSyncState"
                   :komento-source-form-title="komentoSourceFormTitle"
+                  :komento-source-editor-open="komentoSourceEditorOpen"
                   :komento-source-draft="komentoSourceDraft"
                   :komento-source-editing-id="komentoSourceEditingId"
                   :komento-sources-sorted="komentoSourcesSorted"
@@ -2493,17 +2729,21 @@ function handleAniListLogout() {
                   :on-back="() => { settingsScreen = 'menu'; }"
                   :on-save-toggle="saveKomentoToggle"
                   :on-run-sync-now="runKomentoSyncNow"
+                  :on-import-komento-scripts-file-change="onImportKomentoScriptsFileChange"
+                  :on-open-source-draft="openKomentoSourceDraft"
                   :on-reset-source-draft="resetKomentoSourceDraft"
                   :on-save-source-draft="saveKomentoSourceDraft"
-                  :on-toggle-source="toggleKomentoSource"
-                  :on-move-source="moveKomentoSource"
                   :on-edit-source="editKomentoSource"
                   :on-remove-source="removeKomentoSource"
                   :on-toggle-source-expanded="toggleKomentoSourceExpanded"
+                  :on-set-source-target-selection-mode="setKomentoSourceTargetSelectionMode"
+                  :on-toggle-source-target="toggleKomentoSourceTarget"
                   :on-toggle-pending-source-expanded="toggleKomentoPendingSourceExpanded"
                   :on-approve-all-pending-permissions="approveAllKomentoPendingPermissions"
                   :is-source-expanded="isKomentoSourceExpanded"
                   :get-mapped-origins="getKomentoMappedOrigins"
+                  :get-source-target-options="getKomentoSourceTargetOptions"
+                  :is-source-target-enabled="isKomentoSourceTargetEnabled"
                   :format-history-when="formatKomentoHistoryWhen"
                   :get-favicon-url="getFaviconUrl"
                   :format-origin="formatOrigin"

@@ -1,9 +1,18 @@
 import type {
+  KomentoDisplayPlacement,
+  KomentoPlacement,
+  KomentoPlacementMap,
   KomentoRuntimeCandidate,
   KomentoScriptPack,
   KomentoTarget,
   ResolveKomentoOptions,
 } from './types';
+
+const DISPLAY_PLACEMENTS: KomentoDisplayPlacement[] = ['below', 'insert', 'replace', 'popup', 'icon'];
+
+function isDisplayPlacement(value: unknown): value is KomentoDisplayPlacement {
+  return typeof value === 'string' && DISPLAY_PLACEMENTS.includes(value as KomentoDisplayPlacement);
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -27,6 +36,69 @@ function deepMerge<T>(base: T, incoming: Partial<T>): T {
   return out as T;
 }
 
+function asPlacement(value: unknown): KomentoPlacement | null {
+  if (!isObject(value)) return null;
+  if (!isDisplayPlacement(value.display)) return null;
+  return value as KomentoPlacement;
+}
+
+type PlacementCandidate = {
+  display: KomentoDisplayPlacement;
+  definition: Record<string, unknown>;
+};
+
+function asPlacementMapCandidates(value: unknown): PlacementCandidate[] {
+  if (!isObject(value) || 'display' in value) return [];
+
+  const out: PlacementCandidate[] = [];
+  for (const [key, definition] of Object.entries(value)) {
+    if (!isDisplayPlacement(key) || !isObject(definition)) continue;
+    out.push({ display: key, definition });
+  }
+
+  return out;
+}
+
+function placementFromCandidate(candidate: PlacementCandidate): KomentoPlacement {
+  const {
+    default: _default,
+    display: _display,
+    ...rest
+  } = candidate.definition;
+
+  return {
+    display: candidate.display,
+    ...(rest as Omit<KomentoPlacement, 'display'>),
+  };
+}
+
+export function resolveKomentoPlacement(
+  placement: KomentoTarget['placement'] | null | undefined,
+  preferredDisplay?: string | null,
+): KomentoPlacement | undefined {
+  const direct = asPlacement(placement);
+  if (direct) {
+    return direct;
+  }
+
+  const candidates = asPlacementMapCandidates(placement as KomentoPlacementMap | undefined);
+  if (!candidates.length) return undefined;
+
+  const preferred = isDisplayPlacement(preferredDisplay)
+    ? candidates.find((candidate) => candidate.display === preferredDisplay)
+    : undefined;
+  if (preferred) {
+    return placementFromCandidate(preferred);
+  }
+
+  const preferredDefault = candidates.find((candidate) => candidate.definition.default === true);
+  if (preferredDefault) {
+    return placementFromCandidate(preferredDefault);
+  }
+
+  return placementFromCandidate(candidates[0]);
+}
+
 function globToRegex(glob: string): RegExp {
   const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   return new RegExp(`^${escaped}$`, 'i');
@@ -40,10 +112,6 @@ function pathMatches(pathname: string, globs?: string[]): boolean {
 function pathExcluded(pathname: string, globs?: string[]): boolean {
   if (!globs || globs.length === 0) return false;
   return globs.some((glob) => globToRegex(glob).test(pathname));
-}
-
-function sourcePriorityFor(pack: KomentoScriptPack): number {
-  return Number.isFinite(pack.source?.priority) ? Number(pack.source?.priority) : 0;
 }
 
 function targetPriorityFor(target: KomentoTarget): number {
@@ -103,9 +171,14 @@ export function collectMatchingKomentoTargets(
       pack,
       options?.activeProfilesBySourceId?.[pack.id],
     );
+    const enabledTargetIds = options?.enabledTargetIdsBySourceId?.[pack.id];
+    const enabledTargets = Array.isArray(enabledTargetIds) ? new Set(enabledTargetIds) : null;
 
     for (const rawTarget of pack.targets) {
       if (allowedTargets && !allowedTargets.has(rawTarget.targetId)) {
+        continue;
+      }
+      if (enabledTargets && !enabledTargets.has(rawTarget.targetId)) {
         continue;
       }
 
@@ -121,7 +194,6 @@ export function collectMatchingKomentoTargets(
       out.push({
         pack,
         sourceId: pack.id,
-        sourcePriority: sourcePriorityFor(pack),
         target,
         targetPriority: targetPriorityFor(target),
         updatedAtEpoch: updatedEpochFor(pack),
@@ -133,7 +205,6 @@ export function collectMatchingKomentoTargets(
 }
 
 function compareCandidates(a: KomentoRuntimeCandidate, b: KomentoRuntimeCandidate): number {
-  if (a.sourcePriority !== b.sourcePriority) return b.sourcePriority - a.sourcePriority;
   if (a.updatedAtEpoch !== b.updatedAtEpoch) return b.updatedAtEpoch - a.updatedAtEpoch;
   if (a.targetPriority !== b.targetPriority) return b.targetPriority - a.targetPriority;
   if (a.sourceId !== b.sourceId) return a.sourceId.localeCompare(b.sourceId);

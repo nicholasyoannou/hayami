@@ -170,12 +170,9 @@ export const seriesMappingItem = storage.defineItem<
 export const DEFAULT_KOMENTOSCRIPT_SOURCES: KomentoSourceRegistryEntry[] = [
   {
     id: 'hayami-official',
-    type: 'hayami-official',
     url: 'https://api.hayami.moe/komentoscript/manifest.json',
     enabled: true,
-    priority: 100,
     refreshMinutes: 10080,
-    trust: 'official',
   },
 ];
 
@@ -184,6 +181,8 @@ export type KomentoCachedPackEntry = {
   fetchedAt: string;
   pack: KomentoScriptPack;
 };
+
+export type KomentoTargetSelectionsBySource = Record<string, string[]>;
 
 export type KomentoSyncState = {
   lastSyncedAt: string | null;
@@ -226,6 +225,11 @@ export const komentoScriptSourceRegistryItem = storage.defineItem<KomentoSourceR
 export const komentoScriptCachedPacksItem = storage.defineItem<KomentoCachedPackEntry[]>(
   'local:komentoscript_cached_packs',
   { fallback: [] }
+);
+
+export const komentoScriptTargetSelectionsItem = storage.defineItem<KomentoTargetSelectionsBySource>(
+  'local:komentoscript_target_selections',
+  { fallback: {} }
 );
 
 export const komentoScriptEtagsItem = storage.defineItem<Record<string, string>>(

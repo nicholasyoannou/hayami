@@ -8,6 +8,7 @@ import type {
 
 const DISPLAY_VALUES = new Set(['below', 'insert', 'replace', 'popup', 'icon']);
 const MERGE_VALUES = new Set(['replace', 'deep']);
+const ALLOWED_EXTRACT_FIELDS = new Set(['animeTitle', 'episodeNumber', 'episodeReleaseDate', 'anilistId', 'malId']);
 
 function pushIssue(issues: KomentoValidationIssue[], severity: 'error' | 'warning', path: string, message: string): void {
   issues.push({ severity, path, message });
@@ -53,6 +54,74 @@ function validateExtractField(field: unknown, path: string, issues: KomentoValid
   }
 }
 
+function validatePlacementObject(
+  placement: Record<string, unknown>,
+  path: string,
+  issues: KomentoValidationIssue[],
+): void {
+  if ('display' in placement) {
+    const display = String(placement.display);
+    if (!DISPLAY_VALUES.has(display)) {
+      pushIssue(issues, 'error', `${path}.display`, 'placement.display has an invalid value.');
+    }
+    return;
+  }
+
+  const entries = Object.entries(placement);
+  if (entries.length === 0) {
+    pushIssue(issues, 'error', path, 'placement must define at least one placement mode.');
+    return;
+  }
+
+  let defaultsSet = 0;
+  let hasKnownPlacement = false;
+
+  for (const [display, config] of entries) {
+    if (!DISPLAY_VALUES.has(display)) {
+      pushIssue(
+        issues,
+        'error',
+        `${path}.${display}`,
+        `placement key "${display}" is invalid. Use one of: below, insert, replace, popup, icon.`,
+      );
+      continue;
+    }
+
+    hasKnownPlacement = true;
+
+    if (!isObject(config)) {
+      pushIssue(issues, 'error', `${path}.${display}`, 'placement mode config must be an object.');
+      continue;
+    }
+
+    if (config.default !== undefined && typeof config.default !== 'boolean') {
+      pushIssue(issues, 'error', `${path}.${display}.default`, 'default must be a boolean when provided.');
+    }
+    if (config.default === true) {
+      defaultsSet += 1;
+    }
+
+    if (isObject(config.fallback) && config.fallback.display !== undefined) {
+      const fallbackDisplay = String(config.fallback.display);
+      if (!DISPLAY_VALUES.has(fallbackDisplay)) {
+        pushIssue(
+          issues,
+          'error',
+          `${path}.${display}.fallback.display`,
+          'fallback.display has an invalid value.',
+        );
+      }
+    }
+  }
+
+  if (!hasKnownPlacement) {
+    pushIssue(issues, 'error', path, 'placement does not define any valid placement modes.');
+  }
+  if (defaultsSet > 1) {
+    pushIssue(issues, 'error', path, 'Only one placement mode may set default: true.');
+  }
+}
+
 function validateTarget(target: unknown, path: string, issues: KomentoValidationIssue[]): target is KomentoTarget {
   if (!isObject(target)) {
     pushIssue(issues, 'error', path, 'Target must be an object.');
@@ -74,13 +143,33 @@ function validateTarget(target: unknown, path: string, issues: KomentoValidation
     if (!Array.isArray(origins) || origins.length === 0 || origins.some((o) => !isNonEmptyString(o))) {
       pushIssue(issues, 'error', `${path}.match.origins`, 'match.origins must be a non-empty string array.');
     }
+
+    const pathGlobs = target.match.pathGlobs;
+    if (pathGlobs !== undefined) {
+      if (!Array.isArray(pathGlobs)) {
+        pushIssue(issues, 'error', `${path}.match.pathGlobs`, 'match.pathGlobs must be a string array when provided.');
+      } else if (pathGlobs.length === 0) {
+        pushIssue(issues, 'error', `${path}.match.pathGlobs`, 'match.pathGlobs cannot be an empty array; omit it to match all paths.');
+      } else if (pathGlobs.some((glob) => !isNonEmptyString(glob))) {
+        pushIssue(issues, 'error', `${path}.match.pathGlobs`, 'match.pathGlobs must contain non-empty strings only.');
+      }
+    }
+
+    const excludePathGlobs = target.match.excludePathGlobs;
+    if (excludePathGlobs !== undefined) {
+      if (!Array.isArray(excludePathGlobs)) {
+        pushIssue(issues, 'error', `${path}.match.excludePathGlobs`, 'match.excludePathGlobs must be a string array when provided.');
+      } else if (excludePathGlobs.some((glob) => !isNonEmptyString(glob))) {
+        pushIssue(issues, 'error', `${path}.match.excludePathGlobs`, 'match.excludePathGlobs must contain non-empty strings only.');
+      }
+    }
   }
 
   if (target.placement !== undefined) {
     if (!isObject(target.placement)) {
       pushIssue(issues, 'error', `${path}.placement`, 'placement must be an object.');
-    } else if (!DISPLAY_VALUES.has(String(target.placement.display))) {
-      pushIssue(issues, 'error', `${path}.placement.display`, 'placement.display has an invalid value.');
+    } else {
+      validatePlacementObject(target.placement, `${path}.placement`, issues);
     }
   }
 
@@ -89,6 +178,15 @@ function validateTarget(target: unknown, path: string, issues: KomentoValidation
       pushIssue(issues, 'error', `${path}.extract`, 'extract must be an object.');
     } else {
       Object.entries(target.extract).forEach(([key, value]) => {
+        if (!ALLOWED_EXTRACT_FIELDS.has(key)) {
+          pushIssue(
+            issues,
+            'error',
+            `${path}.extract.${key}`,
+            `Unsupported extract field: ${key}. Allowed fields are animeTitle, episodeNumber, episodeReleaseDate, anilistId, malId.`,
+          );
+          return;
+        }
         validateExtractField(value as KomentoExtractField, `${path}.extract.${key}`, issues);
       });
     }
@@ -96,13 +194,12 @@ function validateTarget(target: unknown, path: string, issues: KomentoValidation
 
   const extract = isObject(target.extract) ? target.extract : undefined;
   const hasRequiredExtractor = Boolean(extract?.animeTitle) && Boolean(extract?.episodeNumber);
-  const isPopupOnly = isObject(target.placement) && target.placement.display === 'popup';
-  if (!hasRequiredExtractor && !isPopupOnly) {
+  if (!hasRequiredExtractor) {
     pushIssue(
       issues,
       'error',
       `${path}.extract`,
-      'animeTitle and episodeNumber extractors are required unless placement.display is popup.',
+      'animeTitle and episodeNumber extractors are required.',
     );
   }
 

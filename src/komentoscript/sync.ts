@@ -16,6 +16,7 @@ import { parseKomentoScriptPack } from './validator';
 
 export const KOMENTOSCRIPT_WEEKLY_ALARM = 'hayami-komentoscript-weekly-sync';
 const WEEKLY_MINUTES = 60 * 24 * 7;
+const MAX_KOMENTO_SYNC_HISTORY_ENTRIES = 5;
 
 export type KomentoSyncSummary = {
   ok: boolean;
@@ -26,7 +27,7 @@ export type KomentoSyncSummary = {
 
 async function appendSyncHistory(entry: KomentoSyncHistoryEntry): Promise<void> {
   const current = (await komentoScriptSyncHistoryItem.getValue()) || [];
-  const next = [entry, ...current].slice(0, 20);
+  const next = [entry, ...current].slice(0, MAX_KOMENTO_SYNC_HISTORY_ENTRIES);
   await komentoScriptSyncHistoryItem.setValue(next);
 }
 
@@ -34,12 +35,9 @@ function normalizeSource(source: Partial<KomentoSourceRegistryEntry> | null | un
   if (!source || !source.id || !source.url) return null;
   return {
     id: String(source.id),
-    type: (source.type as any) || 'third-party',
     url: String(source.url),
     enabled: source.enabled !== false,
-    priority: Number.isFinite(source.priority) ? Number(source.priority) : 0,
     refreshMinutes: Number.isFinite(source.refreshMinutes) ? Number(source.refreshMinutes) : WEEKLY_MINUTES,
-    trust: (source.trust as any) || 'unverified',
   };
 }
 
@@ -146,15 +144,6 @@ export async function syncKomentoScripts(reason: string = 'manual'): Promise<Kom
 
         const hydratedPack: KomentoScriptPack = {
           ...parsed.pack,
-          source: {
-            ...(parsed.pack.source || {}),
-            type: parsed.pack.source?.type || source.type,
-            url: parsed.pack.source?.url || source.url,
-            priority: Number.isFinite(parsed.pack.source?.priority)
-              ? Number(parsed.pack.source?.priority)
-              : (Number.isFinite(source.priority) ? Number(source.priority) : 0),
-            trust: parsed.pack.source?.trust || source.trust,
-          },
         };
 
         parsedEntries.push({

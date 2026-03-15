@@ -57,6 +57,10 @@ async function setupSiteMapperHotkeyLazy(ctx: ContentScriptContext): Promise<voi
 }
 
 function extractCrunchyrollEpisodeIdFromUrl(url: string): string | null {
+  const host = window.location.hostname.toLowerCase();
+  const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
+  if (!isCrunchyrollHost) return null;
+
   const match = url.match(/\/watch\/([A-Za-z0-9]+)/);
   return match?.[1] || null;
 }
@@ -123,7 +127,18 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
   } else {
     // If not found, wait for the content to load
     console.log('Anime info not found yet, waiting for content to load...');
-    observeAnimeInfoOnce(ctx, searchAndDisplayDiscussion);
+    observeAnimeInfoOnce(ctx, searchAndDisplayDiscussion, async () => {
+      let detected = getCustomAnimeInfo();
+      if (detected) return detected;
+
+      // Re-resolve origin mapping while waiting because Komento/custom data can arrive
+      // after initial bootstrap on SPA pages.
+      await loadCustomMappingForOrigin();
+      detected = getCustomAnimeInfo();
+      if (detected) return detected;
+
+      return detectAnimeInfo();
+    });
   }
 }
 

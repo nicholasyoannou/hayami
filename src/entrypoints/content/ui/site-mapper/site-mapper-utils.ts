@@ -4,14 +4,16 @@ import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import {
   customSiteMappingsItem,
+  displayModeItem,
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
-  komentoScriptUseSyncedMappingsItem,
+  komentoScriptTargetSelectionsItem,
 } from '@/config/storage';
 import {
   type KomentoExtractField,
   type KomentoExtractPipeline,
   type KomentoScriptPack,
+  resolveKomentoPlacement,
 } from '@/komentoscript';
 
 let customSiteMapping: CustomSiteMapping | null = null;
@@ -72,21 +74,42 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
     }
 
     const komentoEnabled = Boolean(await komentoScriptEnabledItem.getValue());
-    const useSynced = Boolean(await komentoScriptUseSyncedMappingsItem.getValue());
-    if (komentoEnabled && useSynced) {
+    if (komentoEnabled) {
       const {
         mergeEffectiveKomentoTarget,
         collectMatchingKomentoTargets,
       } = await import('@/komentoscript');
 
-      const cached = (await komentoScriptCachedPacksItem.getValue()) || [];
-      const packs = cached
-        .map((entry) => (entry && typeof entry === 'object' ? (entry as any).pack : null))
+      const [cached, targetSelections, preferredDisplay] = await Promise.all([
+        komentoScriptCachedPacksItem.getValue(),
+        komentoScriptTargetSelectionsItem.getValue(),
+        displayModeItem.getValue().catch(() => null),
+      ]);
+      const cachedEntries = Array.isArray(cached) ? cached : [];
+      const selectionsBySource = (targetSelections && typeof targetSelections === 'object')
+        ? targetSelections as Record<string, string[]>
+        : {};
+      const packs = cachedEntries
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const pack = (entry as any).pack;
+          if (!pack || typeof pack !== 'object') return null;
+          return { ...pack } as KomentoScriptPack;
+        })
         .filter((pack): pack is KomentoScriptPack => Boolean(pack && Array.isArray(pack.targets)));
+
+      const enabledTargetIdsBySourceId: Record<string, string[] | undefined> = {};
+      for (const [sourceId, selectedTargetIds] of Object.entries(selectionsBySource)) {
+        if (Array.isArray(selectedTargetIds)) {
+          enabledTargetIdsBySourceId[sourceId] = selectedTargetIds;
+        }
+      }
 
       const candidates = collectMatchingKomentoTargets(packs, {
         origin: location.origin,
         pathname: location.pathname,
+      }, {
+        enabledTargetIdsBySourceId,
       });
       const effective = mergeEffectiveKomentoTarget(candidates);
       if (effective?.target) {
@@ -160,7 +183,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
 
         const titleExtract = fromExtract(effective.target.extract?.animeTitle);
         const episodeExtract = fromExtract(effective.target.extract?.episodeNumber);
-        const placement = effective.target.placement;
+        const placement = resolveKomentoPlacement(effective.target.placement, preferredDisplay);
 
         const resolveExtractValue = (field: KomentoExtractField | undefined): string | null => {
           if (!field || typeof field !== 'object' || Array.isArray(field)) return null;

@@ -243,9 +243,6 @@ async function getKomentoPendingPermissionsSummary() {
       const source = sourceIndex.get(sourceId);
       return {
         sourceId,
-        sourceType: sourceId === 'custom-websites'
-          ? 'custom-websites'
-          : String(source?.type || (sourceId === 'hayami-official' ? 'hayami-official' : 'third-party')),
         sourceLabel: sourceId === 'custom-websites'
           ? 'Custom websites'
           : String(source?.id || sourceId),

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { reactive, ref } from 'vue';
 import type {
   KomentoCachedPackEntry,
   KomentoSyncHistoryEntry,
@@ -8,22 +9,26 @@ import type { KomentoSourceRegistryEntry } from '@/komentoscript';
 
 type KomentoPendingPermissionSource = {
   sourceId: string;
-  sourceType: string;
   sourceLabel: string;
   pendingOrigins: string[];
+};
+
+type KomentoSourceTargetOption = {
+  targetId: string;
+  origins: string[];
 };
 
 const props = defineProps<{
   backIcon: string;
   settingsIcon: string;
   komentoSyncEnabled: boolean;
-  komentoUseSyncedMappings: boolean;
   komentoAutoSync: boolean;
   komentoLastSyncText: string;
   komentoCachedPackCount: number;
   komentoSyncing: boolean;
   komentoSyncState: KomentoSyncState | null;
   komentoSourceFormTitle: string;
+  komentoSourceEditorOpen: boolean;
   komentoSourceDraft: KomentoSourceRegistryEntry;
   komentoSourceEditingId: string | null;
   komentoSourcesSorted: KomentoSourceRegistryEntry[];
@@ -36,24 +41,59 @@ const props = defineProps<{
   komentoApprovingPermissions: boolean;
   komentoPendingExpandedSourceId: string | null;
   onBack: () => void;
-  onSaveToggle: (key: 'enabled' | 'useSynced' | 'autoSync', next: boolean) => void;
+  onSaveToggle: (key: 'enabled' | 'autoSync', next: boolean) => void;
   onRunSyncNow: () => void;
+  onImportKomentoScriptsFileChange: (event: Event) => void | Promise<void>;
+  onOpenSourceDraft: () => void;
   onResetSourceDraft: () => void;
   onSaveSourceDraft: () => void;
-  onToggleSource: (sourceId: string, enabled: boolean) => void;
-  onMoveSource: (sourceId: string, direction: -1 | 1) => void;
   onEditSource: (source: KomentoSourceRegistryEntry) => void;
   onRemoveSource: (sourceId: string) => void;
   onToggleSourceExpanded: (sourceId: string) => void;
+  onSetSourceTargetSelectionMode: (sourceId: string, mode: 'all' | 'none') => void;
+  onToggleSourceTarget: (sourceId: string, targetId: string, enabled: boolean) => void;
   onTogglePendingSourceExpanded: (sourceId: string) => void;
   onApproveAllPendingPermissions: () => void;
   isSourceExpanded: (sourceId: string) => boolean;
   getMappedOrigins: (sourceId: string) => string[];
+  getSourceTargetOptions: (sourceId: string) => KomentoSourceTargetOption[];
+  isSourceTargetEnabled: (sourceId: string, targetId: string) => boolean;
   formatHistoryWhen: (input?: string) => string;
   getFaviconUrl: (origin: string) => string;
   formatOrigin: (origin: string) => string;
   isPendingSourceExpanded: (sourceId: string) => boolean;
 }>();
+
+const sourceTargetSearch = reactive<Record<string, string>>({});
+const syncHistoryExpanded = ref(false);
+const importKomentoScriptsInput = ref<HTMLInputElement | null>(null);
+
+function triggerKomentoScriptsImport() {
+  importKomentoScriptsInput.value?.click();
+}
+
+function getSourceTargetSearch(sourceId: string): string {
+  return sourceTargetSearch[sourceId] || '';
+}
+
+function setSourceTargetSearch(sourceId: string, next: string): void {
+  sourceTargetSearch[sourceId] = next;
+}
+
+function getFilteredSourceTargetOptions(sourceId: string): KomentoSourceTargetOption[] {
+  const options = props.getSourceTargetOptions(sourceId);
+  const query = getSourceTargetSearch(sourceId).trim().toLowerCase();
+  if (!query) {
+    return options;
+  }
+
+  return options.filter((target) => {
+    if (target.targetId.toLowerCase().includes(query)) {
+      return true;
+    }
+    return target.origins.some((origin) => origin.toLowerCase().includes(query));
+  });
+}
 </script>
 
 <template>
@@ -90,26 +130,8 @@ const props = defineProps<{
     <div class="rounded-xl bg-white/5 px-4 py-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
       <div class="flex items-center justify-between gap-3">
         <div class="flex-1">
-          <p class="text-sm text-white/80">Use synced mappings</p>
-          <p class="text-xs text-white/60">Apply KomentoScript placement and selector fallback when no local custom mapping exists.</p>
-        </div>
-        <label class="relative inline-flex items-center">
-          <input
-            type="checkbox"
-            class="peer sr-only"
-            :checked="komentoUseSyncedMappings"
-            @change="(e) => onSaveToggle('useSynced', (e.target as HTMLInputElement).checked)"
-          />
-          <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-        </label>
-      </div>
-    </div>
-
-    <div class="rounded-xl bg-white/5 px-4 py-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
-      <div class="flex items-center justify-between gap-3">
-        <div class="flex-1">
           <p class="text-sm text-white/80">Weekly auto-sync</p>
-          <p class="text-xs text-white/60">Background alarm syncs enabled KomentoScript sources every 7 days.</p>
+          <p class="text-xs text-white/60">Background syncs enabled KomentoScript sources every 7 days.</p>
         </div>
         <label class="relative inline-flex items-center">
           <input
@@ -145,48 +167,37 @@ const props = defineProps<{
     <div class="rounded-xl bg-white/5 px-4 py-3 space-y-3" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
       <div class="flex items-center justify-between gap-3">
         <p class="text-sm text-white/80">Sources</p>
-        <button
-          class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15"
-          @click="onResetSourceDraft"
-        >
-          New source
-        </button>
+        <div class="flex items-center gap-2">
+          <input
+            ref="importKomentoScriptsInput"
+            type="file"
+            accept="application/json,.json"
+            class="hidden"
+            @change="onImportKomentoScriptsFileChange"
+          />
+          <button
+            class="rounded-full bg-cyan-500/20 px-3 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/30"
+            @click="triggerKomentoScriptsImport"
+          >
+            Import file
+          </button>
+          <button
+            class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15"
+            @click="onOpenSourceDraft"
+          >
+            New source
+          </button>
+        </div>
       </div>
 
-      <div class="rounded-lg bg-black/15 p-3 space-y-2">
+      <div v-if="komentoSourceEditorOpen" class="rounded-lg bg-black/15 p-3 space-y-2">
         <p class="text-xs font-semibold text-white/80">{{ komentoSourceFormTitle }}</p>
-        <input
-          v-model="komentoSourceDraft.id"
-          type="text"
-          placeholder="Source ID (e.g. hayami-official)"
-          class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
-        />
         <input
           v-model="komentoSourceDraft.url"
           type="url"
           placeholder="https://example.com/komentoscript.json"
           class="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
         />
-        <div class="grid grid-cols-2 gap-2">
-          <select
-            v-model="komentoSourceDraft.type"
-            class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white"
-          >
-            <option value="hayami-official" class="bg-[#1f2329]">hayami-official</option>
-            <option value="third-party" class="bg-[#1f2329]">third-party</option>
-            <option value="local" class="bg-[#1f2329]">local</option>
-          </select>
-          <input
-            v-model.number="komentoSourceDraft.priority"
-            type="number"
-            placeholder="Priority"
-            class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
-          />
-        </div>
-        <label class="flex items-center gap-2 text-xs text-white/70">
-          <input v-model="komentoSourceDraft.enabled" type="checkbox" />
-          Enabled
-        </label>
         <div class="flex items-center gap-2">
           <button
             class="rounded-full bg-emerald-500/30 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/40"
@@ -195,11 +206,10 @@ const props = defineProps<{
             {{ komentoSourceEditingId ? 'Save source' : 'Add source' }}
           </button>
           <button
-            v-if="komentoSourceEditingId"
             class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/20"
             @click="onResetSourceDraft"
           >
-            Cancel edit
+            {{ komentoSourceEditingId ? 'Cancel edit' : 'Cancel' }}
           </button>
         </div>
       </div>
@@ -207,42 +217,19 @@ const props = defineProps<{
       <div v-if="komentoSourcesSorted.length === 0" class="text-xs text-white/60">No sources configured.</div>
       <div v-else class="space-y-2">
         <div
-          v-for="(source, sourceIndex) in komentoSourcesSorted"
+          v-for="source in komentoSourcesSorted"
           :key="source.id"
           class="rounded-lg bg-black/15 px-3 py-2"
         >
           <div class="flex items-center justify-between gap-3">
             <div class="min-w-0 flex-1">
-              <div class="truncate text-xs font-semibold text-white/90">{{ source.id }} <span class="text-white/50">({{ source.type }})</span></div>
+              <div class="truncate text-xs font-semibold text-white/90">{{ source.id }}</div>
               <div class="truncate text-xs text-white/60">{{ source.url }}</div>
-              <div class="text-[11px] text-white/50">Priority: {{ source.priority || 0 }}</div>
+              <div class="text-[11px]" :class="source.enabled ? 'text-emerald-200/80' : 'text-amber-200/80'">
+                {{ source.enabled ? 'Enabled' : 'Disabled until website targets are selected' }}
+              </div>
             </div>
             <div class="flex items-center gap-2">
-              <button
-                class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
-                :disabled="sourceIndex === 0"
-                @click="onMoveSource(source.id, -1)"
-                title="Move up"
-              >
-                ↑
-              </button>
-              <button
-                class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20 disabled:opacity-50"
-                :disabled="sourceIndex === komentoSourcesSorted.length - 1"
-                @click="onMoveSource(source.id, 1)"
-                title="Move down"
-              >
-                ↓
-              </button>
-              <label class="relative inline-flex items-center">
-                <input
-                  type="checkbox"
-                  class="peer sr-only"
-                  :checked="Boolean(source.enabled)"
-                  @change="(e) => onToggleSource(source.id, (e.target as HTMLInputElement).checked)"
-                />
-                <div class="peer h-5 w-9 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-3 after:w-3 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-4"></div>
-              </label>
               <button
                 class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20"
                 @click="onEditSource(source)"
@@ -267,6 +254,63 @@ const props = defineProps<{
             </button>
 
             <div v-if="isSourceExpanded(source.id)" class="mt-2 space-y-2">
+              <div class="rounded-lg bg-white/10 px-3 py-2">
+                <div class="mb-2 flex items-center justify-between gap-2">
+                  <p class="text-xs font-semibold text-white/80">Target rules</p>
+                  <div class="flex items-center gap-2">
+                    <button
+                      class="rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
+                      @click="onSetSourceTargetSelectionMode(source.id, 'all')"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      class="rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white hover:bg-white/20"
+                      @click="onSetSourceTargetSelectionMode(source.id, 'none')"
+                    >
+                      Deselect all
+                    </button>
+                  </div>
+                </div>
+
+                <input
+                  :value="getSourceTargetSearch(source.id)"
+                  type="text"
+                  placeholder="Search websites by target or origin"
+                  class="mb-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-white/40"
+                  @input="(e) => setSourceTargetSearch(source.id, (e.target as HTMLInputElement).value)"
+                />
+
+                <div v-if="getSourceTargetOptions(source.id).length === 0" class="text-xs text-white/60">
+                  No target rules found in cached packs for this source.
+                </div>
+
+                <div v-else-if="getFilteredSourceTargetOptions(source.id).length === 0" class="text-xs text-white/60">
+                  No websites match your search.
+                </div>
+
+                <div v-else class="space-y-2">
+                  <label
+                    v-for="target in getFilteredSourceTargetOptions(source.id)"
+                    :key="`${source.id}-${target.targetId}`"
+                    class="flex items-start gap-2 rounded-md bg-black/20 px-2 py-2"
+                  >
+                    <input
+                      type="checkbox"
+                      class="mt-0.5"
+                      :checked="isSourceTargetEnabled(source.id, target.targetId)"
+                      @change="(e) => onToggleSourceTarget(source.id, target.targetId, (e.target as HTMLInputElement).checked)"
+                    />
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-xs font-semibold text-white/90">{{ target.targetId }}</span>
+                      <span class="block truncate text-[11px] text-white/60">
+                        {{ target.origins.length ? target.origins.join(', ') : 'No origins' }}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
               <div
                 v-if="getMappedOrigins(source.id).length === 0"
                 class="text-xs text-white/60"
@@ -298,9 +342,17 @@ const props = defineProps<{
     </div>
 
     <div class="rounded-xl bg-white/5 px-4 py-3 space-y-2" :class="!komentoSyncEnabled ? 'opacity-50 pointer-events-none' : ''">
-      <p class="text-sm text-white/80">Recent sync history</p>
-      <div v-if="komentoRecentHistory.length === 0" class="text-xs text-white/60">No sync history yet.</div>
-      <div v-else class="space-y-2">
+      <div class="flex items-center justify-between gap-3">
+        <p class="text-sm text-white/80">Recent sync history</p>
+        <button
+          class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/20"
+          @click="syncHistoryExpanded = !syncHistoryExpanded"
+        >
+          {{ syncHistoryExpanded ? 'Hide' : `Show (${komentoRecentHistory.length})` }}
+        </button>
+      </div>
+      <div v-if="syncHistoryExpanded && komentoRecentHistory.length === 0" class="text-xs text-white/60">No sync history yet.</div>
+      <div v-else-if="syncHistoryExpanded" class="space-y-2">
         <div
           v-for="entry in komentoRecentHistory"
           :key="`${entry.at}-${entry.reason}`"
@@ -318,6 +370,7 @@ const props = defineProps<{
           <div v-if="entry.firstError" class="mt-1 text-[11px] text-rose-200/90 break-all">{{ entry.firstError }}</div>
         </div>
       </div>
+      <p v-else class="text-xs text-white/60">Collapsed by default. Expand to view recent syncs.</p>
     </div>
   </div>
 </template>

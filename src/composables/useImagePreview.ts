@@ -496,6 +496,17 @@ export function useImagePreview() {
     displayGalleryImage(nextIndex, 'keyboard');
   }
 
+  function isVideoPreviewVisible(): boolean {
+    return Boolean(videoPreviewEl && videoPreviewEl.style.display !== 'none' && imgPreviewHost?.style.display !== 'none');
+  }
+
+  function setVideoMuted(muted: boolean): boolean {
+    if (!videoPreviewEl || !isVideoPreviewVisible()) return false;
+    videoPreviewEl.muted = muted;
+    videoPreviewEl.defaultMuted = muted;
+    return true;
+  }
+
   function loadSingleImage(href: string): void {
     if (!imgPreviewEl || !videoPreviewEl || !imgPreviewHost) return;
     galleryImages = null;
@@ -534,6 +545,8 @@ export function useImagePreview() {
     loadSingleImage,
     setupImageLoadHandlers,
     navigateGallery,
+    isVideoPreviewVisible,
+    setVideoMuted,
     triggerGalleryPrefetch,
     cleanup,
     focusHost: () => { try { imgPreviewHost?.focus({ preventScroll: true }); } catch {} },

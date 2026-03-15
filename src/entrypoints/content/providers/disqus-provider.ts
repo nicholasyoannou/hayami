@@ -170,6 +170,57 @@ function entryEpisodeCount(entry: any): number {
   return Object.keys(entry.episodes).length;
 }
 
+function mergeEpisodeMaps(...episodeSources: Array<Record<string, string> | null | undefined>): Record<string, string> {
+  const merged: Record<string, string> = {};
+  for (const source of episodeSources) {
+    if (!source || typeof source !== 'object') continue;
+    for (const [key, value] of Object.entries(source)) {
+      if (typeof value !== 'string' || !value) continue;
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+function disqusEntryIdentity(entry: any): string {
+  const name = normalizeMapperText(entry?.anime_name || entry?.title || entry?.name || '');
+  const year = String(entry?.year ?? '').trim();
+  const mal = asNumber(entry?.external_sites?.mal_id);
+  const anilist = asNumber(entry?.external_sites?.anilist_id);
+  return `${name}::${year}::mal:${mal ?? 'x'}::anilist:${anilist ?? 'x'}`;
+}
+
+function collapseDuplicateDisqusEntries(results: any[]): any[] {
+  if (!Array.isArray(results) || results.length <= 1) return Array.isArray(results) ? results : [];
+
+  const byIdentity = new Map<string, any>();
+
+  for (const rawEntry of results) {
+    if (!rawEntry || typeof rawEntry !== 'object') continue;
+    const key = disqusEntryIdentity(rawEntry);
+    const existing = byIdentity.get(key);
+
+    if (!existing) {
+      byIdentity.set(key, {
+        ...rawEntry,
+        episodes: mergeEpisodeMaps(rawEntry?.episodes as Record<string, string> | undefined),
+      });
+      continue;
+    }
+
+    const existingTs = Date.parse(String(existing?.last_updated || ''));
+    const candidateTs = Date.parse(String(rawEntry?.last_updated || ''));
+    const preferIncomingMeta = Number.isFinite(candidateTs) && (!Number.isFinite(existingTs) || candidateTs > existingTs);
+
+    byIdentity.set(key, {
+      ...(preferIncomingMeta ? rawEntry : existing),
+      episodes: mergeEpisodeMaps(existing?.episodes, rawEntry?.episodes),
+    });
+  }
+
+  return [...byIdentity.values()];
+}
+
 function entryHasEpisode(entry: any, epNum: number): boolean {
   if (!entry?.episodes || typeof entry.episodes !== 'object') return false;
   return !!(entry.episodes[String(epNum)] || entry.episodes[epNum]);
@@ -216,7 +267,15 @@ function scoreDisqusMapperEntry(entry: any, animeInfo: AnimeInfo, epNum: number)
 }
 
 function rankDisqusMapperEntries(results: any[], animeInfo: AnimeInfo, epNum: number): any[] {
-  const ranked = results
+  const collapsed = collapseDuplicateDisqusEntries(results);
+  if (collapsed.length !== results.length) {
+    console.log('[DisqusProvider][series-mapper] collapsed duplicate mapper entries', {
+      originalCount: results.length,
+      collapsedCount: collapsed.length,
+    });
+  }
+
+  const ranked = collapsed
     .map((entry, idx) => ({ entry, idx, score: scoreDisqusMapperEntry(entry, animeInfo, epNum) }))
     .sort((a, b) => b.score - a.score || b.idx - a.idx);
 
