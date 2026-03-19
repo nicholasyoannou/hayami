@@ -65,7 +65,8 @@ function waitForDisqusLoad(callback: () => void): void {
   }
 
   let checkCount = 0;
-  const maxChecks = 20;
+  // Disqus can take several seconds before injecting the iframe on slower pages.
+  const maxChecks = 120;
 
   // Use MutationObserver to detect when Disqus content appears
   const observer = new MutationObserver(() => {
@@ -101,7 +102,7 @@ function waitForDisqusLoad(callback: () => void): void {
     clearInterval(intervalId);
     observer.disconnect();
     callback();
-  }, 1500);
+  }, 12000);
 }
 
 /**
@@ -487,7 +488,6 @@ export class DisqusProvider extends BaseProvider {
         animeInfo,
         clearLoadingState
       );
-      clearLoadingState('Disqus cache restore complete');
       return;
       }
     }
@@ -574,7 +574,6 @@ export class DisqusProvider extends BaseProvider {
           DISQUS_CONTAINER_RETRY_DELAY_MS
         );
         await renderDisqusThread(thread, container, animeInfo, clearLoadingState);
-        clearLoadingState('Disqus render complete');
       } else {
         // No Disqus thread found, show search UI
         const fallbackContainer = await this.getContainerWithRetry(
@@ -620,7 +619,6 @@ export class DisqusProvider extends BaseProvider {
 
                 discussionCache.disqus = { thread: selectedThread, animeKey: cacheKey || undefined };
                 await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
-                clearLoadingState('Disqus manual selection render complete');
                 return;
               }
             } catch (e) {
@@ -639,8 +637,6 @@ export class DisqusProvider extends BaseProvider {
       throw error;
     }
 
-    // Safety: ensure loading is cleared even if no branch returned above
-    clearLoadingState('Disqus switch complete');
   }
 
   cleanup(): void {

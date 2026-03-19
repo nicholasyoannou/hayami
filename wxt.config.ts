@@ -91,13 +91,6 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    browser_specific_settings: {
-      gecko: {
-        data_collection_permissions: {
-          required: ['none'],
-        },
-      },
-    },
     version: '0.0.83',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.

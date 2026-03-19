@@ -17,6 +17,7 @@ import { extensionFetch } from '@/utils/redditApi';
 import { getAccessToken, makeRedditRequest } from '@/utils/redditAuth';
 import { fetchHayami } from '@/utils/hayamiApi';
 import {
+  parseEpisodeFromTitle,
   parseMapperYear,
   getEpisodeAirYear,
   isSequelTitle,
@@ -275,6 +276,64 @@ export function extractEpisodeIdFromUrl(): string | null {
     return match ? match[1] : null;
   } catch (error) {
     console.error('Error extracting episode ID from URL:', error);
+    return null;
+  }
+}
+
+function parseEpisodeNumberFromHint(value: string | null | undefined): number | null {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) return null;
+  if (!/^\d{1,4}$/u.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/**
+ * Extract episode number hints from non-Crunchyroll URLs.
+ * Supports query/hash params like ?ep=3 or #ep=3 and path fragments like /episode-3.
+ */
+export function extractEpisodeNumberFromUrlHints(locationLike: Location = window.location): number | null {
+  try {
+    const searchParams = new URLSearchParams(locationLike.search || '');
+    for (const key of ['ep', 'episode', 'e', 'episodeNumber']) {
+      const fromSearch = parseEpisodeNumberFromHint(searchParams.get(key));
+      if (fromSearch !== null) {
+        return fromSearch;
+      }
+    }
+
+    const rawHash = (locationLike.hash || '').replace(/^#/, '');
+    if (rawHash) {
+      const hashAsQuery = rawHash.startsWith('?') ? rawHash.slice(1) : rawHash;
+      const hashParams = new URLSearchParams(hashAsQuery);
+      for (const key of ['ep', 'episode', 'e', 'episodeNumber']) {
+        const fromHashParam = parseEpisodeNumberFromHint(hashParams.get(key));
+        if (fromHashParam !== null) {
+          return fromHashParam;
+        }
+      }
+
+      const hashPatternMatch = rawHash.match(/(?:^|[^a-z0-9])(?:ep|episode|e)\s*[:=\/-]\s*(\d{1,4})(?:$|[^a-z0-9])/i);
+      if (hashPatternMatch?.[1]) {
+        const fromHashPattern = parseEpisodeNumberFromHint(hashPatternMatch[1]);
+        if (fromHashPattern !== null) {
+          return fromHashPattern;
+        }
+      }
+    }
+
+    const pathname = String(locationLike.pathname || '');
+    const pathPatternMatch = pathname.match(/\/(?:ep|episode)[\/-]?(\d{1,4})(?:\b|\/|$)/i);
+    if (pathPatternMatch?.[1]) {
+      const fromPath = parseEpisodeNumberFromHint(pathPatternMatch[1]);
+      if (fromPath !== null) {
+        return fromPath;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('[Episode Detection] Error extracting episode number from URL hints:', error);
     return null;
   }
 }
@@ -1148,50 +1207,73 @@ export async function tryMapperFailover(
     // If we are not on a Crunchyroll watch URL (e.g., animepahe), skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.
     const extractEpisodeFromInfo = (): number | null => {
-      const candidates: string[] = [];
-      if (animeInfo?.episodeName) candidates.push(animeInfo.episodeName);
-      if (animeInfo?.animeName) candidates.push(animeInfo.animeName);
-      if (typeof document !== 'undefined') {
-        if (document.title) candidates.push(document.title);
-        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
-        if (ogTitle) candidates.push(ogTitle);
-        const metaTitle = document.querySelector('meta[name="title"]')?.getAttribute('content');
-        if (metaTitle) candidates.push(metaTitle);
-        const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content');
-        if (metaDesc) candidates.push(metaDesc);
-        const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content');
-        if (ogDesc) candidates.push(ogDesc);
-        const h1 = document.querySelector('h1')?.textContent?.trim();
-        if (h1) candidates.push(h1);
-        const h2 = document.querySelector('h2')?.textContent?.trim();
-        if (h2) candidates.push(h2);
-        const dataEpisode = (document.querySelector('[data-episode]') as HTMLElement | null)?.getAttribute('data-episode');
-        if (dataEpisode) candidates.push(dataEpisode);
-        const dataEpisodeNumber = (document.querySelector('[data-episode-number]') as HTMLElement | null)?.getAttribute('data-episode-number');
-        if (dataEpisodeNumber) candidates.push(dataEpisodeNumber);
-        const itempropEpisode = document.querySelector('[itemprop="episodeNumber"]')?.getAttribute('content')
-          || document.querySelector('[itemprop="episodeNumber"]')?.textContent?.trim();
-        if (itempropEpisode) candidates.push(itempropEpisode);
+      const parseLooseNumeric = (value: string | null | undefined): number | null => {
+        const trimmed = String(value || '').trim();
+        if (!trimmed) return null;
+        if (!/^\d{1,4}$/u.test(trimmed)) return null;
+        const parsed = Number.parseInt(trimmed, 10);
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+
+      const explicitEpisodeFromInfo = parseEpisodeFromTitle(animeInfo?.episodeName)
+        ?? parseLooseNumeric(animeInfo?.episodeName);
+      if (explicitEpisodeFromInfo !== null) {
+        console.log('[Episode Detection] extractEpisodeFromInfo explicit match:', {
+          episodeName: animeInfo?.episodeName,
+          explicitEpisodeFromInfo,
+        });
+        return explicitEpisodeFromInfo;
       }
 
-      const patterns = [
-        /Episode\s*(\d+)/i,
-        /Ep\.?\s*(\d+)/i,
-        /E\s*(\d+)/i,
+      const episodeScopedCandidates: string[] = [];
+      const genericCandidates: string[] = [];
+      if (animeInfo?.episodeName) episodeScopedCandidates.push(animeInfo.episodeName);
+      if (animeInfo?.animeName) genericCandidates.push(animeInfo.animeName);
+      if (typeof document !== 'undefined') {
+        if (document.title) genericCandidates.push(document.title);
+        const ogTitle = document.querySelector('meta[property="og:title"]')?.getAttribute('content');
+        if (ogTitle) genericCandidates.push(ogTitle);
+        const metaTitle = document.querySelector('meta[name="title"]')?.getAttribute('content');
+        if (metaTitle) genericCandidates.push(metaTitle);
+        const metaDesc = document.querySelector('meta[name="description"]')?.getAttribute('content');
+        if (metaDesc) genericCandidates.push(metaDesc);
+        const ogDesc = document.querySelector('meta[property="og:description"]')?.getAttribute('content');
+        if (ogDesc) genericCandidates.push(ogDesc);
+        const h1 = document.querySelector('h1')?.textContent?.trim();
+        if (h1) genericCandidates.push(h1);
+        const h2 = document.querySelector('h2')?.textContent?.trim();
+        if (h2) genericCandidates.push(h2);
+        const dataEpisode = (document.querySelector('[data-episode]') as HTMLElement | null)?.getAttribute('data-episode');
+        if (dataEpisode) episodeScopedCandidates.push(dataEpisode);
+        const dataEpisodeNumber = (document.querySelector('[data-episode-number]') as HTMLElement | null)?.getAttribute('data-episode-number');
+        if (dataEpisodeNumber) episodeScopedCandidates.push(dataEpisodeNumber);
+        const itempropEpisode = document.querySelector('[itemprop="episodeNumber"]')?.getAttribute('content')
+          || document.querySelector('[itemprop="episodeNumber"]')?.textContent?.trim();
+        if (itempropEpisode) episodeScopedCandidates.push(itempropEpisode);
+      }
+
+      const strictPatterns = [
+        /Episode\s*[:#\-]?\s*(\d+)/i,
+        /Ep\.?\s*[:#\-]?\s*(\d+)/i,
+        /E\s*[:#\-]?\s*(\d+)/i,
         /#(\d+)/,
-        /(\d+)/,
       ];
 
       const hits: number[] = [];
-      for (const source of candidates) {
+      for (const source of [...episodeScopedCandidates, ...genericCandidates]) {
         if (!source) continue;
-        for (const p of patterns) {
+        for (const p of strictPatterns) {
           const m = source.match(p);
           if (m && m[1]) {
             const n = Number.parseInt(m[1], 10);
             if (Number.isFinite(n)) hits.push(n);
           }
         }
+      }
+
+      for (const source of episodeScopedCandidates) {
+        const loose = parseLooseNumeric(source);
+        if (loose !== null) hits.push(loose);
       }
 
       if (hits.length === 0) return null;
@@ -1205,7 +1287,12 @@ export async function tryMapperFailover(
           bestCount = count;
         }
       }
-      console.log('[Episode Detection] extractEpisodeFromInfo result:', { candidates, hits, best });
+      console.log('[Episode Detection] extractEpisodeFromInfo result:', {
+        episodeScopedCandidates,
+        genericCandidates,
+        hits,
+        best,
+      });
       return best;
     };
 
@@ -1224,9 +1311,11 @@ export async function tryMapperFailover(
         });
       }
       console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
+      const episodeFromUrlHints = extractEpisodeNumberFromUrlHints();
       const extractedEpisode = extractEpisodeFromInfo();
-      const episodeFromInfo = overrideEpisode ?? extractedEpisode;
+      const episodeFromInfo = overrideEpisode ?? episodeFromUrlHints ?? extractedEpisode;
       console.log('[Episode Detection] Episode extracted from info for mapping:', {
+        episodeFromUrlHints,
         extractedEpisode,
         overrideEpisode,
         episodeFromInfo,

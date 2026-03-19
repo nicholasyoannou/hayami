@@ -11,10 +11,32 @@ export interface OrderedMapperEntry {
 
 export function parseEpisodeFromTitle(title: unknown): number | null {
   if (typeof title !== 'string') return null;
+  const trimmed = title.trim();
+  if (!trimmed) return null;
+
+  // Common case for manual mapper selectors that point to a compact episode number node.
+  if (/^\d{1,4}$/u.test(trimmed)) {
+    const numeric = Number.parseInt(trimmed, 10);
+    if (Number.isFinite(numeric)) {
+      console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: numeric });
+      return numeric;
+    }
+  }
+
+  // Some sites expose episode labels like: "10 <title>" without an "Episode" prefix.
+  const leadingNumericMatch = trimmed.match(/^(\d{1,4})(?:\s|$)/u);
+  if (leadingNumericMatch?.[1]) {
+    const leadingNumeric = Number.parseInt(leadingNumericMatch[1], 10);
+    if (Number.isFinite(leadingNumeric)) {
+      console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: leadingNumeric });
+      return leadingNumeric;
+    }
+  }
+
   const patterns = [
-    /\bEpisode\s*(\d+)\b/i,
-    /\bEp\.?\s*(\d+)\b/i,
-    /\bE\s*(\d+)\b/i,
+    /\bEpisode\s*[:#\-]?\s*(\d+)\b/i,
+    /\bEp\.?\s*[:#\-]?\s*(\d+)\b/i,
+    /\bE\s*[:#\-]?\s*(\d+)\b/i,
   ];
 
   let result: number | null = null;
