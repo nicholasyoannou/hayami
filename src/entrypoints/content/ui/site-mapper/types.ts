@@ -1,8 +1,13 @@
 export type DisplayPlacement = 'below' | 'insert' | 'replace' | 'popup' | 'icon';
+export type IconDisplayKind = 'text' | 'icon';
+export type IconDisplayAction = 'popup' | 'replace';
 
 export interface CustomSiteMapping {
   origin: string;
   display: DisplayPlacement;
+  iconDisplayKind?: IconDisplayKind;
+  iconDisplayAction?: IconDisplayAction;
+  iconDisplayText?: string;
   includePathGlobs?: string[];
   excludePathGlobs?: string[];
   anchorSelector: string;

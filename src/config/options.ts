@@ -3,7 +3,6 @@ export const displayModeOptions = [
   { value: 'insert', label: 'Insert inline' },
   { value: 'replace', label: 'Replace element' },
   { value: 'popup', label: 'Popup only' },
-  { value: 'icon', label: 'Icon toggle' },
 ] as const;
 
 export type DisplayModeOption = (typeof displayModeOptions)[number]['value'];

@@ -5,7 +5,7 @@ import type { App as VueApp, Component } from 'vue';
 import { createApp, reactive, h } from 'vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
-import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from '../ui/site-mapper/site-mapper-utils';
+import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping, markPopupInteractionLock } from '../ui/site-mapper/site-mapper-utils';
 import { resolveAdapter } from '../adapters/site-registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { injectExtensionStyles } from '../utils/style-injection';
@@ -73,6 +73,7 @@ class UiManager {
   private popupUi: { remove: () => void; mount: () => void } | null = null;
   private popupShell: PopupShell | null = null;
   private popupCleanupRegistered = false;
+  private mappedTriggerButton: HTMLButtonElement | null = null;
 
   private overlayUi: { remove: () => void; mount: () => void } | null = null;
 
@@ -136,6 +137,7 @@ class UiManager {
       this.inlineUi = inlineUi;
       inlineUi.mount();
       await this.moveInlineToCustomAnchor();
+      await this.ensureMappedTrigger();
       return;
     }
 
@@ -154,6 +156,7 @@ class UiManager {
       app.mount(mountPoint);
       const exposed = resolveExposed(app);
       this.apps.set('popup', { app, exposed, props, mountPoint });
+      await this.ensureMappedTrigger();
       return;
     }
 
@@ -196,6 +199,10 @@ class UiManager {
 
     this.overlayUi = overlayUi;
     overlayUi.mount();
+  }
+
+  async syncMappedTrigger(): Promise<void> {
+    await this.ensureMappedTrigger();
   }
 
   updateProps(mode: UiMode, newProps: Record<string, unknown>): void {
@@ -277,6 +284,7 @@ class UiManager {
         try { this.popupUi.remove(); } catch {}
         this.popupUi = null;
         this.popupShell = null;
+        this.removeMappedTrigger();
       }
       if (targetMode === 'overlay' && this.overlayUi) {
         try { this.overlayUi.remove(); } catch {}
@@ -430,7 +438,8 @@ class UiManager {
           }
         };
 
-        launcher.addEventListener('click', () => setOpen(!isOpen));
+        // Keep launcher click open-only so repeated clicks during loading don't close the popup.
+        launcher.addEventListener('click', () => setOpen(true));
         overlay.addEventListener('click', (ev) => {
           const target = ev.target as HTMLElement | null;
           if (!target) return;
@@ -449,6 +458,8 @@ class UiManager {
         const popupShell: PopupShell = { root, overlay, panel, mount, placeholder, launcher, setOpen };
         this.popupShell = popupShell;
 
+        void this.ensureMappedTrigger();
+
         if (!this.popupCleanupRegistered) {
           this.popupCleanupRegistered = true;
           contentContext.onInvalidated(() => {
@@ -456,6 +467,7 @@ class UiManager {
             try { root.remove(); } catch {}
             this.popupShell = null;
             this.popupUi = null;
+            this.removeMappedTrigger();
             this.popupCleanupRegistered = false;
           });
         }
@@ -482,11 +494,13 @@ class UiManager {
   private async moveInlineToCustomAnchor(): Promise<void> {
     try {
       const anchor = await getCustomMountAnchor();
+      const mapping = getCustomSiteMapping();
       const inlineHost = this.apps.get('inline')?.host ?? null;
       if (!anchor || !inlineHost || anchor === inlineHost || !this.inlineUi) return;
 
       const node = (this.inlineUi as any).root ?? (this.inlineUi as any).container ?? inlineHost;
-      if (getCustomSiteMapping()?.display === 'replace') {
+      const iconReplaceMode = mapping?.display === 'icon' && mapping.iconDisplayAction === 'replace';
+      if (mapping?.display === 'replace') {
         if (!(node as any).__hayamiReplacedOriginal) {
           const placeholder = document.createElement('div');
           placeholder.style.minHeight = `${anchor.getBoundingClientRect().height || 1}px`;
@@ -494,11 +508,172 @@ class UiManager {
           (node as any).__hayamiReplacedOriginal = anchor;
           placeholder.appendChild(node);
         }
+      } else if (iconReplaceMode) {
+        if (anchor.parentElement) {
+          anchor.parentElement.insertBefore(node, anchor.nextSibling);
+        } else {
+          anchor.appendChild(node);
+        }
+        node.style.display = 'none';
+        node.dataset.hayamiIconReplaceActive = 'false';
       } else {
         anchor.appendChild(node);
       }
+
+      await this.ensureMappedTrigger();
     } catch (err) {
       console.warn('UiManager: failed to move inline to custom anchor', err);
+    }
+  }
+
+  private getInlineNode(): HTMLElement | null {
+    const inlineHost = this.apps.get('inline')?.host ?? null;
+    return ((this.inlineUi as any)?.root ?? (this.inlineUi as any)?.container ?? inlineHost ?? null) as HTMLElement | null;
+  }
+
+  private resolveMappingElement(selector?: string, xPath?: string): HTMLElement | null {
+    const css = String(selector || '').trim();
+    if (css) {
+      try {
+        const found = document.querySelector(css);
+        if (found instanceof HTMLElement) return found;
+      } catch {}
+    }
+
+    const xpath = String(xPath || '').trim();
+    if (xpath) {
+      try {
+        const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        const node = result.singleNodeValue;
+        if (node instanceof HTMLElement) return node;
+      } catch {}
+    }
+
+    return null;
+  }
+
+  private removeMappedTrigger(): void {
+    if (this.mappedTriggerButton) {
+      try { this.mappedTriggerButton.remove(); } catch {}
+      this.mappedTriggerButton = null;
+    }
+  }
+
+  private async ensureMappedTrigger(): Promise<void> {
+    const mapping = getCustomSiteMapping();
+    const launcher = this.popupShell?.launcher || null;
+
+    if (!mapping || mapping.display !== 'icon') {
+      this.removeMappedTrigger();
+      if (launcher) launcher.style.display = '';
+      return;
+    }
+
+    if (launcher) launcher.style.display = 'none';
+
+    const mountTarget = this.resolveMappingElement(mapping.mountSelector, mapping.mountXPath) || document.body;
+    const action = mapping.iconDisplayAction === 'replace' ? 'replace' : 'popup';
+    const kind = mapping.iconDisplayKind === 'icon' ? 'icon' : 'text';
+    const text = (mapping.iconDisplayText || 'Hayami').trim() || 'Hayami';
+
+    let trigger = this.mappedTriggerButton;
+    if (!trigger) {
+      trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.dataset.hayamiMappedTrigger = 'true';
+      trigger.style.cursor = 'pointer';
+      trigger.style.border = 'none';
+      trigger.style.background = 'transparent';
+      trigger.style.padding = '0 6px';
+      trigger.style.margin = '0';
+      trigger.style.lineHeight = '1';
+      trigger.style.whiteSpace = 'nowrap';
+      trigger.addEventListener('click', async (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const activeMapping = getCustomSiteMapping();
+        const activeAction = activeMapping?.iconDisplayAction === 'replace' ? 'replace' : 'popup';
+
+        if (activeAction === 'popup') {
+          try {
+            markPopupInteractionLock();
+            const shell = this.popupShell || await this.ensurePopupShell();
+            shell.setOpen(true);
+          } catch (error) {
+            console.warn('UiManager: failed to open popup shell from mapped trigger', error);
+          }
+          return;
+        }
+
+        const inlineNode = this.getInlineNode();
+        if (!inlineNode) {
+          return;
+        }
+
+        const current = inlineNode.dataset.hayamiIconReplaceActive === 'true';
+        const commentsTarget = this.resolveMappingElement(activeMapping?.anchorSelector, activeMapping?.anchorXPath);
+        if (!current) {
+          if (commentsTarget) {
+            if (!commentsTarget.dataset.hayamiOriginalDisplay) {
+              commentsTarget.dataset.hayamiOriginalDisplay = commentsTarget.style.display || '';
+            }
+            commentsTarget.style.display = 'none';
+          }
+          inlineNode.style.display = '';
+          inlineNode.dataset.hayamiIconReplaceActive = 'true';
+          if (kind === 'text') {
+            trigger!.textContent = 'Site comments';
+          }
+        } else {
+          if (commentsTarget) {
+            commentsTarget.style.display = commentsTarget.dataset.hayamiOriginalDisplay || '';
+          }
+          inlineNode.style.display = 'none';
+          inlineNode.dataset.hayamiIconReplaceActive = 'false';
+          if (kind === 'text') {
+            trigger!.textContent = text;
+          }
+        }
+      });
+      this.mappedTriggerButton = trigger;
+    }
+
+    const reference = mountTarget.matches('button, a, [role="button"]')
+      ? mountTarget
+      : (mountTarget.querySelector('button, a, [role="button"]') as HTMLElement | null);
+    if (reference) {
+      const style = getComputedStyle(reference);
+      trigger.style.color = style.color;
+      trigger.style.fontSize = style.fontSize;
+      trigger.style.fontWeight = style.fontWeight;
+      trigger.style.fontFamily = style.fontFamily;
+      trigger.style.height = style.height !== 'auto' ? style.height : '';
+      trigger.style.display = 'inline-flex';
+      trigger.style.alignItems = 'center';
+      trigger.style.justifyContent = 'center';
+      trigger.style.borderRadius = style.borderRadius || '8px';
+    }
+
+    if (kind === 'icon') {
+      trigger.textContent = '';
+      trigger.title = action === 'replace' ? 'Toggle Hayami comments' : 'Open Hayami comments';
+      trigger.setAttribute('aria-label', trigger.title);
+      trigger.style.width = trigger.style.height || '30px';
+      trigger.style.minWidth = '26px';
+      trigger.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;display:block;fill:currentColor;"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3.5 7a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Zm4.5 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Zm4.5 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z"/></svg>`;
+    } else {
+      trigger.title = action === 'replace' ? 'Toggle Hayami comments' : 'Open Hayami comments';
+      trigger.setAttribute('aria-label', trigger.title);
+      trigger.textContent = text;
+      trigger.innerHTML = '';
+      trigger.textContent = text;
+    }
+
+    const targetIsAction = mountTarget.matches('button, a, [role="button"], .tab');
+    if (targetIsAction && mountTarget.parentElement) {
+      mountTarget.parentElement.insertBefore(trigger, mountTarget.nextSibling);
+    } else {
+      mountTarget.appendChild(trigger);
     }
   }
 }

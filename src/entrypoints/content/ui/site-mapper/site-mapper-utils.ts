@@ -20,6 +20,28 @@ let customSiteMapping: CustomSiteMapping | null = null;
 let komentoExtractedAnimeInfo: { animeName: string; episodeName: string } | null = null;
 let mapperHotkeyAttached = false;
 let launchButton: HTMLButtonElement | null = null;
+let popupInteractionLockUntil = 0;
+
+function escapeCssIdentifier(value: string): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') {
+      return CSS.escape(raw);
+    }
+  } catch {}
+  return raw.replace(/[^a-zA-Z0-9_-]/g, (ch) => `\\${ch}`);
+}
+
+function safeQuerySelector(selector: string | undefined | null): Element | null {
+  const sel = String(selector || '').trim();
+  if (!sel) return null;
+  try {
+    return document.querySelector(sel);
+  } catch {
+    return null;
+  }
+}
 
 function globToRegex(glob: string): RegExp {
   const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
@@ -146,9 +168,13 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
             switch (String(op)) {
               case 'querySelector': {
                 const sel = String(args[0] || '');
-                current = current && typeof current.querySelector === 'function'
-                  ? current.querySelector(sel)
-                  : document.querySelector(sel);
+                try {
+                  current = current && typeof current.querySelector === 'function'
+                    ? current.querySelector(sel)
+                    : safeQuerySelector(sel);
+                } catch {
+                  current = null;
+                }
                 break;
               }
               case 'text': {
@@ -193,7 +219,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
           const selector = typeof (field as any).selector === 'string' ? (field as any).selector.trim() : '';
           const xPath = typeof (field as any).xPath === 'string' ? (field as any).xPath.trim() : '';
           const attr = typeof (field as any).attr === 'string' ? (field as any).attr : 'text';
-          const el = selector ? document.querySelector(selector) : selectByXPath(xPath);
+          const el = selector ? safeQuerySelector(selector) : selectByXPath(xPath);
           const value = elementText(el, attr);
           return value || null;
         };
@@ -239,9 +265,11 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
 
 export async function getCustomMountAnchor(retries = 6, delayMs = 250): Promise<HTMLElement | null> {
   if (!customSiteMapping) return null;
-      const primary = (customSiteMapping.display === 'below' || customSiteMapping.display === 'replace') && customSiteMapping.anchorSelector
-        ? customSiteMapping.anchorSelector
-        : customSiteMapping.mountSelector;
+  const iconReplaceMode = customSiteMapping.display === 'icon' && customSiteMapping.iconDisplayAction === 'replace';
+  const prefersAnchor = customSiteMapping.display === 'below' || customSiteMapping.display === 'replace' || iconReplaceMode;
+  const primary = prefersAnchor && customSiteMapping.anchorSelector
+    ? customSiteMapping.anchorSelector
+    : customSiteMapping.mountSelector;
 
   if (!primary) return document.body;
 
@@ -257,12 +285,12 @@ export async function getCustomMountAnchor(retries = 6, delayMs = 250): Promise<
   };
 
   const relaxedFind = (sel: string): HTMLElement | null => {
-    const direct = document.querySelector(sel) as HTMLElement | null;
+    const direct = safeQuerySelector(sel) as HTMLElement | null;
     if (direct) return direct;
     const parts = sel.split('>').map((p) => p.trim()).filter(Boolean);
     for (let i = parts.length - 1; i >= 0; i--) {
       const sub = parts.slice(i).join(' > ');
-      const candidate = document.querySelector(sub) as HTMLElement | null;
+      const candidate = safeQuerySelector(sub) as HTMLElement | null;
       if (candidate) return candidate;
     }
     return null;
@@ -272,7 +300,7 @@ export async function getCustomMountAnchor(retries = 6, delayMs = 250): Promise<
   for (let attempt = 0; attempt < retries; attempt++) {
     found = relaxedFind(primary);
     if (!found && customSiteMapping) {
-      const xpathCandidate = (customSiteMapping.display === 'below' || customSiteMapping.display === 'replace') && customSiteMapping.anchorXPath
+      const xpathCandidate = prefersAnchor && customSiteMapping.anchorXPath
         ? customSiteMapping.anchorXPath
         : customSiteMapping.mountXPath;
       found = evalXPath(xpathCandidate);
@@ -301,10 +329,10 @@ export function getCustomAnimeInfo(): { animeName: string; episodeName: string }
     }
   };
   const titleEl = customSiteMapping.titleSelector
-    ? document.querySelector(customSiteMapping.titleSelector)
+    ? safeQuerySelector(customSiteMapping.titleSelector)
     : evaluateXPath(customSiteMapping.titleXPath);
   const episodeEl = customSiteMapping.episodeSelector
-    ? document.querySelector(customSiteMapping.episodeSelector)
+    ? safeQuerySelector(customSiteMapping.episodeSelector)
     : evaluateXPath(customSiteMapping.episodeXPath);
   const animeName = titleEl?.textContent?.trim();
   const episodeName = episodeEl?.textContent?.trim();
@@ -319,7 +347,7 @@ export function getCustomAnimeInfo(): { animeName: string; episodeName: string }
 
 export function getElementCssSelector(el: Element): string {
   if (!el) return '';
-  if (el.id) return `#${el.id}`;
+  if (el.id) return `#${escapeCssIdentifier(el.id)}`;
   const parts: string[] = [];
   let current: Element | null = el;
   while (current && parts.length < 4) {
@@ -328,7 +356,7 @@ export function getElementCssSelector(el: Element): string {
       ?.split(/\s+/)
       .filter(Boolean)
       .slice(0, 2)
-      .map((c) => `.${c}`)
+      .map((c) => `.${escapeCssIdentifier(c)}`)
       .join('') || '';
     const sibs = current.parentElement ? Array.from(current.parentElement.children).filter((c) => c.nodeName === current!.nodeName) : [];
     const nth = sibs.length > 1 ? `:nth-of-type(${sibs.indexOf(current) + 1})` : '';
@@ -427,4 +455,12 @@ export function isMapperHotkeyAttached(): boolean {
 
 export function setMapperHotkeyAttached(value: boolean): void {
   mapperHotkeyAttached = value;
+}
+
+export function markPopupInteractionLock(durationMs = 5000): void {
+  popupInteractionLockUntil = Date.now() + Math.max(250, durationMs);
+}
+
+export function hasPopupInteractionLock(): boolean {
+  return Date.now() < popupInteractionLockUntil;
 }

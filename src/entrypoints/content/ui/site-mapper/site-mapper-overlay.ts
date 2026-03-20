@@ -1,6 +1,6 @@
 // @ts-ignore Missing types for wxt in this context
 import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
-import type { CustomSiteMapping, DisplayPlacement } from './types';
+import type { CustomSiteMapping, DisplayPlacement, IconDisplayAction, IconDisplayKind } from './types';
 import { CUSTOM_SITE_MAPPINGS_KEY } from './types';
 import {
   setCustomSiteMapping,
@@ -160,17 +160,36 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         <button class="tab" data-placement="insert">Insert inline</button>
         <button class="tab" data-placement="replace">Replace element</button>
         <button class="tab" data-placement="popup">Popup only</button>
+        <button class="tab" data-placement="icon">Icon / Text trigger</button>
+      </div>
+      <div class="row" data-field="iconKindRow">
+        <div class="field" data-field="iconKind" style="grid-column: span 2;">
+          <label>Icon mode style</label>
+          <div class="tab-row" id="iconKindTabs">
+            <button class="tab active" data-icon-kind="text">Text-based</button>
+            <button class="tab" data-icon-kind="icon">Icon-based</button>
+          </div>
+        </div>
+      </div>
+      <div class="row" data-field="iconActionRow">
+        <div class="field" data-field="iconAction" style="grid-column: span 2;">
+          <label>On click behavior</label>
+          <div class="tab-row" id="iconActionTabs">
+            <button class="tab active" data-icon-action="popup">Popup</button>
+            <button class="tab" data-icon-action="replace">Replace</button>
+          </div>
+        </div>
       </div>
       <div class="row">
         <div class="field" data-field="mount">
-          <label>Mount selector <span class="hint">Where comments should appear or icon should sit</span></label>
+          <label id="mountLabel">Mount selector <span class="hint">Where comments should appear or icon should sit</span></label>
           <div style="display:flex; gap:8px; align-items:center;">
             <input id="mountSelector" type="text" placeholder="CSS selector" />
             <button class="pick" data-target="mount">Pick</button>
           </div>
         </div>
         <div class="field" data-field="anchor">
-          <label>Display target selector <span class="hint">Element to anchor below/replace</span></label>
+          <label id="anchorLabel">Display target selector <span class="hint">Element to anchor below/replace</span></label>
           <div style="display:flex; gap:8px; align-items:center;">
             <input id="anchorSelector" type="text" placeholder="CSS selector" />
             <button class="pick" data-target="anchor">Pick</button>
@@ -191,6 +210,12 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
             <input id="episodeSelector" type="text" placeholder="CSS selector" />
             <button class="pick" data-target="episode">Pick</button>
           </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field" data-field="iconText" style="grid-column: span 2;">
+          <label>Text label <span class="hint">Shown when text-based icon mode is selected</span></label>
+          <input id="iconDisplayText" type="text" placeholder="Hayami" />
         </div>
       </div>
       <div class="row">
@@ -223,18 +248,29 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const episodeInput = shadow.getElementById('episodeSelector') as HTMLInputElement;
     const paddingInput = shadow.getElementById('sidePadding') as HTMLInputElement | null;
     const placementTabs = shadow.getElementById('placementTabs') as HTMLElement | null;
+    const iconKindTabs = shadow.getElementById('iconKindTabs') as HTMLElement | null;
+    const iconActionTabs = shadow.getElementById('iconActionTabs') as HTMLElement | null;
     const extractionPreview = shadow.getElementById('extractionPreview') as HTMLElement | null;
     const previewHint = shadow.getElementById('previewHint') as HTMLElement | null;
     const previewBtn = shadow.getElementById('previewExtraction') as HTMLButtonElement | null;
     const resetOverridesBtn = shadow.getElementById('resetOverrides') as HTMLButtonElement | null;
+    const iconDisplayTextInput = shadow.getElementById('iconDisplayText') as HTMLInputElement | null;
+    const mountLabel = shadow.getElementById('mountLabel') as HTMLElement | null;
+    const anchorLabel = shadow.getElementById('anchorLabel') as HTMLElement | null;
 
     const fieldGroups: Record<string, HTMLElement | null> = {
       mount: shadow.querySelector('[data-field="mount"]') as HTMLElement | null,
       anchor: shadow.querySelector('[data-field="anchor"]') as HTMLElement | null,
       title: shadow.querySelector('[data-field="title"]') as HTMLElement | null,
       episode: shadow.querySelector('[data-field="episode"]') as HTMLElement | null,
+      iconKind: shadow.querySelector('[data-field="iconKind"]') as HTMLElement | null,
+      iconAction: shadow.querySelector('[data-field="iconAction"]') as HTMLElement | null,
+      iconText: shadow.querySelector('[data-field="iconText"]') as HTMLElement | null,
       padding: shadow.querySelector('[data-field="padding"]') as HTMLElement | null,
     };
+
+    let selectedIconKind: IconDisplayKind = 'text';
+    let selectedIconAction: IconDisplayAction = 'popup';
 
     let currentMapping = getCustomSiteMapping();
     if (currentMapping) {
@@ -243,6 +279,11 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       titleInput.value = currentMapping.titleSelector || '';
       episodeInput.value = currentMapping.episodeSelector || '';
       if (paddingInput) paddingInput.value = (currentMapping.sidePadding ?? '').toString();
+      selectedIconKind = currentMapping.iconDisplayKind === 'icon' ? 'icon' : 'text';
+      selectedIconAction = currentMapping.iconDisplayAction === 'replace' ? 'replace' : 'popup';
+      if (iconDisplayTextInput) {
+        iconDisplayTextInput.value = (currentMapping.iconDisplayText || 'Hayami').trim() || 'Hayami';
+      }
       (mountInput as any)._hayamiXPath = currentMapping.mountXPath || '';
       (anchorInput as any)._hayamiXPath = currentMapping.anchorXPath || '';
       (titleInput as any)._hayamiXPath = currentMapping.titleXPath || '';
@@ -264,20 +305,42 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
 
     const normalizePlacement = (raw: string | undefined | null): DisplayPlacement => {
       if (!raw) return 'below';
-      if (raw === 'inline' || raw === 'icon') return 'below';
-      const allowed: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup'];
+      if (raw === 'inline') return 'below';
+      const allowed: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup', 'icon'];
       return (allowed.includes(raw as DisplayPlacement) ? raw : 'below') as DisplayPlacement;
     };
 
     let selectedPlacement: DisplayPlacement = normalizePlacement(currentMapping?.display);
+
+    if (!iconDisplayTextInput?.value.trim()) {
+      if (iconDisplayTextInput) iconDisplayTextInput.value = 'Hayami';
+    }
 
     const placementFieldVisibility: Record<DisplayPlacement, string[]> = {
       below: ['anchor', 'mount', 'title', 'episode', 'padding'],
       insert: ['mount', 'title', 'episode', 'padding'],
       replace: ['anchor', 'title', 'episode', 'padding'],
       popup: ['title', 'episode'],
-      icon: ['mount', 'title', 'episode', 'padding'],
+      icon: ['mount', 'title', 'episode', 'iconKind', 'iconAction', 'iconText', 'padding'],
     };
+
+    function syncIconKindSelection() {
+      if (!iconKindTabs) return;
+      iconKindTabs.querySelectorAll<HTMLButtonElement>('.tab').forEach((btn) => {
+        const isActive = btn.dataset.iconKind === selectedIconKind;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
+
+    function syncIconActionSelection() {
+      if (!iconActionTabs) return;
+      iconActionTabs.querySelectorAll<HTMLButtonElement>('.tab').forEach((btn) => {
+        const isActive = btn.dataset.iconAction === selectedIconAction;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+      });
+    }
 
     function syncTabSelection() {
       if (!placementTabs) return;
@@ -290,12 +353,36 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
 
     function updateFieldVisibility() {
       const visible = new Set(placementFieldVisibility[selectedPlacement] || []);
+      if (selectedPlacement === 'icon' && selectedIconAction === 'replace') {
+        visible.add('anchor');
+      }
+      if (selectedPlacement === 'icon' && selectedIconKind === 'icon') {
+        visible.delete('iconText');
+      }
       Object.entries(fieldGroups).forEach(([key, el]) => {
         if (!el) return;
         el.classList.toggle('hidden', !visible.has(key));
       });
+
+      if (mountLabel) {
+        mountLabel.innerHTML = selectedPlacement === 'icon'
+          ? 'Trigger selector <span class="hint">Where the Hayami trigger should be inserted</span>'
+          : 'Mount selector <span class="hint">Where comments should appear or icon should sit</span>';
+      }
+      if (anchorLabel) {
+        anchorLabel.innerHTML = selectedPlacement === 'icon'
+          ? 'Initial comments selector <span class="hint">Used for replace mode to toggle site comments</span>'
+          : 'Display target selector <span class="hint">Element to anchor below/replace</span>';
+      }
+
       if (previewHint) {
         const inlineModes: DisplayPlacement[] = ['below', 'insert', 'replace'];
+        if (selectedPlacement === 'icon') {
+          previewHint.textContent = selectedIconAction === 'replace'
+            ? 'Icon/Text replace mode toggles between site comments and Hayami.'
+            : 'Icon/Text popup mode opens Hayami in popup from your selected trigger.';
+          return;
+        }
         previewHint.textContent = inlineModes.includes(selectedPlacement)
           ? 'Preview uses your selectors for extraction.'
           : 'Popup mode uses your extraction selectors for preview only.';
@@ -310,6 +397,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         } catch {}
       }
       syncTabSelection();
+      syncIconKindSelection();
+      syncIconActionSelection();
       updateFieldVisibility();
     })();
 
@@ -319,6 +408,26 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         const nextPlacement = (btn.dataset.placement || 'below') as DisplayPlacement;
         selectedPlacement = nextPlacement;
         syncTabSelection();
+        updateFieldVisibility();
+      });
+    });
+
+    iconKindTabs?.querySelectorAll<HTMLButtonElement>('button[data-icon-kind]').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const next = (btn.dataset.iconKind === 'icon' ? 'icon' : 'text') as IconDisplayKind;
+        selectedIconKind = next;
+        syncIconKindSelection();
+        updateFieldVisibility();
+      });
+    });
+
+    iconActionTabs?.querySelectorAll<HTMLButtonElement>('button[data-icon-action]').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const next = (btn.dataset.iconAction === 'replace' ? 'replace' : 'popup') as IconDisplayAction;
+        selectedIconAction = next;
+        syncIconActionSelection();
         updateFieldVisibility();
       });
     });
@@ -473,12 +582,17 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         titleInput.value = '';
         episodeInput.value = '';
         if (paddingInput) paddingInput.value = '';
+        if (iconDisplayTextInput) iconDisplayTextInput.value = 'Hayami';
         (mountInput as any)._hayamiXPath = '';
         (anchorInput as any)._hayamiXPath = '';
         (titleInput as any)._hayamiXPath = '';
         (episodeInput as any)._hayamiXPath = '';
         selectedPlacement = 'below';
+        selectedIconKind = 'text';
+        selectedIconAction = 'popup';
         syncTabSelection();
+        syncIconKindSelection();
+        syncIconActionSelection();
         updateFieldVisibility();
         runExtractionPreview();
         updateResetButtonVisibility();
@@ -757,6 +871,9 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       const mapping: CustomSiteMapping = {
         origin: location.origin,
         display: placement,
+        iconDisplayKind: selectedIconKind,
+        iconDisplayAction: selectedIconAction,
+        iconDisplayText: (iconDisplayTextInput?.value || '').trim() || 'Hayami',
         includePathGlobs: mergedIncludes,
         excludePathGlobs: sanitizePathGlobs(currentMapping?.excludePathGlobs),
         anchorSelector: anchorInput.value.trim(),

@@ -65,6 +65,8 @@ import {
   getCustomMountAnchor,
   applySidePadding,
   getCustomSiteMapping,
+  hasPopupInteractionLock,
+  loadCustomMappingForOrigin,
 } from '../ui/site-mapper/site-mapper-utils';
 
 // MAL utilities
@@ -75,12 +77,15 @@ import { extractMalIdFromMapperResult, extractSeasonNumber } from '../utils/mal-
 // =============================================================================
 
 const VALID_DISPLAY_MODES = new Set<DisplayMode>(displayModeOptions.map((opt) => opt.value));
-const INLINE_DISPLAY_MODES = new Set<DisplayMode>(['below', 'insert', 'replace', 'icon']);
+const INLINE_DISPLAY_MODES = new Set<DisplayMode>(['below', 'insert', 'replace']);
 const VALID_PROVIDERS = new Set<CommentProvider>(commentProviderOptions.map((opt) => opt.value as CommentProvider));
 const FALLBACK_SUB_ICON = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';
+type EffectiveDisplayMode = DisplayMode | 'icon';
+type RenderIntent = 'inline' | 'popup';
 
 let preferredProvider: CommentProvider = 'reddit';
 let activeUiProvider: CommentProvider | null = null;
+let currentRenderIntent: RenderIntent = 'popup';
 
 type RedditApiModule = typeof import('@/utils/redditApi');
 type RedditRuntimeModule = typeof import('./reddit-runtime');
@@ -171,10 +176,11 @@ function buildPlaceholderDiscussion(animeInfo?: AnimeInfo): any {
   };
 }
 
-function normalizeDisplayMode(mode: unknown): DisplayMode | null {
+function normalizeDisplayMode(mode: unknown): EffectiveDisplayMode | null {
   if (typeof mode === 'string') {
     // Legacy adapter/storage value of "inline" maps to the primary inline placement
     if (mode === 'inline') return 'below';
+    if (mode === 'icon') return 'icon';
     if (VALID_DISPLAY_MODES.has(mode as DisplayMode)) {
       return mode as DisplayMode;
     }
@@ -183,16 +189,23 @@ function normalizeDisplayMode(mode: unknown): DisplayMode | null {
 }
 
 function resolveEffectiveDisplayMode(
-  placement?: DisplayMode | null,
-  adapterMode?: DisplayMode,
-  storedMode?: DisplayMode,
-): DisplayMode {
+  placement?: EffectiveDisplayMode | null,
+  adapterMode?: EffectiveDisplayMode,
+  storedMode?: EffectiveDisplayMode,
+): EffectiveDisplayMode {
   return (
     normalizeDisplayMode(placement) ||
     normalizeDisplayMode(adapterMode) ||
     normalizeDisplayMode(storedMode) ||
     'popup'
   );
+}
+
+function shouldUseInlineMode(effectiveMode: EffectiveDisplayMode): boolean {
+  if (hasPopupInteractionLock()) return false;
+  if (INLINE_DISPLAY_MODES.has(effectiveMode)) return true;
+  if (effectiveMode !== 'icon') return false;
+  return getCustomSiteMapping()?.iconDisplayAction === 'replace';
 }
 
 async function getPreferredProvider(): Promise<CommentProvider> {
@@ -221,8 +234,9 @@ async function getPreferredProvider(): Promise<CommentProvider> {
 function getExternalCommentsContainer(): HTMLElement | null {
   const manager = getUiManager();
   const popupMounted = manager.isMounted('popup');
+  const popupPreferred = popupMounted || currentRenderIntent === 'popup' || hasPopupInteractionLock();
 
-  if (popupMounted) {
+  if (popupPreferred) {
     const popupExposed = manager.getExposed<InlineDiscussionExposed>('popup');
     const popupContainer = popupExposed?.getExternalCommentsElement?.();
     if (popupContainer && popupContainer.isConnected) {
@@ -369,12 +383,13 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     discussionStore.startLoading();
     setLastAnimeInfo(animeInfo);
 
+    await loadCustomMappingForOrigin().catch(() => null);
     const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
     const placement = getCustomSiteMapping()?.display;
     const adapter = resolveAdapter();
     const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
-    const effectiveMode: DisplayMode = resolveEffectiveDisplayMode(placement as DisplayMode | null, adapterMode, storedMode);
-    const isInlineMode = INLINE_DISPLAY_MODES.has(effectiveMode);
+    const effectiveMode: EffectiveDisplayMode = resolveEffectiveDisplayMode(placement as EffectiveDisplayMode | null, adapterMode, storedMode);
+    const isInlineMode = shouldUseInlineMode(effectiveMode);
     const resolvedProvider = options?.forceProvider ?? activeUiProvider ?? (await getPreferredProvider());
     const guardProviders = options?.skipProviderGuard !== true;
     preferredProvider = resolvedProvider;
@@ -768,6 +783,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
   }
 
   const uiManager = getUiManager();
+  uiManager.unmount('inline');
   void uiManager.showPopupPlaceholder('Loading comments…');
 
   let activeProvider: CommentProvider = activeUiProvider ?? preferredProvider;
@@ -875,6 +891,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
       onProviderChange: providerChangeCallback,
       providerContext: buildProviderContext(),
     });
+    await uiManager.syncMappedTrigger();
   } else {
     await uiManager.mount({
       mode: 'popup',
@@ -886,6 +903,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
         providerContext: buildProviderContext(),
       },
     });
+    await uiManager.syncMappedTrigger();
   }
 
   if (activeProvider !== 'reddit') {
@@ -986,6 +1004,10 @@ function waitForDisqusLoad(callback: () => void): void {
 
 function mountLoadingShell(): void {
   try {
+    if (currentRenderIntent === 'popup' || hasPopupInteractionLock()) {
+      return;
+    }
+
     const placeholderDiscussion = {
       id: '',
       title: 'Loading comments...',
@@ -1059,7 +1081,11 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
     const manager = getUiManager();
-    const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
+    const targetMode: 'popup' | 'inline' =
+      manager.isMounted('popup') || currentRenderIntent === 'popup' || hasPopupInteractionLock()
+        ? 'popup'
+        : 'inline';
+    const exposed = manager.getExposed<InlineDiscussionExposed>(targetMode);
     if (exposed?.handleProviderChange) {
       exposed.handleProviderChange('disqus');
       return;
@@ -1085,17 +1111,20 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'd
 
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
   normalizeRedditDiscussion(discussion);
+  await loadCustomMappingForOrigin().catch(() => null);
   const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
   const placement = getCustomSiteMapping()?.display;
   const adapter = resolveAdapter();
   const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
-  const effectiveMode: DisplayMode = resolveEffectiveDisplayMode(placement as DisplayMode | null, adapterMode, storedMode);
+  const effectiveMode: EffectiveDisplayMode = resolveEffectiveDisplayMode(placement as EffectiveDisplayMode | null, adapterMode, storedMode);
 
-  if (INLINE_DISPLAY_MODES.has(effectiveMode)) {
+  if (shouldUseInlineMode(effectiveMode)) {
+    currentRenderIntent = 'inline';
     await displayInlineDiscussion(discussion);
     return;
   }
 
+  currentRenderIntent = 'popup';
   await displayDiscussion(discussion);
 }
 
@@ -1106,6 +1135,29 @@ export async function displayDiscussionDependingOnMode(discussion: any): Promise
 
 async function displayInlineDiscussion(discussion: any): Promise<void> {
   try {
+    await loadCustomMappingForOrigin().catch(() => null);
+    const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
+    const placement = getCustomSiteMapping()?.display;
+    const adapter = resolveAdapter();
+    const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
+    const effectiveMode: EffectiveDisplayMode = resolveEffectiveDisplayMode(
+      placement as EffectiveDisplayMode | null,
+      adapterMode,
+      storedMode,
+    );
+
+    // Guard against async race conditions where a stale inline render call arrives
+    // after the user switched to popup-oriented icon mode.
+    if (!shouldUseInlineMode(effectiveMode)) {
+      currentRenderIntent = 'popup';
+      await displayDiscussion(discussion);
+      return;
+    }
+
+    currentRenderIntent = 'inline';
+
+    const popupManager = getUiManager();
+    popupManager.unmount('popup');
     normalizeRedditDiscussion(discussion);
     const currentState = state();
     const cache = currentState.discussionCache;

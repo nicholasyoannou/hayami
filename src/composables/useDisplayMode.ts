@@ -1,7 +1,7 @@
 import { storage } from '#imports';
 import { type DisplayModeOption } from '@/config/options';
 
-export type DisplayMode = DisplayModeOption;
+export type DisplayMode = DisplayModeOption | 'icon';
 
 /**
  * Display mode preference management using WXT storage

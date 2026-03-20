@@ -1819,6 +1819,9 @@ function sanitizeImportedCustomSiteMapping(input: unknown): CustomSiteMapping | 
   return {
     origin,
     display: normalizedDisplay,
+    iconDisplayKind: raw.iconDisplayKind === 'icon' ? 'icon' : 'text',
+    iconDisplayAction: raw.iconDisplayAction === 'replace' ? 'replace' : 'popup',
+    iconDisplayText: String(raw.iconDisplayText || 'Hayami').trim() || 'Hayami',
     includePathGlobs: sanitizeGlobs(raw.includePathGlobs),
     excludePathGlobs: sanitizeGlobs(raw.excludePathGlobs),
     anchorSelector: String(raw.anchorSelector || ''),
