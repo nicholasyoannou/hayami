@@ -155,67 +155,6 @@ export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
   { fallback: {} }
 );
 
-export type SiteMapperAiProviderOption = 'google-ai-studio' | 'mistral' | 'openrouter' | 'openai-compatible' | 'gemini-nano';
-export type SiteMapperGoogleModelOption = string;
-export type SiteMapperMistralModelOption = string;
-export type SiteMapperOpenRouterModelOption = string;
-export type SiteMapperOpenAICompatibleModelOption = string;
-
-export const siteMapperAiAssistantEnabledItem = storage.defineItem<boolean>(
-  'local:site_mapper_ai_assistant_enabled',
-  { fallback: false }
-);
-
-export const siteMapperAiProviderItem = storage.defineItem<SiteMapperAiProviderOption>(
-  'local:site_mapper_ai_provider',
-  { fallback: 'google-ai-studio' }
-);
-
-export const siteMapperAiGoogleModelItem = storage.defineItem<SiteMapperGoogleModelOption>(
-  'local:site_mapper_ai_google_model',
-  { fallback: 'gemini-flash-latest' }
-);
-
-export const siteMapperAiStudioApiKeyItem = storage.defineItem<string | null>(
-  'local:site_mapper_ai_studio_api_key',
-  { fallback: null }
-);
-
-export const siteMapperAiMistralModelItem = storage.defineItem<SiteMapperMistralModelOption>(
-  'local:site_mapper_ai_mistral_model',
-  { fallback: 'mistral-small-latest' }
-);
-
-export const siteMapperAiMistralApiKeyItem = storage.defineItem<string | null>(
-  'local:site_mapper_ai_mistral_api_key',
-  { fallback: null }
-);
-
-export const siteMapperAiOpenRouterModelItem = storage.defineItem<SiteMapperOpenRouterModelOption>(
-  'local:site_mapper_ai_openrouter_model',
-  { fallback: 'minimax/minimax-m2.5:free' }
-);
-
-export const siteMapperAiOpenRouterApiKeyItem = storage.defineItem<string | null>(
-  'local:site_mapper_ai_openrouter_api_key',
-  { fallback: null }
-);
-
-export const siteMapperAiOpenAIBaseUrlItem = storage.defineItem<string>(
-  'local:site_mapper_ai_openai_base_url',
-  { fallback: 'http://127.0.0.1:11434/v1' }
-);
-
-export const siteMapperAiOpenAIApiKeyItem = storage.defineItem<string | null>(
-  'local:site_mapper_ai_openai_api_key',
-  { fallback: null }
-);
-
-export const siteMapperAiOpenAIModelItem = storage.defineItem<SiteMapperOpenAICompatibleModelOption>(
-  'local:site_mapper_ai_openai_model',
-  { fallback: '' }
-);
-
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
 export const seriesMappingItem = storage.defineItem<
   Record<string, Record<string, Record<string, {

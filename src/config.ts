@@ -106,8 +106,5 @@ export const hostPermissions = [
       'https://www.netflix.com/*',
       'https://api.hayami.moe/*',
       'https://hayami.moe/*',
-      'https://anilist.co/*',
-      'https://generativelanguage.googleapis.com/*',
-      'https://api.mistral.ai/*',
-      'https://openrouter.ai/*'
+      'https://anilist.co/*'
 ];

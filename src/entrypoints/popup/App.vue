@@ -48,26 +48,10 @@ import {
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
-  siteMapperAiAssistantEnabledItem,
-  siteMapperAiProviderItem,
-  siteMapperAiGoogleModelItem,
-  siteMapperAiStudioApiKeyItem,
-  siteMapperAiMistralModelItem,
-  siteMapperAiMistralApiKeyItem,
-  siteMapperAiOpenRouterModelItem,
-  siteMapperAiOpenRouterApiKeyItem,
-  siteMapperAiOpenAIBaseUrlItem,
-  siteMapperAiOpenAIApiKeyItem,
-  siteMapperAiOpenAIModelItem,
   seriesMappingItem,
   type ImgurFrontendOption,
   type ImgurOdsOption,
   type ImgurVideoCdnOption,
-  type SiteMapperAiProviderOption,
-  type SiteMapperGoogleModelOption,
-  type SiteMapperMistralModelOption,
-  type SiteMapperOpenRouterModelOption,
-  type SiteMapperOpenAICompatibleModelOption,
   type ScreenshotDestinationOption,
   type ScreenshotSiteRule,
   type KomentoCachedPackEntry,
@@ -128,17 +112,6 @@ type SettingValueMap = {
   aniwaveAutoExpandAll: boolean;
   aniwaveAutoExpandDepth: number;
   aniwaveHideReplyContext: boolean;
-  siteMapperAiAssistantEnabled: boolean;
-  siteMapperAiProvider: SiteMapperAiProviderOption;
-  siteMapperAiGoogleModel: SiteMapperGoogleModelOption;
-  siteMapperAiStudioApiKey: string;
-  siteMapperAiMistralModel: SiteMapperMistralModelOption;
-  siteMapperAiMistralApiKey: string;
-  siteMapperAiOpenRouterModel: SiteMapperOpenRouterModelOption;
-  siteMapperAiOpenRouterApiKey: string;
-  siteMapperAiOpenAIBaseUrl: string;
-  siteMapperAiOpenAIApiKey: string;
-  siteMapperAiOpenAIModel: SiteMapperOpenAICompatibleModelOption;
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'screenshots' | 'image-previews' | 'provider';
@@ -219,218 +192,6 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => displayModeItem.setValue(value),
     successMessage: () => 'Default display mode saved',
     errorMessage: 'Failed to save Default display mode',
-  },
-  {
-    key: 'siteMapperAiAssistantEnabled',
-    type: 'toggle',
-    category: 'general',
-    label: 'Enable site mapper AI assistant',
-    infoUrl: 'https://docs.hayami.moe/site-mapper-ai-assistant',
-    fallback: false,
-    load: async () => Boolean(await siteMapperAiAssistantEnabledItem.getValue()),
-    save: (value) => siteMapperAiAssistantEnabledItem.setValue(Boolean(value)),
-    successMessage: (value) => (value ? 'Site mapper AI assistant enabled' : 'Site mapper AI assistant disabled'),
-    errorMessage: 'Failed to update site mapper AI assistant',
-  },
-  {
-    key: 'siteMapperAiProvider',
-    type: 'select',
-    category: 'general',
-    label: 'AI provider',
-    options: [
-      { value: 'google-ai-studio', label: 'Google AI Studio' },
-      { value: 'mistral', label: 'Mistral AI' },
-      { value: 'openrouter', label: 'OpenRouter' },
-      { value: 'openai-compatible', label: 'OpenAI-compatible' },
-      { value: 'gemini-nano', label: 'Gemini Nano (Chrome)' },
-    ],
-    fallback: 'google-ai-studio',
-    load: async () => {
-      const value = await siteMapperAiProviderItem.getValue();
-      if (value === 'gemini-nano' && !supportsGeminiNanoProvider()) return 'google-ai-studio';
-      if (value === 'mistral' || value === 'openrouter' || value === 'openai-compatible' || value === 'gemini-nano') return value;
-      return 'google-ai-studio';
-    },
-    save: (value) => {
-      const allowGeminiNano = supportsGeminiNanoProvider();
-      const normalized = value === 'mistral'
-        || value === 'openrouter'
-        || value === 'openai-compatible'
-        || (value === 'gemini-nano' && allowGeminiNano)
-        ? value
-        : 'google-ai-studio';
-      return siteMapperAiProviderItem.setValue(normalized);
-    },
-    successMessage: (value) => {
-      if (value === 'mistral') return 'Mistral AI selected';
-      if (value === 'openrouter') return 'OpenRouter selected';
-      if (value === 'openai-compatible') return 'OpenAI-compatible provider selected';
-      if (value === 'gemini-nano') return 'Gemini Nano selected';
-      return 'Google AI Studio selected';
-    },
-    errorMessage: 'Failed to save site mapper AI provider',
-    onAfterSave: async (value) => {
-      if (value === 'openai-compatible') {
-        await refreshOpenAiCompatibleModels(false);
-      }
-    },
-  },
-  {
-    key: 'siteMapperAiGoogleModel',
-    type: 'select',
-    category: 'general',
-    label: 'Google AI Studio model',
-    options: [
-      { value: 'gemini-flash-latest', label: 'Gemini Flash Latest' },
-    ],
-    fallback: 'gemini-flash-latest',
-    load: async () => String((await siteMapperAiGoogleModelItem.getValue()) || 'gemini-flash-latest').trim() || 'gemini-flash-latest',
-    save: (value) => siteMapperAiGoogleModelItem.setValue(String(value || '').trim() || 'gemini-flash-latest'),
-    successMessage: () => 'Google AI Studio model saved',
-    errorMessage: 'Failed to save Google AI Studio model',
-    allowOverride: true,
-    advanced: true,
-  },
-  {
-    key: 'siteMapperAiStudioApiKey',
-    type: 'apiKey',
-    category: 'general',
-    label: 'Google AI Studio API key',
-    infoUrl: 'https://aistudio.google.com/',
-    placeholder: 'Enter Google AI Studio API key',
-    fallback: '',
-    load: async () => (await siteMapperAiStudioApiKeyItem.getValue()) || '',
-    save: async (value) => {
-      const trimmed = (value || '').trim();
-      await siteMapperAiStudioApiKeyItem.setValue(trimmed || null);
-    },
-    successMessage: (value) => (String(value || '').trim() ? 'Google AI Studio API key saved' : 'Google AI Studio API key cleared'),
-    errorMessage: 'Failed to save Google AI Studio API key',
-  },
-  {
-    key: 'siteMapperAiMistralModel',
-    type: 'select',
-    category: 'general',
-    label: 'Mistral model',
-    options: [
-      { value: 'mistral-small-latest', label: 'Mistral Small Latest' },
-    ],
-    fallback: 'mistral-small-latest',
-    load: async () => String((await siteMapperAiMistralModelItem.getValue()) || 'mistral-small-latest').trim() || 'mistral-small-latest',
-    save: (value) => siteMapperAiMistralModelItem.setValue(String(value || '').trim() || 'mistral-small-latest'),
-    successMessage: () => 'Mistral model saved',
-    errorMessage: 'Failed to save Mistral model',
-    allowOverride: true,
-    advanced: true,
-  },
-  {
-    key: 'siteMapperAiMistralApiKey',
-    type: 'apiKey',
-    category: 'general',
-    label: 'Mistral API key',
-    infoUrl: 'https://mistral.ai/',
-    placeholder: 'Enter Mistral API key',
-    fallback: '',
-    load: async () => (await siteMapperAiMistralApiKeyItem.getValue()) || '',
-    save: async (value) => {
-      const trimmed = (value || '').trim();
-      await siteMapperAiMistralApiKeyItem.setValue(trimmed || null);
-    },
-    successMessage: (value) => (String(value || '').trim() ? 'Mistral API key saved' : 'Mistral API key cleared'),
-    errorMessage: 'Failed to save Mistral API key',
-  },
-  {
-    key: 'siteMapperAiOpenRouterModel',
-    type: 'apiKey',
-    inputType: 'text',
-    category: 'general',
-    label: 'OpenRouter model',
-    placeholder: 'e.g. minimax/minimax-m2.5:free',
-    fallback: 'minimax/minimax-m2.5:free',
-    load: async () => String((await siteMapperAiOpenRouterModelItem.getValue()) || 'minimax/minimax-m2.5:free').trim() || 'minimax/minimax-m2.5:free',
-    save: (value) => siteMapperAiOpenRouterModelItem.setValue(String(value || '').trim() || 'minimax/minimax-m2.5:free'),
-    successMessage: () => 'OpenRouter model saved',
-    errorMessage: 'Failed to save OpenRouter model',
-    advanced: true,
-  },
-  {
-    key: 'siteMapperAiOpenRouterApiKey',
-    type: 'apiKey',
-    category: 'general',
-    label: 'OpenRouter API key',
-    infoUrl: 'https://openrouter.ai/',
-    placeholder: 'Enter OpenRouter API key',
-    fallback: '',
-    load: async () => (await siteMapperAiOpenRouterApiKeyItem.getValue()) || '',
-    save: async (value) => {
-      const trimmed = (value || '').trim();
-      await siteMapperAiOpenRouterApiKeyItem.setValue(trimmed || null);
-    },
-    successMessage: (value) => (String(value || '').trim() ? 'OpenRouter API key saved' : 'OpenRouter API key cleared'),
-    errorMessage: 'Failed to save OpenRouter API key',
-  },
-  {
-    key: 'siteMapperAiOpenAIBaseUrl',
-    type: 'apiKey',
-    inputType: 'text',
-    category: 'general',
-    label: 'OpenAI-compatible base URL',
-    placeholder: 'http://127.0.0.1:11434/v1',
-    fallback: 'http://127.0.0.1:11434/v1',
-    load: async () => (await siteMapperAiOpenAIBaseUrlItem.getValue()) || 'http://127.0.0.1:11434/v1',
-    save: async (value) => {
-      const trimmed = (value || '').trim();
-      const targetUrl = trimmed || 'http://127.0.0.1:11434/v1';
-      const targetOrigin = normalizeUrlToOrigin(targetUrl);
-      if (!targetOrigin) {
-        throw new Error('invalid-openai-base-url');
-      }
-
-      const granted = await requestHostPermission(targetOrigin);
-      if (!granted) {
-        throw new Error(`openai-host-permission-denied:${targetOrigin}`);
-      }
-
-      await siteMapperAiOpenAIBaseUrlItem.setValue(targetUrl);
-    },
-    successMessage: () => 'OpenAI-compatible base URL saved',
-    errorMessage: 'Host access not approved for this OpenAI-compatible base URL',
-    onAfterSave: async () => {
-      await refreshOpenAiCompatibleModels(false);
-    },
-  },
-  {
-    key: 'siteMapperAiOpenAIApiKey',
-    type: 'apiKey',
-    category: 'general',
-    label: 'OpenAI-compatible API key',
-    placeholder: 'Optional',
-    fallback: '',
-    load: async () => (await siteMapperAiOpenAIApiKeyItem.getValue()) || '',
-    save: async (value) => {
-      const trimmed = (value || '').trim();
-      await siteMapperAiOpenAIApiKeyItem.setValue(trimmed || null);
-    },
-    successMessage: (value) => (String(value || '').trim() ? 'OpenAI-compatible API key saved' : 'OpenAI-compatible API key cleared'),
-    errorMessage: 'Failed to save OpenAI-compatible API key',
-    onAfterSave: async () => {
-      await refreshOpenAiCompatibleModels(false);
-    },
-  },
-  {
-    key: 'siteMapperAiOpenAIModel',
-    type: 'select',
-    category: 'general',
-    label: 'OpenAI-compatible model',
-    options: [],
-    fallback: '',
-    load: async () => (await siteMapperAiOpenAIModelItem.getValue()) || '',
-    save: async (value) => {
-      await siteMapperAiOpenAIModelItem.setValue(String(value || '').trim());
-    },
-    successMessage: () => 'OpenAI-compatible model saved',
-    errorMessage: 'Failed to save OpenAI-compatible model',
-    allowOverride: true,
   },
   {
     key: 'screenshotEnabled',
@@ -890,17 +651,6 @@ const settingValues = reactive<SettingValueMap>({
   aniwaveAutoExpandAll: true,
   aniwaveAutoExpandDepth: 3,
   aniwaveHideReplyContext: false,
-  siteMapperAiAssistantEnabled: false,
-  siteMapperAiProvider: 'google-ai-studio',
-  siteMapperAiGoogleModel: 'gemini-flash-latest',
-  siteMapperAiStudioApiKey: '',
-  siteMapperAiMistralModel: 'mistral-small-latest',
-  siteMapperAiMistralApiKey: '',
-  siteMapperAiOpenRouterModel: 'minimax/minimax-m2.5:free',
-  siteMapperAiOpenRouterApiKey: '',
-  siteMapperAiOpenAIBaseUrl: 'http://127.0.0.1:11434/v1',
-  siteMapperAiOpenAIApiKey: '',
-  siteMapperAiOpenAIModel: '',
 });
 
 const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));
@@ -919,33 +669,9 @@ const activeSettingsCategory = computed(() =>
 );
 const imagePreviewAdvancedExpanded = ref(false);
 const providerAdvancedExpanded = ref(false);
-const customSitesAiAdvancedExpanded = ref(false);
-const openAiCompatibleModelOptions = ref<Array<OptionEntry<string>>>([]);
-const modelOverrideDraftByKey = reactive<Partial<Record<SettingKey, boolean>>>({});
-const modelOverrideKeys: SettingKey[] = [
-  'siteMapperAiGoogleModel',
-  'siteMapperAiMistralModel',
-  'siteMapperAiOpenRouterModel',
-  'siteMapperAiOpenAIModel',
-];
-const siteMapperAiSettingKeys: SettingKey[] = [
-  'siteMapperAiAssistantEnabled',
-  'siteMapperAiProvider',
-  'siteMapperAiGoogleModel',
-  'siteMapperAiStudioApiKey',
-  'siteMapperAiMistralModel',
-  'siteMapperAiMistralApiKey',
-  'siteMapperAiOpenRouterModel',
-  'siteMapperAiOpenRouterApiKey',
-  'siteMapperAiOpenAIBaseUrl',
-  'siteMapperAiOpenAIApiKey',
-  'siteMapperAiOpenAIModel',
-];
-const isSiteMapperAiSetting = (setting: SettingDefinition) => siteMapperAiSettingKeys.includes(setting.key);
 const activeCategoryPrimarySettings = computed(() =>
   (activeSettingsCategory.value?.settings || []).filter((setting) => {
     if (!isSettingVisible(setting)) return false;
-    if (isSiteMapperAiSetting(setting)) return false;
     if (setting.advanced) return false;
     if (activeSettingsCategory.value?.id === 'screenshots' && setting.key === 'screenshotEnabled') {
       return false;
@@ -954,13 +680,7 @@ const activeCategoryPrimarySettings = computed(() =>
   }),
 );
 const activeCategoryAdvancedSettings = computed(() =>
-  (activeSettingsCategory.value?.settings || []).filter((setting) => isSettingVisible(setting) && !isSiteMapperAiSetting(setting) && Boolean(setting.advanced)),
-);
-const customSitesAiPrimarySettings = computed(() =>
-  settingDefinitions.filter((setting) => isSiteMapperAiSetting(setting) && isSettingVisible(setting) && !setting.advanced),
-);
-const customSitesAiAdvancedSettings = computed(() =>
-  settingDefinitions.filter((setting) => isSiteMapperAiSetting(setting) && isSettingVisible(setting) && Boolean(setting.advanced)),
+  (activeSettingsCategory.value?.settings || []).filter((setting) => isSettingVisible(setting) && Boolean(setting.advanced)),
 );
 const activeProviderPrimarySettings = computed(() =>
   (activeProviderSection.value?.settings || []).filter((setting) => isSettingVisible(setting) && !setting.advanced),
@@ -1512,8 +1232,6 @@ onMounted(async () => {
     loadScreenshotShortcutLabel(),
     loadScreenshotSiteRules(),
   ]);
-
-  await refreshOpenAiCompatibleModels(true);
   await customSitesPromise;
   await applyInitialRouteParams();
 
@@ -1549,126 +1267,6 @@ async function loadSetting(setting: SettingDefinition) {
 
 async function loadAllSettings() {
   await Promise.all(settingDefinitions.map((setting) => loadSetting(setting)));
-}
-
-function buildOpenAiCompatibleModelsUrl(baseUrl: string): string | null {
-  const trimmed = String(baseUrl || '').trim();
-  if (!trimmed) return null;
-  const normalizedBase = trimmed.replace(/\/+$/u, '');
-  if (!normalizedBase) return null;
-  if (/\/models$/iu.test(normalizedBase)) return normalizedBase;
-  return `${normalizedBase}/models`;
-}
-
-function isLikelyOllamaBaseUrl(baseUrl: string): boolean {
-  const trimmed = String(baseUrl || '').trim();
-  if (!trimmed) return false;
-  try {
-    const parsed = new URL(trimmed.includes('://') ? trimmed : `http://${trimmed}`);
-    const host = parsed.hostname.toLowerCase();
-    const port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
-    return (host === 'localhost' || host === '127.0.0.1') && port === '11434';
-  } catch {
-    return /localhost:11434|127\.0\.0\.1:11434/iu.test(trimmed);
-  }
-}
-
-async function refreshOpenAiCompatibleModels(quiet: boolean) {
-  const baseUrl = String(settingValues.siteMapperAiOpenAIBaseUrl || '').trim();
-  const modelsUrl = buildOpenAiCompatibleModelsUrl(baseUrl);
-  const rawCurrentModel = String(settingValues.siteMapperAiOpenAIModel || '').trim();
-  const ollamaRecommendedModel = 'llama3.2:3b-instruct-q4_0';
-  const legacyOllamaModel = 'llama3.2:3b';
-  const isLikelyOllama = isLikelyOllamaBaseUrl(baseUrl);
-  const currentModel = isLikelyOllama && rawCurrentModel === legacyOllamaModel
-    ? ollamaRecommendedModel
-    : rawCurrentModel;
-
-  if (currentModel !== rawCurrentModel) {
-    settingValues.siteMapperAiOpenAIModel = currentModel;
-    await siteMapperAiOpenAIModelItem.setValue(currentModel);
-  }
-
-  if (!modelsUrl) {
-    if (currentModel) {
-      openAiCompatibleModelOptions.value = [{ value: currentModel, label: currentModel }];
-    } else if (isLikelyOllama) {
-      openAiCompatibleModelOptions.value = [{ value: ollamaRecommendedModel, label: `Recommended: ${ollamaRecommendedModel} (Ollama)` }];
-    } else {
-      openAiCompatibleModelOptions.value = [];
-    }
-    return;
-  }
-
-  try {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    const key = String(settingValues.siteMapperAiOpenAIApiKey || '').trim();
-    if (key) headers.Authorization = `Bearer ${key}`;
-
-    const response = await browser.runtime.sendMessage({
-      action: 'hayami_proxyFetch',
-      url: modelsUrl,
-      init: {
-        method: 'GET',
-        headers,
-      },
-    }) as {
-      ok?: boolean;
-      status?: number;
-      body?: any;
-    };
-
-    if (!response?.ok) {
-      if (currentModel) {
-        openAiCompatibleModelOptions.value = [{ value: currentModel, label: currentModel }];
-      } else if (isLikelyOllama) {
-        openAiCompatibleModelOptions.value = [{ value: ollamaRecommendedModel, label: `Recommended: ${ollamaRecommendedModel} (Ollama)` }];
-      } else {
-        openAiCompatibleModelOptions.value = [];
-      }
-      if (!quiet && settingValues.siteMapperAiProvider === 'openai-compatible') {
-        showError(`Could not load OpenAI-compatible models (${response?.status || 'network'})`);
-      }
-      return;
-    }
-
-    const data = Array.isArray(response.body?.data) ? response.body.data : [];
-    const ids = data
-      .map((entry: any) => String(entry?.id || '').trim())
-      .filter((value: string) => value.length > 0);
-
-    const uniqueIds: string[] = Array.from(new Set<string>(ids));
-    if (currentModel && !uniqueIds.includes(currentModel)) uniqueIds.unshift(currentModel);
-    if (uniqueIds.length === 0 && isLikelyOllama) {
-      openAiCompatibleModelOptions.value = [{ value: ollamaRecommendedModel, label: `Recommended: ${ollamaRecommendedModel} (Ollama)` }];
-      if (!quiet && settingValues.siteMapperAiProvider === 'openai-compatible') {
-        showSuccess(`No Ollama models detected. Recommended: ${ollamaRecommendedModel}`);
-      }
-      return;
-    }
-
-    openAiCompatibleModelOptions.value = uniqueIds.map((id) => ({ value: id, label: id }));
-
-    if (!currentModel && uniqueIds.length > 0) {
-      settingValues.siteMapperAiOpenAIModel = uniqueIds[0];
-      await siteMapperAiOpenAIModelItem.setValue(uniqueIds[0]);
-      if (!quiet && settingValues.siteMapperAiProvider === 'openai-compatible') {
-        showSuccess('OpenAI-compatible models loaded');
-      }
-    }
-  } catch (error) {
-    console.warn('Failed to load OpenAI-compatible models', error);
-    if (currentModel) {
-      openAiCompatibleModelOptions.value = [{ value: currentModel, label: currentModel }];
-    } else if (isLikelyOllama) {
-      openAiCompatibleModelOptions.value = [{ value: ollamaRecommendedModel, label: `Recommended: ${ollamaRecommendedModel} (Ollama)` }];
-    } else {
-      openAiCompatibleModelOptions.value = [];
-    }
-    if (!quiet && settingValues.siteMapperAiProvider === 'openai-compatible') {
-      showError('Could not load OpenAI-compatible models');
-    }
-  }
 }
 
 async function loadKomentoSyncStatus() {
@@ -1890,20 +1488,6 @@ async function handleSettingChange(setting: SettingDefinition, value: SettingVal
     showSuccess(setting.successMessage(value as SettingValueMap[typeof setting.key]));
   } catch (error) {
     console.error(`Failed to save ${setting.label}`, error);
-    const errorMessage = String((error as any)?.message || '');
-    if (setting.key === 'siteMapperAiOpenAIBaseUrl' && errorMessage.startsWith('openai-host-permission-denied')) {
-      const deniedOrigin = errorMessage.split(':').slice(1).join(':') || 'this host';
-      showError(`Please approve host access for ${deniedOrigin} in the permission prompt, then save again.`);
-      await reloadSetting(setting.key);
-      return;
-    }
-
-    if (setting.key === 'siteMapperAiOpenAIBaseUrl' && errorMessage === 'invalid-openai-base-url') {
-      showError('Enter a valid OpenAI-compatible base URL (http/https).');
-      await reloadSetting(setting.key);
-      return;
-    }
-
     showError(setting.errorMessage || `Failed to save ${setting.label}`);
     await reloadSetting(setting.key);
   }
@@ -1925,92 +1509,8 @@ function formatSliderValue(setting: SettingDefinition, value: SettingValueMap[Se
   return `${(Number(value) * 100).toFixed(0)}%`;
 }
 
-function supportsGeminiNanoProvider(): boolean {
-  const nav = globalThis.navigator;
-  const brands = (nav as any)?.userAgentData?.brands;
-  if (Array.isArray(brands)) {
-    const hasGoogleChromeBrand = brands.some((brand: any) => String(brand?.brand || '').toLowerCase().includes('google chrome'));
-    if (hasGoogleChromeBrand) return true;
-  }
-
-  const ua = String(nav?.userAgent || '');
-  const isChrome = ua.includes('Chrome/');
-  const isFirefox = ua.includes('Firefox/');
-  const isEdge = ua.includes('Edg/');
-  const isOpera = ua.includes('OPR/');
-  return isChrome && !isFirefox && !isEdge && !isOpera;
-}
-
 function getSettingOptions(setting: SettingDefinition): ReadonlyArray<OptionEntry<any>> {
-  if (setting.key === 'siteMapperAiProvider') {
-    const options = setting.options || [];
-    if (supportsGeminiNanoProvider()) return options;
-    return options.filter((option) => option.value !== 'gemini-nano');
-  }
-
-  if (setting.key === 'siteMapperAiOpenAIModel') {
-    if (openAiCompatibleModelOptions.value.length > 0) return openAiCompatibleModelOptions.value;
-    const current = String(settingValues.siteMapperAiOpenAIModel || '').trim();
-    if (current) return [{ value: current, label: current }];
-    return [{ value: '', label: 'No models detected' }];
-  }
   return setting.options || [];
-}
-
-function isModelOverrideSetting(setting: SettingDefinition): boolean {
-  return setting.type === 'select' && Boolean(setting.allowOverride) && modelOverrideKeys.includes(setting.key);
-}
-
-function isInlineModelOverrideSetting(setting: SettingDefinition): boolean {
-  return false;
-}
-
-function isModelOverrideActive(setting: SettingDefinition): boolean {
-  if (!isModelOverrideSetting(setting)) return false;
-  if (modelOverrideDraftByKey[setting.key] != null) return Boolean(modelOverrideDraftByKey[setting.key]);
-
-  const currentValue = String(settingValues[setting.key] || '').trim();
-  if (!currentValue) return false;
-  const options = getSettingOptions(setting).map((entry) => String(entry.value || '').trim());
-  return !options.includes(currentValue);
-}
-
-function getSelectClass(setting: SettingDefinition): string {
-  if (setting.key === 'siteMapperAiProvider') {
-    return 'w-44 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30';
-  }
-  return 'w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30';
-}
-
-function handleSelectSettingChange(setting: SettingDefinition, value: string): void {
-  if (isModelOverrideSetting(setting)) {
-    modelOverrideDraftByKey[setting.key] = false;
-  }
-  void handleSettingChange(setting, value as SettingValueMap[SettingKey]);
-}
-
-function handleModelOverrideInputSave(setting: SettingDefinition, value: string): void {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) {
-    showError('Model override cannot be empty');
-    return;
-  }
-  modelOverrideDraftByKey[setting.key] = true;
-  void handleSettingChange(setting, trimmed as SettingValueMap[SettingKey]);
-}
-
-function toggleModelOverrideMode(setting: SettingDefinition): void {
-  if (!isModelOverrideSetting(setting)) return;
-  if (!isModelOverrideActive(setting)) {
-    modelOverrideDraftByKey[setting.key] = true;
-    return;
-  }
-
-  modelOverrideDraftByKey[setting.key] = false;
-  const fallbackValue = String(setting.fallback || '').trim();
-  const firstOptionValue = String(getSettingOptions(setting)[0]?.value || '').trim();
-  const resetValue = fallbackValue || firstOptionValue;
-  void handleSettingChange(setting, resetValue as SettingValueMap[SettingKey]);
 }
 
 function openFeedbackForm() {
@@ -2043,36 +1543,11 @@ function handleFeedbackKeydown(event: KeyboardEvent) {
 }
 
 function isSettingVisible(setting: SettingDefinition) {
-  if (setting.key === 'siteMapperAiGoogleModel' || setting.key === 'siteMapperAiStudioApiKey') {
-    return settingValues.siteMapperAiProvider === 'google-ai-studio';
-  }
-  if (setting.key === 'siteMapperAiMistralModel' || setting.key === 'siteMapperAiMistralApiKey') {
-    return settingValues.siteMapperAiProvider === 'mistral';
-  }
-  if (setting.key === 'siteMapperAiOpenRouterModel' || setting.key === 'siteMapperAiOpenRouterApiKey') {
-    return settingValues.siteMapperAiProvider === 'openrouter';
-  }
-  if (setting.key === 'siteMapperAiOpenAIBaseUrl' || setting.key === 'siteMapperAiOpenAIApiKey' || setting.key === 'siteMapperAiOpenAIModel') {
-    return settingValues.siteMapperAiProvider === 'openai-compatible';
-  }
+  void setting;
   return true;
 }
 
 function isSettingDisabled(setting: SettingDefinition) {
-  if (
-    setting.key === 'siteMapperAiProvider'
-    || setting.key === 'siteMapperAiGoogleModel'
-    || setting.key === 'siteMapperAiStudioApiKey'
-    || setting.key === 'siteMapperAiMistralModel'
-    || setting.key === 'siteMapperAiMistralApiKey'
-    || setting.key === 'siteMapperAiOpenRouterModel'
-    || setting.key === 'siteMapperAiOpenRouterApiKey'
-    || setting.key === 'siteMapperAiOpenAIBaseUrl'
-    || setting.key === 'siteMapperAiOpenAIApiKey'
-    || setting.key === 'siteMapperAiOpenAIModel'
-  ) {
-    return !Boolean(settingValues.siteMapperAiAssistantEnabled);
-  }
   if (setting.category === 'screenshots' && setting.key !== 'screenshotEnabled' && !screenshotFeatureEnabled.value) {
     return true;
   }
@@ -3265,233 +2740,6 @@ function handleAniListLogout() {
                     :format-placement-label="formatPlacementLabel"
                   />
 
-                  <div class="rounded-xl bg-white/5 px-4 py-3 space-y-3">
-                    <div>
-                      <p class="text-sm text-white/80">Site mapper AI assistant</p>
-                    </div>
-
-                    <template v-for="setting in customSitesAiPrimarySettings" :key="setting.key">
-                      <div
-                        class="flex items-start justify-between gap-3 rounded-xl bg-black/15 px-4 py-3"
-                        :class="[
-                          isSettingDisabled(setting) ? 'opacity-50 pointer-events-none' : '',
-                          isModelOverrideSetting(setting) && !isInlineModelOverrideSetting(setting) ? 'flex-col items-stretch' : '',
-                        ]"
-                      >
-                        <div v-if="setting.type !== 'apiKey' && isModelOverrideSetting(setting)" class="flex-1">
-                          <div v-if="isInlineModelOverrideSetting(setting)" class="inline-flex items-center gap-1.5">
-                            <p class="text-sm text-white/80">{{ setting.label }}</p>
-                            <button
-                              type="button"
-                              class="rounded-md border border-white/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/75 hover:border-white/45 hover:text-white"
-                              @click="toggleModelOverrideMode(setting)"
-                            >
-                              {{ isModelOverrideActive(setting) ? 'Reset' : 'Override' }}
-                            </button>
-                          </div>
-                          <template v-else>
-                            <div class="flex items-center justify-between gap-2">
-                              <p class="text-sm text-white/80">{{ setting.label }}</p>
-                              <button
-                                type="button"
-                                class="rounded-md border border-white/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/75 hover:border-white/45 hover:text-white"
-                                @click="toggleModelOverrideMode(setting)"
-                              >
-                                {{ isModelOverrideActive(setting) ? 'Reset' : 'Override' }}
-                              </button>
-                            </div>
-                          </template>
-                          <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
-                        </div>
-                        <div v-else-if="setting.type !== 'apiKey'" class="flex-1">
-                          <div class="inline-flex items-center gap-1.5">
-                            <p class="text-sm text-white/80">{{ setting.label }}</p>
-                            <a
-                              v-if="setting.infoUrl"
-                              :href="setting.infoUrl"
-                              target="_blank"
-                              rel="noreferrer"
-                              class="inline-flex items-center justify-center rounded-full border border-white/25 p-0.5 text-white/65 transition hover:border-white/45 hover:text-white"
-                              aria-label="Open documentation"
-                            >
-                              <img :src="infoIcon" alt="info" class="h-3.5 w-3.5" />
-                            </a>
-                          </div>
-                          <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
-                        </div>
-                        <div v-else-if="setting.description" class="flex-1">
-                          <p class="text-xs text-white/60">{{ setting.description }}</p>
-                        </div>
-                        <div :class="[
-                          setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0',
-                          isModelOverrideSetting(setting) && !isInlineModelOverrideSetting(setting) ? 'w-full mt-1' : '',
-                        ]">
-                          <template v-if="setting.type === 'select' && isModelOverrideActive(setting)">
-                            <input
-                              type="text"
-                              class="w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
-                              :value="String(settingValues[setting.key] || '')"
-                              :disabled="isSettingDisabled(setting)"
-                              :placeholder="String(setting.fallback || '')"
-                              @change="(e) => handleModelOverrideInputSave(setting, (e.target as HTMLInputElement).value)"
-                            />
-                          </template>
-
-                          <template v-else-if="setting.type === 'select'">
-                            <select
-                              :class="getSelectClass(setting)"
-                              :value="settingValues[setting.key]"
-                              :disabled="isSettingDisabled(setting)"
-                              @change="(e) => handleSelectSettingChange(setting, (e.target as HTMLSelectElement).value)"
-                            >
-                              <option
-                                v-for="option in getSettingOptions(setting)"
-                                :key="option.value"
-                                :value="option.value"
-                                class="bg-[#1f2329]"
-                              >
-                                {{ option.label }}
-                              </option>
-                            </select>
-                          </template>
-
-                          <template v-else-if="setting.type === 'toggle'">
-                            <label class="relative inline-flex items-center">
-                              <input
-                                type="checkbox"
-                                class="peer sr-only"
-                                :checked="Boolean(settingValues[setting.key])"
-                                @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
-                              />
-                              <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                            </label>
-                          </template>
-
-                          <template v-else-if="setting.type === 'apiKey'">
-                            <ApiKeyInput
-                              v-model="(settingValues[setting.key] as string)"
-                              :label="setting.label"
-                              :type="setting.inputType || 'password'"
-                              :placeholder="setting.placeholder"
-                              :info-url="setting.infoUrl"
-                              :disabled="isSettingDisabled(setting)"
-                              @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
-                            />
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-
-                    <div v-if="customSitesAiAdvancedSettings.length" class="rounded-xl bg-black/10 px-4 py-3">
-                      <button
-                        class="flex w-full items-center justify-between text-left text-sm font-semibold text-white/85"
-                        @click="customSitesAiAdvancedExpanded = !customSitesAiAdvancedExpanded"
-                      >
-                        <span>Advanced</span>
-                        <span class="text-xs text-white/60">{{ customSitesAiAdvancedExpanded ? 'Hide' : 'Expand' }}</span>
-                      </button>
-
-                      <div v-if="customSitesAiAdvancedExpanded" class="mt-3 space-y-3">
-                        <template v-for="setting in customSitesAiAdvancedSettings" :key="setting.key">
-                          <div
-                            class="flex items-start justify-between gap-3 rounded-xl bg-black/15 px-4 py-3"
-                            :class="[
-                              isSettingDisabled(setting) ? 'opacity-50 pointer-events-none' : '',
-                              isModelOverrideSetting(setting) && !isInlineModelOverrideSetting(setting) ? 'flex-col items-stretch' : '',
-                            ]"
-                          >
-                            <div v-if="isModelOverrideSetting(setting)" class="flex-1">
-                              <div v-if="isInlineModelOverrideSetting(setting)" class="inline-flex items-center gap-1.5">
-                                <p class="text-sm text-white/80">{{ setting.label }}</p>
-                                <button
-                                  type="button"
-                                  class="rounded-md border border-white/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/75 hover:border-white/45 hover:text-white"
-                                  @click="toggleModelOverrideMode(setting)"
-                                >
-                                  {{ isModelOverrideActive(setting) ? 'Reset' : 'Override' }}
-                                </button>
-                              </div>
-                              <template v-else>
-                                <div class="flex items-center justify-between gap-2">
-                                  <p class="text-sm text-white/80">{{ setting.label }}</p>
-                                  <button
-                                    type="button"
-                                    class="rounded-md border border-white/25 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/75 hover:border-white/45 hover:text-white"
-                                    @click="toggleModelOverrideMode(setting)"
-                                  >
-                                    {{ isModelOverrideActive(setting) ? 'Reset' : 'Override' }}
-                                  </button>
-                                </div>
-                              </template>
-                            </div>
-                            <div v-else-if="setting.type !== 'apiKey'" class="flex-1">
-                              <p class="text-sm text-white/80">{{ setting.label }}</p>
-                            </div>
-                            <div v-else-if="setting.description" class="flex-1">
-                              <p class="text-xs text-white/60">{{ setting.description }}</p>
-                            </div>
-                            <div :class="[
-                              'shrink-0',
-                              isModelOverrideSetting(setting) && !isInlineModelOverrideSetting(setting) ? 'w-full mt-1' : '',
-                            ]">
-                              <template v-if="setting.type === 'select' && isModelOverrideActive(setting)">
-                                <input
-                                  type="text"
-                                  class="w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
-                                  :value="String(settingValues[setting.key] || '')"
-                                  :disabled="isSettingDisabled(setting)"
-                                  :placeholder="String(setting.fallback || '')"
-                                  @change="(e) => handleModelOverrideInputSave(setting, (e.target as HTMLInputElement).value)"
-                                />
-                              </template>
-
-                              <template v-else-if="setting.type === 'select'">
-                                <select
-                                  :class="getSelectClass(setting)"
-                                  :value="settingValues[setting.key]"
-                                  :disabled="isSettingDisabled(setting)"
-                                  @change="(e) => handleSelectSettingChange(setting, (e.target as HTMLSelectElement).value)"
-                                >
-                                  <option
-                                    v-for="option in getSettingOptions(setting)"
-                                    :key="option.value"
-                                    :value="option.value"
-                                    class="bg-[#1f2329]"
-                                  >
-                                    {{ option.label }}
-                                  </option>
-                                </select>
-                              </template>
-
-                              <template v-else-if="setting.type === 'toggle'">
-                                <label class="relative inline-flex items-center">
-                                  <input
-                                    type="checkbox"
-                                    class="peer sr-only"
-                                    :checked="Boolean(settingValues[setting.key])"
-                                    @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
-                                  />
-                                  <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                                </label>
-                              </template>
-
-                              <template v-else-if="setting.type === 'apiKey'">
-                                <ApiKeyInput
-                                  v-model="(settingValues[setting.key] as string)"
-                                  :label="setting.label"
-                                  :type="setting.inputType || 'password'"
-                                  :placeholder="setting.placeholder"
-                                  :info-url="setting.infoUrl"
-                                  :disabled="isSettingDisabled(setting)"
-                                  @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
-                                />
-                              </template>
-                            </div>
-                          </div>
-                        </template>
-                      </div>
-                    </div>
-                  </div>
                 </div>
               </template>
 
