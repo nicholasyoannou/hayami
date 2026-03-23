@@ -364,6 +364,15 @@ async function renderDisqusThread(
   animeInfo: AnimeInfo,
   clearLoadingState: (reason: string) => void
 ): Promise<void> {
+  // Disqus binds by global id (#disqus_thread). If stale nodes exist elsewhere,
+  // it may attach outside our provider surface. Keep only the current target.
+  document.querySelectorAll(SELECTORS.DISQUS_THREAD).forEach((node) => {
+    const el = node as HTMLElement;
+    if (!container.contains(el)) {
+      el.remove();
+    }
+  });
+
   // Ensure the container is visible even if a previous provider hid it
   container.style.display = 'block';
 
