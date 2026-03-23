@@ -16,7 +16,6 @@ import {
   DISQUS_CONTAINER_RETRY_ATTEMPTS, 
   DISQUS_CONTAINER_RETRY_DELAY_MS 
 } from '../constants';
-import { getContainerWithRetry } from '../utils/dom-helpers';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { safeClear } from '../utils/dom-helpers';
