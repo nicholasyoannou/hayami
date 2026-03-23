@@ -390,6 +390,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
     const effectiveMode: EffectiveDisplayMode = resolveEffectiveDisplayMode(placement as EffectiveDisplayMode | null, adapterMode, storedMode);
     const isInlineMode = shouldUseInlineMode(effectiveMode);
+    currentRenderIntent = isInlineMode ? 'inline' : 'popup';
     const resolvedProvider = options?.forceProvider ?? activeUiProvider ?? (await getPreferredProvider());
     const guardProviders = options?.skipProviderGuard !== true;
     preferredProvider = resolvedProvider;
@@ -690,7 +691,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     if (!searchAlreadyRunning) {
       setSearchInProgress(false);
     }
-    if (!handoffLoadingToProvider) {
+    // Reddit loading is cleared by InlineDiscussion after comment data resolves.
+    // Clearing it here races the initial render and suppresses skeletons.
+    if (!handoffLoadingToProvider && preferredProvider !== 'reddit') {
       useDiscussionStore().clearLoading();
     }
   }
