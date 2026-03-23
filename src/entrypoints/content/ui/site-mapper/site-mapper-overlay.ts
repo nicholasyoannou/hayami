@@ -697,9 +697,27 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       'playing',
     ];
 
+    const EPISODE_ACTIVE_CLASS_SUFFIX_HINTS = [
+      '--active',
+      '-active',
+      '_active',
+      '--current',
+      '-current',
+      '_current',
+      '--selected',
+      '-selected',
+      '_selected',
+    ];
+
+    const isEpisodeActiveClassToken = (token: string): boolean => {
+      const normalized = token.toLowerCase();
+      if (EPISODE_ACTIVE_CLASS_HINTS.includes(normalized)) return true;
+      return EPISODE_ACTIVE_CLASS_SUFFIX_HINTS.some((suffix) => normalized.endsWith(suffix));
+    };
+
     const hasEpisodeActiveMarker = (element: HTMLElement): boolean => {
       const classList = Array.from(element.classList || []);
-      if (classList.some((token) => EPISODE_ACTIVE_CLASS_HINTS.includes(token.toLowerCase()))) {
+      if (classList.some((token) => isEpisodeActiveClassToken(token))) {
         return true;
       }
       const ariaCurrent = (element.getAttribute('aria-current') || '').toLowerCase();
@@ -775,9 +793,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         return { selector: getElementCssSelector(pickedItem), element: pickedItem };
       }
 
-      const markerClass = Array.from(activeItem.classList || []).find((token) =>
-        EPISODE_ACTIVE_CLASS_HINTS.includes(token.toLowerCase()),
-      );
+      const markerClass = Array.from(activeItem.classList || []).find((token) => isEpisodeActiveClassToken(token));
 
       const stableClasses = Array.from(activeItem.classList || [])
         .filter((token) => token && token !== markerClass)

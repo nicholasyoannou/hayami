@@ -11,6 +11,7 @@ const SANDBOX_CSP = [
   "font-src 'self' data: https://theanimecommunity.com https://*.theanimecommunity.com https://fonts.gstatic.com;",
   "object-src 'none';",
 ].join(' ');
+process.env.NODE_ENV = 'production';
 const filteredEntrypoints = process.env.NODE_ENV === 'production'
   ? [
       'background',

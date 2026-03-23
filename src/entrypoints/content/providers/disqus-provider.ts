@@ -30,16 +30,16 @@ const buildDisqusCacheKey = (animeInfo?: AnimeInfo | null) => {
 /**
  * Wait for Disqus iframe to load and become visible
  */
-function waitForDisqusLoad(callback: () => void): void {
+function waitForDisqusLoad(container: HTMLElement, callback: () => void): void {
   const checkDisqusLoaded = (): boolean => {
-    const disqusThread = document.getElementById(SELECTORS.DISQUS_THREAD);
+    const disqusThread = container.querySelector(SELECTORS.DISQUS_THREAD) as HTMLElement | null;
     if (!disqusThread) {
       return false;
     }
 
     // Check for iframe (most reliable indicator)
     const iframe = disqusThread.querySelector('iframe') as HTMLIFrameElement;
-    if (iframe && iframe.src && iframe.src.includes('disqus.com')) {
+    if (iframe && iframe.src && (iframe.src.includes('disqus.com') || iframe.src.startsWith('chrome-error://'))) {
       return true;
     }
 
@@ -58,25 +58,27 @@ function waitForDisqusLoad(callback: () => void): void {
     return;
   }
 
-  const disqusThread = document.getElementById(SELECTORS.DISQUS_THREAD);
-  if (!disqusThread) {
-    setTimeout(() => waitForDisqusLoad(callback), 100);
-    return;
-  }
-
+  let settled = false;
   let checkCount = 0;
   // Disqus can take several seconds before injecting the iframe on slower pages.
   const maxChecks = 120;
 
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    clearInterval(intervalId);
+    observer.disconnect();
+    callback();
+  };
+
   // Use MutationObserver to detect when Disqus content appears
   const observer = new MutationObserver(() => {
     if (checkDisqusLoaded()) {
-      observer.disconnect();
-      callback();
+      finish();
     }
   });
 
-  observer.observe(disqusThread, {
+  observer.observe(container, {
     childList: true,
     subtree: true,
     attributes: true,
@@ -87,21 +89,15 @@ function waitForDisqusLoad(callback: () => void): void {
   const intervalId = setInterval(() => {
     checkCount++;
     if (checkDisqusLoaded()) {
-      clearInterval(intervalId);
-      observer.disconnect();
-      callback();
+      finish();
     } else if (checkCount >= maxChecks) {
-      clearInterval(intervalId);
-      observer.disconnect();
-      callback(); // Call anyway to clear loading state
+      finish(); // Call anyway to clear loading state
     }
   }, 100);
 
   // Fallback timeout
   setTimeout(() => {
-    clearInterval(intervalId);
-    observer.disconnect();
-    callback();
+    finish();
   }, 12000);
 }
 
@@ -427,7 +423,7 @@ async function renderDisqusThread(
   (document.head || document.body).appendChild(script);
 
   // Wait for Disqus to load
-  waitForDisqusLoad(() => {
+  waitForDisqusLoad(container, () => {
     clearLoadingState('Disqus load complete');
   });
 }

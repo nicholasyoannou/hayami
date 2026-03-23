@@ -74,6 +74,7 @@ class UiManager {
   private popupShell: PopupShell | null = null;
   private popupCleanupRegistered = false;
   private mappedTriggerButton: HTMLButtonElement | null = null;
+  private mappedTriggerListItem: HTMLElement | null = null;
 
   private overlayUi: { remove: () => void; mount: () => void } | null = null;
 
@@ -553,6 +554,10 @@ class UiManager {
   }
 
   private removeMappedTrigger(): void {
+    if (this.mappedTriggerListItem) {
+      try { this.mappedTriggerListItem.remove(); } catch {}
+      this.mappedTriggerListItem = null;
+    }
     if (this.mappedTriggerButton) {
       try { this.mappedTriggerButton.remove(); } catch {}
       this.mappedTriggerButton = null;
@@ -582,12 +587,15 @@ class UiManager {
       trigger.type = 'button';
       trigger.dataset.hayamiMappedTrigger = 'true';
       trigger.style.cursor = 'pointer';
+      trigger.style.appearance = 'none';
       trigger.style.border = 'none';
       trigger.style.background = 'transparent';
       trigger.style.padding = '0 6px';
       trigger.style.margin = '0';
       trigger.style.lineHeight = '1';
       trigger.style.whiteSpace = 'nowrap';
+      trigger.style.color = 'inherit';
+      trigger.style.font = 'inherit';
       trigger.addEventListener('click', async (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -638,20 +646,123 @@ class UiManager {
       this.mappedTriggerButton = trigger;
     }
 
-    const reference = mountTarget.matches('button, a, [role="button"]')
+    const reference = (() => {
+      if (mountTarget.matches('button, a, [role="button"], [role="tab"], li')) {
+        return mountTarget;
+      }
+
+      const actionLike = mountTarget.querySelector('button, a, [role="button"], [role="tab"]');
+      if (actionLike instanceof HTMLElement) return actionLike;
+
+      const inactiveLike = mountTarget.querySelector(
+        "li:not(.active):not(.is-active):not(.current):not(.is-current):not(.selected):not([aria-selected='true']):not([aria-current]):not([data-active='true']), .tab:not(.active):not(.is-active):not(.current):not(.selected)",
+      );
+      if (inactiveLike instanceof HTMLElement) return inactiveLike;
+
+      const activeLike = mountTarget.querySelector(
+        "li[aria-selected='true'], li[aria-current]:not([aria-current='false']), li.active, li.is-active, li.current, li.selected, .active, .is-active, .current, .selected",
+      );
+      if (activeLike instanceof HTMLElement) return activeLike;
+
+      const fallback = mountTarget.querySelector('li, button, a, [role="tab"], [role="button"]');
+      if (fallback instanceof HTMLElement) return fallback;
+
+      return null;
+    })();
+
+    const targetIsAction = mountTarget.matches('button, a, [role="button"], .tab');
+    const listContainer = mountTarget.matches('ul, ol')
       ? mountTarget
-      : (mountTarget.querySelector('button, a, [role="button"]') as HTMLElement | null);
+      : (targetIsAction && mountTarget.parentElement?.matches('ul, ol') ? mountTarget.parentElement : null);
+
+    let listItem = this.mappedTriggerListItem;
+    if (listContainer) {
+      if (!listItem) {
+        listItem = document.createElement('li');
+        listItem.dataset.hayamiMappedTriggerHost = 'true';
+        this.mappedTriggerListItem = listItem;
+      }
+      if (trigger.parentElement !== listItem) {
+        listItem.replaceChildren(trigger);
+      }
+      listItem.style.listStyle = 'none';
+      listItem.style.display = '';
+      listItem.style.alignItems = '';
+      listItem.style.justifyContent = '';
+      listItem.style.height = '';
+      listItem.style.lineHeight = '';
+      listItem.style.margin = '';
+      listItem.style.padding = '';
+    } else if (listItem) {
+      try { listItem.remove(); } catch {}
+      this.mappedTriggerListItem = null;
+      listItem = null;
+    }
+
+    trigger.className = '';
+    if (listItem) listItem.className = '';
     if (reference) {
+      const presentationalClasses = Array.from(reference.classList || []).filter(
+        (name) => !/^(active|is-active|current|is-current|selected)$/iu.test(name),
+      );
+      if (listItem && !presentationalClasses.length && listContainer) {
+        const sibling = listContainer.querySelector('li') as HTMLElement | null;
+        if (sibling) {
+          presentationalClasses.push(
+            ...Array.from(sibling.classList || []).filter(
+              (name) => !/^(active|is-active|current|is-current|selected)$/iu.test(name),
+            ),
+          );
+        }
+      }
+      const classTarget = listItem || trigger;
+      if (presentationalClasses.length) {
+        classTarget.className = presentationalClasses.join(' ');
+      }
+
       const style = getComputedStyle(reference);
       trigger.style.color = style.color;
       trigger.style.fontSize = style.fontSize;
       trigger.style.fontWeight = style.fontWeight;
       trigger.style.fontFamily = style.fontFamily;
+      trigger.style.letterSpacing = style.letterSpacing;
+      trigger.style.textTransform = style.textTransform;
+      if (style.padding && style.padding !== '0px') {
+        trigger.style.padding = style.padding;
+      }
       trigger.style.height = style.height !== 'auto' ? style.height : '';
       trigger.style.display = 'inline-flex';
       trigger.style.alignItems = 'center';
       trigger.style.justifyContent = 'center';
       trigger.style.borderRadius = style.borderRadius || '8px';
+
+      if (listItem) {
+        listItem.style.display = style.display;
+        if (style.display.includes('flex')) {
+          listItem.style.alignItems = style.alignItems;
+          listItem.style.justifyContent = style.justifyContent;
+        }
+        listItem.style.lineHeight = style.lineHeight;
+        if (style.height && style.height !== 'auto') {
+          listItem.style.height = style.height;
+        }
+        if (style.margin && style.margin !== '0px') {
+          listItem.style.margin = style.margin;
+        }
+        if (style.padding && style.padding !== '0px') {
+          listItem.style.padding = style.padding;
+          trigger.style.padding = '0';
+        }
+      }
+    }
+
+    if (listItem) {
+      // In list mode, the li should provide layout/spacing; keep the button text-only.
+      trigger.style.display = 'inline';
+      trigger.style.height = 'auto';
+      trigger.style.lineHeight = 'inherit';
+      trigger.style.verticalAlign = 'baseline';
+      trigger.style.borderRadius = '0';
     }
 
     if (kind === 'icon') {
@@ -669,8 +780,13 @@ class UiManager {
       trigger.textContent = text;
     }
 
-    const targetIsAction = mountTarget.matches('button, a, [role="button"], .tab');
-    if (targetIsAction && mountTarget.parentElement) {
+    if (listContainer && listItem) {
+      if (targetIsAction && mountTarget.parentElement === listContainer) {
+        listContainer.insertBefore(listItem, mountTarget.nextSibling);
+      } else {
+        listContainer.appendChild(listItem);
+      }
+    } else if (targetIsAction && mountTarget.parentElement) {
       mountTarget.parentElement.insertBefore(trigger, mountTarget.nextSibling);
     } else {
       mountTarget.appendChild(trigger);

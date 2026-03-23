@@ -243,6 +243,57 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   const add = ctx.addEventListener.bind(ctx);
   let hoveredPreviewAnchor: HTMLAnchorElement | null = null;
 
+  const getEventPath = (ev: Event): EventTarget[] => {
+    const composed = typeof (ev as any).composedPath === 'function'
+      ? (ev as any).composedPath()
+      : [];
+    return Array.isArray(composed) ? composed : [];
+  };
+
+  const findAnchorFromEvent = (ev: Event): HTMLAnchorElement | null => {
+    const target = ev.target as Element | null;
+    const direct = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+    if (direct) return direct;
+
+    const path = getEventPath(ev);
+    for (const node of path) {
+      if (!(node instanceof Element)) continue;
+      const anchor = node.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (anchor) return anchor;
+    }
+    return null;
+  };
+
+  const isInsideCommentBody = (el: Element | null): boolean => {
+    if (!el) return false;
+    if (el.closest('.ri-text, .hayami-inline-discussion-root')) return true;
+    const root = el.getRootNode();
+    if (root instanceof ShadowRoot) {
+      const host = root.host;
+      if (host?.closest('.ri-text')) return true;
+      if (host?.closest('.hayami-inline-discussion-root')) return true;
+      if ((host as HTMLElement | null)?.classList?.contains('ri-text')) return true;
+      if ((host as HTMLElement | null)?.classList?.contains('hayami-inline-discussion-root')) return true;
+    }
+    return false;
+  };
+
+  const isEditableTarget = (ev: KeyboardEvent): boolean => {
+    const target = ev.target as HTMLElement | null;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return true;
+    }
+
+    const path = getEventPath(ev);
+    for (const node of path) {
+      if (!(node instanceof HTMLElement)) continue;
+      if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   // initialize embed-images flag and keep in sync with storage
   refreshEmbedImagesEnabled(preview);
   refreshImgurImagePreferences();
@@ -267,9 +318,9 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       preview.hidePreview();
       return;
     }
-    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    const a = findAnchorFromEvent(ev);
     if (!a) return;
-    if (!a.closest('.ri-text')) return; // only inside comment bodies
+    if (!isInsideCommentBody(a)) return; // only inside comment bodies
     hoveredPreviewAnchor = a;
     
     // Don't show preview if link is inside an unrevealed spoiler
@@ -495,8 +546,8 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   const hidePreview = () => preview.hidePreview();
 
   add(document, 'mouseout', (ev) => {
-    const targetAnchor = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
-    if (!targetAnchor || !targetAnchor.closest('.ri-text')) return;
+    const targetAnchor = findAnchorFromEvent(ev);
+    if (!targetAnchor || !isInsideCommentBody(targetAnchor)) return;
     if (hoveredPreviewAnchor === targetAnchor) {
       hoveredPreviewAnchor = null;
     }
@@ -519,8 +570,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   // Keyboard navigation
   add(document, 'keydown', (ev) => {
-    const target = ev.target as HTMLElement | null;
-    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    if (isEditableTarget(ev)) {
       return;
     }
 
@@ -546,9 +596,9 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   add(document, 'click', (ev) => {
     if (!embedImagesEnabled) return;
 
-    const a = (ev.target as HTMLElement).closest('a[href]') as HTMLAnchorElement | null;
+    const a = findAnchorFromEvent(ev);
     if (!a) return;
-    if (!a.closest('.ri-text')) return;
+    if (!isInsideCommentBody(a)) return;
     const href = a.getAttribute('href') || '';
     const ds = a.getAttribute('data-ri-images');
     const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
