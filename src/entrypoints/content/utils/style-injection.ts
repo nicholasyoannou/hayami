@@ -3,6 +3,15 @@
  * 
  * Provides clean, centralized style injection for content script UI.
  * Handles proper scoping and prevents duplicate injection.
+ * 
+ * IMPORTANT: Inline mode injects a <style> element into the light DOM.
+ * CSS in a <style> element applies globally to the entire document regardless
+ * of where the element sits in the DOM tree. To prevent Hayami's styles
+ * (Tailwind Preflight resets, utility classes, component styles) from
+ * overriding the host page's styles, all CSS is scoped under
+ * #ri-inline-vue-host using native CSS nesting before injection.
+ * Shadow DOM paths (popup/overlay/YouTube) are already isolated and
+ * do not use this module.
  */
 
 import tailwindCss from '@/styles/tailwind.css?inline';
@@ -10,11 +19,66 @@ import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
 
 /**
- * Combined extension styles for injection into UI containers.
- * Computed lazily to avoid unnecessary work at module initialization.
+ * The ID assigned to the inline UI wrapper element in ui-manager.ts.
+ * All injected styles are scoped under this selector via CSS nesting
+ * so they cannot leak into the host page.
  */
-function getExtensionStyles(): string {
-  return `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
+const INLINE_CONTAINER_SELECTOR = '#ri-inline-vue-host';
+
+/**
+ * Extracts @keyframes blocks from a CSS string.
+ * @keyframes is a non-conditional at-rule that cannot be scoped under
+ * a selector via CSS nesting, so we extract them first and append
+ * them outside the nesting context. Keyframe names are already
+ * prefixed (ri-, sk, shimmer, etc.) so they won't collide with
+ * the host page's animations.
+ */
+function extractKeyframes(css: string): { css: string; keyframes: string[] } {
+  const keyframes: string[] = [];
+  const cleaned = css.replace(
+    /@keyframes\s+[\w-]+\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}/g,
+    (match) => {
+      keyframes.push(match);
+      return '';
+    },
+  );
+  return { css: cleaned, keyframes };
+}
+
+/**
+ * Scopes CSS rules under a container selector using native CSS nesting.
+ *
+ * How it works:
+ *  1. @keyframes blocks are extracted and placed outside the nesting
+ *     wrapper (they can't be scoped but use unique names so won't clash).
+ *  2. The remaining CSS is wrapped in `<containerSelector> { ... }`.
+ *     The browser's CSS nesting engine resolves every nested rule
+ *     relative to the container, e.g. `a { ... }` becomes
+ *     `#ri-inline-vue-host a { ... }`, `* { ... }` becomes
+ *     `#ri-inline-vue-host * { ... }`, and so on.
+ *  3. Rules targeting `html` or `body` become no-ops because
+ *     `#ri-inline-vue-host html` can never match.
+ *
+ * Browser support: CSS nesting with relaxed syntax is supported in
+ * Chrome 120+ (Dec 2023) and Firefox 128+ (Jul 2024).
+ */
+function scopeCssToContainer(css: string, containerSelector: string): string {
+  const { css: remaining, keyframes } = extractKeyframes(css);
+  return `${containerSelector} {\n${remaining}\n}\n${keyframes.join('\n')}`;
+}
+
+/**
+ * Combined extension styles, scoped under #ri-inline-vue-host so they
+ * cannot bleed into the host page when injected in inline (light DOM) mode.
+ * Cached after first computation.
+ */
+let _cachedScopedStyles: string | null = null;
+function getScopedExtensionStyles(): string {
+  if (!_cachedScopedStyles) {
+    const raw = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
+    _cachedScopedStyles = scopeCssToContainer(raw, INLINE_CONTAINER_SELECTOR);
+  }
+  return _cachedScopedStyles;
 }
 
 /**
@@ -55,7 +119,7 @@ export function injectExtensionStyles(
     styleEl.id = styleId;
   }
   styleEl.setAttribute(STYLES_INJECTED_ATTR, 'true');
-  styleEl.textContent = getExtensionStyles();
+  styleEl.textContent = getScopedExtensionStyles();
   
   // Mark container and inject styles
   container.setAttribute(STYLES_INJECTED_ATTR, 'true');

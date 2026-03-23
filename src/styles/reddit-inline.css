@@ -1084,7 +1084,7 @@
   text-decoration: underline;
 }
 
-a {
+#reddit-inline-discussion a {
   transition: color .2s ease;
   transition-behavior: normal;
   transition-duration: 0.2s;
