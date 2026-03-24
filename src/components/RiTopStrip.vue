@@ -65,20 +65,19 @@
         :style="{ zIndex: menuOpen ? 0 : 'auto' }"
       >
         <span 
-          class="flex items-center justify-center w-[32px] h-[32px] rounded-full border border-[#2f2f2f] overflow-hidden relative"
+          class="flex items-center justify-center w-[32px] h-[32px] rounded-full border border-[#2f2f2f] overflow-hidden"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
         >
           <div
-            v-if="showAvatarSkeleton"
-            class="absolute inset-0 w-full h-full shimmer-bg"
+            v-if="props.isLoading || isAvatarHydrating"
+            class="w-full h-full shimmer-bg"
             aria-hidden="true"
           />
           <img
-            class="w-full h-full object-cover transition-opacity duration-200"
-            :class="{ 'opacity-0': showAvatarSkeleton, 'opacity-100': !showAvatarSkeleton }"
+            v-else
+            class="w-full h-full object-cover"
             :src="avatarSrc"
             :alt="`${subredditName} logo`"
-            @load="handleAvatarLoad"
             @error="handleAvatarError"
         />
         </span>
@@ -387,10 +386,6 @@ const subredditAvatar = computed(() => props.subredditIconUrl || defaultSubreddi
 const subredditPrimaryColor = computed(() => fetchedPrimaryColor.value || props.subredditPrimaryColor || null);
 const avatarSrc = ref(subredditAvatar.value);
 const isAvatarHydrating = ref(false);
-const isAvatarLoaded = ref(false);
-const showAvatarSkeleton = computed(
-  () => !!props.isLoading || isAvatarHydrating.value || !isAvatarLoaded.value
-);
 
 const sanitizeIcon = (url?: string | null) => (url || '').replace(/&amp;/g, '&').trim();
 
@@ -427,16 +422,11 @@ async function fetchSubredditAvatar(name?: string | null) {
 }
 
 const handleAvatarError = () => {
-  isAvatarLoaded.value = true;
   // Fallback to default subreddit icon if the provided URL fails
   if (avatarSrc.value !== defaultSubredditIconUrl) {
     console.warn('[RiTopStrip] avatar load error, falling back', { current: avatarSrc.value });
     avatarSrc.value = defaultSubredditIconUrl;
   }
-};
-
-const handleAvatarLoad = () => {
-  isAvatarLoaded.value = true;
 };
 const showTabs = computed(() => props.showTabs);
 const showOnlyActiveTab = computed(() => currentProvider.value !== 'reddit');
@@ -450,10 +440,6 @@ watch(() => props.provider, (newProvider) => {
 watch(subredditAvatar, (val) => {
   avatarSrc.value = val || defaultSubredditIconUrl;
 });
-
-watch(avatarSrc, () => {
-  isAvatarLoaded.value = false;
-}, { immediate: true });
 
 watch(
   () => props.subredditPrimaryColor,
