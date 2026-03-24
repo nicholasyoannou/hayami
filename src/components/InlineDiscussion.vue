@@ -2801,6 +2801,64 @@ defineExpose({
   cursor: not-allowed;
 }
 
+/* Fallback skeleton styles for inline Reddit loading states.
+   Keep these local so Hayami/custom-mapped mounts still render correctly
+   even if shared stylesheet injection is delayed. */
+.ri-loading-skeletons {
+  display: block;
+  width: 100%;
+}
+
+.ri-skel {
+  display: flex;
+  gap: 10px;
+  padding: 12px 0;
+}
+
+.ri-skel .sk-ava {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #2a2a2a;
+  animation: ri-skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.ri-skel .sk-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ri-skel .sk-line {
+  height: 10px;
+  background: linear-gradient(90deg, #1a1a1a, #2a2a2a, #1a1a1a);
+  background-size: 200% 100%;
+  animation: ri-skeleton-shimmer 1.2s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.ri-skel .sk-line.w80 {
+  width: 80%;
+}
+
+.ri-skel .sk-line.w60 {
+  width: 60%;
+}
+
+.ri-skel .sk-line.w40 {
+  width: 40%;
+}
+
+@keyframes ri-skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 @keyframes shimmer {
   0% {
     background-position: 200% 0;
