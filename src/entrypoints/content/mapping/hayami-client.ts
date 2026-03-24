@@ -1,0 +1,120 @@
+/**
+ * Hayami Mapper API client
+ * 
+ * Functions for fetching anime mapping data from the Hayami API service.
+ */
+
+import { fetchHayami } from '@/utils/hayamiApi';
+
+/**
+ * Strips season suffixes from anime names to get the series title.
+ * Examples:
+ *   "Hell's Paradise Season 2" → "Hell's Paradise"
+ *   "My Hero Academia Season 3" → "My Hero Academia"
+ *   "Attack on Titan S4" → "Attack on Titan"
+ */
+function stripSeasonSuffix(animeName: string): string {
+  const stripped = animeName
+    .replace(/\s+Season\s+\d+(\s+Part\s+\d+)?/i, '')
+    .replace(/\s+S\d+(\s+Part\s+\d+)?/i, '')
+    .replace(/\s+Part\s+\d+/i, '')
+    .trim();
+  
+  if (stripped && stripped !== animeName) {
+    console.log('[Mapper] Stripped season suffix:', { original: animeName, stripped });
+  }
+  
+  return stripped || animeName;
+}
+
+/**
+ * Lightweight mapper lookup by series name only (no Crunchyroll metadata).
+ * Supports platform hint (reddit|disqus) by forwarding to the search endpoint.
+ * Automatically strips season suffixes to search for the series title.
+ * For third-party sites, includes MAL/AniList IDs to improve matching accuracy.
+ */
+export async function fetchAnimeMapperDataBySeriesName(
+  seriesName: string,
+  platform: 'reddit' | 'disqus' | 'aniwave' = 'reddit',
+  options?: {
+    malId?: number | null;
+    anilistId?: number | null;
+    isThirdPartySite?: boolean;
+    maxEpisodeCount?: number | null;
+    preserveSeasonSuffix?: boolean;
+  },
+): Promise<any | null> {
+  try {
+    const searchName = options?.preserveSeasonSuffix
+      ? String(seriesName || '').trim()
+      : stripSeasonSuffix(seriesName);
+    const encodedSeries = encodeURIComponent(searchName);
+    const platformParam = platform !== 'reddit' ? `&platform=${encodeURIComponent(platform)}` : '';
+    
+    let idParams = '';
+    if (options?.isThirdPartySite) {
+      if (options?.malId) {
+        idParams += `&mal_id=${options.malId}`;
+      }
+      if (options?.anilistId) {
+        idParams += `&anilist_id=${options.anilistId}`;
+      }
+    }
+    
+    let episodeCountParam = '';
+    if (options?.maxEpisodeCount && options.maxEpisodeCount > 0) {
+      episodeCountParam = `&max_episode_count=${options.maxEpisodeCount}`;
+    }
+    
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}`;
+    console.log('[Mapper] Querying mapper by series name:', { 
+      url, 
+      platform, 
+      original: seriesName, 
+      searchName,
+      malId: options?.malId,
+      anilistId: options?.anilistId,
+      isThirdPartySite: options?.isThirdPartySite,
+      maxEpisodeCount: options?.maxEpisodeCount,
+    });
+    const response = await fetchHayami(url);
+    if (!response.ok) {
+      console.log('[Mapper] Series-name mapper returned non-OK status:', response.status, response.statusText);
+      return null;
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('[Mapper] Error fetching by series name:', error);
+    return null;
+  }
+}
+
+export async function fetchAnimeMapperDataBySeriesAndSeason(
+  seriesName: string,
+  seasonTitle: string,
+  platform: 'reddit' | 'disqus' = 'reddit',
+): Promise<any | null> {
+  try {
+    const encodedSeries = encodeURIComponent(seriesName);
+    const encodedSeason = encodeURIComponent(seasonTitle);
+    const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}`;
+    console.log('[Mapper Failover] Querying mapper service URL:', url);
+    const response = await fetchHayami(url);
+
+    if (!response.ok) {
+      console.log('[Mapper Failover] Mapper service returned non-OK status:', response.status, response.statusText);
+      const text = await response.text();
+      console.log('[Mapper Failover] Response body:', text);
+      return null;
+    }
+
+    const data = await response.json();
+    console.log('[Mapper Failover] Mapper service returned data:', data);
+    return data;
+  } catch (error) {
+    console.error('[Mapper Failover] Error fetching from mapper service:', error);
+    return null;
+  }
+}

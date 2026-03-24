@@ -13,9 +13,6 @@
  */
 
 import { AnimeInfo } from './types';
-import { extensionFetch } from '@/utils/redditApi';
-import { getAccessToken, makeRedditRequest } from '@/utils/redditAuth';
-import { fetchHayami } from '@/utils/hayamiApi';
 import {
   parseEpisodeFromTitle,
   parseMapperYear,
@@ -56,287 +53,33 @@ export {
 export type { DetectedContext, SiteAdapter, SiteEpisodeMetadata, PlacementTargets, PlacementTarget } from './adapters/types';
 export { resolveAdapter, getRegisteredAdapters, registerAdapter } from './adapters/site-registry';
 
+// Extracted submodules — import for internal use and re-export for consumers
+import {
+  extractEpisodeIdFromUrl,
+  extractEpisodeNumberFromUrlHints,
+} from './mapping/url-parsing';
+import {
+  extractEpisodeTableFromRedditSelftext,
+  maybeCorrectRedditEpisodeViaSelftext,
+} from './mapping/reddit-selftext';
+import {
+  fetchAnimeMapperDataBySeriesName,
+  fetchAnimeMapperDataBySeriesAndSeason,
+} from './mapping/hayami-client';
+
+export {
+  extractEpisodeIdFromUrl,
+  extractEpisodeNumberFromUrlHints,
+  extractEpisodeTableFromRedditSelftext,
+  fetchAnimeMapperDataBySeriesName,
+  fetchAnimeMapperDataBySeriesAndSeason,
+};
+
 export function resolveCurrentAdapter(location: Location = window.location) {
   return resolveAdapter(location);
 }
 
-/**
- * Strips season suffixes from anime names to get the series title.
- * Examples:
- *   "Hell's Paradise Season 2" → "Hell's Paradise"
- *   "My Hero Academia Season 3" → "My Hero Academia"
- *   "Attack on Titan S4" → "Attack on Titan"
- */
-function stripSeasonSuffix(animeName: string): string {
-  // Match patterns like "Season X", "Season X Part Y", "S2", "S3 Part 2", etc.
-  const stripped = animeName
-    .replace(/\s+Season\s+\d+(\s+Part\s+\d+)?/i, '')
-    .replace(/\s+S\d+(\s+Part\s+\d+)?/i, '')
-    .replace(/\s+Part\s+\d+/i, '')
-    .trim();
-  
-  if (stripped && stripped !== animeName) {
-    console.log('[Mapper] Stripped season suffix:', { original: animeName, stripped });
-  }
-  
-  return stripped || animeName; // Return original if nothing matched
-}
-
-// =============================================================================
-// MAPPER SERVICE API FUNCTIONS
-// Functions for fetching anime mapping data from the Hayami API service
-// =============================================================================
-
-/**
- * Lightweight mapper lookup by series name only (no Crunchyroll metadata).
- * Supports platform hint (reddit|disqus) by forwarding to the search endpoint.
- * Automatically strips season suffixes to search for the series title.
- * For third-party sites, includes MAL/AniList IDs to improve matching accuracy.
- */
-export async function fetchAnimeMapperDataBySeriesName(
-  seriesName: string,
-  platform: 'reddit' | 'disqus' | 'aniwave' = 'reddit',
-  options?: {
-    malId?: number | null;
-    anilistId?: number | null;
-    isThirdPartySite?: boolean;
-    maxEpisodeCount?: number | null;
-    preserveSeasonSuffix?: boolean;
-  },
-): Promise<any | null> {
-  try {
-    // Strip season suffix to get series title for broader search
-    const searchName = options?.preserveSeasonSuffix
-      ? String(seriesName || '').trim()
-      : stripSeasonSuffix(seriesName);
-    const encodedSeries = encodeURIComponent(searchName);
-    const platformParam = platform !== 'reddit' ? `&platform=${encodeURIComponent(platform)}` : '';
-    
-    // For third-party sites, try to include MAL/AniList IDs for better matching
-    let idParams = '';
-    if (options?.isThirdPartySite) {
-      if (options?.malId) {
-        idParams += `&mal_id=${options.malId}`;
-      }
-      if (options?.anilistId) {
-        idParams += `&anilist_id=${options.anilistId}`;
-      }
-    }
-    
-    // Include max episode count from Reddit selftext tables to inform Hayami
-    let episodeCountParam = '';
-    if (options?.maxEpisodeCount && options.maxEpisodeCount > 0) {
-      episodeCountParam = `&max_episode_count=${options.maxEpisodeCount}`;
-    }
-    
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}`;
-    console.log('[Mapper] Querying mapper by series name:', { 
-      url, 
-      platform, 
-      original: seriesName, 
-      searchName,
-      malId: options?.malId,
-      anilistId: options?.anilistId,
-      isThirdPartySite: options?.isThirdPartySite,
-      maxEpisodeCount: options?.maxEpisodeCount,
-    });
-    const response = await fetchHayami(url);
-    if (!response.ok) {
-      console.log('[Mapper] Series-name mapper returned non-OK status:', response.status, response.statusText);
-      return null;
-    }
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('[Mapper] Error fetching by series name:', error);
-    return null;
-  }
-}
-
-// =============================================================================
-// REDDIT SELFTEXT EPISODE TABLE EXTRACTION
-// Functions for parsing episode tables from Reddit discussion posts
-// =============================================================================
-
-const redditSelftextCache = new Map<string, any>();
-
-export async function extractEpisodeTableFromRedditSelftext(
-  mapperUrl: string,
-  seriesName?: string,
-): Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> {
-  const postIdMatch = mapperUrl.match(/comments\/([a-z0-9]+)/i);
-  const postId = postIdMatch?.[1] || null;
-  const cacheKey = postId || mapperUrl;
-
-  try {
-    const cached = redditSelftextCache.get(cacheKey);
-    let data = cached;
-
-    if (!data) {
-      const token = await getAccessToken();
-
-      // Prefer OAuth-by-post-id path to avoid public permalink JSON fetches.
-      if (postId && token) {
-        data = await makeRedditRequest<any[]>(`/comments/${encodeURIComponent(postId)}.json?raw_json=1`);
-      }
-
-      // Try oauth host with cookies as a fallback for ID-based lookups.
-      if (!data && postId) {
-        try {
-          const oauthUrl = `https://oauth.reddit.com/comments/${encodeURIComponent(postId)}.json?raw_json=1`;
-          const resp = await extensionFetch(oauthUrl, { credentials: 'include' } as any);
-          if (resp.ok) {
-            data = await resp.json();
-          }
-        } catch {
-          // continue to final fallback below
-        }
-      }
-
-      // Public fallback only when no postId can be extracted.
-      // If postId exists, avoid permalink-based www.reddit.com JSON fetches entirely.
-      if (!data && !postId) {
-        const fetchUrl = mapperUrl.endsWith('.json') ? mapperUrl : `${mapperUrl.replace(/\/?$/, '')}.json`;
-        data = await (await extensionFetch(fetchUrl)).json();
-      }
-    }
-
-    if (!data) return null;
-    redditSelftextCache.set(cacheKey, data);
-
-    const post = Array.isArray(data) ? data[0]?.data?.children?.[0]?.data : data?.data?.children?.[0]?.data;
-    const selftext: string | undefined = post?.selftext;
-    if (!selftext) return null;
-
-    if (seriesName) {
-      const normalize = (s: string) => s.toLowerCase().trim();
-      const sn = normalize(seriesName);
-      const body = normalize(selftext);
-      if (sn && !body.includes(sn.split(' ')[0])) {
-        return null;
-      }
-    }
-
-    const tableRegex = /(?:^|\n)\s*(\d+)\s*\|\s*\[Link\]\((https?:\/\/www\.reddit\.com\/r\/anime\/comments\/[^\)]+)\)/gi;
-    const tableMap = new Map<number, string>();
-    let m: RegExpExecArray | null;
-    while ((m = tableRegex.exec(selftext)) !== null) {
-      const ep = Number.parseInt(m[1], 10);
-      if (Number.isFinite(ep)) {
-        tableMap.set(ep, m[2]);
-      }
-    }
-
-    const maxEpisode = tableMap.size > 0 ? Math.max(...tableMap.keys()) : null;
-    return { tableMap, maxEpisode };
-  } catch (error) {
-    console.log('[Mapper Selftext] Error while parsing selftext', error);
-    return null;
-  }
-}
-
-async function maybeCorrectRedditEpisodeViaSelftext(
-  mapperUrl: string,
-  desiredEpisode: number | null,
-  seriesName?: string,
-): Promise<string | null> {
-  if (!mapperUrl || !Number.isFinite(desiredEpisode)) return null;
-
-  const desired = desiredEpisode as number;
-  const tableData = await extractEpisodeTableFromRedditSelftext(mapperUrl, seriesName);
-  if (!tableData) return null;
-
-  const { tableMap } = tableData;
-  
-  if (tableMap.has(desired)) {
-    const target = tableMap.get(desired)!;
-    if (target && target !== mapperUrl) {
-      console.log('[Mapper Selftext] Corrected episode via selftext table', { from: mapperUrl, to: target, desired });
-      return target;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Extract episode ID from Crunchyroll watch URL
- * e.g., https://www.crunchyroll.com/watch/G0DUN9VD2/the-last-one -> G0DUN9VD2
- */
-export function extractEpisodeIdFromUrl(): string | null {
-  try {
-    const host = window.location.hostname.toLowerCase();
-    const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
-    if (!isCrunchyrollHost) {
-      return null;
-    }
-
-    const url = window.location.href;
-    const match = url.match(/\/watch\/([A-Z0-9]+)/i);
-    return match ? match[1] : null;
-  } catch (error) {
-    console.error('Error extracting episode ID from URL:', error);
-    return null;
-  }
-}
-
-function parseEpisodeNumberFromHint(value: string | null | undefined): number | null {
-  const trimmed = String(value || '').trim();
-  if (!trimmed) return null;
-  if (!/^\d{1,4}$/u.test(trimmed)) return null;
-  const parsed = Number.parseInt(trimmed, 10);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-/**
- * Extract episode number hints from non-Crunchyroll URLs.
- * Supports query/hash params like ?ep=3 or #ep=3 and path fragments like /episode-3.
- */
-export function extractEpisodeNumberFromUrlHints(locationLike: Location = window.location): number | null {
-  try {
-    const searchParams = new URLSearchParams(locationLike.search || '');
-    for (const key of ['ep', 'episode', 'e', 'episodeNumber']) {
-      const fromSearch = parseEpisodeNumberFromHint(searchParams.get(key));
-      if (fromSearch !== null) {
-        return fromSearch;
-      }
-    }
-
-    const rawHash = (locationLike.hash || '').replace(/^#/, '');
-    if (rawHash) {
-      const hashAsQuery = rawHash.startsWith('?') ? rawHash.slice(1) : rawHash;
-      const hashParams = new URLSearchParams(hashAsQuery);
-      for (const key of ['ep', 'episode', 'e', 'episodeNumber']) {
-        const fromHashParam = parseEpisodeNumberFromHint(hashParams.get(key));
-        if (fromHashParam !== null) {
-          return fromHashParam;
-        }
-      }
-
-      const hashPatternMatch = rawHash.match(/(?:^|[^a-z0-9])(?:ep|episode|e)\s*[:=\/-]\s*(\d{1,4})(?:$|[^a-z0-9])/i);
-      if (hashPatternMatch?.[1]) {
-        const fromHashPattern = parseEpisodeNumberFromHint(hashPatternMatch[1]);
-        if (fromHashPattern !== null) {
-          return fromHashPattern;
-        }
-      }
-    }
-
-    const pathname = String(locationLike.pathname || '');
-    const pathPatternMatch = pathname.match(/\/(?:ep|episode)[\/-]?(\d{1,4})(?:\b|\/|$)/i);
-    if (pathPatternMatch?.[1]) {
-      const fromPath = parseEpisodeNumberFromHint(pathPatternMatch[1]);
-      if (fromPath !== null) {
-        return fromPath;
-      }
-    }
-
-    return null;
-  } catch (error) {
-    console.error('[Episode Detection] Error extracting episode number from URL hints:', error);
-    return null;
-  }
-}
+// (Inline definitions removed — now in mapping/ submodules)
 
 // =============================================================================
 // CRUNCHYROLL METADATA REFINEMENT
@@ -1084,40 +827,7 @@ function mapEpisodeWithSeasonsData(
   return null;
 }
 
-// =============================================================================
-// SEASON-SPECIFIC MAPPER FUNCTIONS
-// Functions for fetching and processing season-specific mapping data
-// =============================================================================
-
-export async function fetchAnimeMapperDataBySeriesAndSeason(
-  seriesName: string,
-  seasonTitle: string,
-  platform: 'reddit' | 'disqus' = 'reddit',
-): Promise<any | null> {
-  try {
-    const encodedSeries = encodeURIComponent(seriesName);
-    const encodedSeason = encodeURIComponent(seasonTitle);
-    // Reddit is the default; only append when explicitly requesting a non-default platform.
-    const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}`;
-    console.log('[Mapper Failover] Querying mapper service URL:', url);
-    const response = await fetchHayami(url);
-
-    if (!response.ok) {
-      console.log('[Mapper Failover] Mapper service returned non-OK status:', response.status, response.statusText);
-      const text = await response.text();
-      console.log('[Mapper Failover] Response body:', text);
-      return null;
-    }
-
-    const data = await response.json();
-    console.log('[Mapper Failover] Mapper service returned data:', data);
-    return data;
-  } catch (error) {
-    console.error('[Mapper Failover] Error fetching from mapper service:', error);
-    return null;
-  }
-}
+// (fetchAnimeMapperDataBySeriesAndSeason removed — now in mapping/hayami-client.ts)
 
 function mapEpisodeToSeasonEpisode(
   crEpisodeNumber: number,
