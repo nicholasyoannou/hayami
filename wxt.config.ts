@@ -111,6 +111,8 @@ export default defineConfig({
           'assets/topCommentMenu/*.svg',
           'assets/topCommentMenu/*.png',
           'disqus-loader.js',
+          'content-scripts/content.css',
+          'content-scripts/hayami-handshake.css',
           'popup.html',
           'animecommunity-embed.html',
           'animecommunity-embed.js',
