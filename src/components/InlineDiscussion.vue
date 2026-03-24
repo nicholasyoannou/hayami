@@ -790,10 +790,6 @@ onMounted(() => {
   browser.runtime.onMessage.addListener(runtimeMessageHandler);
 
   onUnmounted(() => {
-    if (wrongAnimeDebounceHandle) {
-      clearTimeout(wrongAnimeDebounceHandle);
-      wrongAnimeDebounceHandle = null;
-    }
     window.removeEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
     window.removeEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
     window.removeEventListener('keydown', escHandler);

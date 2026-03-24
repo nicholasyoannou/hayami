@@ -1,4 +1,4 @@
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onScopeDispose } from 'vue';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
 import { searchCustomPosts } from '@/utils/redditApi';
@@ -1163,6 +1163,15 @@ export function useManualSearch(params: {
   watch([manualEpisodeProvider, manualMappingLookupAnimeName, manualMappingAnimeName], () => {
     if (!manualSearchOpen.value) return;
     void refreshManualMappingState();
+  });
+
+  // ── Cleanup ──────────────────────────────────────────────────────────────
+
+  onScopeDispose(() => {
+    if (wrongAnimeDebounceHandle) {
+      clearTimeout(wrongAnimeDebounceHandle);
+      wrongAnimeDebounceHandle = null;
+    }
   });
 
   // ── Return ───────────────────────────────────────────────────────────────
