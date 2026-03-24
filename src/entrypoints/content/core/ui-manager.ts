@@ -8,7 +8,7 @@ import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping, markPopupInteractionLock } from '../ui/site-mapper/site-mapper-utils';
 import { resolveAdapter } from '../adapters/site-registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
-import { injectExtensionStyles } from '../utils/style-injection';
+import { injectExtensionStyles, getComponentCss, waitForComponentCss } from '../utils/style-injection';
 import { getContentScriptContext } from './content-script-context';
 import type { CommentProvider } from '../types/data';
 import { setInlineDiscussionApp } from '../state';
@@ -80,7 +80,12 @@ class UiManager {
 
   private apps = new Map<UiMode, MountedEntry>();
 
-  private readonly overlayCss = `${tailwindCss}\n${redditInlineCss}`;
+  /** Build the CSS bundle for Shadow DOM UIs (overlay/popup).
+   *  Includes the component CSS (Vue scoped styles) which is no longer
+   *  injected via the manifest (cssInjectionMode: 'manual'). */
+  private getOverlayCss(): string {
+    return `${tailwindCss}\n${redditInlineCss}\n${getComponentCss()}`;
+  }
 
   async mount(options: MountOptions): Promise<void> {
     this.unmount(options.mode);
@@ -175,7 +180,7 @@ class UiManager {
       position: 'inline',
       anchor: options.anchor ?? (() => document.body),
       append: 'last',
-      css: this.overlayCss,
+      css: this.getOverlayCss(),
       onMount: (uiContainer) => {
         const wrapper = document.createElement('div');
         wrapper.id = 'reddit-discussion-overlay';
@@ -365,7 +370,7 @@ class UiManager {
       position: 'inline',
       anchor: () => document.body,
       append: 'last',
-      css: `${this.overlayCss}`,
+      css: this.getOverlayCss(),
       onMount: (container) => {
         const root = document.createElement('div');
         root.id = 'hayami-popup-shell';

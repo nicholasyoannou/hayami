@@ -4,6 +4,7 @@ import YouTubeCommentsRoot from '@/components/comments/YouTubeCommentsRoot.vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
+import { getComponentCss } from '../utils/style-injection';
 import { getContentScriptContext } from '../core/content-script-context';
 
 // Track mounted Vue apps for cleanup within this helper
@@ -46,7 +47,7 @@ export async function mountYouTubeCommentsUi(options: MountYouTubeCommentsOption
     position: 'inline',
     anchor: () => target,
     append: 'last',
-    css: `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`,
+    css: `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}\n${getComponentCss()}`,
     onMount: (uiContainer) => {
       hostRoot = uiContainer;
       const app = createApp(YouTubeCommentsRoot, {

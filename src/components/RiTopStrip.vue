@@ -214,7 +214,9 @@
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { getSubredditAboutCached } from '@/utils/redditApi';
-import 'css-ripple-effect';
+// Ripple effect styles are defined in the <style scoped> block below
+// instead of importing 'css-ripple-effect' globally, which would leak
+// an unscoped .ripple class into the host page and break site menus.
 
 interface DiscussionTab {
   id: string;
@@ -513,6 +515,35 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* Scoped ripple effect (replaces global css-ripple-effect package) */
+.ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple::after {
+  content: "";
+  display: block;
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  background-image: radial-gradient(circle, #000 10%, transparent 10.01%);
+  background-repeat: no-repeat;
+  background-position: 50%;
+  transform: scale(10, 10);
+  opacity: 0;
+  transition: transform 0.5s, opacity 1s;
+}
+
+.ripple:active::after {
+  transform: scale(0, 0);
+  opacity: 0.2;
+  transition: 0s;
+}
+
 .shimmer-bg {
   background: linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);
   background-size: 200% 100%;

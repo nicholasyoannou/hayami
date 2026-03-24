@@ -491,6 +491,8 @@ export default defineContentScript({
   matches: ['https://hayami.moe/*', ...devHandshakeMatches],
   runAt: 'document_start',
   allFrames: true,
+  // Prevent manifest CSS injection on hayami.moe — see content/index.ts for details.
+  cssInjectionMode: 'manual',
   main(ctx: ContentScriptContext) {
     const isHayamiHost = location.hostname.endsWith('hayami.moe')
     const isLocalDevHost = import.meta.env.DEV && location.hostname === 'localhost' && location.port === '3000'

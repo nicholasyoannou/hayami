@@ -12,8 +12,14 @@
  * #ri-inline-vue-host using native CSS nesting before injection.
  * Shadow DOM paths (popup/overlay/YouTube) are already isolated and
  * do not use this module.
+ * 
+ * Both content scripts use cssInjectionMode: 'manual' so WXT does NOT
+ * declare any CSS in the manifest. The auto-generated Vue component CSS
+ * (scoped styles, vue-sonner, etc.) is fetched at runtime from the
+ * extension bundle and included in the scoped injection.
  */
 
+import { browser } from 'wxt/browser';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
@@ -26,6 +32,53 @@ import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
 const INLINE_CONTAINER_SELECTOR = '#ri-inline-vue-host';
 
 /**
+ * Auto-generated Vue component CSS (scoped styles, vue-sonner, etc.)
+ * fetched at runtime from the extension bundle.
+ * With cssInjectionMode: 'manual', this CSS is no longer injected
+ * globally via the manifest — we fetch it ourselves and include it
+ * in the scoped injection so the extension's own components render
+ * correctly without leaking into the host page.
+ */
+let _componentCss: string = '';
+const _componentCssReady: Promise<string> = (async () => {
+  try {
+    // WXT still generates the CSS file even with cssInjectionMode: 'manual'.
+    // Try the main content script CSS first, fall back to handshake CSS.
+    for (const path of ['content-scripts/content.css', 'content-scripts/hayami-handshake.css']) {
+      try {
+        const url = browser.runtime.getURL(path);
+        const res = await fetch(url);
+        if (res.ok) {
+          _componentCss = await res.text();
+          return _componentCss;
+        }
+      } catch {
+        // Try next path
+      }
+    }
+  } catch {
+    // Silently fail — the core styles (tailwind + reddit-inline + youtube-inline)
+    // are always available via ?inline imports. Component CSS is supplementary.
+  }
+  return '';
+})();
+
+/**
+ * Returns the fetched component CSS. If the async fetch hasn't completed
+ * yet, returns whatever is available (empty string on first call).
+ */
+export function getComponentCss(): string {
+  return _componentCss;
+}
+
+/**
+ * Waits for the component CSS to be fetched and returns it.
+ */
+export function waitForComponentCss(): Promise<string> {
+  return _componentCssReady;
+}
+
+/**
  * Extracts @keyframes blocks from a CSS string.
  * @keyframes is a non-conditional at-rule that cannot be scoped under
  * a selector via CSS nesting, so we extract them first and append
@@ -35,13 +88,45 @@ const INLINE_CONTAINER_SELECTOR = '#ri-inline-vue-host';
  */
 function extractKeyframes(css: string): { css: string; keyframes: string[] } {
   const keyframes: string[] = [];
-  const cleaned = css.replace(
-    /@keyframes\s+[\w-]+\s*\{[^}]*(?:\{[^}]*\}[^}]*)*\}/g,
-    (match) => {
-      keyframes.push(match);
-      return '';
-    },
-  );
+  // We cannot use a simple regex because @keyframes blocks contain nested
+  // braces (e.g. 0% { ... } 100% { ... }) and the previous regex only
+  // captured the first inner block, leaving the rest behind. This corrupted
+  // the CSS structure when wrapped in the nesting container.
+  // Instead, find each @keyframes and walk forward counting brace depth.
+  const marker = '@keyframes';
+  let cleaned = '';
+  let searchFrom = 0;
+
+  while (true) {
+    const idx = css.indexOf(marker, searchFrom);
+    if (idx === -1) {
+      cleaned += css.slice(searchFrom);
+      break;
+    }
+
+    // Find the opening brace of the keyframes block
+    const openBrace = css.indexOf('{', idx);
+    if (openBrace === -1) {
+      cleaned += css.slice(searchFrom);
+      break;
+    }
+
+    // Walk forward counting brace depth to find the matching close
+    let depth = 1;
+    let pos = openBrace + 1;
+    while (pos < css.length && depth > 0) {
+      if (css[pos] === '{') depth++;
+      else if (css[pos] === '}') depth--;
+      pos++;
+    }
+
+    // Append everything before this @keyframes to cleaned output
+    cleaned += css.slice(searchFrom, idx);
+    // Capture the full @keyframes block
+    keyframes.push(css.slice(idx, pos));
+    searchFrom = pos;
+  }
+
   return { css: cleaned, keyframes };
 }
 
@@ -68,15 +153,26 @@ function scopeCssToContainer(css: string, containerSelector: string): string {
 }
 
 /**
+ * Builds the scoped CSS string from all sources.
+ * Includes the core ?inline styles AND the auto-generated component CSS.
+ */
+function buildScopedStyles(): string {
+  const raw = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}\n${_componentCss}`;
+  return scopeCssToContainer(raw, INLINE_CONTAINER_SELECTOR);
+}
+
+/**
  * Combined extension styles, scoped under #ri-inline-vue-host so they
  * cannot bleed into the host page when injected in inline (light DOM) mode.
- * Cached after first computation.
+ * Cached after first computation; invalidated when component CSS arrives.
  */
 let _cachedScopedStyles: string | null = null;
+let _cachedWithComponentCss = false;
 function getScopedExtensionStyles(): string {
-  if (!_cachedScopedStyles) {
-    const raw = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}`;
-    _cachedScopedStyles = scopeCssToContainer(raw, INLINE_CONTAINER_SELECTOR);
+  const hasComponent = _componentCss.length > 0;
+  if (!_cachedScopedStyles || (hasComponent && !_cachedWithComponentCss)) {
+    _cachedScopedStyles = buildScopedStyles();
+    _cachedWithComponentCss = hasComponent;
   }
   return _cachedScopedStyles;
 }
@@ -124,6 +220,16 @@ export function injectExtensionStyles(
   // Mark container and inject styles
   container.setAttribute(STYLES_INJECTED_ATTR, 'true');
   container.appendChild(styleEl);
+
+  // If the component CSS hasn't loaded yet, update the style element
+  // once it arrives so Vue scoped styles are available.
+  if (!_cachedWithComponentCss) {
+    _componentCssReady.then(() => {
+      if (_componentCss && container.isConnected) {
+        styleEl.textContent = getScopedExtensionStyles();
+      }
+    });
+  }
   
   return styleEl;
 }
