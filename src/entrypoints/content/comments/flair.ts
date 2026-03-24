@@ -2,7 +2,7 @@
  * Flair rendering utilities for Reddit comments
  */
 
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 import { shouldUseLightText } from '@/utils/color-utils';
 
 /**

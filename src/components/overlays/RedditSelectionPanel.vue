@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 export interface RedditPost {
   title: string;

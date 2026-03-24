@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { AniListForumResult, AniListThreadComment } from '@/entrypoints/content/types/data';
 import { fetchAniListThreadComments } from '@/utils/anilistForums';
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { imgurOdsItem, type ImgurOdsOption } from '@/config/storage';
 import ProviderAuthRequired from './ProviderAuthRequired.vue';

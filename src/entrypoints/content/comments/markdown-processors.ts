@@ -2,7 +2,8 @@
  * Markdown processing and fallback utilities for comment rendering
  */
 
-import { markdownToHtml, escapeHtml } from '@/utils/markdown';
+import { markdownToHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 /**
  * Applies raw bullet list fallback if markdown pipeline fails to emit a list

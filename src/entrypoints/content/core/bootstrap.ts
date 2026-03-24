@@ -3,10 +3,7 @@ import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import { toast } from 'vue-sonner';
 import { createApp, h } from 'vue';
 import { Toaster } from 'vue-sonner';
-// Import vue-sonner CSS as an inline string so we can inject it
-// directly into the toaster host element. With cssInjectionMode: 'manual',
-// this CSS is no longer injected globally via the manifest.
-import vueSonnerCss from 'vue-sonner/style.css?inline';
+import 'vue-sonner/style.css';
 import { debug } from '@/utils/debug';
 import { wirePreviewHandlers } from '@/utils/previewHandlers';
 import { useWatchPageDetection } from '@/composables/useAnimeInfo';
@@ -146,16 +143,7 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
 }
 
 /**
- * Ensures the toast notification system is set up.
- *
- * The toaster is mounted inside a Shadow DOM so that:
- *  1. The vue-sonner CSS cannot leak into the host page at all (Shadow DOM
- *     encapsulates styles completely). This prevents interference with
- *     site layouts — e.g. hayami.moe's navbar was wrapping because the
- *     vue-sonner CSS `<style>` in the light DOM applied globally.
- *  2. The host page's CSS cannot affect the toaster's appearance.
- *  3. The outer wrapper is position:fixed with zero dimensions so it
- *     never participates in the page's document flow.
+ * Ensures the toast notification system is set up
  */
 export function ensureToaster(ctx: ContentScriptContext): void {
   const existing = document.getElementById('cr-comments-toaster');
@@ -163,29 +151,9 @@ export function ensureToaster(ctx: ContentScriptContext): void {
 
   const toastHost = document.createElement('div');
   toastHost.id = 'cr-comments-toaster';
-  // Out of document flow — zero-size fixed-position container.
-  toastHost.style.position = 'fixed';
-  toastHost.style.top = '0';
-  toastHost.style.right = '0';
-  toastHost.style.width = '0';
-  toastHost.style.height = '0';
-  toastHost.style.overflow = 'visible';
-  toastHost.style.pointerEvents = 'none';
-  toastHost.style.zIndex = '2147483646';
   document.body.appendChild(toastHost);
-
-  // Attach a Shadow DOM so the vue-sonner CSS is fully encapsulated.
-  const shadow = toastHost.attachShadow({ mode: 'open' });
-
-  const sonnerStyle = document.createElement('style');
-  sonnerStyle.textContent = vueSonnerCss;
-  shadow.appendChild(sonnerStyle);
-
-  const mountPoint = document.createElement('div');
-  shadow.appendChild(mountPoint);
-
   const toastApp = createApp({ render: () => h(Toaster, { position: 'top-right', theme: 'dark', richColors: true }) });
-  toastApp.mount(mountPoint);
+  toastApp.mount(toastHost);
 
   ctx.onInvalidated(() => {
     try { toastApp.unmount(); } catch {}

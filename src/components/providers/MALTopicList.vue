@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { MalTopic } from '@/entrypoints/content/types/data';
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 const props = defineProps<{
   topics: MalTopic[];

@@ -2,7 +2,7 @@
  * HTML templates for Reddit discussion panels and overlays
  */
 
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 export interface RedditPost {
   title: string;

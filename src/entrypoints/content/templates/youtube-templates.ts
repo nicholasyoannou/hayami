@@ -2,7 +2,7 @@
  * HTML templates for YouTube comment rendering
  */
 
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 export interface YouTubeComment {
   id: string;

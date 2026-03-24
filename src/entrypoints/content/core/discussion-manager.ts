@@ -12,7 +12,7 @@ import type { RedditCommentSort } from '@/utils/redditApi';
 
 
 // Markdown & text utilities
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';

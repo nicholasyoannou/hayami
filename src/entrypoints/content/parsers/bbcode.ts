@@ -3,7 +3,7 @@
  * Converts BBCode markup to HTML for MAL forum posts
  */
 
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 /**
  * Decodes HTML entities in a string safely using DOMParser

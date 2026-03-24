@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { voteThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
-import { markdownToHtml, escapeHtml } from '@/utils/markdown';
+import { markdownToHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
 import { toast } from 'vue-sonner';
 

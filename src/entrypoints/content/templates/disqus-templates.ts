@@ -2,7 +2,7 @@
  * HTML templates for Disqus rendering
  */
 
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 
 /**
  * Renders Disqus container with iframe

@@ -4,7 +4,7 @@ import type { MalForumResult, MalPost, MalTopic } from '@/entrypoints/content/ty
 import { fetchMalTopicPosts } from '@/utils/malForums';
 import MALPost from './MALPost.vue';
 import MALTopicList from './MALTopicList.vue';
-import { escapeHtml } from '@/utils/markdown';
+import { escapeHtml } from '@/utils/html-utils';
 import ProviderAuthRequired from './ProviderAuthRequired.vue';
 
 const props = defineProps<{
