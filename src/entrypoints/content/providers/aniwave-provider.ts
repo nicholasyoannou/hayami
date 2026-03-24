@@ -7,7 +7,7 @@ import type {
 } from '../types/data';
 import { fetchHayami } from '@/utils/hayamiApi';
 import { escapeHtml } from '@/utils/markdown';
-import { extractEpisodeNumber } from '@/utils/redditApi';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { aniwaveAutoExpandAllItem, aniwaveAutoExpandDepthItem, aniwaveHideReplyContextItem } from '@/config/storage';
 import { getSeriesMapping } from '../storage/series-mapping';

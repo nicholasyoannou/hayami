@@ -7,15 +7,15 @@ import type { CommentProvider, ProviderContext, YouTubeVideo } from '../types/da
 import type { AnimeInfo } from '../types';
 import { isYouTubeAuthenticated } from '@/utils/youtubeAuth';
 import { searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
-import { extractEpisodeNumber } from '@/utils/redditApi';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { extractEpisodeIdFromUrl, fetchCrunchyrollEpisodeMetadata } from '../mapping';
 import { createApp } from 'vue';
 import YouTubeCommentList from '@/components/comments/YouTubeCommentList.vue';
 import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
 import { handleProviderError } from '../utils/error-handler';
 import { 
-  DISQUS_CONTAINER_RETRY_ATTEMPTS, 
-  DISQUS_CONTAINER_RETRY_DELAY_MS,
+  CONTAINER_RETRY_ATTEMPTS, 
+  CONTAINER_RETRY_DELAY_MS,
   ASSETS,
   SELECTORS
 } from '../constants';
@@ -56,8 +56,8 @@ export class YouTubeProvider extends BaseProvider {
     if (!isAuth) {
       const container = await this.getContainerWithRetry(
         getExternalCommentsContainer,
-        DISQUS_CONTAINER_RETRY_ATTEMPTS,
-        DISQUS_CONTAINER_RETRY_DELAY_MS,
+        CONTAINER_RETRY_ATTEMPTS,
+        CONTAINER_RETRY_DELAY_MS,
       );
       container.style.display = 'block';
       safeClear(container);
@@ -127,8 +127,8 @@ export class YouTubeProvider extends BaseProvider {
         
         const container = await this.getContainerWithRetry(
           getExternalCommentsContainer,
-          DISQUS_CONTAINER_RETRY_ATTEMPTS,
-          DISQUS_CONTAINER_RETRY_DELAY_MS
+          CONTAINER_RETRY_ATTEMPTS,
+          CONTAINER_RETRY_DELAY_MS
         );
         container.style.display = 'block';
         
@@ -189,7 +189,7 @@ export class YouTubeProvider extends BaseProvider {
       
       let commentsSection = await this.getContainerWithRetry(
         getExternalCommentsContainer,
-        DISQUS_CONTAINER_RETRY_ATTEMPTS,
+        CONTAINER_RETRY_ATTEMPTS,
         100 // Longer delay for YouTube
       );
 

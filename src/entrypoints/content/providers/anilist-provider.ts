@@ -6,12 +6,12 @@ import { createApp } from 'vue';
 import { toast } from 'vue-sonner';
 import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext, AniListForumResult } from '../types/data';
-import { extractEpisodeNumber } from '@/utils/redditApi';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchAniListThreads, fetchAniListThreadComments } from '@/utils/anilistForums';
 import AniListForumView from '@/components/providers/AniListForumView.vue';
 import { handleProviderError } from '../utils/error-handler';
-import { DISQUS_CONTAINER_RETRY_ATTEMPTS, DISQUS_CONTAINER_RETRY_DELAY_MS } from '../constants';
+import { CONTAINER_RETRY_ATTEMPTS, CONTAINER_RETRY_DELAY_MS } from '../constants';
 import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason, extractEpisodeIdFromUrl } from '../mapping';
 import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
 import { getSeriesMapping } from '../storage/series-mapping';
@@ -125,8 +125,8 @@ export class AniListProvider extends BaseProvider {
 
       const container = await this.getContainerWithRetry(
         getExternalCommentsContainer,
-        DISQUS_CONTAINER_RETRY_ATTEMPTS,
-        DISQUS_CONTAINER_RETRY_DELAY_MS,
+        CONTAINER_RETRY_ATTEMPTS,
+        CONTAINER_RETRY_DELAY_MS,
       );
 
       container.style.display = 'block';

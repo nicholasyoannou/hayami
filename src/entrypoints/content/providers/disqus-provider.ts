@@ -8,8 +8,8 @@ import type { AnimeInfo } from '../types';
 import { findThreadForAnime, findThreadByLink } from '@/utils/disqusApi';
 import { renderDisqusContainer } from '../templates';
 import { 
-  DISQUS_CONTAINER_RETRY_ATTEMPTS, 
-  DISQUS_CONTAINER_RETRY_DELAY_MS,
+  CONTAINER_RETRY_ATTEMPTS, 
+  CONTAINER_RETRY_DELAY_MS,
   DISQUS_FORUM_SHORTNAME,
   ASSETS,
   SELECTORS
@@ -484,8 +484,8 @@ export class DisqusProvider extends BaseProvider {
       logThreadSnapshot('cache-restore', discussionCache.disqus.thread);
       const container = await this.getContainerWithRetry(
         getExternalCommentsContainer,
-        DISQUS_CONTAINER_RETRY_ATTEMPTS,
-        DISQUS_CONTAINER_RETRY_DELAY_MS
+        CONTAINER_RETRY_ATTEMPTS,
+        CONTAINER_RETRY_DELAY_MS
       );
       await renderDisqusThread(
         discussionCache.disqus.thread,
@@ -575,16 +575,16 @@ export class DisqusProvider extends BaseProvider {
         discussionCache.disqus = { thread, animeKey: cacheKey || undefined };
         const container = await this.getContainerWithRetry(
           getExternalCommentsContainer,
-          DISQUS_CONTAINER_RETRY_ATTEMPTS,
-          DISQUS_CONTAINER_RETRY_DELAY_MS
+          CONTAINER_RETRY_ATTEMPTS,
+          CONTAINER_RETRY_DELAY_MS
         );
         await renderDisqusThread(thread, container, animeInfo, clearLoadingState);
       } else {
         // No Disqus thread found, show search UI
         const fallbackContainer = await this.getContainerWithRetry(
           getExternalCommentsContainer,
-          DISQUS_CONTAINER_RETRY_ATTEMPTS,
-          DISQUS_CONTAINER_RETRY_DELAY_MS
+          CONTAINER_RETRY_ATTEMPTS,
+          CONTAINER_RETRY_DELAY_MS
         );
         fallbackContainer.style.display = 'block';
         // Render a simple empty state so the area is not blank

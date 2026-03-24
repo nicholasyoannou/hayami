@@ -6,15 +6,15 @@ import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext, MalForumResult } from '../types/data';
 import type { AnimeInfo } from '../types';
 import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId, pickEpisodeTopic } from '@/utils/malForums';
-import { extractEpisodeNumber } from '@/utils/redditApi';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { createApp } from 'vue';
 import MALForumView from '@/components/providers/MALForumView.vue';
 import { bbcodeToHtml } from '../parsers/bbcode';
 import { handleProviderError, handleApiError } from '../utils/error-handler';
 import { toast } from 'vue-sonner';
 import { 
-  DISQUS_CONTAINER_RETRY_ATTEMPTS, 
-  DISQUS_CONTAINER_RETRY_DELAY_MS 
+  CONTAINER_RETRY_ATTEMPTS, 
+  CONTAINER_RETRY_DELAY_MS 
 } from '../constants';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
@@ -137,8 +137,8 @@ export class MalProvider extends BaseProvider {
       // Render the result
       const container = await this.getContainerWithRetry(
         getExternalCommentsContainer,
-        DISQUS_CONTAINER_RETRY_ATTEMPTS,
-        DISQUS_CONTAINER_RETRY_DELAY_MS
+        CONTAINER_RETRY_ATTEMPTS,
+        CONTAINER_RETRY_DELAY_MS
       );
 
       // Previous provider cleanup (e.g., Disqus) may hide this shared container.

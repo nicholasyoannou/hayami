@@ -11,8 +11,12 @@ export const YOUTUBE_BASE_URL = 'https://www.youtube.com';
 // ==================== Timeouts & Delays ====================
 
 export const DEBOUNCE_DELAY_MS = 400;
-export const DISQUS_CONTAINER_RETRY_ATTEMPTS = 50;
-export const DISQUS_CONTAINER_RETRY_DELAY_MS = 50;
+export const CONTAINER_RETRY_ATTEMPTS = 50;
+export const CONTAINER_RETRY_DELAY_MS = 50;
+/** @deprecated Use CONTAINER_RETRY_ATTEMPTS instead */
+export const DISQUS_CONTAINER_RETRY_ATTEMPTS = CONTAINER_RETRY_ATTEMPTS;
+/** @deprecated Use CONTAINER_RETRY_DELAY_MS instead */
+export const DISQUS_CONTAINER_RETRY_DELAY_MS = CONTAINER_RETRY_DELAY_MS;
 export const DISQUS_LOAD_CHECK_INTERVAL_MS = 100;
 export const DISQUS_LOAD_MAX_CHECKS = 20;
 export const DISQUS_LOAD_TIMEOUT_MS = 1500;

@@ -2,7 +2,8 @@
  * Selection UI for episode picking and manual search
  */
 
-import { extractEpisodeNumber, searchCustomPosts } from '@/utils/redditApi';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
+import { searchCustomPosts } from '@/utils/redditApi';
 import { getUiManager } from '../core/ui-manager';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping, getSeriesMapping, deleteSeriesMapping } from '../mapping';

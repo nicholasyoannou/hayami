@@ -166,6 +166,41 @@ async function runKomentoSyncWithBadge(reason: string) {
   }
 }
 
+/**
+ * Shared proxy fetch handler used by both hayami_proxyFetch and hayami_cr_proxyFetch.
+ * @param url - The URL to fetch
+ * @param init - Fetch init options
+ * @param label - Log label for debug/error messages
+ * @param sendResponse - Message port sendResponse callback
+ */
+async function handleProxyFetch(
+  url: string,
+  init: RequestInit,
+  label: string,
+  sendResponse: (response: any) => void,
+) {
+  try {
+    const resp = await fetch(url, init as any);
+    const ct = resp.headers.get('content-type') || '';
+    let body: any = null;
+    try {
+      if (ct.includes('application/json')) body = await resp.json(); else body = await resp.text();
+    } catch (parseErr) {
+      body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
+    }
+    const headers = Array.from(resp.headers.entries());
+    console.debug(`[background] ${label} response:`, { url, ok: resp.ok, status: resp.status, headers });
+    if (!resp.ok) {
+      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
+      console.warn(`[background] ${label} non-OK response:`, { url, status: resp.status, body: bodyStr.slice(0,500) });
+    }
+    sendResponse({ ok: resp.ok, status: resp.status, statusText: resp.statusText, headers, body });
+  } catch (err) {
+    console.error(`[background] ${label} error:`, err);
+    sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
+  }
+}
+
 async function getKomentoPendingPermissionsSummary() {
   const permissions = browser.permissions;
   const [cached, sources, customMap] = await Promise.all([
@@ -983,36 +1018,7 @@ export default defineBackground(() => {
     if (message.action === 'hayami_proxyFetch') {
       const { url, init } = message;
       console.debug('[background] hayami_proxyFetch requested:', url, { init });
-      (async () => {
-        try {
-          const resp = await fetch(url, init as any);
-          const ct = resp.headers.get('content-type') || '';
-          let body: any = null;
-          try {
-            if (ct.includes('application/json')) body = await resp.json(); else body = await resp.text();
-          } catch (parseErr) {
-            body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
-          }
-          const headers = Array.from(resp.headers.entries());
-          console.debug('[background] hayami_proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
-          if (!resp.ok) {
-            const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-            console.warn('[background] hayami_proxyFetch non-OK response:', { url, status: resp.status, body: bodyStr.slice(0,500) });
-          }
-          console.debug('[background] hayami_proxyFetch calling sendResponse for:', url);
-          sendResponse({
-            ok: resp.ok,
-            status: resp.status,
-            statusText: resp.statusText,
-            headers,
-            body,
-          });
-          console.debug('[background] hayami_proxyFetch sendResponse completed for:', url);
-        } catch (err) {
-          console.error('[background] hayami_proxyFetch error:', err);
-          sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
-        }
-      })();
+      handleProxyFetch(url, init, 'hayami_proxyFetch', sendResponse);
       return true; // keep message channel open for async response
     }
 
@@ -1776,36 +1782,12 @@ export default defineBackground(() => {
     // (Reverted) previously there was a startDisqusLoginFlow handler here.
     // Disqus login should not be initiated automatically from the popup selection.
     
-    // Handle hayami_cr_proxyFetch (namespaced proxy for Disqus)
+    // Handle hayami_cr_proxyFetch (namespaced proxy for Disqus — credentials omitted)
     if (message.action === 'hayami_cr_proxyFetch') {
       const { url } = message as any;
-      let init = (message as any).init || {};
+      const init = Object.assign({}, (message as any).init || {}, { credentials: 'omit' });
       console.debug('[background] hayami_cr_proxyFetch requested:', url, { init });
-      (async () => {
-        try {
-          // Fetch WITHOUT credentials (omit cookies) so Disqus returns the public API key
-          init = Object.assign({}, init, { credentials: 'omit' });
-
-          const resp = await fetch(url, init as any);
-          const ct = resp.headers.get('content-type') || '';
-          let body: any = null;
-          try {
-            if (ct.includes('application/json')) body = await resp.json(); else body = await resp.text();
-          } catch (parseErr) {
-            body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
-          }
-          const headers = Array.from(resp.headers.entries());
-          console.debug('[background] hayami_cr_proxyFetch response:', { url, ok: resp.ok, status: resp.status, headers });
-          if (!resp.ok) {
-            const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-            console.warn('[background] hayami_cr_proxyFetch non-OK response:', { url, status: resp.status, body: bodyStr.slice(0,500) });
-          }
-          sendResponse({ ok: resp.ok, status: resp.status, statusText: resp.statusText, headers, body });
-        } catch (err) {
-          console.error('[background] hayami_cr_proxyFetch error:', err);
-          sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
-        }
-      })();
+      handleProxyFetch(url, init, 'hayami_cr_proxyFetch', sendResponse);
       return true; // keep message channel open for async response
     }
 

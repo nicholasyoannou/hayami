@@ -72,6 +72,7 @@ import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms
 import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
 import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
+import SettingField from './SettingField.vue';
 import KomentoPendingPermissionsCard from './KomentoPendingPermissionsCard.vue';
 import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
@@ -2513,93 +2514,19 @@ function handleAniListLogout() {
                     </div>
                   </div>
 
-                  <template v-for="setting in activeCategoryPrimarySettings" :key="setting.key">
-                    <div
-                      class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-4 py-3"
-                      :class="isSettingDisabled(setting) ? 'opacity-50 pointer-events-none' : ''"
-                    >
-                      <div v-if="setting.type !== 'apiKey'" class="flex-1">
-                        <p class="text-sm text-white/80">{{ setting.label }}</p>
-                        <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
-                      </div>
-                      <div v-else-if="setting.description" class="flex-1">
-                        <p class="text-xs text-white/60">{{ setting.description }}</p>
-                      </div>
-                      <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
-                        <template v-if="setting.type === 'select'">
-                          <select
-                            class="w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
-                            :value="settingValues[setting.key]"
-                            :disabled="isSettingDisabled(setting)"
-                            @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
-                          >
-                            <option
-                              v-for="option in getSettingOptions(setting)"
-                              :key="option.value"
-                              :value="option.value"
-                              class="bg-[#1f2329]"
-                            >
-                              {{ option.label }}
-                            </option>
-                          </select>
-                        </template>
-
-                        <template v-else-if="setting.type === 'toggle'">
-                          <label class="relative inline-flex items-center">
-                            <input
-                              type="checkbox"
-                              class="peer sr-only"
-                              :checked="Boolean(settingValues[setting.key])"
-                              @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
-                            />
-                            <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                          </label>
-                        </template>
-
-                        <template v-else-if="setting.type === 'segmented'">
-                          <div class="flex gap-2 text-sm font-semibold">
-                            <button
-                              v-for="option in getSettingOptions(setting)"
-                              :key="option.value"
-                              class="rounded-lg px-3 py-2"
-                              :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
-                              @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
-                            >
-                              {{ option.label }}
-                            </button>
-                          </div>
-                        </template>
-
-                        <template v-else-if="setting.type === 'slider'">
-                          <div class="flex items-center gap-3">
-                            <input
-                              type="range"
-                              :min="setting.min"
-                              :max="setting.max"
-                              :step="setting.step"
-                              :value="settingValues[setting.key] as number"
-                              :disabled="isSettingDisabled(setting)"
-                              @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
-                              class="w-24"
-                            />
-                            <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
-                          </div>
-                        </template>
-
-                        <template v-else-if="setting.type === 'apiKey'">
-                          <ApiKeyInput
-                            v-model="(settingValues[setting.key] as string)"
-                            :label="setting.label"
-                            :type="setting.inputType || 'password'"
-                            :placeholder="setting.placeholder"
-                            :info-url="setting.infoUrl"
-                            :disabled="isSettingDisabled(setting)"
-                            @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
-                          />
-                        </template>
-                      </div>
-                    </div>
-                  </template>
+                  <SettingField
+                    v-for="setting in activeCategoryPrimarySettings"
+                    :key="setting.key"
+                    :setting="setting"
+                    :model-value="settingValues[setting.key]"
+                    :options="getSettingOptions(setting)"
+                    :disabled="isSettingDisabled(setting)"
+                    variant="primary"
+                    padding="normal"
+                    :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
+                    @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
+                    @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
+                  />
 
                   <div
                     v-if="activeSettingsCategory.id === 'general'"
@@ -2632,93 +2559,19 @@ function handleAniListLogout() {
                     </button>
 
                     <div v-if="imagePreviewAdvancedExpanded" class="mt-3 space-y-3">
-                      <template v-for="setting in activeCategoryAdvancedSettings" :key="setting.key">
-                        <div
-                          class="flex items-start justify-between gap-3 rounded-xl bg-black/15 px-4 py-3"
-                          :class="isSettingDisabled(setting) ? 'opacity-50 pointer-events-none' : ''"
-                        >
-                          <div v-if="setting.type !== 'apiKey'" class="flex-1">
-                            <p class="text-sm text-white/80">{{ setting.label }}</p>
-                            <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
-                          </div>
-                          <div v-else-if="setting.description" class="flex-1">
-                            <p class="text-xs text-white/60">{{ setting.description }}</p>
-                          </div>
-                          <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
-                            <template v-if="setting.type === 'select'">
-                              <select
-                                class="w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
-                                :value="settingValues[setting.key]"
-                                :disabled="isSettingDisabled(setting)"
-                                @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
-                              >
-                                <option
-                                  v-for="option in getSettingOptions(setting)"
-                                  :key="option.value"
-                                  :value="option.value"
-                                  class="bg-[#1f2329]"
-                                >
-                                  {{ option.label }}
-                                </option>
-                              </select>
-                            </template>
-
-                            <template v-else-if="setting.type === 'toggle'">
-                              <label class="relative inline-flex items-center">
-                                <input
-                                  type="checkbox"
-                                  class="peer sr-only"
-                                  :checked="Boolean(settingValues[setting.key])"
-                                  @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
-                                />
-                                <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                              </label>
-                            </template>
-
-                            <template v-else-if="setting.type === 'segmented'">
-                              <div class="flex gap-2 text-sm font-semibold">
-                                <button
-                                  v-for="option in getSettingOptions(setting)"
-                                  :key="option.value"
-                                  class="rounded-lg px-3 py-2"
-                                  :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
-                                  @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
-                                >
-                                  {{ option.label }}
-                                </button>
-                              </div>
-                            </template>
-
-                            <template v-else-if="setting.type === 'slider'">
-                              <div class="flex items-center gap-3">
-                                <input
-                                  type="range"
-                                  :min="setting.min"
-                                  :max="setting.max"
-                                  :step="setting.step"
-                                  :value="settingValues[setting.key] as number"
-                                  :disabled="isSettingDisabled(setting)"
-                                  @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
-                                  class="w-24"
-                                />
-                                <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
-                              </div>
-                            </template>
-
-                            <template v-else-if="setting.type === 'apiKey'">
-                              <ApiKeyInput
-                                v-model="(settingValues[setting.key] as string)"
-                                :label="setting.label"
-                                :type="setting.inputType || 'password'"
-                                :placeholder="setting.placeholder"
-                                :info-url="setting.infoUrl"
-                                :disabled="isSettingDisabled(setting)"
-                                @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
-                              />
-                            </template>
-                          </div>
-                        </div>
-                      </template>
+                      <SettingField
+                        v-for="setting in activeCategoryAdvancedSettings"
+                        :key="setting.key"
+                        :setting="setting"
+                        :model-value="settingValues[setting.key]"
+                        :options="getSettingOptions(setting)"
+                        :disabled="isSettingDisabled(setting)"
+                        variant="advanced"
+                        padding="normal"
+                        :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
+                        @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
+                        @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
+                      />
                     </div>
                   </div>
                 </div>
@@ -2863,87 +2716,18 @@ function handleAniListLogout() {
                     </div>
 
                     <div v-if="activeProviderPrimarySettings.length || activeProviderAdvancedSettings.length" class="space-y-3">
-                      <template v-for="setting in activeProviderPrimarySettings" :key="setting.key">
-                        <div class="flex items-start justify-between gap-3 rounded-xl bg-white/5 px-3 py-3">
-                          <div v-if="setting.type !== 'apiKey'" class="flex-1">
-                            <p class="text-sm text-white/80">{{ setting.label }}</p>
-                            <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
-                          </div>
-                          <div v-else-if="setting.description" class="flex-1">
-                            <p class="text-xs text-white/60">{{ setting.description }}</p>
-                          </div>
-                          <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
-                            <template v-if="setting.type === 'select'">
-                              <select
-                                class="w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
-                                :value="settingValues[setting.key]"
-                                @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
-                              >
-                                <option
-                                  v-for="option in getSettingOptions(setting)"
-                                  :key="option.value"
-                                  :value="option.value"
-                                  class="bg-[#1f2329]"
-                                >
-                                  {{ option.label }}
-                                </option>
-                              </select>
-                            </template>
-
-                            <template v-else-if="setting.type === 'toggle'">
-                              <label class="relative inline-flex items-center">
-                                <input
-                                  type="checkbox"
-                                  class="peer sr-only"
-                                  :checked="Boolean(settingValues[setting.key])"
-                                  @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
-                                />
-                                <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                              </label>
-                            </template>
-
-                            <template v-else-if="setting.type === 'segmented'">
-                              <div class="flex gap-2 text-sm font-semibold">
-                                <button
-                                  v-for="option in getSettingOptions(setting)"
-                                  :key="option.value"
-                                  class="rounded-lg px-3 py-2"
-                                  :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
-                                  @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
-                                >
-                                  {{ option.label }}
-                                </button>
-                              </div>
-                            </template>
-
-                            <template v-else-if="setting.type === 'slider'">
-                              <div class="flex items-center gap-3">
-                                <input
-                                  type="range"
-                                  :min="setting.min"
-                                  :max="setting.max"
-                                  :step="setting.step"
-                                  :value="settingValues[setting.key] as number"
-                                  @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
-                                  class="w-24"
-                                />
-                                <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
-                              </div>
-                            </template>
-
-                            <template v-else-if="setting.type === 'apiKey'">
-                              <ApiKeyInput
-                                v-model="(settingValues[setting.key] as string)"
-                                :label="setting.label"
-                                :type="setting.inputType || 'password'"
-                                :placeholder="setting.placeholder"
-                                :info-url="setting.infoUrl"
-                                @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
-                              />
-                            </template>
-                          </div>
-                        </div>
-                      </template>
+                      <SettingField
+                        v-for="setting in activeProviderPrimarySettings"
+                        :key="setting.key"
+                        :setting="setting"
+                        :model-value="settingValues[setting.key]"
+                        :options="getSettingOptions(setting)"
+                        variant="primary"
+                        padding="compact"
+                        :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
+                        @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
+                        @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
+                      />
 
                       <div
                         v-if="activeProviderSection.id === 'reddit' && activeProviderAdvancedSettings.length"
@@ -2958,87 +2742,18 @@ function handleAniListLogout() {
                         </button>
 
                         <div v-if="providerAdvancedExpanded" class="mt-3 space-y-3">
-                          <template v-for="setting in activeProviderAdvancedSettings" :key="setting.key">
-                            <div class="flex items-start justify-between gap-3 rounded-xl bg-black/15 px-3 py-3">
-                              <div v-if="setting.type !== 'apiKey'" class="flex-1">
-                                <p class="text-sm text-white/80">{{ setting.label }}</p>
-                                <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
-                              </div>
-                              <div v-else-if="setting.description" class="flex-1">
-                                <p class="text-xs text-white/60">{{ setting.description }}</p>
-                              </div>
-                              <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
-                                <template v-if="setting.type === 'select'">
-                                  <select
-                                    class="w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
-                                    :value="settingValues[setting.key]"
-                                    @change="(e) => handleSettingChange(setting, (e.target as HTMLSelectElement).value as SettingValueMap[SettingKey])"
-                                  >
-                                    <option
-                                      v-for="option in getSettingOptions(setting)"
-                                      :key="option.value"
-                                      :value="option.value"
-                                      class="bg-[#1f2329]"
-                                    >
-                                      {{ option.label }}
-                                    </option>
-                                  </select>
-                                </template>
-
-                                <template v-else-if="setting.type === 'toggle'">
-                                  <label class="relative inline-flex items-center">
-                                    <input
-                                      type="checkbox"
-                                      class="peer sr-only"
-                                      :checked="Boolean(settingValues[setting.key])"
-                                      @change="(e) => handleSettingChange(setting, (e.target as HTMLInputElement).checked as SettingValueMap[SettingKey])"
-                                    />
-                                    <div class="peer h-6 w-11 rounded-full bg-white/10 transition peer-checked:bg-emerald-400 after:absolute after:left-1 after:top-1 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></div>
-                                  </label>
-                                </template>
-
-                                <template v-else-if="setting.type === 'segmented'">
-                                  <div class="flex gap-2 text-sm font-semibold">
-                                    <button
-                                      v-for="option in getSettingOptions(setting)"
-                                      :key="option.value"
-                                      class="rounded-lg px-3 py-2"
-                                      :class="settingValues[setting.key] === option.value ? 'bg-white/15' : 'bg-white/5'"
-                                      @click="handleSettingChange(setting, option.value as SettingValueMap[SettingKey])"
-                                    >
-                                      {{ option.label }}
-                                    </button>
-                                  </div>
-                                </template>
-
-                                <template v-else-if="setting.type === 'slider'">
-                                  <div class="flex items-center gap-3">
-                                    <input
-                                      type="range"
-                                      :min="setting.min"
-                                      :max="setting.max"
-                                      :step="setting.step"
-                                      :value="settingValues[setting.key] as number"
-                                      @input="(e) => handleSettingChange(setting, parseFloat((e.target as HTMLInputElement).value) as SettingValueMap[SettingKey])"
-                                      class="w-24"
-                                    />
-                                    <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formatSliderValue(setting, settingValues[setting.key]) }}</span>
-                                  </div>
-                                </template>
-
-                                <template v-else-if="setting.type === 'apiKey'">
-                                  <ApiKeyInput
-                                    v-model="(settingValues[setting.key] as string)"
-                                    :label="setting.label"
-                                    :type="setting.inputType || 'password'"
-                                    :placeholder="setting.placeholder"
-                                    :info-url="setting.infoUrl"
-                                    @save="() => handleSettingChange(setting, (settingValues[setting.key] || '') as SettingValueMap[SettingKey])"
-                                  />
-                                </template>
-                              </div>
-                            </div>
-                          </template>
+                          <SettingField
+                            v-for="setting in activeProviderAdvancedSettings"
+                            :key="setting.key"
+                            :setting="setting"
+                            :model-value="settingValues[setting.key]"
+                            :options="getSettingOptions(setting)"
+                            variant="advanced"
+                            padding="compact"
+                            :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
+                            @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
+                            @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
+                          />
                         </div>
                       </div>
                     </div>

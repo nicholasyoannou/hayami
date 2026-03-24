@@ -1,7 +1,7 @@
 import { BaseProvider } from './base-provider';
 import type { AnimeInfo } from '../types';
 import type { CommentProvider, ProviderContext } from '../types/data';
-import { extractEpisodeNumber } from '@/utils/redditApi';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { safeClear } from '../utils/dom-helpers';

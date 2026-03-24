@@ -19,7 +19,7 @@ import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mappe
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
 import { setupScreenshotHotkey } from '../ui/screenshot-hotkey';
 import { isSupportedLocation } from '../sites/registry';
-import { extractEpisodeNumber } from '@/utils/redditApi';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { fetchCrunchyrollEpisodeMetadata, saveSeriesMapping, deleteSeriesMapping } from '../mapping';
 import {
   getState,
