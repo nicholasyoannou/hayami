@@ -23,6 +23,7 @@ import { browser } from 'wxt/browser';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
+import sonnerCss from 'vue-sonner/style.css?inline';
 
 /**
  * The ID assigned to the inline UI wrapper element in ui-manager.ts.
@@ -158,7 +159,9 @@ function scopeCssToContainer(css: string, containerSelector: string): string {
  */
 function buildScopedStyles(): string {
   const raw = `${tailwindCss}\n${redditInlineCss}\n${youtubeInlineCss}\n${_componentCss}`;
-  return scopeCssToContainer(raw, INLINE_CONTAINER_SELECTOR);
+  // Keep toast styles global because the toaster mounts on document.body,
+  // outside the inline container selector.
+  return `${scopeCssToContainer(raw, INLINE_CONTAINER_SELECTOR)}\n${sonnerCss}`;
 }
 
 /**
