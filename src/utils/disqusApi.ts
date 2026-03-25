@@ -93,6 +93,70 @@ function scoreThreadForAnime(animeInfo: { animeName: string; episodeName?: strin
   return score;
 }
 
+function tokenizeForAnimeMatch(value: string): string[] {
+  const stop = new Set([
+    'season',
+    'episode',
+    'discussion',
+    'part',
+    'cour',
+    'the',
+    'and',
+    'with',
+    'for',
+    'who',
+    'you',
+    'your',
+    'from',
+    'into',
+    'of',
+    'to',
+    'so',
+    'ill',
+  ]);
+
+  return normalizeTitle(value)
+    .split(' ')
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !stop.has(token) && !/^\d+$/.test(token));
+}
+
+function isThreadLikelyForAnime(
+  animeInfo: { animeName: string; episodeName?: string; releaseDate?: string },
+  thread: { title?: string; clean_title?: string; slug?: string; link?: string },
+): boolean {
+  const animeNameNorm = normalizeTitle(animeInfo?.animeName || '');
+  if (!animeNameNorm) return true;
+
+  const candidateText = [
+    String(thread?.title || ''),
+    String(thread?.clean_title || ''),
+    String(thread?.slug || ''),
+    String(thread?.link || ''),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const candidateNorm = normalizeTitle(candidateText);
+  if (!candidateNorm) return true;
+
+  if (candidateNorm.includes(animeNameNorm)) return true;
+
+  const animeTokens = tokenizeForAnimeMatch(animeInfo?.animeName || '');
+  if (animeTokens.length === 0) return true;
+
+  const candidateTokens = new Set(tokenizeForAnimeMatch(candidateText));
+  if (candidateTokens.size === 0) return false;
+
+  let overlap = 0;
+  for (const token of animeTokens) {
+    if (candidateTokens.has(token)) overlap += 1;
+  }
+
+  const requiredOverlap = Math.max(2, Math.ceil(animeTokens.length * 0.35));
+  return overlap >= requiredOverlap;
+}
+
 /**
  * Fetches Disqus public API key by requesting known Disqus bundles or login page
  * and extracting the public key.
@@ -357,6 +421,16 @@ export async function findThreadByLink(
       for (const t of threads) {
         const candidateCanonical = toCanonical(String(t?.link || ''));
         if (candidateCanonical && wantedCanonical && candidateCanonical === wantedCanonical) {
+          if (!isThreadLikelyForAnime(animeInfo, t)) {
+            console.log('[DisqusApi][findThreadByLink] rejecting canonical match due title mismatch', {
+              matchedCanonical: candidateCanonical,
+              id: t?.id,
+              title: t?.title,
+              clean_title: t?.clean_title,
+              animeName: animeInfo?.animeName,
+            });
+            continue;
+          }
           console.log('[DisqusApi][findThreadByLink] canonical match', {
             matchedCanonical: candidateCanonical,
             id: t?.id,
@@ -372,6 +446,16 @@ export async function findThreadByLink(
       for (const t of threads) {
         const candidateSlug = String(t?.slug || '').toLowerCase() || extractSlug(String(t?.link || ''));
         if (candidateSlug && wantedSlug && candidateSlug === wantedSlug) {
+          if (!isThreadLikelyForAnime(animeInfo, t)) {
+            console.log('[DisqusApi][findThreadByLink] rejecting slug match due title mismatch', {
+              matchedSlug: candidateSlug,
+              id: t?.id,
+              title: t?.title,
+              clean_title: t?.clean_title,
+              animeName: animeInfo?.animeName,
+            });
+            continue;
+          }
           console.log('[DisqusApi][findThreadByLink] slug match', {
             matchedSlug: candidateSlug,
             id: t?.id,
@@ -423,6 +507,16 @@ export async function findThreadByLink(
         const detailsJson = await detailsRes.json();
         const detailsThread = detailsJson?.response;
         if (detailsThread) {
+          if (!isThreadLikelyForAnime(animeInfo, detailsThread)) {
+            console.log('[DisqusApi][findThreadByLink] rejecting details match due title mismatch', {
+              linkCandidate,
+              id: detailsThread?.id,
+              title: detailsThread?.title,
+              clean_title: detailsThread?.clean_title,
+              animeName: animeInfo?.animeName,
+            });
+            continue;
+          }
           console.log('[DisqusApi][findThreadByLink] details lookup match', {
             linkCandidate,
             id: detailsThread?.id,
@@ -473,6 +567,14 @@ export async function findThreadByLink(
             slug: wantedSlug || undefined,
             forum,
           };
+          if (!isThreadLikelyForAnime(animeInfo, synthetic)) {
+            console.log('[DisqusApi][findThreadByLink] rejecting html fallback title due mismatch', {
+              linkCandidate,
+              extractedTitle,
+              animeName: animeInfo?.animeName,
+            });
+            continue;
+          }
           console.log('[DisqusApi][findThreadByLink] html fallback title extracted', {
             linkCandidate,
             extractedTitle,

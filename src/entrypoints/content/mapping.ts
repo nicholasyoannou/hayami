@@ -221,8 +221,32 @@ function refineMatchedIndexUsingCrunchyrollData(
 
     const target = ordered[seasonNum - 1];
     if (target) {
-      console.log('[Mapper Failover] Refined matched index using season_number ordering:', { seasonNum, from: matchedIndex, to: target.idx });
-      return target.idx;
+      const targetSeriesScore = scoreName((results as any)[target.idx]?.anime_name);
+      if (seriesTokens.size > 0 && targetSeriesScore <= 0 && currentSeriesScore > 0) {
+        console.log('[Mapper Failover] Skipping season_number ordering override due weak series alignment:', {
+          seasonNum,
+          from: matchedIndex,
+          candidate: target.idx,
+          currentSeriesScore,
+          targetSeriesScore,
+        });
+      } else if (currentLooksReliable && targetSeriesScore < currentSeriesScore) {
+        console.log('[Mapper Failover] Keeping current matched index over season_number ordering due stronger series alignment:', {
+          seasonNum,
+          from: matchedIndex,
+          candidate: target.idx,
+          currentSeriesScore,
+          targetSeriesScore,
+        });
+      } else {
+        console.log('[Mapper Failover] Refined matched index using season_number ordering:', {
+          seasonNum,
+          from: matchedIndex,
+          to: target.idx,
+          targetSeriesScore,
+        });
+        return target.idx;
+      }
     }
   }
 
@@ -1448,27 +1472,66 @@ export async function tryMapperFailover(
     }
 
     if (matchedIndex === undefined || matchedIndex === null) {
-      const normalizedSeries = (seriesTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      const normalizedSeason = (seasonTitle || '').toLowerCase().replace(/\s+/g, ' ').trim();
-      let bestIdx = -1;
-      let bestScore = -1;
+      const preferredEpisode = Number.isFinite(overrideEpisode)
+        ? Number(overrideEpisode)
+        : (sequenceNumber ?? crEpisodeNumber ?? null);
 
-      results.forEach((r, idx) => {
-        const name = String(r?.anime_name || '').toLowerCase();
-        const scoreSeries = normalizedSeries && name.includes(normalizedSeries) ? normalizedSeries.length : 0;
-        const scoreSeason = normalizedSeason && name.includes(normalizedSeason) ? normalizedSeason.length : 0;
-        const score = scoreSeries + scoreSeason;
-        if (score > bestScore) {
-          bestScore = score;
-          bestIdx = idx;
-        }
+      const rankedBestEffort = results
+        .map((r, idx) => {
+          const seriesScore = scoreSeriesTitleMatch(r?.anime_name, seriesTitle);
+          const seasonScore = scoreSeasonTitleMatch(r?.anime_name, seasonTitle);
+          const episodeCount = r?.episodes && typeof r.episodes === 'object' ? Object.keys(r.episodes).length : 0;
+          const coversPreferredEpisode = Number.isFinite(preferredEpisode)
+            ? preferredEpisode !== null && episodeCount >= Number(preferredEpisode)
+            : false;
+          const year = parseMapperYear(r?.year);
+          const recencyTs = Date.parse(String(r?.last_updated || ''));
+
+          // Strongly anchor on series similarity first; season/coverage are tie-breakers.
+          const score =
+            seriesScore * 1000 +
+            seasonScore * 20 +
+            (coversPreferredEpisode ? 60 : 0) +
+            Math.min(episodeCount, 300) +
+            (year ?? 0) +
+            (Number.isFinite(recencyTs) ? Math.floor(recencyTs / 86400000) % 1000 : 0);
+
+          return {
+            idx,
+            score,
+            seriesScore,
+            seasonScore,
+            coversPreferredEpisode,
+            episodeCount,
+            anime_name: r?.anime_name,
+          };
+        })
+        .sort((a, b) => b.score - a.score || b.seriesScore - a.seriesScore || b.episodeCount - a.episodeCount || a.idx - b.idx);
+
+      const best = rankedBestEffort[0];
+      if (!best) {
+        matchedIndex = 0;
+      } else {
+        matchedIndex = best.idx;
+      }
+
+      console.log('[Mapper Failover] No matched_result; selected best-effort index:', matchedIndex, {
+        selected: best,
+        topCandidates: rankedBestEffort.slice(0, 3),
       });
 
-      if (bestIdx === -1) {
-        bestIdx = 0; // fallback to first result
+      if (best && best.seriesScore <= 0) {
+        const matchingCandidates = rankedBestEffort.filter((candidate) => candidate.seriesScore >= 2);
+        if (matchingCandidates.length > 0) {
+          matchedIndex = matchingCandidates[0].idx;
+          console.log('[Mapper Failover] Replacing weak best-effort candidate with stronger series-aligned candidate:', {
+            previous: best.idx,
+            next: matchedIndex,
+            previousSeriesScore: best.seriesScore,
+            nextSeriesScore: matchingCandidates[0].seriesScore,
+          });
+        }
       }
-      matchedIndex = bestIdx;
-      console.log('[Mapper Failover] No matched_result; selected best-effort index:', matchedIndex);
     } else {
       console.log('[Mapper Failover] Found matched result:', matchedResult);
     }
