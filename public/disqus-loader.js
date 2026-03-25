@@ -1,32 +1,67 @@
 // Disqus embed loader - injected as external script to avoid CSP issues
 (function() {
-  // Find an element with id "disqus_thread" even when it lives inside a shadow root
-  const findShadowDisqusThread = () => {
+  const scriptTag = document.currentScript;
+  const targetToken = (scriptTag?.getAttribute('data-target-token') || '').trim();
+
+  // Find an element with id "disqus_thread" even when it lives inside a shadow root.
+  // When a render token is provided, only match token-stamped targets.
+  const findShadowDisqusThread = (token) => {
+    const matchesToken = (el) => {
+      if (!el) return false;
+      if (!token) return true;
+      return (el.getAttribute('data-ri-disqus-target') || '') === token;
+    };
+
     const host = document.getElementById('ri-inline-vue-host');
     if (host && host.shadowRoot) {
-      const found = host.shadowRoot.querySelector('#disqus_thread');
+      const found = token
+        ? Array.from(host.shadowRoot.querySelectorAll('#disqus_thread')).find(matchesToken)
+        : host.shadowRoot.querySelector('#disqus_thread');
       if (found) return found;
     }
+
     // Fallback: scan all shadow roots (shallow) to be safe
     const shadowHosts = Array.from(document.querySelectorAll('*')).filter((el) => el.shadowRoot);
     for (const el of shadowHosts) {
-      const found = el.shadowRoot.querySelector('#disqus_thread');
+      const found = token
+        ? Array.from(el.shadowRoot.querySelectorAll('#disqus_thread')).find(matchesToken)
+        : el.shadowRoot.querySelector('#disqus_thread');
       if (found) return found;
     }
     return null;
   };
 
+  const findLightDomDisqusThread = (token) => {
+    const candidates = Array.from(document.querySelectorAll('#disqus_thread'));
+    if (!token) {
+      return candidates[0] || null;
+    }
+    return candidates.find((el) => (el.getAttribute('data-ri-disqus-target') || '') === token) || null;
+  };
+
   // Locate target container. If it's inside shadow DOM, create a light DOM proxy so Disqus can render.
-  const shadowTarget = findShadowDisqusThread();
-  let renderTarget = document.getElementById('disqus_thread');
+  const shadowTarget = findShadowDisqusThread(targetToken);
+  let renderTarget = findLightDomDisqusThread(targetToken);
   let proxyMoveObserver = null;
 
   if (!renderTarget && shadowTarget) {
+    const existingProxy = targetToken
+      ? document.querySelector(`[data-ri-disqus-proxy="${targetToken}"]`)
+      : null;
+
+    if (existingProxy) {
+      renderTarget = existingProxy;
+    } else {
     renderTarget = document.createElement('div');
     renderTarget.id = 'disqus_thread';
+    if (targetToken) {
+      renderTarget.setAttribute('data-ri-disqus-proxy', targetToken);
+      renderTarget.setAttribute('data-ri-disqus-target', targetToken);
+    }
     // Keep layout simple; InlineDiscussion handles spacing
     renderTarget.style.display = 'block';
     document.body.appendChild(renderTarget);
+    }
 
     // Move anything Disqus renders into the real shadow container
     proxyMoveObserver = new MutationObserver(() => {
@@ -42,13 +77,13 @@
   if (!renderTarget && !shadowTarget) {
     renderTarget = document.createElement('div');
     renderTarget.id = 'disqus_thread';
+    if (targetToken) {
+      renderTarget.setAttribute('data-ri-disqus-target', targetToken);
+    }
     renderTarget.style.display = 'block';
     document.body.appendChild(renderTarget);
   }
 
-  // Get config from data attributes on the script tag
-  const scriptTag = document.currentScript;
-  
   // SECURITY: Validate inputs to prevent injection attacks
   const threadUrl = (scriptTag?.getAttribute('data-thread-url') || '').trim();
   const identifier = (scriptTag?.getAttribute('data-identifier') || '').trim();

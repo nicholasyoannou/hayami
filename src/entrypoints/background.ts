@@ -577,6 +577,18 @@ async function getRedditSessionProfile(): Promise<{ loggedIn: boolean; username?
 export default defineBackground(() => {
   console.log('Hayami - Background service started');
 
+  // Safety cleanup: remove stale session poll-block rules from previous runs.
+  void (async () => {
+    try {
+      const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
+      if (dnr?.updateSessionRules) {
+        await dnr.updateSessionRules({ removeRuleIds: [POLL_RULE_ID] });
+      }
+    } catch (error) {
+      console.warn('[background] Failed to clear stale Disqus poll block rule', error);
+    }
+  })();
+
   browser.storage.onChanged.addListener(handleKomentoStorageChange);
 
   void ensureKomentoSourceRegistryInitialized();
