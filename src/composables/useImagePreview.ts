@@ -55,6 +55,12 @@ export function useImagePreview() {
   max-height: 50vh;
   transition: opacity 140ms ease, transform 140ms ease;
   overflow: hidden;
+  outline: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+.ri-img-tooltip:focus,
+.ri-img-tooltip:focus-visible {
+  outline: none !important;
 }
 .ri-img-tooltip img,
 .ri-img-tooltip video {
@@ -63,6 +69,9 @@ export function useImagePreview() {
   max-height: 100%;
   object-fit: contain;
   border-radius: 4px;
+  border: none;
+  outline: none;
+  box-shadow: none;
   opacity: 0;
   transform: scale(0.98);
   transition: opacity 160ms ease, transform 160ms ease;
