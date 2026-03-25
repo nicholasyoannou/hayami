@@ -289,6 +289,68 @@ function rankDisqusMapperEntries(results: any[], animeInfo: AnimeInfo, epNum: nu
   return ranked.map((r) => r.entry);
 }
 
+function getEpisodeMapFromEntry(entry: any): Record<string, string> {
+  if (!entry?.episodes || typeof entry.episodes !== 'object') return {};
+  return entry.episodes as Record<string, string>;
+}
+
+function getSortedNumericEpisodeKeys(entry: any): number[] {
+  const episodeMap = getEpisodeMapFromEntry(entry);
+  return Object.keys(episodeMap)
+    .map((key) => Number(key))
+    .filter((value) => Number.isInteger(value) && value >= 0)
+    .sort((a, b) => a - b);
+}
+
+function resolveDisqusMapperEpisodeUrl(rankedEntries: any[], epNum: number): string | null {
+  if (!Array.isArray(rankedEntries) || rankedEntries.length === 0 || !Number.isFinite(epNum)) {
+    return null;
+  }
+
+  for (const entry of rankedEntries) {
+    const episodeMap = getEpisodeMapFromEntry(entry);
+    const direct = episodeMap[String(epNum)] || episodeMap[epNum];
+    if (typeof direct === 'string' && direct) {
+      return direct;
+    }
+  }
+
+  const withCoverage = rankedEntries
+    .map((entry) => ({
+      entry,
+      keys: getSortedNumericEpisodeKeys(entry),
+    }))
+    .filter((row) => row.keys.length > 0);
+
+  if (withCoverage.length === 0) {
+    return null;
+  }
+
+  let cumulative = 0;
+  for (const row of withCoverage) {
+    const count = row.keys.length;
+    const start = cumulative + 1;
+    const end = cumulative + count;
+    if (epNum >= start && epNum <= end) {
+      const localOrdinal = epNum - cumulative;
+      const localKey = row.keys[localOrdinal - 1];
+      const episodeMap = getEpisodeMapFromEntry(row.entry);
+      const candidate = episodeMap[String(localKey)] || episodeMap[localKey];
+      if (typeof candidate === 'string' && candidate) {
+        console.log('[DisqusProvider][series-mapper] resolved with ordinal fallback', {
+          requestedEpisode: epNum,
+          localEpisode: localKey,
+          animeName: row.entry?.anime_name,
+        });
+        return candidate;
+      }
+    }
+    cumulative += count;
+  }
+
+  return null;
+}
+
 async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
   try {
     await browser.runtime.sendMessage({ action: 'hayami_blockDisqusPoll', enable });
@@ -453,15 +515,24 @@ export class DisqusProvider extends BaseProvider {
       cacheKey,
       hasCachedThread: !!discussionCache.disqus?.thread,
       cachedAnimeKey: discussionCache.disqus?.animeKey,
+      cacheSource: discussionCache.disqus?.source,
     });
 
     // Check cache first
     if (discussionCache.disqus?.thread) {
+      const cacheSource = discussionCache.disqus.source;
+      const shouldTrustCachedThread = cacheSource === 'mapper' || cacheSource === 'manual';
+
       // Drop stale cache when switching series/episodes
       if (cacheKey && discussionCache.disqus.animeKey && discussionCache.disqus.animeKey !== cacheKey) {
         console.log('[DisqusProvider][cache] dropping stale cache', {
           cacheKey,
           cachedAnimeKey: discussionCache.disqus.animeKey,
+        });
+        discussionCache.disqus = undefined;
+      } else if (!shouldTrustCachedThread) {
+        console.log('[DisqusProvider][cache] dropping untrusted cached thread', {
+          cacheSource,
         });
         discussionCache.disqus = undefined;
       } else {
@@ -500,6 +571,7 @@ export class DisqusProvider extends BaseProvider {
     // Fetch thread if not cached
     try {
       let thread = discussionCache.disqus?.thread;
+      let disqusCacheSource: 'mapper' | 'manual' | 'fallback' = 'fallback';
 
       // Apply saved episode offset (e.g., from manual override) for all mapper lookups
       const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName, 'disqus') : null;
@@ -527,6 +599,7 @@ export class DisqusProvider extends BaseProvider {
             logThreadSnapshot('mapper-url-fallback-object', thread);
           }
           if (thread) {
+            disqusCacheSource = 'mapper';
             console.log('[DisqusProvider] Using mapper Disqus match:', mappedDisqusUrl);
           }
         }
@@ -540,20 +613,18 @@ export class DisqusProvider extends BaseProvider {
           const epNum = mappedEp ?? rawEp ?? 1;
           console.log('[DisqusProvider][series-mapper] selected episode number', epNum);
           const rankedEntries = rankDisqusMapperEntries(mapperData.results, animeInfoForMapper, epNum);
-          for (const entry of rankedEntries) {
-            const maybeUrl = entry?.episodes?.[epNum] || entry?.episodes?.[String(epNum)];
-            if (maybeUrl) {
-              console.log('[DisqusProvider][series-mapper] candidate URL', maybeUrl);
-              thread = await findThreadByLink(animeInfo, maybeUrl);
-              logThreadSnapshot('series-mapper-url-resolved', thread as DisqusThread | null | undefined);
-              if (!thread) {
-                thread = buildDisqusThreadFromUrl(maybeUrl);
-                logThreadSnapshot('series-mapper-url-fallback-object', thread);
-              }
-              if (thread) {
-                console.log('[DisqusProvider] Using series-name mapper Disqus match:', maybeUrl);
-                break;
-              }
+          const maybeUrl = resolveDisqusMapperEpisodeUrl(rankedEntries, epNum);
+          if (maybeUrl) {
+            console.log('[DisqusProvider][series-mapper] candidate URL', maybeUrl);
+            thread = await findThreadByLink(animeInfo, maybeUrl);
+            logThreadSnapshot('series-mapper-url-resolved', thread as DisqusThread | null | undefined);
+            if (!thread) {
+              thread = buildDisqusThreadFromUrl(maybeUrl);
+              logThreadSnapshot('series-mapper-url-fallback-object', thread);
+            }
+            if (thread) {
+              disqusCacheSource = 'mapper';
+              console.log('[DisqusProvider] Using series-name mapper Disqus match:', maybeUrl);
             }
           }
         }
@@ -572,7 +643,7 @@ export class DisqusProvider extends BaseProvider {
       if (thread) {
         logThreadSnapshot('pre-cache-render', thread as DisqusThread | null | undefined);
         // Cache the Disqus thread
-        discussionCache.disqus = { thread, animeKey: cacheKey || undefined };
+        discussionCache.disqus = { thread, animeKey: cacheKey || undefined, source: disqusCacheSource };
         const container = await this.getContainerWithRetry(
           getExternalCommentsContainer,
           CONTAINER_RETRY_ATTEMPTS,
@@ -622,7 +693,7 @@ export class DisqusProvider extends BaseProvider {
                   }
                 }
 
-                discussionCache.disqus = { thread: selectedThread, animeKey: cacheKey || undefined };
+                discussionCache.disqus = { thread: selectedThread, animeKey: cacheKey || undefined, source: 'manual' };
                 await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
                 return;
               }

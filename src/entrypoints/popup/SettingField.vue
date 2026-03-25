@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
 
 type OptionEntry<T = any> = { value: T; label: string };
@@ -39,24 +39,75 @@ const bgClass = computed(() =>
 const paddingClass = computed(() =>
   props.padding === 'compact' ? 'px-3 py-3' : 'px-4 py-3'
 );
+
+const containerClass = computed(() =>
+  props.setting.type === 'select'
+    ? 'space-y-2'
+    : 'flex items-start justify-between gap-3'
+);
+
+const controlClass = computed(() =>
+  props.setting.type === 'apiKey'
+    ? 'min-w-0 flex-1'
+    : props.setting.type === 'select'
+      ? 'w-full'
+      : 'shrink-0'
+);
+
+const tooltipWidth = 192;
+const tooltipVisible = ref(false);
+const tooltipText = ref('');
+const tooltipStyle = ref<Record<string, string>>({ left: '0px', top: '0px' });
+
+function showHelpTooltip(event: MouseEvent | FocusEvent, text?: string) {
+  if (!text) return;
+  const target = event.currentTarget as HTMLElement | null;
+  if (!target) return;
+  const rect = target.getBoundingClientRect();
+  const margin = 10;
+  const center = rect.left + rect.width / 2;
+  const minCenter = margin + tooltipWidth / 2;
+  const maxCenter = window.innerWidth - margin - tooltipWidth / 2;
+  const clampedCenter = Math.min(Math.max(center, minCenter), maxCenter);
+
+  tooltipStyle.value = {
+    left: `${clampedCenter}px`,
+    top: `${rect.bottom + 8}px`,
+  };
+  tooltipText.value = text;
+  tooltipVisible.value = true;
+}
+
+function hideHelpTooltip() {
+  tooltipVisible.value = false;
+}
 </script>
 
 <template>
   <div
-    class="flex items-start justify-between gap-3 rounded-xl"
-    :class="[bgClass, paddingClass, disabled ? 'opacity-50 pointer-events-none' : '']"
+    class="rounded-xl"
+    :class="[bgClass, paddingClass, containerClass, disabled ? 'opacity-50 pointer-events-none' : '']"
   >
-    <div v-if="setting.type !== 'apiKey'" class="flex-1">
-      <p class="text-sm text-white/80">{{ setting.label }}</p>
-      <p v-if="setting.description" class="text-xs text-white/60">{{ setting.description }}</p>
+    <div v-if="setting.type !== 'apiKey'" class="flex items-center gap-2 min-w-0">
+      <p class="min-w-0 flex-1 text-sm text-white/85 leading-tight">{{ setting.label }}</p>
+      <div v-if="setting.description" class="relative inline-flex shrink-0">
+        <button
+          type="button"
+          class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/25 text-[10px] font-bold text-white/70 transition hover:border-white/40 hover:text-white"
+          :aria-label="`Help: ${setting.label}`"
+          @mouseenter="(e) => showHelpTooltip(e, setting.description)"
+          @focus="(e) => showHelpTooltip(e, setting.description)"
+          @mouseleave="hideHelpTooltip"
+          @blur="hideHelpTooltip"
+        >
+          ?
+        </button>
+      </div>
     </div>
-    <div v-else-if="setting.description" class="flex-1">
-      <p class="text-xs text-white/60">{{ setting.description }}</p>
-    </div>
-    <div :class="setting.type === 'apiKey' ? 'min-w-0 flex-1' : 'shrink-0'">
+    <div :class="controlClass">
       <template v-if="setting.type === 'select'">
         <select
-          class="w-52 min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
+          class="w-full min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
           :value="modelValue"
           :disabled="disabled"
           @change="(e) => emit('save', (e.target as HTMLSelectElement).value)"
@@ -126,6 +177,14 @@ const paddingClass = computed(() =>
           @save="() => emit('save', modelValue || '')"
         />
       </template>
+    </div>
+
+    <div
+      v-if="tooltipVisible && tooltipText"
+      class="pointer-events-none fixed z-[9999] w-48 -translate-x-1/2 rounded-lg border border-white/15 bg-[#171c24] px-2.5 py-2 text-[11px] leading-snug text-white/80 shadow-xl whitespace-normal break-words"
+      :style="tooltipStyle"
+    >
+      {{ tooltipText }}
     </div>
   </div>
 </template>

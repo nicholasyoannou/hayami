@@ -20,7 +20,6 @@ const filteredEntrypoints = process.env.NODE_ENV === 'production'
       'onboarding',
       'popup',
       'pwa',
-      'screenshot-frame-shortcut',
     ]
   : undefined;
 
@@ -51,9 +50,7 @@ export default defineConfig({
       'storage',
       'cookies',
       'scripting',
-      'activeTab',
       'tabs',
-      'downloads',
       'contextMenus',
       'declarativeNetRequest'
     ],
@@ -77,12 +74,6 @@ export default defineConfig({
           default: 'Ctrl+Shift+H'
         },
         description: 'Open Hayami site mapper'
-      },
-      'capture-screenshot': {
-        suggested_key: {
-          default: 'Ctrl+Shift+S'
-        },
-        description: 'Capture a screenshot of the current tab'
       }
     },
     oauth2: {

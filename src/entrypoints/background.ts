@@ -12,18 +12,6 @@ import {
   komentoScriptSyncStateItem,
 } from '@/config/storage';
 import {
-  getScreenshotFeatureEnabledCached,
-  syncScreenshotFeatureEnabledCache,
-  performScreenshot,
-  buildScreenshotFilename,
-  getCommandShortcut,
-  dataUrlToBlob,
-  setDownloadsUiEnabled,
-  getImgurAccessTokenFromCookies,
-  extractScreenshotErrorCode,
-  getScreenshotErrorPayload,
-} from './background/screenshot-helpers';
-import {
   KOMENTOSCRIPT_WEEKLY_ALARM,
   ensureKomentoSourceRegistryInitialized,
   ensureKomentoSyncAlarm,
@@ -305,8 +293,6 @@ async function getKomentoPendingPermissionsSummary() {
   };
 }
 
-// Screenshot helpers moved to ./background/screenshot-helpers.ts
-
 function handleKomentoStorageChange(changes: Record<string, any>, areaName: string): void {
   if (areaName !== 'local') return;
   const shouldReconfigure =
@@ -419,8 +405,6 @@ async function purgeHostPermissionsForHost(host: string, origin?: string) {
 
 const POLL_RULE_ID = 99001;
 const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
-
-// Screenshot helpers moved to ./background/screenshot-helpers.ts
 
 const CONTEXT_MENU_ID = 'hayami-configure-site';
 
@@ -593,8 +577,6 @@ async function getRedditSessionProfile(): Promise<{ loggedIn: boolean; username?
 export default defineBackground(() => {
   console.log('Hayami - Background service started');
 
-  void getScreenshotFeatureEnabledCached();
-  browser.storage.onChanged.addListener(syncScreenshotFeatureEnabledCache);
   browser.storage.onChanged.addListener(handleKomentoStorageChange);
 
   void ensureKomentoSourceRegistryInitialized();
@@ -637,30 +619,6 @@ export default defineBackground(() => {
         console.warn('Site mapper command failed', e);
       }
       return;
-    }
-
-    if (command === 'capture-screenshot') {
-      try {
-        console.log('[background:screenshot] Command received', { command });
-        const enabled = await getScreenshotFeatureEnabledCached();
-        if (!enabled) {
-          console.warn('[background:screenshot] Command ignored because feature is disabled');
-          const [tabForError] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
-          if (tabForError?.id) {
-            await browser.tabs
-              .sendMessage(tabForError.id, { action: 'hayami_screenshot_error', error: 'Screenshot feature is disabled', trigger: 'command' })
-              .catch(() => {});
-          }
-          return;
-        }
-        // lastFocusedWindow is more robust than currentWindow for fullscreen mode
-        const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
-        if (typeof tab?.id !== 'number' || typeof tab.windowId !== 'number') return;
-        console.log('[background:screenshot] Capturing from command', { tabId: tab.id, windowId: tab.windowId });
-        await performScreenshot(tab.id, tab.windowId, requestSitePermission, { trigger: 'command' });
-      } catch (e) {
-        console.warn('Screenshot command failed', e);
-      }
     }
   });
 
@@ -724,233 +682,6 @@ export default defineBackground(() => {
       return true; // keep message channel open for async response
     }
 
-    if (message.action === 'hayami_downloadDataUrl') {
-      (async () => {
-        try {
-          const dataUrl = typeof message.dataUrl === 'string' ? message.dataUrl : '';
-          if (!dataUrl.startsWith('data:image/')) {
-            sendResponse({ ok: false, error: 'invalid-data-url' });
-            return;
-          }
-
-          const filename = buildScreenshotFilename(message.filename);
-          await setDownloadsUiEnabled(false);
-          let downloadId: number;
-          try {
-            downloadId = await browser.downloads.download({
-              url: dataUrl,
-              filename,
-              saveAs: false,
-              conflictAction: 'uniquify',
-            });
-          } finally {
-            await setDownloadsUiEnabled(true);
-          }
-
-          sendResponse({ ok: true, downloadId, filename });
-        } catch (error) {
-          console.warn('[background] Screenshot download failed', error);
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_getScreenshotShortcut') {
-      (async () => {
-        const shortcut = await getCommandShortcut('capture-screenshot');
-        sendResponse({ ok: true, shortcut });
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_uploadImagechestScreenshot') {
-      (async () => {
-        try {
-          const dataUrl = typeof message.dataUrl === 'string' ? message.dataUrl : '';
-          const apiKey = typeof message.apiKey === 'string' ? message.apiKey.trim() : '';
-          if (!dataUrl.startsWith('data:image/')) {
-            sendResponse({ ok: false, error: 'invalid-data-url' });
-            return;
-          }
-          if (!apiKey) {
-            sendResponse({ ok: false, error: 'missing-api-key' });
-            return;
-          }
-
-          const filename = buildScreenshotFilename(message.filename);
-          const blob = await dataUrlToBlob(dataUrl);
-          const endpoints = [
-            'https://api.imgchest.com/v1/post',
-            'https://imgchest.com/api/v1/post',
-          ];
-
-          let lastError = 'ImageChest upload failed';
-          let lastStatus: number | undefined;
-          let lastPayload: any = null;
-
-          for (const endpoint of endpoints) {
-            try {
-              const form = new FormData();
-              form.append('images[]', blob, filename);
-
-              const response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                  Accept: 'application/json',
-                  Authorization: `Bearer ${apiKey}`,
-                },
-                body: form,
-                credentials: 'omit',
-              });
-
-              lastStatus = response.status;
-
-              let payload: any = null;
-              try {
-                payload = await response.json();
-              } catch {
-                payload = null;
-              }
-              lastPayload = payload;
-
-              if (!response.ok) {
-                lastError =
-                  payload?.error?.message ||
-                  payload?.message ||
-                  payload?.errors?.[0]?.message ||
-                  `ImageChest upload failed (${response.status})`;
-                continue;
-              }
-
-              const id = payload?.data?.id;
-              const url =
-                payload?.data?.link ||
-                payload?.data?.url ||
-                payload?.url ||
-                (typeof id === 'string' && id ? `https://imgchest.com/p/${id}` : null);
-
-              sendResponse({ ok: true, id, url, payload });
-              return;
-            } catch (endpointError) {
-              lastError = `Network failure to ${endpoint}: ${endpointError instanceof Error ? endpointError.message : String(endpointError)}`;
-            }
-          }
-
-          sendResponse({ ok: false, error: lastError, status: lastStatus, payload: lastPayload });
-        } catch (error) {
-          console.warn('[background] ImageChest screenshot upload failed', error);
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_uploadImgurScreenshot') {
-      (async () => {
-        try {
-          const dataUrl = typeof message.dataUrl === 'string' ? message.dataUrl : '';
-          if (!dataUrl.startsWith('data:image/')) {
-            sendResponse({ ok: false, error: 'invalid-data-url' });
-            return;
-          }
-
-          const accessToken = await getImgurAccessTokenFromCookies();
-          if (!accessToken) {
-            sendResponse({
-              ok: false,
-              error: 'Imgur access token not found. Sign in at imgur.com first.',
-            });
-            return;
-          }
-
-          const filename = buildScreenshotFilename(message.filename);
-          const blob = await dataUrlToBlob(dataUrl);
-          const form = new FormData();
-          form.append('image', blob, filename);
-          form.append('type', 'file');
-
-          const response = await fetch('https://api.imgur.com/3/image', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: form,
-          });
-
-          let payload: any = null;
-          try {
-            payload = await response.json();
-          } catch {
-            payload = null;
-          }
-
-          if (!response.ok || payload?.success === false) {
-            const messageText =
-              payload?.data?.error ||
-              payload?.error ||
-              payload?.message ||
-              `Imgur upload failed (${response.status})`;
-            sendResponse({ ok: false, error: messageText, status: response.status, payload });
-            return;
-          }
-
-          const link = payload?.data?.link;
-          const deleteHash = payload?.data?.deletehash;
-          sendResponse({
-            ok: true,
-            url: typeof link === 'string' ? link : null,
-            deleteHash: typeof deleteHash === 'string' ? deleteHash : null,
-            payload,
-          });
-        } catch (error) {
-          console.warn('[background] Imgur screenshot upload failed', error);
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_uploadCatboxScreenshot') {
-      (async () => {
-        try {
-          const dataUrl = typeof message.dataUrl === 'string' ? message.dataUrl : '';
-          if (!dataUrl.startsWith('data:image/')) {
-            sendResponse({ ok: false, error: 'invalid-data-url' });
-            return;
-          }
-
-          const filename = buildScreenshotFilename(message.filename);
-          const blob = await dataUrlToBlob(dataUrl);
-          const form = new FormData();
-          form.append('reqtype', 'fileupload');
-          form.append('fileToUpload', blob, filename);
-
-          const response = await fetch('https://catbox.moe/user/api.php', {
-            method: 'POST',
-            body: form,
-          });
-
-          const bodyText = (await response.text()).trim();
-          if (!response.ok) {
-            sendResponse({ ok: false, error: `Catbox upload failed (${response.status})`, status: response.status, body: bodyText });
-            return;
-          }
-
-          if (!bodyText || /^error/i.test(bodyText)) {
-            sendResponse({ ok: false, error: bodyText || 'Catbox upload failed', status: response.status, body: bodyText });
-            return;
-          }
-
-          sendResponse({ ok: true, url: bodyText });
-        } catch (error) {
-          console.warn('[background] Catbox screenshot upload failed', error);
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-        }
-      })();
-      return true;
-    }
-
     if (message.action === 'hayami_blockDisqusPoll') {
       (async () => {
         try {
@@ -968,54 +699,6 @@ export default defineBackground(() => {
       })();
       return true;
     }
-
-    if (message.action === 'hayami_captureScreenshotNow' || message.action === 'hayami_take_screenshot') {
-      (async () => {
-        try {
-          console.log('[background:screenshot] Runtime capture request received', {
-            action: message.action,
-            tabId: sender.tab?.id,
-            windowId: sender.tab?.windowId,
-            frameId: sender.frameId,
-          });
-          const enabled = await getScreenshotFeatureEnabledCached();
-          const tabId = sender.tab?.id;
-          const windowId = sender.tab?.windowId;
-          const frameId = typeof sender.frameId === 'number' ? sender.frameId : undefined;
-          if (typeof tabId !== 'number' || typeof windowId !== 'number') {
-            sendResponse({ ok: false, error: 'no-active-tab' });
-            return;
-          }
-
-          if (!enabled) {
-            console.warn('[background:screenshot] Runtime request ignored because feature is disabled', { tabId, frameId });
-            await browser.tabs
-              .sendMessage(tabId, { action: 'hayami_screenshot_error', error: 'Screenshot feature is disabled', trigger: 'frame-hotkey' }, frameId !== undefined ? { frameId } : undefined)
-              .catch(() => {});
-            sendResponse({ ok: false, error: 'screenshot-disabled' });
-            return;
-          }
-
-          console.log('[background:screenshot] Capturing from runtime request', { tabId, windowId, frameId });
-          await performScreenshot(tabId, windowId, requestSitePermission, { trigger: 'frame-hotkey', frameId });
-          sendResponse({ ok: true });
-        } catch (error) {
-          console.warn('[background:screenshot] Runtime capture failed', error);
-          const tabId = sender.tab?.id;
-          const frameId = typeof sender.frameId === 'number' ? sender.frameId : undefined;
-          if (typeof tabId === 'number') {
-            await browser.tabs
-              .sendMessage(tabId, { action: 'hayami_screenshot_error', error: error instanceof Error ? error.message : String(error), trigger: 'frame-hotkey' }, frameId !== undefined ? { frameId } : undefined)
-              .catch(() => {});
-          }
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-        }
-      })();
-      return true;
-    }
-
-
-    // Screenshot capture is handled via browser command or content-script keyboard fallback.
 
     if (message.action === 'hayami_closeTab') {
       const tabId = sender.tab?.id;
@@ -1201,7 +884,6 @@ export default defineBackground(() => {
               return;
             }
 
-            const fromScreenshotIframeSelector = message.reason === 'screenshot-iframe-selector';
             if (alreadyGranted) {
               sendResponse({ ok: true, granted: true, origin: parsedOrigin, alreadyGranted: true, needsReload: false });
               return;
@@ -1219,7 +901,7 @@ export default defineBackground(() => {
                 granted: Boolean(granted),
                 origin: parsedOrigin,
                 alreadyGranted: false,
-                needsReload: Boolean(granted) && fromScreenshotIframeSelector,
+                needsReload: false,
               });
             });
           });

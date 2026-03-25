@@ -130,6 +130,55 @@ function extractEpisodeNumberText(input: string): string | null {
   return Number.isFinite(parsed) ? String(parsed) : null;
 }
 
+function resolveDisqusMapperEpisodeUrl(results: any[], mapperEpisode: number): string | null {
+  if (!Array.isArray(results) || results.length === 0 || !Number.isFinite(mapperEpisode)) {
+    return null;
+  }
+
+  for (const entry of results) {
+    const direct = entry?.episodes?.[String(mapperEpisode)] || entry?.episodes?.[mapperEpisode];
+    if (typeof direct === 'string' && direct) {
+      return direct;
+    }
+  }
+
+  const withCoverage = results
+    .map((entry) => {
+      const keys = Object.keys(entry?.episodes || {})
+        .map((k) => Number(k))
+        .filter((k) => Number.isInteger(k) && k >= 0)
+        .sort((a, b) => a - b);
+      return { entry, keys };
+    })
+    .filter((row) => row.keys.length > 0);
+
+  if (withCoverage.length === 0) {
+    return null;
+  }
+
+  let cumulative = 0;
+  for (const row of withCoverage) {
+    const start = cumulative + 1;
+    const end = cumulative + row.keys.length;
+    if (mapperEpisode >= start && mapperEpisode <= end) {
+      const localOrdinal = mapperEpisode - cumulative;
+      const localKey = row.keys[localOrdinal - 1];
+      const ordinalUrl = row.entry?.episodes?.[String(localKey)] || row.entry?.episodes?.[localKey];
+      if (typeof ordinalUrl === 'string' && ordinalUrl) {
+        console.log('[DiscussionManager][Disqus] mapper ordinal fallback resolved URL', {
+          requestedEpisode: mapperEpisode,
+          localEpisode: localKey,
+          animeName: row.entry?.anime_name,
+        });
+        return ordinalUrl;
+      }
+    }
+    cumulative += row.keys.length;
+  }
+
+  return null;
+}
+
 function normalizeRedditDiscussion(discussion: any): void {
   if (!discussion) return;
   const permalink = typeof discussion.permalink === 'string' ? discussion.permalink : '';
@@ -458,8 +507,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
             const mappedThread = await findMappedDisqusThread(animeInfo, mappedDisqusUrl);
             if (mappedThread) {
               const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
-              cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
-              await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
+              cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined, source: 'mapper' };
+              await embedDisqusThreadDependingOnMode(mappedThread, animeInfo, 'mapper');
               await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
               return;
             }
@@ -470,17 +519,15 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           if (animeInfoForMapper.animeName) {
             const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfoForMapper.animeName, 'disqus');
             const mapperEpisode = mappedEpisodeNum ?? rawEpisodeNum;
-            if (mapperData?.results?.length && Number.isFinite(mapperEpisode)) {
-              const desired = String(mapperEpisode);
-              for (const entry of mapperData.results) {
-                const maybeUrl = entry?.episodes?.[desired] || entry?.episodes?.[Number(desired)];
-                if (!maybeUrl) continue;
+            if (mapperData?.results?.length && typeof mapperEpisode === 'number' && Number.isFinite(mapperEpisode)) {
+              const maybeUrl = resolveDisqusMapperEpisodeUrl(mapperData.results, mapperEpisode);
+              if (maybeUrl) {
                 const { findMappedDisqusThread } = await getDisqusRuntimeModule();
                 const mappedThread = await findMappedDisqusThread(animeInfo, maybeUrl);
                 if (mappedThread) {
                   const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
-                  cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
-                  await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
+                  cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined, source: 'mapper' };
+                  await embedDisqusThreadDependingOnMode(mappedThread, animeInfo, 'mapper');
                   await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
                   return;
                 }
@@ -491,7 +538,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           const { findDirectDisqusThread } = await getDisqusRuntimeModule();
           const thread = await findDirectDisqusThread(animeInfo);
           if (thread) {
-            await embedDisqusThreadDependingOnMode(thread, animeInfo);
+            await embedDisqusThreadDependingOnMode(thread, animeInfo, 'fallback');
             await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
             return;
           }
@@ -1056,7 +1103,11 @@ function mountLoadingShell(): void {
   }
 }
 
-async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
+async function embedDisqusThreadDependingOnMode(
+  thread: any,
+  animeInfo: AnimeInfo,
+  cacheSource: 'mapper' | 'manual' | 'fallback' = 'fallback'
+): Promise<void> {
   const currentState = state();
   const cache = currentState.discussionCache;
   const cacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
@@ -1079,7 +1130,7 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
   }
 
   // Cache the thread for Vue-side render
-  cache.disqus = { thread: finalThread, animeKey: cacheKey || undefined };
+  cache.disqus = { thread: finalThread, animeKey: cacheKey || undefined, source: cacheSource };
 
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container

@@ -244,6 +244,7 @@ export interface DiscussionCache {
   disqus?: {
     thread: DisqusThread;
     animeKey?: string;
+    source?: 'mapper' | 'manual' | 'fallback';
     container?: HTMLElement;
   };
   youtube?: {

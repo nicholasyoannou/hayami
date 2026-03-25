@@ -17,7 +17,6 @@ import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mapper/site-mapper-utils';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
-import { setupScreenshotHotkey } from '../ui/screenshot-hotkey';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { fetchCrunchyrollEpisodeMetadata, saveSeriesMapping, deleteSeriesMapping } from '../mapping';
@@ -204,8 +203,6 @@ function softResetForWatchNavigation(): void {
  * Main bootstrap function for content script initialization
  */
 export async function bootstrapContent(ctx: ContentScriptContext): Promise<void> {
-  setupScreenshotHotkey(ctx);
-
   if (!isTopFrameWindow()) {
     debug.log('Hayami: Skipping main bootstrap in subframe');
     return;

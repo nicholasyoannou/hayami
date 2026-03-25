@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 
 interface Props {
   modelValue?: string;
@@ -62,7 +61,7 @@ const handleKeydown = (event: KeyboardEvent) => {
         class="api-key-input__info"
         aria-label="Open documentation"
       >
-        <img :src="infoIcon" alt="info" class="api-key-input__info-icon" />
+        <span class="api-key-input__info-glyph" aria-hidden="true">i</span>
       </a>
     </label>
     <div class="api-key-input__container">
@@ -116,17 +115,20 @@ const handleKeydown = (event: KeyboardEvent) => {
 }
 
 .api-key-input__info {
-  font-size: 12px;
+  font-size: 10px;
   color: rgba(255, 255, 255, 0.65);
   text-decoration: none;
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: 999px;
-  padding: 2px;
-  line-height: 18px;
+  width: 16px;
+  height: 16px;
+  padding: 1.15px;
+  line-height: 1;
   transition: all 0.2s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
 }
 
 .api-key-input__info:hover {
@@ -138,6 +140,17 @@ const handleKeydown = (event: KeyboardEvent) => {
   width: 14px;
   height: 14px;
   display: block;
+}
+
+.api-key-input__info-glyph {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .api-key-input__container {
