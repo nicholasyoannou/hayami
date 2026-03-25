@@ -1,4 +1,6 @@
 export type KomentoDisplayPlacement = 'below' | 'insert' | 'replace' | 'popup' | 'icon';
+export type KomentoIconDisplayKind = 'text' | 'icon';
+export type KomentoIconDisplayAction = 'popup' | 'replace';
 
 export type KomentoMergeMode = 'replace' | 'deep';
 
@@ -36,6 +38,9 @@ export interface KomentoPlacement {
   mountXPath?: string;
   anchorXPath?: string;
   sidePadding?: number;
+  iconDisplayKind?: KomentoIconDisplayKind;
+  iconDisplayAction?: KomentoIconDisplayAction;
+  iconDisplayText?: string;
   fallback?: {
     display?: KomentoDisplayPlacement;
     mountSelector?: string;
@@ -49,6 +54,9 @@ export interface KomentoPlacementOption {
   mountXPath?: string;
   anchorXPath?: string;
   sidePadding?: number;
+  iconDisplayKind?: KomentoIconDisplayKind;
+  iconDisplayAction?: KomentoIconDisplayAction;
+  iconDisplayText?: string;
   fallback?: {
     display?: KomentoDisplayPlacement;
     mountSelector?: string;

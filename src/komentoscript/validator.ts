@@ -7,8 +7,35 @@ import type {
 } from './types';
 
 const DISPLAY_VALUES = new Set(['below', 'insert', 'replace', 'popup', 'icon']);
+const ICON_DISPLAY_KIND_VALUES = new Set(['text', 'icon']);
+const ICON_DISPLAY_ACTION_VALUES = new Set(['popup', 'replace']);
 const MERGE_VALUES = new Set(['replace', 'deep']);
 const ALLOWED_EXTRACT_FIELDS = new Set(['animeTitle', 'episodeNumber', 'episodeReleaseDate', 'anilistId', 'malId']);
+const PLACEMENT_SINGLE_KEYS = new Set([
+  'display',
+  'mountSelector',
+  'anchorSelector',
+  'mountXPath',
+  'anchorXPath',
+  'sidePadding',
+  'iconDisplayKind',
+  'iconDisplayAction',
+  'iconDisplayText',
+  'fallback',
+]);
+const PLACEMENT_MODE_ENTRY_KEYS = new Set([
+  'default',
+  'mountSelector',
+  'anchorSelector',
+  'mountXPath',
+  'anchorXPath',
+  'sidePadding',
+  'iconDisplayKind',
+  'iconDisplayAction',
+  'iconDisplayText',
+  'fallback',
+]);
+const PLACEMENT_FALLBACK_KEYS = new Set(['display', 'mountSelector']);
 
 function pushIssue(issues: KomentoValidationIssue[], severity: 'error' | 'warning', path: string, message: string): void {
   issues.push({ severity, path, message });
@@ -20,6 +47,19 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validateAllowedObjectKeys(
+  value: Record<string, unknown>,
+  path: string,
+  allowedKeys: Set<string>,
+  issues: KomentoValidationIssue[],
+): void {
+  Object.keys(value).forEach((key) => {
+    if (!allowedKeys.has(key)) {
+      pushIssue(issues, 'error', `${path}.${key}`, `Unknown property: ${key}`);
+    }
+  });
 }
 
 function looksLikeIsoDate(value: string): boolean {
@@ -59,7 +99,66 @@ function validatePlacementObject(
   path: string,
   issues: KomentoValidationIssue[],
 ): void {
+  const validateFallback = (fallback: unknown, fallbackPath: string): void => {
+    if (!isObject(fallback)) {
+      pushIssue(issues, 'error', fallbackPath, 'fallback must be an object.');
+      return;
+    }
+
+    validateAllowedObjectKeys(fallback, fallbackPath, PLACEMENT_FALLBACK_KEYS, issues);
+
+    if (fallback.display !== undefined) {
+      const fallbackDisplay = String(fallback.display);
+      if (!DISPLAY_VALUES.has(fallbackDisplay)) {
+        pushIssue(issues, 'error', `${fallbackPath}.display`, 'fallback.display has an invalid value.');
+      }
+    }
+
+    if (fallback.mountSelector !== undefined && typeof fallback.mountSelector !== 'string') {
+      pushIssue(issues, 'error', `${fallbackPath}.mountSelector`, 'fallback.mountSelector must be a string when provided.');
+    }
+  };
+
+  const validatePlacementEntry = (
+    config: Record<string, unknown>,
+    configPath: string,
+    allowedKeys: Set<string>,
+  ): void => {
+    validateAllowedObjectKeys(config, configPath, allowedKeys, issues);
+
+    if (config.mountSelector !== undefined && typeof config.mountSelector !== 'string') {
+      pushIssue(issues, 'error', `${configPath}.mountSelector`, 'mountSelector must be a string when provided.');
+    }
+    if (config.anchorSelector !== undefined && typeof config.anchorSelector !== 'string') {
+      pushIssue(issues, 'error', `${configPath}.anchorSelector`, 'anchorSelector must be a string when provided.');
+    }
+    if (config.mountXPath !== undefined && typeof config.mountXPath !== 'string') {
+      pushIssue(issues, 'error', `${configPath}.mountXPath`, 'mountXPath must be a string when provided.');
+    }
+    if (config.anchorXPath !== undefined && typeof config.anchorXPath !== 'string') {
+      pushIssue(issues, 'error', `${configPath}.anchorXPath`, 'anchorXPath must be a string when provided.');
+    }
+    if (config.sidePadding !== undefined && typeof config.sidePadding !== 'number') {
+      pushIssue(issues, 'error', `${configPath}.sidePadding`, 'sidePadding must be a number when provided.');
+    }
+    if (config.iconDisplayKind !== undefined && !ICON_DISPLAY_KIND_VALUES.has(String(config.iconDisplayKind))) {
+      pushIssue(issues, 'error', `${configPath}.iconDisplayKind`, 'iconDisplayKind must be "text" or "icon" when provided.');
+    }
+    if (config.iconDisplayAction !== undefined && !ICON_DISPLAY_ACTION_VALUES.has(String(config.iconDisplayAction))) {
+      pushIssue(issues, 'error', `${configPath}.iconDisplayAction`, 'iconDisplayAction must be "popup" or "replace" when provided.');
+    }
+    if (config.iconDisplayText !== undefined && typeof config.iconDisplayText !== 'string') {
+      pushIssue(issues, 'error', `${configPath}.iconDisplayText`, 'iconDisplayText must be a string when provided.');
+    }
+
+    if (config.fallback !== undefined) {
+      validateFallback(config.fallback, `${configPath}.fallback`);
+    }
+  };
+
   if ('display' in placement) {
+    validatePlacementEntry(placement, path, PLACEMENT_SINGLE_KEYS);
+
     const display = String(placement.display);
     if (!DISPLAY_VALUES.has(display)) {
       pushIssue(issues, 'error', `${path}.display`, 'placement.display has an invalid value.');
@@ -94,23 +193,13 @@ function validatePlacementObject(
       continue;
     }
 
+    validatePlacementEntry(config, `${path}.${display}`, PLACEMENT_MODE_ENTRY_KEYS);
+
     if (config.default !== undefined && typeof config.default !== 'boolean') {
       pushIssue(issues, 'error', `${path}.${display}.default`, 'default must be a boolean when provided.');
     }
     if (config.default === true) {
       defaultsSet += 1;
-    }
-
-    if (isObject(config.fallback) && config.fallback.display !== undefined) {
-      const fallbackDisplay = String(config.fallback.display);
-      if (!DISPLAY_VALUES.has(fallbackDisplay)) {
-        pushIssue(
-          issues,
-          'error',
-          `${path}.${display}.fallback.display`,
-          'fallback.display has an invalid value.',
-        );
-      }
     }
   }
 

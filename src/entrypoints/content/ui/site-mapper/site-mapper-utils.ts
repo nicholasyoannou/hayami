@@ -236,6 +236,11 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
         customSiteMapping = {
           origin: location.origin,
           display: (placement?.display || 'popup') as DisplayPlacement,
+          iconDisplayKind: placement?.iconDisplayKind === 'icon' ? 'icon' : 'text',
+          iconDisplayAction: placement?.iconDisplayAction === 'replace' ? 'replace' : 'popup',
+          iconDisplayText: typeof placement?.iconDisplayText === 'string' && placement.iconDisplayText.trim()
+            ? placement.iconDisplayText.trim()
+            : 'Hayami',
           includePathGlobs: Array.isArray(effective.target.match?.pathGlobs)
             ? effective.target.match.pathGlobs.map((item: unknown) => String(item || '').trim()).filter(Boolean)
             : [],
