@@ -592,23 +592,61 @@ function proxifyImageUrl(href: string): string {
 }
 
 function isYouTubeLink(href: string): boolean {
-  return /(youtube\.com\/watch\?v=|youtu\.be\/)/i.test(href);
+  return extractYouTubeId(href) !== null;
 }
 
 function extractYouTubeId(href: string): string | null {
+  const parse = (candidate: string, depth: number): string | null => {
+    if (depth > 2) return null;
+
+    try {
+      const url = new URL(candidate);
+      const host = (url.hostname || '').toLowerCase();
+      const hostNoWww = host.replace(/^www\./, '');
+
+      if (hostNoWww === 'youtu.be') {
+        const id = url.pathname.replace(/^\/+/, '').split('/')[0] || '';
+        return /^[A-Za-z0-9_-]{6,}$/.test(id) ? id : null;
+      }
+
+      if (hostNoWww === 'youtube.com' || hostNoWww === 'm.youtube.com' || hostNoWww === 'music.youtube.com' || hostNoWww === 'youtube-nocookie.com') {
+        const fromQuery = url.searchParams.get('v');
+        if (fromQuery && /^[A-Za-z0-9_-]{6,}$/.test(fromQuery)) {
+          return fromQuery;
+        }
+
+        const path = url.pathname || '';
+        const pathMatch = path.match(/^\/(?:shorts|embed|live|v)\/([A-Za-z0-9_-]{6,})(?:\/|$)/i);
+        if (pathMatch) {
+          return pathMatch[1];
+        }
+      }
+
+      // Handle common redirect links carrying the real destination URL as a query param.
+      const redirectParams = ['q', 'url', 'u', 'to', 'target', 'dest', 'destination', 'redirect'];
+      for (const key of redirectParams) {
+        const nested = url.searchParams.get(key);
+        if (!nested) continue;
+        const decoded = (() => { try { return decodeURIComponent(nested); } catch { return nested; } })();
+        const nestedId = parse(decoded, depth + 1);
+        if (nestedId) return nestedId;
+      }
+    } catch {
+      // ignore malformed URLs
+    }
+
+    return null;
+  };
+
+  const direct = parse(href, 0);
+  if (direct) return direct;
+
   try {
-    const url = new URL(href);
-    if (url.hostname.includes('youtu.be')) {
-      return url.pathname.replace(/^\//, '') || null;
-    }
-    if (url.hostname.includes('youtube.com')) {
-      const v = url.searchParams.get('v');
-      if (v) return v;
-      const m = url.pathname.match(/\/shorts\/([A-Za-z0-9_-]{6,})/);
-      if (m) return m[1];
-    }
-  } catch {}
-  return null;
+    const withProtocol = href.startsWith('//') ? `https:${href}` : `https://${href}`;
+    return parse(withProtocol, 0);
+  } catch {
+    return null;
+  }
 }
 
 export { isImageLink, proxifyImageUrl, isYouTubeLink, extractYouTubeId, setImgurOdsProvider, setImgurVideoCdnProvider };

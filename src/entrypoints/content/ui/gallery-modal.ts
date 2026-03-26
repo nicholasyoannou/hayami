@@ -2,8 +2,6 @@
  * Gallery modal for viewing images
  */
 
-import { createApp } from 'vue';
-import YouTubeModal from '@/components/YouTubeModal.vue';
 import { proxifyImageUrl } from '@/composables/useImagePreview';
 
 /**
@@ -146,16 +144,67 @@ export function openImageGalleryModal(images: string[]): void {
  * Opens a YouTube video modal
  */
 export function openYouTubeModal(videoId: string): void {
-  const host = document.createElement('div');
-  document.body.appendChild(host);
-  const app = createApp(YouTubeModal, { 
-    videoId, 
-    onClose: () => { 
-      app.unmount(); 
-      host.remove(); 
-    } 
+  const existing = document.querySelector('.ri-yt-overlay') as HTMLElement | null;
+  if (existing) {
+    try { existing.remove(); } catch {}
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'ri-yt-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.inset = '0';
+  overlay.style.zIndex = '2147483647';
+  overlay.style.background = 'rgba(0,0,0,0.82)';
+  overlay.style.backdropFilter = 'blur(4px)';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.padding = '20px';
+
+  const modal = document.createElement('div');
+  modal.className = 'ri-yt-modal';
+  modal.style.position = 'relative';
+  modal.style.width = 'min(960px, 100%)';
+  modal.style.maxWidth = '100%';
+  modal.style.aspectRatio = '16 / 9';
+  modal.style.background = '#000';
+  modal.style.border = '1px solid #2a2a2c';
+  modal.style.borderRadius = '12px';
+  modal.style.overflow = 'hidden';
+  modal.style.boxShadow = '0 8px 36px rgba(0,0,0,0.6)';
+
+  const iframe = document.createElement('iframe');
+  iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0`;
+  iframe.title = 'YouTube video';
+  iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+  iframe.allowFullscreen = true;
+  iframe.style.width = '100%';
+  iframe.style.height = '100%';
+  iframe.style.border = '0';
+  iframe.style.display = 'block';
+
+  const close = () => {
+    try { overlay.remove(); } catch {}
+    document.removeEventListener('keydown', onKeyDown);
+  };
+
+  const onKeyDown = (ev: KeyboardEvent) => {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      close();
+    }
+  };
+
+  overlay.addEventListener('click', (ev) => {
+    if (ev.target === overlay) {
+      close();
+    }
   });
-  app.mount(host);
+  document.addEventListener('keydown', onKeyDown);
+
+  modal.appendChild(iframe);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
 }
 
 /**

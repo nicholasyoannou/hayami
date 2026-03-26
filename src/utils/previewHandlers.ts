@@ -594,22 +594,28 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
   // Click handler for YouTube & galleries
   add(document, 'click', (ev) => {
-    if (!embedImagesEnabled) return;
-
     const a = findAnchorFromEvent(ev);
     if (!a) return;
     if (!isInsideCommentBody(a)) return;
     const href = a.getAttribute('href') || '';
-    const ds = a.getAttribute('data-ri-images');
-    const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
 
+    // YouTube modal should work regardless of the embed-images preference.
     if (isYouTubeLink(href)) {
       ev.preventDefault();
       const vid = extractYouTubeId(href);
-      if (!vid) return;
-      // Emit event for parent to handle YouTube modal
+      if (!vid) {
+        return;
+      }
       window.dispatchEvent(new CustomEvent('crunchyroll-comments:youtube-modal', { detail: { videoId: vid } }));
-    } else if (multi && Array.isArray(multi) && multi.length > 0) {
+      return;
+    }
+
+    if (!embedImagesEnabled) return;
+
+    const ds = a.getAttribute('data-ri-images');
+    const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
+
+    if (multi && Array.isArray(multi) && multi.length > 0) {
       ev.preventDefault();
       // Emit event for parent to handle gallery modal
       window.dispatchEvent(new CustomEvent('crunchyroll-comments:gallery-modal', { detail: { images: multi } }));

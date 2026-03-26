@@ -1899,6 +1899,32 @@ export async function tryMapperFailover(
     }
 
     if (!seasonEpisode && seasonEpisode !== 0) {
+      // Final rescue: when mapping heuristics fail, try direct episode keys from
+      // CR metadata and parsed title hints before aborting failover.
+      const parsedEpisodeFromInfo = parseEpisodeFromTitle(animeInfo?.episodeName || '');
+      const directEpisodeCandidates = [
+        overrideEpisode,
+        parsedEpisodeFromInfo,
+        crEpisodeNumber,
+        sequenceNumber,
+      ].filter((value): value is number => Number.isFinite(value as number));
+
+      for (const candidate of directEpisodeCandidates) {
+        if (Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(candidate))) {
+          seasonEpisode = candidate;
+          console.log('[Mapper Failover] Recovered season episode via direct candidate key', {
+            seasonEpisode,
+            candidate,
+            parsedEpisodeFromInfo,
+            crEpisodeNumber,
+            sequenceNumber,
+          });
+          break;
+        }
+      }
+    }
+
+    if (!seasonEpisode && seasonEpisode !== 0) {
       console.log('Could not map episode number to season episode');
       return null;
     }
