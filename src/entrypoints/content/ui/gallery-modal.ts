@@ -8,15 +8,45 @@ import { proxifyImageUrl } from '@/composables/useImagePreview';
  * Opens a fullscreen gallery modal for viewing images
  */
 export function openImageGalleryModal(images: string[]): void {
+  const existing = document.querySelector('.ri-fullscreen-modal') as HTMLElement | null;
+  if (existing) {
+    try { existing.remove(); } catch {}
+  }
+
   // Create modal container
   const modal = document.createElement('div');
   modal.className = 'ri-fullscreen-modal';
-  modal.style.zIndex = '2147483606';
+  modal.style.position = 'fixed';
+  modal.style.top = '0';
+  modal.style.left = '0';
+  modal.style.right = '0';
+  modal.style.bottom = '0';
+  modal.style.background = 'rgba(0,0,0,0.95)';
+  modal.style.zIndex = '2147483646';
+  modal.style.display = 'flex';
+  modal.style.flexDirection = 'column';
+  modal.style.alignItems = 'center';
+  modal.style.justifyContent = 'center';
 
   // Close button
   const closeBtn = document.createElement('button');
   closeBtn.className = 'ri-fullscreen-close';
   closeBtn.innerHTML = '×';
+  closeBtn.style.position = 'absolute';
+  closeBtn.style.top = '20px';
+  closeBtn.style.right = '20px';
+  closeBtn.style.background = 'rgba(0,0,0,0.65)';
+  closeBtn.style.border = 'none';
+  closeBtn.style.color = '#fff';
+  closeBtn.style.fontSize = '28px';
+  closeBtn.style.width = '44px';
+  closeBtn.style.height = '44px';
+  closeBtn.style.borderRadius = '50%';
+  closeBtn.style.cursor = 'pointer';
+  closeBtn.style.display = 'flex';
+  closeBtn.style.alignItems = 'center';
+  closeBtn.style.justifyContent = 'center';
+  closeBtn.style.zIndex = '1';
   let handleKeyDown: (ev: KeyboardEvent) => void;
   const closeModal = () => {
     modal.remove();
@@ -28,10 +58,29 @@ export function openImageGalleryModal(images: string[]): void {
   // Counter
   const counter = document.createElement('div');
   counter.className = 'ri-fullscreen-counter';
+  counter.style.position = 'absolute';
+  counter.style.top = '20px';
+  counter.style.left = '50%';
+  counter.style.transform = 'translateX(-50%)';
+  counter.style.background = 'rgba(0,0,0,0.7)';
+  counter.style.color = '#fff';
+  counter.style.padding = '8px 16px';
+  counter.style.borderRadius = '20px';
+  counter.style.fontSize = '14px';
+  counter.style.fontWeight = '600';
+  counter.style.zIndex = '1';
 
   // Content container (scrollable)
   const content = document.createElement('div');
   content.className = 'ri-fullscreen-content';
+  content.style.width = '100%';
+  content.style.height = '100%';
+  content.style.overflowY = 'auto';
+  content.style.overflowX = 'hidden';
+  content.style.display = 'flex';
+  content.style.flexDirection = 'column';
+  content.style.alignItems = 'center';
+  content.style.padding = '60px 20px 20px';
 
   // Convert to proxied URLs only when needed
   const proxiedImages = images.map((u) => proxifyImageUrl(u));
@@ -40,6 +89,12 @@ export function openImageGalleryModal(images: string[]): void {
   proxiedImages.forEach((imgSrc, idx) => {
     const img = document.createElement('img');
     img.className = 'ri-fullscreen-image';
+    img.style.maxWidth = '90vw';
+    img.style.maxHeight = '90vh';
+    img.style.objectFit = 'contain';
+    img.style.marginBottom = '40px';
+    img.style.borderRadius = '8px';
+    img.style.boxShadow = '0 8px 32px rgba(0,0,0,0.5)';
     img.loading = 'lazy';
     img.decoding = 'async';
     img.dataset.src = imgSrc;

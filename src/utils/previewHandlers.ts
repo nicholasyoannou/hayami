@@ -598,6 +598,8 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     if (!a) return;
     if (!isInsideCommentBody(a)) return;
     const href = a.getAttribute('href') || '';
+    const ds = a.getAttribute('data-ri-images');
+    const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
 
     // YouTube modal should work regardless of the embed-images preference.
     if (isYouTubeLink(href)) {
@@ -610,16 +612,16 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       return;
     }
 
-    if (!embedImagesEnabled) return;
-
-    const ds = a.getAttribute('data-ri-images');
-    const multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
-
+    // Gallery modal should also work independently of the embed-images preference.
     if (multi && Array.isArray(multi) && multi.length > 0) {
       ev.preventDefault();
-      // Emit event for parent to handle gallery modal
       window.dispatchEvent(new CustomEvent('crunchyroll-comments:gallery-modal', { detail: { images: multi } }));
-    } else if (isImgurUrl(href)) {
+      return;
+    }
+
+    if (!embedImagesEnabled) return;
+
+    if (isImgurUrl(href)) {
       const targetUrl = transformImgurFrontendUrl(href, imgurFrontendProvider);
       if (targetUrl !== href) {
         ev.preventDefault();
