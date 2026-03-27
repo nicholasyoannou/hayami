@@ -35,37 +35,21 @@ type OriginPermissionRequestResult = {
 };
 
 function originToPattern(origin: string): string {
-  return normalizePermissionOriginPattern(origin) || `${origin.replace(/\/$/, '')}/*`;
-}
-
-function normalizePermissionOriginPattern(value: unknown): string | null {
-  const candidate = String(value || '').trim();
-  if (!candidate) return null;
-
-  try {
-    const parsed = new URL(candidate);
-    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-      return `${parsed.origin}/*`;
-    }
-  } catch {
-    // Fallback to permissive match-pattern parsing below.
-  }
-
-  const match = candidate.match(/^(\*|https?|http):\/\/([^/]+)(?:\/.*)?$/i);
-  if (!match) return null;
-  const scheme = String(match[1] || '').toLowerCase();
-  const host = String(match[2] || '').trim().toLowerCase();
-  if (!host) return null;
-  if (host !== '*' && !/^(\*\.)?[a-z0-9.-]+(?::\d+)?$/i.test(host)) return null;
-  return `${scheme}://${host}/*`;
+  return `${origin.replace(/\/$/, '')}/*`;
 }
 
 function normalizeHttpOrigins(values: unknown[]): string[] {
   const unique = new Set<string>();
   for (const raw of values) {
-    const pattern = normalizePermissionOriginPattern(raw);
-    if (!pattern) continue;
-    unique.add(pattern);
+    const candidate = String(raw || '').trim();
+    if (!candidate) continue;
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+      unique.add(parsed.origin);
+    } catch {
+      // ignore invalid URL
+    }
   }
   return [...unique].sort((a, b) => a.localeCompare(b));
 }
@@ -134,8 +118,16 @@ async function getUniqueKomentoOrigins(): Promise<string[]> {
     for (const target of targets) {
       const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
       for (const raw of origins) {
-        const normalized = normalizePermissionOriginPattern(raw);
-        if (normalized) out.add(normalized);
+        const origin = String(raw || '').trim();
+        if (!origin) continue;
+        try {
+          const normalized = new URL(origin).origin;
+          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+            out.add(normalized);
+          }
+        } catch {
+          // ignore invalid origins
+        }
       }
     }
   }
@@ -146,8 +138,16 @@ async function getUniqueCustomMappingOrigins(): Promise<string[]> {
   const map = (await customSiteMappingsItem.getValue()) || {};
   const out = new Set<string>();
   for (const key of Object.keys(map)) {
-    const normalized = normalizePermissionOriginPattern(key);
-    if (normalized) out.add(normalized);
+    const origin = String(key || '').trim();
+    if (!origin) continue;
+    try {
+      const normalized = new URL(origin).origin;
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        out.add(normalized);
+      }
+    } catch {
+      // ignore invalid origins
+    }
   }
   return [...out].sort((a, b) => a.localeCompare(b));
 }
@@ -168,7 +168,7 @@ async function getMissingKomentoOrigins(): Promise<string[]> {
     origins.map(async (origin) => {
       try {
         const granted = await new Promise<boolean>((resolve) => {
-          permissions.contains({ origins: [origin] }, (ok) => resolve(Boolean(ok)));
+          permissions.contains({ origins: [originToPattern(origin)] }, (ok) => resolve(Boolean(ok)));
         });
         return { origin, granted };
       } catch {
@@ -281,10 +281,17 @@ async function getKomentoPendingPermissionsSummary() {
     for (const target of targets) {
       const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
       for (const raw of origins) {
-        const normalized = normalizePermissionOriginPattern(raw);
-        if (!normalized) continue;
-        bySource.get(sourceId)?.add(normalized);
-        allOrigins.add(normalized);
+        const origin = String(raw || '').trim();
+        if (!origin) continue;
+        try {
+          const normalized = new URL(origin).origin;
+          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+            bySource.get(sourceId)?.add(normalized);
+            allOrigins.add(normalized);
+          }
+        } catch {
+          // ignore invalid origins
+        }
       }
     }
   }
@@ -292,10 +299,17 @@ async function getKomentoPendingPermissionsSummary() {
   const customOrigins = new Set<string>();
   const customMappingObject = customMap && typeof customMap === 'object' ? customMap as Record<string, unknown> : {};
   for (const key of Object.keys(customMappingObject)) {
-    const normalized = normalizePermissionOriginPattern(key);
-    if (!normalized) continue;
-    customOrigins.add(normalized);
-    allOrigins.add(normalized);
+    const raw = String(key || '').trim();
+    if (!raw) continue;
+    try {
+      const normalized = new URL(raw).origin;
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        customOrigins.add(normalized);
+        allOrigins.add(normalized);
+      }
+    } catch {
+      // ignore
+    }
   }
 
   if (customOrigins.size > 0) {
@@ -308,7 +322,7 @@ async function getKomentoPendingPermissionsSummary() {
       [...allOrigins].map(async (origin) => {
         try {
           const ok = await new Promise<boolean>((resolve) => {
-            permissions.contains({ origins: [origin] }, (value) => resolve(Boolean(value)));
+            permissions.contains({ origins: [originToPattern(origin)] }, (value) => resolve(Boolean(value)));
           });
           if (ok) granted.add(origin);
         } catch {
@@ -1281,7 +1295,7 @@ export default defineBackground(() => {
           let requestError: string | undefined;
           let remainingOrigins = [...requestedOrigins];
 
-          const firstAttempt = await requestOriginPatterns(remainingOrigins);
+          const firstAttempt = await requestOriginPatterns(remainingOrigins.map((origin) => originToPattern(origin)));
           dismissed = firstAttempt.dismissed;
           requestError = firstAttempt.error;
 
@@ -1294,7 +1308,7 @@ export default defineBackground(() => {
             firstAttempt.granted && attempts < MAX_PERMISSION_REQUEST_ATTEMPTS && remainingOrigins.length > 0;
             attempts += 1
           ) {
-            const attempt = await requestOriginPatterns(remainingOrigins);
+            const attempt = await requestOriginPatterns(remainingOrigins.map((origin) => originToPattern(origin)));
             dismissed = dismissed || attempt.dismissed;
             if (!requestError && attempt.error) requestError = attempt.error;
             if (!attempt.granted) {
