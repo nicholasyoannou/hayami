@@ -14,6 +14,7 @@ import {
 } from './site-mapper-utils';
 import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
+import { extractEpisodeNumber } from '@/utils/episode-utils';
 import {
   customSiteMappingsItem,
   displayModeItem,
@@ -126,7 +127,24 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       .preview-card { border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 12px; background: #0c0e14; display: flex; flex-direction: column; gap: 8px; }
       .preview-line { background: rgba(255,255,255,0.04); border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.45; }
       .preview-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; justify-content: flex-end; }
-      .pick-indicator { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #0d6efd; color: #0b1220; padding: 8px 14px; border-radius: 999px; font-weight: 700; box-shadow: 0 10px 30px rgba(0,0,0,0.35); pointer-events: none; z-index: 2147483001; }
+      .pick-indicator {
+        position: fixed;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 23, 42, 0.92);
+        color: #e2f7ff;
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 12px;
+        font-family: Inter, system-ui, sans-serif;
+        font-weight: 700;
+        letter-spacing: 0;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.28);
+        pointer-events: none;
+        z-index: 2147483001;
+      }
       .field-loading label { color: rgba(255,255,255,0.72); }
       input.input-loading[type='text'], input.input-loading[type='number'] {
         color: transparent !important;
@@ -300,6 +318,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     let pickIndicator: HTMLElement | null = null;
     let lastHighlight: HTMLElement | null = null;
     let highlightBox: HTMLElement | null = null;
+    let clickShield: HTMLElement | null = null;
     let hoverRaf: number | null = null;
     let lastHoverEvent: MouseEvent | null = null;
 
@@ -479,10 +498,34 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
     };
 
-    const extractFromSelector = (selector: string | undefined): string | null => {
+    const sanitizePreviewText = (value: string, maxLength = 140): string => {
+      const withoutInjectedCss = value
+        .replace(/#ri-inline-vue-host[\s\S]*/giu, ' ')
+        .replace(/@layer\s+[\s\S]*/giu, ' ');
+      const compact = withoutInjectedCss.replace(/\s+/gu, ' ').trim();
+      if (!compact) return '';
+      if (compact.length <= maxLength) return compact;
+      return `${compact.slice(0, maxLength - 1)}...`;
+    };
+
+    const getRawTextFromSelector = (selector: string | undefined): string | null => {
       const el = safeQuerySelector(selector);
-      const text = el?.textContent?.trim();
+      const text = (el?.innerText || el?.textContent || '').trim();
       return text && text.length > 0 ? text : null;
+    };
+
+    const extractTitlePreviewFromSelector = (selector: string | undefined): string | null => {
+      const raw = getRawTextFromSelector(selector);
+      if (!raw) return null;
+      const compact = sanitizePreviewText(raw, 110);
+      return compact || null;
+    };
+
+    const extractEpisodeNumberFromSelector = (selector: string | undefined): string | null => {
+      const raw = getRawTextFromSelector(selector);
+      if (!raw) return null;
+      const compact = sanitizePreviewText(raw, 320);
+      return extractEpisodeNumber(compact) || null;
     };
 
     const updateResetButtonVisibility = () => {
@@ -530,14 +573,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const runExtractionPreview = () => {
       if (!extractionPreview) return;
 
-      const manualTitle = extractFromSelector(titleInput.value);
-      const manualEpisode = extractFromSelector(episodeInput.value);
+      const manualTitle = extractTitlePreviewFromSelector(titleInput.value);
+      const manualEpisode = extractEpisodeNumberFromSelector(episodeInput.value);
       const usingManual = Boolean(manualTitle || manualEpisode);
 
       if (usingManual || titleInput.value.trim() || episodeInput.value.trim()) {
         const parts = [
           manualTitle ? `Title: ${manualTitle}` : 'Title: (none)',
-          manualEpisode ? `Episode: ${manualEpisode}` : 'Episode: (none)',
+          manualEpisode ? `Episode: ${manualEpisode}` : 'Episode: (none detected)',
           `Identifier: ${identifierFallback()}`,
           'Source: selectors',
         ];
@@ -605,7 +648,13 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
 
     function cleanupPickers() {
       document.body.classList.remove('hayami-picking');
+      if (clickShield) {
+        clickShield.removeEventListener('mousemove', handleHover, true);
+        clickShield.removeEventListener('click', handlePick, true);
+      }
       document.removeEventListener('mousemove', handleHover, true);
+      document.removeEventListener('keydown', handlePickerKeydown, true);
+      window.removeEventListener('keydown', handlePickerKeydown, true);
       document.removeEventListener('click', handlePick, true);
       container.classList.remove('picking');
       panel.classList.remove('hidden');
@@ -623,6 +672,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         highlightBox.remove();
         highlightBox = null;
       }
+      if (clickShield) {
+        clickShield.remove();
+        clickShield = null;
+      }
       if (lastHighlight) {
         lastHighlight.style.outline = '';
         lastHighlight = null;
@@ -634,22 +687,41 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         highlightBox = document.createElement('div');
         highlightBox.style.position = 'fixed';
         highlightBox.style.zIndex = '2147483002';
-        highlightBox.style.border = '2px solid #5ba8ff';
+        highlightBox.style.border = '2px solid #2dd4bf';
         highlightBox.style.borderRadius = '6px';
         highlightBox.style.pointerEvents = 'none';
-        highlightBox.style.boxShadow = '0 0 0 4px rgba(91,168,255,0.25)';
+        highlightBox.style.boxShadow = '0 0 0 3px rgba(45, 212, 191, 0.28)';
         highlightBox.style.display = 'none';
         document.body.appendChild(highlightBox);
       }
       return highlightBox;
     }
 
+    function ensureClickShield(): HTMLElement {
+      if (!clickShield) {
+        clickShield = document.createElement('div');
+        clickShield.style.position = 'fixed';
+        clickShield.style.inset = '0';
+        clickShield.style.zIndex = '2147483001';
+        clickShield.style.background = 'transparent';
+        clickShield.style.cursor = 'crosshair';
+        clickShield.style.pointerEvents = 'auto';
+        document.body.appendChild(clickShield);
+      }
+      return clickShield;
+    }
+
     function resolveDeepTarget(x: number, y: number): HTMLElement | null {
+      const shield = ensureClickShield();
+      const previousPointerEvents = shield.style.pointerEvents;
+      shield.style.pointerEvents = 'none';
       let current: HTMLElement | null = document.elementFromPoint(x, y) as HTMLElement | null;
+      shield.style.pointerEvents = previousPointerEvents;
       const isIgnored = (el: HTMLElement | null) => {
         if (!el) return true;
         if (el === document.body || el === document.documentElement) return true;
         if (el.id === 'hayami-site-mapper-overlay') return true;
+        if (clickShield && (el === clickShield || clickShield.contains(el))) return true;
         if (pickIndicator && (el === pickIndicator || pickIndicator.contains(el))) return true;
         if (highlightBox && (el === highlightBox || highlightBox.contains(el))) return true;
         return false;
@@ -672,6 +744,15 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       hoverRaf = null;
       if (!lastHoverEvent) return;
       const { clientX, clientY } = lastHoverEvent;
+      if (pickIndicator) {
+        const indicatorRect = pickIndicator.getBoundingClientRect();
+        const hoveringIndicator =
+          clientX >= indicatorRect.left &&
+          clientX <= indicatorRect.right &&
+          clientY >= indicatorRect.top &&
+          clientY <= indicatorRect.bottom;
+        pickIndicator.style.opacity = hoveringIndicator ? '0' : '1';
+      }
       const target = resolveDeepTarget(clientX, clientY);
       if (!target) {
         if (highlightBox) highlightBox.style.display = 'none';
@@ -827,9 +908,24 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       hoverRaf = requestAnimationFrame(paintHover);
     }
 
+    function handlePickerKeydown(ev: KeyboardEvent) {
+      if (ev.key !== 'Escape') return;
+      if (!(document.body as any)._hayamiPickingTarget) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (typeof (ev as any).stopImmediatePropagation === 'function') {
+        (ev as any).stopImmediatePropagation();
+      }
+      delete (document.body as any)._hayamiPickingTarget;
+      cleanupPickers();
+    }
+
     function handlePick(ev: MouseEvent) {
       ev.preventDefault();
       ev.stopPropagation();
+      if (typeof (ev as any).stopImmediatePropagation === 'function') {
+        (ev as any).stopImmediatePropagation();
+      }
       const target = resolveDeepTarget(ev.clientX, ev.clientY) || (ev.target as HTMLElement | null);
       const picking = (document.body as any)._hayamiPickingTarget as string | undefined;
       cleanupPickers();
@@ -862,9 +958,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         overlay.style.pointerEvents = 'none';
         pickIndicator = document.createElement('div');
         pickIndicator.className = 'pick-indicator';
-        pickIndicator.textContent = `Click an element to set ${target} selector`;
-        document.body.appendChild(pickIndicator);
+        pickIndicator.textContent = `Click an element to set ${target} selector (Esc to cancel)`;
+        shadow.appendChild(pickIndicator);
+        const shield = ensureClickShield();
+        shield.addEventListener('mousemove', handleHover, true);
+        shield.addEventListener('click', handlePick, true);
         document.addEventListener('mousemove', handleHover, true);
+        document.addEventListener('keydown', handlePickerKeydown, true);
+        window.addEventListener('keydown', handlePickerKeydown, true);
         document.addEventListener('click', handlePick, true);
       });
     });

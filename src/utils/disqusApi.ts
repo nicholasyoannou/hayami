@@ -16,6 +16,7 @@ function parseEpisodeNumber(value?: string | null): number | null {
 function normalizeTitle(text: string): string {
   return text
     .toLowerCase()
+    .replace(/["'`“”‘’]/g, '')
     .replace(/[:\-–—!?.,()\[\]]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -125,7 +126,9 @@ function isThreadLikelyForAnime(
   animeInfo: { animeName: string; episodeName?: string; releaseDate?: string },
   thread: { title?: string; clean_title?: string; slug?: string; link?: string },
 ): boolean {
-  const animeNameNorm = normalizeTitle(animeInfo?.animeName || '');
+  const animeNameRaw = String(animeInfo?.animeName || '');
+  const animeNameNorm = normalizeTitle(animeNameRaw);
+  const animeNameNoYearNorm = normalizeTitle(animeNameRaw.replace(/\(\d{4}\)/g, ' '));
   if (!animeNameNorm) return true;
 
   const candidateText = [
@@ -141,8 +144,9 @@ function isThreadLikelyForAnime(
   if (!candidateNorm) return true;
 
   if (candidateNorm.includes(animeNameNorm)) return true;
+  if (animeNameNoYearNorm && candidateNorm.includes(animeNameNoYearNorm)) return true;
 
-  const animeTokens = tokenizeForAnimeMatch(animeInfo?.animeName || '');
+  const animeTokens = tokenizeForAnimeMatch(animeNameNoYearNorm || animeNameNorm);
   if (animeTokens.length === 0) return true;
 
   const candidateTokens = new Set(tokenizeForAnimeMatch(candidateText));
@@ -153,7 +157,7 @@ function isThreadLikelyForAnime(
     if (candidateTokens.has(token)) overlap += 1;
   }
 
-  const requiredOverlap = Math.max(2, Math.ceil(animeTokens.length * 0.35));
+  const requiredOverlap = Math.max(1, Math.ceil(animeTokens.length * 0.35));
   return overlap >= requiredOverlap;
 }
 
@@ -491,14 +495,20 @@ export async function findThreadByLink(
       ].filter(Boolean)));
 
       for (const linkCandidate of linkCandidates) {
-        const threadParam = isHttpUrl(linkCandidate)
-          ? `thread:link=${encodeURIComponent(linkCandidate)}`
-          : `thread=${encodeURIComponent(`ident:${extractSlug(linkCandidate) || linkCandidate}`)}`;
-        const detailsUrl = `https://disqus.com/api/3.0/threads/details.json?forum=${encodeURIComponent(forum)}&${threadParam}&api_key=${encodeURIComponent(apiKey)}`;
+        const slugCandidate = extractSlug(linkCandidate) || wantedSlug;
+        if (!slugCandidate) {
+          console.log('[DisqusApi][findThreadByLink] skipping details lookup without slug', {
+            linkCandidate,
+          });
+          continue;
+        }
+
+        const detailsUrl = `https://disqus.com/api/3.0/threads/details?thread=${encodeURIComponent(`slug:${slugCandidate}`)}&forum=${encodeURIComponent(forum)}&attach=topics&related=forum&api_key=${encodeURIComponent(apiKey)}`;
         const detailsRes = await crProxyFetch(detailsUrl, { credentials: 'include' } as any);
         if (!detailsRes || !detailsRes.ok) {
           console.log('[DisqusApi][findThreadByLink] details lookup response not ok', {
             linkCandidate,
+            slugCandidate,
             status: detailsRes?.status,
           });
           continue;
@@ -519,6 +529,7 @@ export async function findThreadByLink(
           }
           console.log('[DisqusApi][findThreadByLink] details lookup match', {
             linkCandidate,
+            slugCandidate,
             id: detailsThread?.id,
             title: detailsThread?.title,
             clean_title: detailsThread?.clean_title,
@@ -530,6 +541,7 @@ export async function findThreadByLink(
 
         console.log('[DisqusApi][findThreadByLink] details lookup empty response', {
           linkCandidate,
+          slugCandidate,
           code: detailsJson?.code,
         });
       }

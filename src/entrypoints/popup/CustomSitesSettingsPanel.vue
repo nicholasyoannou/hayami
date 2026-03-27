@@ -83,12 +83,12 @@ function triggerCustomMappingsImport() {
             class="h-6 w-6 rounded bg-white/5"
             referrerpolicy="no-referrer"
           />
-          <div class="flex-1">
-            <div class="text-sm font-semibold text-white/90">{{ props.formatOrigin(site.origin) }}</div>
+          <div class="flex-1 min-w-0">
+            <div class="truncate text-sm font-semibold text-white/90" :title="props.formatOrigin(site.origin)">{{ props.formatOrigin(site.origin) }}</div>
             <div v-if="site.display" class="text-xs text-white/60">Placement: {{ props.formatPlacementLabel(site.display) }}</div>
           </div>
           <button
-            class="rounded-full bg-white/15 px-2 py-2 text-xs font-semibold text-white hover:bg-white/20"
+            class="shrink-0 rounded-full bg-white/15 px-2 py-2 text-xs font-semibold text-white hover:bg-white/20"
             @click="props.onOpenCustomSiteDetail(site)"
             aria-label="View mapping info"
             title="View mapping info"
@@ -96,7 +96,7 @@ function triggerCustomMappingsImport() {
             <img :src="props.infoIcon" alt="Info" class="h-4 w-4" />
           </button>
           <button
-            class="rounded-full bg-rose-500/80 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
+            class="shrink-0 rounded-full bg-rose-500/80 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
             @click="props.onRemoveCustomSite(site)"
             :disabled="props.removingSiteOrigin === site.origin"
           >

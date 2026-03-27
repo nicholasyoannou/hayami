@@ -5,12 +5,18 @@
 
 /* ==================== Main Container ==================== */
 #reddit-inline-discussion {
-  background: #0f0f0f;
+  --ri-discussion-bg: #0f0f0f;
+  background: var(--ri-discussion-bg);
   color: #ddd;
   border-radius: 0 0 8px 8px;
   padding: 16px;
   margin-top: 0;
   text-align: left;
+}
+
+#reddit-inline-discussion .ri-external-comments,
+#reddit-inline-discussion #disqus_thread {
+  background: var(--ri-discussion-bg);
 }
 
 #reddit-inline-discussion[data-no-discussion="true"] .ri-comments {

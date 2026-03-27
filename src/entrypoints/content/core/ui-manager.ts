@@ -592,15 +592,8 @@ class UiManager {
       trigger.type = 'button';
       trigger.dataset.hayamiMappedTrigger = 'true';
       trigger.style.cursor = 'pointer';
-      trigger.style.appearance = 'none';
-      trigger.style.border = 'none';
-      trigger.style.background = 'transparent';
-      trigger.style.padding = '0 6px';
       trigger.style.margin = '0';
-      trigger.style.lineHeight = '1';
       trigger.style.whiteSpace = 'nowrap';
-      trigger.style.color = 'inherit';
-      trigger.style.font = 'inherit';
       trigger.addEventListener('click', async (ev) => {
         ev.preventDefault();
         ev.stopPropagation();
@@ -726,20 +719,24 @@ class UiManager {
       }
 
       const style = getComputedStyle(reference);
+      trigger.style.appearance = style.appearance || '';
+      trigger.style.border = style.border;
+      trigger.style.background = style.background;
+      trigger.style.boxShadow = style.boxShadow;
       trigger.style.color = style.color;
       trigger.style.fontSize = style.fontSize;
       trigger.style.fontWeight = style.fontWeight;
       trigger.style.fontFamily = style.fontFamily;
       trigger.style.letterSpacing = style.letterSpacing;
       trigger.style.textTransform = style.textTransform;
-      if (style.padding && style.padding !== '0px') {
-        trigger.style.padding = style.padding;
-      }
+      trigger.style.padding = style.padding;
       trigger.style.height = style.height !== 'auto' ? style.height : '';
+      trigger.style.minHeight = style.minHeight !== '0px' ? style.minHeight : '';
       trigger.style.display = 'inline-flex';
       trigger.style.alignItems = 'center';
       trigger.style.justifyContent = 'center';
       trigger.style.borderRadius = style.borderRadius || '8px';
+      trigger.style.lineHeight = style.lineHeight;
 
       if (listItem) {
         listItem.style.display = style.display;
@@ -774,13 +771,19 @@ class UiManager {
       trigger.textContent = '';
       trigger.title = action === 'replace' ? 'Toggle Hayami comments' : 'Open Hayami comments';
       trigger.setAttribute('aria-label', trigger.title);
-      trigger.style.width = trigger.style.height || '30px';
-      trigger.style.minWidth = '26px';
-      trigger.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px;display:block;fill:currentColor;"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3.5 7a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Zm4.5 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Zm4.5 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z"/></svg>`;
+      const controlHeight = Number.parseFloat(trigger.style.height || '0');
+      const iconSize = Number.isFinite(controlHeight) && controlHeight > 0
+        ? Math.max(18, Math.min(24, Math.round(controlHeight * 0.58)))
+        : 18;
+      const triggerSize = Number.isFinite(controlHeight) && controlHeight > 0
+        ? `${Math.round(controlHeight)}px`
+        : (trigger.style.height || '30px');
+      trigger.style.width = triggerSize;
+      trigger.style.minWidth = triggerSize;
+      trigger.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" style="width:${iconSize}px;height:${iconSize}px;display:block;fill:currentColor;"><path d="M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm3.5 7a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Zm4.5 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Zm4.5 0a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z"/></svg>`;
     } else {
       trigger.title = action === 'replace' ? 'Toggle Hayami comments' : 'Open Hayami comments';
       trigger.setAttribute('aria-label', trigger.title);
-      trigger.textContent = text;
       trigger.innerHTML = '';
       trigger.textContent = text;
     }

@@ -10,6 +10,7 @@
 export function extractEpisodeNumber(episodeName: string): string | null {
   // Try various patterns
   const patterns = [
+    /^(\d+)\s*-\s*(?:dub|sub)\b.*$/i, // 1-Dub, 1-Sub
     /E(\d+)/i,                    // E1, E12, e5
     /Episode\s*(\d+)/i,           // Episode 1, Episode 12
     /Ep\.?\s*(\d+)/i,             // Ep1, Ep. 5

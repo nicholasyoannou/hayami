@@ -23,6 +23,16 @@ export function parseEpisodeFromTitle(title: unknown): number | null {
     }
   }
 
+  // Crunchyroll can expose labels like "1-Dub" / "1-Sub".
+  const dubSubMatch = trimmed.match(/^(\d{1,4})\s*-\s*(?:dub|sub)\b.*$/iu);
+  if (dubSubMatch?.[1]) {
+    const dubSubEpisode = Number.parseInt(dubSubMatch[1], 10);
+    if (Number.isFinite(dubSubEpisode)) {
+      console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: dubSubEpisode });
+      return dubSubEpisode;
+    }
+  }
+
   // Some sites expose episode labels like: "10 <title>" without an "Episode" prefix.
   const leadingNumericMatch = trimmed.match(/^(\d{1,4})(?:\s|$)/u);
   if (leadingNumericMatch?.[1]) {

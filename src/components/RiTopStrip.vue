@@ -157,10 +157,6 @@
               {{ tab.subtitle }}
               </span>
           </div>
-          <div
-            class="pointer-events-none absolute bottom-[-1px] left-1/2 h-[3px] -translate-x-1/2 rounded-full bg-[#f5f5f5]"
-            style="width: calc(100% - 2px);"
-          />
         </div>
         <div
           v-else
@@ -205,6 +201,10 @@
             </div>
           </div>
         </div>
+        <div
+          v-if="tab.active"
+          class="pointer-events-none absolute bottom-[-1px] left-[1px] right-[1px] h-[3px] rounded-full bg-[#f5f5f5]"
+        />
       </div>
     </div>
   </div>
