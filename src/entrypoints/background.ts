@@ -39,17 +39,32 @@ function originToPattern(origin: string): string {
   return `${origin.replace(/\/$/, '')}/*`;
 }
 
-function normalizeHttpOrigins(values: unknown[]): string[] {
+function extractHttpOrigins(value: unknown): string[] {
+  const raw = String(value || '').trim();
+  if (!raw) return [];
+
   const unique = new Set<string>();
-  for (const raw of values) {
-    const candidate = String(raw || '').trim();
-    if (!candidate) continue;
+  const candidates = raw.split(/[\s,]+/g).filter(Boolean);
+  const fallback = candidates.length ? candidates : [raw];
+
+  for (const candidate of fallback) {
     try {
       const parsed = new URL(candidate);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
       unique.add(parsed.origin);
     } catch {
-      // ignore invalid URL
+      // ignore invalid URL token
+    }
+  }
+
+  return [...unique];
+}
+
+function normalizeHttpOrigins(values: unknown[]): string[] {
+  const unique = new Set<string>();
+  for (const raw of values) {
+    for (const origin of extractHttpOrigins(raw)) {
+      unique.add(origin);
     }
   }
   return [...unique].sort((a, b) => a.localeCompare(b));
@@ -139,15 +154,8 @@ async function getUniqueKomentoOrigins(): Promise<string[]> {
       if (selectedTargetIds && !selectedTargetIds.has(targetId)) continue;
       const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
       for (const raw of origins) {
-        const origin = String(raw || '').trim();
-        if (!origin) continue;
-        try {
-          const normalized = new URL(origin).origin;
-          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-            out.add(normalized);
-          }
-        } catch {
-          // ignore invalid origins
+        for (const normalized of extractHttpOrigins(raw)) {
+          out.add(normalized);
         }
       }
     }
@@ -314,16 +322,9 @@ async function getKomentoPendingPermissionsSummary() {
       if (selectedTargetIds && !selectedTargetIds.has(targetId)) continue;
       const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
       for (const raw of origins) {
-        const origin = String(raw || '').trim();
-        if (!origin) continue;
-        try {
-          const normalized = new URL(origin).origin;
-          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-            bySource.get(sourceId)?.add(normalized);
-            allOrigins.add(normalized);
-          }
-        } catch {
-          // ignore invalid origins
+        for (const normalized of extractHttpOrigins(raw)) {
+          bySource.get(sourceId)?.add(normalized);
+          allOrigins.add(normalized);
         }
       }
     }
@@ -1339,7 +1340,7 @@ export default defineBackground(() => {
           for (
             let attempts = 1;
             firstAttempt.granted && attempts < MAX_PERMISSION_REQUEST_ATTEMPTS && remainingOrigins.length > 0;
-            attempts += 1
+            attempts++
           ) {
             const attempt = await requestOriginPatterns(remainingOrigins.map((origin) => originToPattern(origin)));
             dismissed = dismissed || attempt.dismissed;

@@ -373,7 +373,7 @@ export function useKomentoScript(options: {
       if (response.granted) {
         showSuccess('Site permissions updated');
       } else if (approvedCount > 0) {
-        showSuccess(`Approved ${approvedCount}/${requestedCount} hosts. Click again to continue.`);
+        showSuccess(`Approved ${approvedCount}/${requestedCount} sites. Click again to continue.`);
       } else if (response.dismissed) {
         showError('Permission prompt was closed. Click "Approve all hosts" again to continue.');
       } else {
