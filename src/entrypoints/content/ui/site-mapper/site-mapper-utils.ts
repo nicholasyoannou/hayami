@@ -120,10 +120,19 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
         })
         .filter((pack): pack is KomentoScriptPack => Boolean(pack && Array.isArray(pack.targets)));
 
-      const enabledTargetIdsBySourceId: Record<string, string[] | undefined> = {};
-      for (const [sourceId, selectedTargetIds] of Object.entries(selectionsBySource)) {
-        if (Array.isArray(selectedTargetIds)) {
-          enabledTargetIdsBySourceId[sourceId] = selectedTargetIds;
+      // collectMatchingKomentoTargets looks up enabledTargetIdsBySourceId by pack.id (the pack's
+      // own "id" field), not by the cache sourceId. Build the map keyed by pack.id so that
+      // the user's per-source target selections are actually respected during matching.
+      const enabledTargetIdsByPackId: Record<string, string[] | undefined> = {};
+      for (const entry of cachedEntries) {
+        const sourceId = String((entry as any)?.sourceId || '').trim();
+        const packId = String((entry as any)?.pack?.id || '').trim();
+        if (!sourceId || !packId) continue;
+        if (Object.prototype.hasOwnProperty.call(selectionsBySource, sourceId)) {
+          const selectedIds = selectionsBySource[sourceId];
+          if (Array.isArray(selectedIds)) {
+            enabledTargetIdsByPackId[packId] = selectedIds;
+          }
         }
       }
 
@@ -131,7 +140,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
         origin: location.origin,
         pathname: location.pathname,
       }, {
-        enabledTargetIdsBySourceId,
+        enabledTargetIdsBySourceId: enabledTargetIdsByPackId,
       });
       const effective = mergeEffectiveKomentoTarget(candidates);
       if (effective?.target) {

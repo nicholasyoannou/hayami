@@ -140,8 +140,14 @@ export function useKomentoScript(options: {
       const sourceId = String(cachedEntry?.sourceId || '');
       if (!sourceId) continue;
       if (!mapped[sourceId]) mapped[sourceId] = new Set<string>();
+      const hasSelectionOverride = Object.prototype.hasOwnProperty.call(komentoTargetSelections.value, sourceId);
+      const selectedTargetIds = hasSelectionOverride && Array.isArray(komentoTargetSelections.value[sourceId])
+        ? new Set(komentoTargetSelections.value[sourceId]!.map((id) => String(id || '').trim()).filter(Boolean))
+        : null;
       const targets = Array.isArray(cachedEntry?.pack?.targets) ? cachedEntry.pack.targets : [];
       for (const target of targets) {
+        const targetId = String(target?.targetId || '').trim();
+        if (selectedTargetIds && !selectedTargetIds.has(targetId)) continue;
         const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
         for (const origin of origins) {
           const value = String(origin || '').trim();
@@ -357,65 +363,26 @@ export function useKomentoScript(options: {
     if (!komentoPendingOrigins.value.length || komentoApprovingPermissions.value) return;
     komentoApprovingPermissions.value = true;
     try {
-      const requestedCount = komentoPendingOrigins.value.length;
-      const requestedOrigins = [...new Set(
+      const patterns = [...new Set(
         komentoPendingOrigins.value
           .map((origin) => String(origin || '').trim())
-          .filter(Boolean),
+          .filter(Boolean)
+          .map((origin) => `${origin.replace(/\/$/, '')}/*`),
       )];
-      const requestedPatterns = requestedOrigins.map((origin) => `${origin.replace(/\/$/, '')}/*`);
 
-      // Keep permissions.request directly in the popup click flow to preserve user gesture.
-      // This is more reliable for multi-origin host prompts than relaying via runtime messages.
-      const popupPermissions = browser.permissions;
-      if (popupPermissions?.request && requestedPatterns.length > 0) {
-        const grantedInPopup = await new Promise<boolean>((resolve) => {
-          try {
-            popupPermissions.request({ origins: requestedPatterns }, (granted) => resolve(Boolean(granted)));
-          } catch {
-            resolve(false);
-          }
-        });
-
-        if (grantedInPopup) {
-          await loadKomentoPendingPermissions();
-          const pendingAfterPopup = komentoPendingOrigins.value.length;
-          const approvedInPopup = Math.max(0, requestedCount - pendingAfterPopup);
-          if (pendingAfterPopup === 0) {
-            showSuccess('Site permissions updated');
-            return;
-          }
-          if (approvedInPopup > 0) {
-            showSuccess(`Approved ${approvedInPopup}/${requestedCount} sites.`);
-          }
+      const granted = await new Promise<boolean>((resolve) => {
+        try {
+          browser.permissions.request({ origins: patterns }, (ok) => resolve(Boolean(ok)));
+        } catch {
+          resolve(false);
         }
-      }
+      });
 
-      const response = await browser.runtime.sendMessage({
-        action: 'hayami_komento_requestPendingPermissions',
-        origins: komentoPendingOrigins.value,
-      }) as any;
-      if (!response?.ok) {
-        showError(response?.error || 'Could not request site permissions');
-        return;
-      }
-      komentoPendingPermissionSources.value = Array.isArray(response.items) ? response.items : [];
-      komentoPendingOrigins.value = Array.isArray(response.allPendingOrigins) ? response.allPendingOrigins : [];
-      const pendingAfter = komentoPendingOrigins.value.length;
-      const approvedCount = Math.max(0, requestedCount - pendingAfter);
-      if (response.granted) {
+      await loadKomentoPendingPermissions();
+      if (granted) {
         showSuccess('Site permissions updated');
-      } else if (approvedCount > 0) {
-        showSuccess(`Approved ${approvedCount}/${requestedCount} sites.`);
-      } else if (response.dismissed) {
-        showError('Permission prompt was closed.');
       } else {
-        const requestError = String(response?.requestError || '').toLowerCase();
-        if (requestError.includes('user gesture')) {
-          showError('Permission request was not approved. Click "Approve all hosts" and confirm the prompt.');
-        } else {
-          showError('Site permissions were not approved.');
-        }
+        showError('Site permissions were not approved.');
       }
     } catch (error) {
       console.warn('Failed to request Komento permissions', error);
