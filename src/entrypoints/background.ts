@@ -1333,27 +1333,25 @@ export default defineBackground(() => {
           dismissed = firstAttempt.dismissed;
           requestError = firstAttempt.error;
 
-          let refreshed = await getKomentoPendingPermissionsSummary();
-          remainingOrigins = remainingOrigins.filter((origin) => refreshed.allPendingOrigins.includes(origin));
-
-          // Some browsers may only grant a subset in one call, so continue requesting remaining origins.
-          for (
-            let attempts = 1;
-            firstAttempt.granted && attempts < MAX_PERMISSION_REQUEST_ATTEMPTS && remainingOrigins.length > 0;
-            attempts++
-          ) {
-            const attempt = await requestOriginPatterns(remainingOrigins.map((origin) => originToPattern(origin)));
-            dismissed = dismissed || attempt.dismissed;
-            if (!requestError && attempt.error) requestError = attempt.error;
-            if (!attempt.granted) {
-              break;
+          // Some browsers grant only a subset when requesting many origins at once.
+          // Follow up with per-origin requests in the same interaction to maximize approvals.
+          if (firstAttempt.granted && remainingOrigins.length > 1) {
+            for (
+              let attempts = 1;
+              attempts < MAX_PERMISSION_REQUEST_ATTEMPTS && remainingOrigins.length > 0;
+              attempts++
+            ) {
+              const origin = remainingOrigins.shift();
+              if (!origin) break;
+              const attempt = await requestOriginPatterns([originToPattern(origin)]);
+              dismissed = dismissed || attempt.dismissed;
+              if (!requestError && attempt.error) requestError = attempt.error;
+              if (!attempt.granted) break;
             }
-            refreshed = await getKomentoPendingPermissionsSummary();
-            remainingOrigins = remainingOrigins.filter((origin) => refreshed.allPendingOrigins.includes(origin));
           }
 
-          const granted = remainingOrigins.length === 0;
           const summary = await getKomentoPendingPermissionsSummary();
+          const granted = requestedOrigins.every((origin) => !summary.allPendingOrigins.includes(origin));
           await refreshKomentoBadge();
           sendResponse({ ok: true, granted, dismissed, requestError, ...summary });
         } catch (error) {
