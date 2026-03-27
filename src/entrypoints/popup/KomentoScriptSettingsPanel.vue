@@ -103,8 +103,8 @@ function getFilteredSourceTargetOptions(sourceId: string): KomentoSourceTargetOp
       <span>Back</span>
     </button>
     <div class="flex items-center gap-2 text-lg font-semibold">
-      <img :src="settingsIcon" alt="KomentoScript Sync" class="h-6 w-6 settings-icon" />
-      <span>KomentoScript Sync</span>
+      <img :src="settingsIcon" alt="KomentoScript" class="h-6 w-6 settings-icon" />
+      <span>KomentoScript</span>
     </div>
   </div>
 

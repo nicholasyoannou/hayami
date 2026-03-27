@@ -532,7 +532,7 @@ const settingsNavItems: SettingsNavItem[] = [
   },
   {
     id: 'komentoscript',
-    label: 'KomentoScript Sync',
+    label: 'KomentoScript',
     description: 'Import and sync custom rule packs and sources.',
     icon: settingsIcon,
     kind: 'komentoscript',
