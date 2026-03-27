@@ -358,6 +358,38 @@ export function useKomentoScript(options: {
     komentoApprovingPermissions.value = true;
     try {
       const requestedCount = komentoPendingOrigins.value.length;
+      const requestedOrigins = [...new Set(
+        komentoPendingOrigins.value
+          .map((origin) => String(origin || '').trim())
+          .filter(Boolean),
+      )];
+      const requestedPatterns = requestedOrigins.map((origin) => `${origin.replace(/\/$/, '')}/*`);
+
+      // Keep permissions.request directly in the popup click flow to preserve user gesture.
+      // This is more reliable for multi-origin host prompts than relaying via runtime messages.
+      const popupPermissions = browser.permissions;
+      if (popupPermissions?.request && requestedPatterns.length > 0) {
+        const grantedInPopup = await new Promise<boolean>((resolve) => {
+          try {
+            popupPermissions.request({ origins: requestedPatterns }, (granted) => resolve(Boolean(granted)));
+          } catch {
+            resolve(false);
+          }
+        });
+
+        if (grantedInPopup) {
+          await loadKomentoPendingPermissions();
+          const pendingAfterPopup = komentoPendingOrigins.value.length;
+          const approvedInPopup = Math.max(0, requestedCount - pendingAfterPopup);
+          if (pendingAfterPopup === 0) {
+            showSuccess('Site permissions updated');
+          } else if (approvedInPopup > 0) {
+            showSuccess(`Approved ${approvedInPopup}/${requestedCount} origins. Click again to continue.`);
+          }
+          if (pendingAfterPopup === 0 || approvedInPopup > 0) return;
+        }
+      }
+
       const response = await browser.runtime.sendMessage({
         action: 'hayami_komento_requestPendingPermissions',
         origins: komentoPendingOrigins.value,

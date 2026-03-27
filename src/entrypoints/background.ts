@@ -1333,20 +1333,25 @@ export default defineBackground(() => {
           dismissed = firstAttempt.dismissed;
           requestError = firstAttempt.error;
 
+          let refreshed = await getKomentoPendingPermissionsSummary();
+          remainingOrigins = requestedOrigins.filter((origin) => refreshed.allPendingOrigins.includes(origin));
+
           // Some browsers grant only a subset when requesting many origins at once.
           // Follow up with per-origin requests in the same interaction to maximize approvals.
-          if (firstAttempt.granted && remainingOrigins.length > 1) {
+          if (firstAttempt.granted && remainingOrigins.length > 0) {
             for (
               let attempts = 1;
               attempts < MAX_PERMISSION_REQUEST_ATTEMPTS && remainingOrigins.length > 0;
               attempts++
             ) {
-              const origin = remainingOrigins.shift();
-              if (!origin) break;
+              const origin = remainingOrigins.shift()!;
               const attempt = await requestOriginPatterns([originToPattern(origin)]);
               dismissed = dismissed || attempt.dismissed;
               if (!requestError && attempt.error) requestError = attempt.error;
-              if (!attempt.granted) break;
+              if (attempt.dismissed || !attempt.granted) break;
+
+              refreshed = await getKomentoPendingPermissionsSummary();
+              remainingOrigins = remainingOrigins.filter((value) => refreshed.allPendingOrigins.includes(value));
             }
           }
 
