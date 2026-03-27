@@ -366,9 +366,9 @@ async function renderDisqusThread(
 ): Promise<void> {
   const renderToken = `ri-disqus-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  // Disqus binds by global id (#disqus_thread). If stale nodes exist elsewhere,
-  // it may attach outside our provider surface. Keep only the current target.
-  document.querySelectorAll(SELECTORS.DISQUS_THREAD).forEach((node) => {
+  // Disqus binds by global id (#disqus_thread). Prune only stale Hayami-owned
+  // targets so we never remove native host-page Disqus embeds.
+  document.querySelectorAll(`${SELECTORS.DISQUS_THREAD}[data-ri-disqus-target]`).forEach((node) => {
     const el = node as HTMLElement;
     if (!container.contains(el)) {
       el.remove();
@@ -436,6 +436,7 @@ async function renderDisqusThread(
   script.setAttribute('data-title', title);
   script.setAttribute('data-slug', threadSlug);
   script.setAttribute('data-target-token', renderToken);
+  script.setAttribute('data-ri-disqus-loader', 'true');
   (document.head || document.body).appendChild(script);
 
   // Wait for Disqus to load

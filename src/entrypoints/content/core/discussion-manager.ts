@@ -420,11 +420,13 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     clearDiscussionCache(currentState);
     clearInlineNoDiscussionHost();
 
-    // Hard-clear any leftover Disqus artifacts before mounting the new episode
-    // to avoid stale threads sticking around between navigations.
-    document.querySelectorAll('script[src*="disqus"]').forEach((el) => el.remove());
-    document.querySelectorAll('iframe[src*="disqus"]').forEach((el) => el.remove());
-    const oldDisqus = document.getElementById('disqus_thread');
+    // Hard-clear only Hayami-owned Disqus artifacts before mounting the new episode.
+    // Never remove site-native Disqus embeds from the host page.
+    document.querySelectorAll('script[data-ri-disqus-loader="true"]').forEach((el) => el.remove());
+    document
+      .querySelectorAll('.ri-external-comments iframe[src*="disqus"], #disqus_thread[data-ri-disqus-target] iframe[src*="disqus"]')
+      .forEach((el) => el.remove());
+    const oldDisqus = document.querySelector('#disqus_thread[data-ri-disqus-target]') as HTMLElement | null;
     if (oldDisqus) {
       oldDisqus.remove();
     }

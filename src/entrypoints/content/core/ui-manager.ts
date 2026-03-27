@@ -506,6 +506,19 @@ class UiManager {
 
       const node = (this.inlineUi as any).root ?? (this.inlineUi as any).container ?? inlineHost;
       const iconReplaceMode = mapping?.display === 'icon' && mapping.iconDisplayAction === 'replace';
+      const popupLikeMode = mapping?.display === 'popup' || (mapping?.display === 'icon' && !iconReplaceMode);
+      if (popupLikeMode) {
+        // Popup/icon-popup modes should not mutate site comment DOM by reparenting inline UI.
+        const commentsTarget = this.resolveMappingElement(mapping?.anchorSelector, mapping?.anchorXPath);
+        if (commentsTarget && commentsTarget.dataset.hayamiOriginalDisplay !== undefined) {
+          commentsTarget.style.display = commentsTarget.dataset.hayamiOriginalDisplay || '';
+        }
+        node.style.display = 'none';
+        node.dataset.hayamiIconReplaceActive = 'false';
+        await this.ensureMappedTrigger();
+        return;
+      }
+
       if (mapping?.display === 'replace') {
         if (!(node as any).__hayamiReplacedOriginal) {
           const placeholder = document.createElement('div');
@@ -520,6 +533,12 @@ class UiManager {
         } else {
           anchor.appendChild(node);
         }
+
+        // Icon/Text replace should always start from "site comments visible" state.
+        if (!anchor.dataset.hayamiOriginalDisplay) {
+          anchor.dataset.hayamiOriginalDisplay = anchor.style.display || '';
+        }
+        anchor.style.display = anchor.dataset.hayamiOriginalDisplay || '';
         node.style.display = 'none';
         node.dataset.hayamiIconReplaceActive = 'false';
       } else {
@@ -618,7 +637,33 @@ class UiManager {
 
         const current = inlineNode.dataset.hayamiIconReplaceActive === 'true';
         const commentsTarget = this.resolveMappingElement(activeMapping?.anchorSelector, activeMapping?.anchorXPath);
+        const triggerHost = (this.mappedTriggerListItem && this.mappedTriggerListItem.contains(trigger!))
+          ? this.mappedTriggerListItem
+          : trigger!;
+
+        const detachTriggerFromCommentsTarget = () => {
+          if (!commentsTarget) return;
+          if (!commentsTarget.contains(triggerHost)) return;
+          const parent = commentsTarget.parentElement;
+          if (!parent) return;
+          if ((triggerHost as any).__hayamiRestoreMarker) return;
+
+          const marker = document.createComment('hayami-trigger-restore-marker');
+          parent.insertBefore(marker, triggerHost);
+          parent.insertBefore(triggerHost, commentsTarget.nextSibling);
+          (triggerHost as any).__hayamiRestoreMarker = marker;
+        };
+
+        const restoreTriggerToOriginalLocation = () => {
+          const marker = (triggerHost as any).__hayamiRestoreMarker as Comment | undefined;
+          if (!marker || !marker.parentNode) return;
+          marker.parentNode.insertBefore(triggerHost, marker);
+          marker.remove();
+          delete (triggerHost as any).__hayamiRestoreMarker;
+        };
+
         if (!current) {
+          detachTriggerFromCommentsTarget();
           if (commentsTarget) {
             if (!commentsTarget.dataset.hayamiOriginalDisplay) {
               commentsTarget.dataset.hayamiOriginalDisplay = commentsTarget.style.display || '';
@@ -634,6 +679,7 @@ class UiManager {
           if (commentsTarget) {
             commentsTarget.style.display = commentsTarget.dataset.hayamiOriginalDisplay || '';
           }
+          restoreTriggerToOriginalLocation();
           inlineNode.style.display = 'none';
           inlineNode.dataset.hayamiIconReplaceActive = 'false';
           if (kind === 'text') {

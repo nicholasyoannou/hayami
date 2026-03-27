@@ -1,10 +1,15 @@
 <template>
-  <div class="flex w-full items-end gap-3 pt-4 px-0 relative">
-    <div class="flex items-center gap-[8px] shrink-0 relative z-30 h-[45px]" ref="logoContainer">
+  <div class="flex w-full items-end gap-3 pt-4 px-0 relative" ref="rootContainer">
+    <div
+      class="flex items-center gap-[8px] shrink-0 relative z-30 h-[45px]"
+      style="display: inline-flex; flex: 0 0 auto; width: max-content;"
+      ref="logoContainer"
+    >
       <!-- Provider Logo Button -->
       <div
         ref="logoButton"
-        class="ripple flex items-center gap-[8px] px-[24px] h-[45px] bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
+        class="hayami-ripple flex items-center gap-[8px] px-[24px] h-[45px] bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
+        style="display: inline-flex; flex: 0 0 auto; width: max-content;"
         :class="{ 'cursor-pointer': !isLoading, 'cursor-not-allowed opacity-60': isLoading }"
         @click.stop="!isLoading && toggleMenu()"
       >
@@ -87,18 +92,24 @@
 
     <!-- Expandable Menu - expands from right of Reddit logo to end of tabs -->
     <div
-      class="absolute flex items-center pb-[6px] gap-[8px] overflow-hidden transition-all duration-300 h-[45px]"
+      ref="menuPanel"
+      class="absolute flex items-center pb-[6px] gap-[8px] overflow-visible transition-opacity duration-200 h-[45px]"
       :class="menuOpen && !isLoading ? 'opacity-100 z-30' : 'opacity-0 pointer-events-none z-0'"
-      :style="menuOpen && !isLoading ? { left: logoWidth + 'px', width: (menuWidth - logoWidth) + 'px' } : { left: logoWidth + 'px', width: '0px' }"
+      :style="menuOpen && !isLoading
+        ? { left: `${logoWidth}px`, width: `${menuWidth}px` }
+        : { left: `${logoWidth}px`, width: '0px' }"
     >
+      <div ref="menuItemsRow" class="flex items-center gap-[8px] flex-shrink-0 w-max">
       <button
         v-for="item in menuItems"
         :key="item.id"
-        class="ripple flex items-center gap-[12px] px-[16px] py-[12px] h-[36px] bg-[#151515] border border-[#3a3a3a] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
+        class="hayami-ripple flex items-center h-[36px] bg-[#151515] border border-[#3a3a3a] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
         :class="{ 
           'bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] transform -translate-y-1 z-10': currentProvider === item.id,
           'opacity-50 cursor-not-allowed': isLoading,
-          'hover:bg-[#1a1a1a]': !isLoading
+          'hover:bg-[#1a1a1a]': !isLoading,
+          'gap-[12px] px-[16px]': item.id === 'reddit',
+          'gap-0 px-[12px] min-w-0 justify-center': item.id !== 'reddit'
         }"
         :disabled="isLoading"
         @click.stop="!isLoading && handleMenuClick(item.id)"
@@ -109,12 +120,16 @@
           :src="redditLogoUrl" 
           alt="reddit logo" 
         />
-        <img 
-          v-else
-          class="h-[16px] w-auto opacity-80" 
-          :src="item.iconUrl" 
-          :alt="item.label" 
-        />
+        <span v-else class="inline-flex items-center justify-center">
+          <img
+            class="object-contain opacity-85"
+            :class="providerLogoImgClass(item.id)"
+            :src="item.iconUrl"
+            :alt="item.label"
+            @load="recalculateMenuWidthSoon"
+            @error="recalculateMenuWidthSoon"
+          />
+        </span>
         <img 
           v-if="item.id === 'reddit'"
           class="h-[16px] opacity-60" 
@@ -122,12 +137,18 @@
           alt="reddit" 
         />
       </button>
+      </div>
     </div>
 
     <div 
       v-if="showTabs"
-      class="flex flex-1 min-w-0 overflow-visible bg-[#191919] border-b border-[#2f2f2f] transition-opacity duration-300 relative"
-      :class="{ 'opacity-0 pointer-events-none': menuOpen }"
+      class="flex min-w-0 overflow-visible transition-opacity duration-300 relative"
+      :class="[
+        showOnlyActiveTab
+          ? 'flex-none w-auto bg-transparent border-b-0'
+          : 'flex-1 bg-[#191919] border-b border-[#2f2f2f]',
+        menuOpen ? 'opacity-0 pointer-events-none' : ''
+      ]"
       ref="tabsContainer"
     >
       <div
@@ -216,7 +237,7 @@ import { getRuntimeUrl } from '@/utils/runtime';
 import { getSubredditAboutCached } from '@/utils/redditApi';
 // Ripple effect styles are defined in the <style scoped> block below
 // instead of importing 'css-ripple-effect' globally, which would leak
-// an unscoped .ripple class into the host page and break site menus.
+// an unscoped ripple class into the host page and break site menus.
 
 interface DiscussionTab {
   id: string;
@@ -262,10 +283,13 @@ const emit = defineEmits<{
 
 const menuOpen = ref(false);
 const currentProvider = ref<Provider>(props.provider);
+const rootContainer = ref<HTMLElement | null>(null);
 const tabsContainer = ref<HTMLElement | null>(null);
 const logoContainer = ref<HTMLElement | null>(null);
 const logoButton = ref<HTMLElement | null>(null);
-const menuWidth = ref(800);
+const menuPanel = ref<HTMLElement | null>(null);
+const menuItemsRow = ref<HTMLElement | null>(null);
+const menuWidth = ref(0);
 const logoWidth = ref(200);
 
 // Resolve asset URLs via the extension runtime so they work from the content script
@@ -296,39 +320,71 @@ const menuItems = computed<MenuItem[]>(() => {
   return items.filter(item => item.id !== currentProvider.value);
 });
 
+function providerLogoImgClass(provider: Provider): string {
+  switch (provider) {
+    case 'disqus':
+      return 'h-[18px] w-auto max-w-[84px]';
+    case 'youtube':
+      return 'h-[18px] w-auto max-w-[82px]';
+    case 'mal':
+      return 'h-[18px] w-auto max-w-[62px]';
+    case 'animecommunity':
+      return 'h-[18px] w-auto max-w-[110px]';
+    case 'aniwave':
+      return 'h-[18px] w-auto max-w-[84px]';
+    case 'anilist':
+      return 'w-[20px] h-[20px]';
+    default:
+      return 'w-[20px] h-[20px]';
+  }
+}
+
 function calculateMenuWidth() {
-  if (!logoContainer.value || !tabsContainer.value) {
-    // Fallback if elements not ready
+  if (!rootContainer.value || !logoButton.value) {
     logoWidth.value = 200;
-    menuWidth.value = typeof window !== 'undefined' ? window.innerWidth - 64 : 800;
+    menuWidth.value = 0;
     return;
   }
 
   try {
-    const logoRect = logoContainer.value.getBoundingClientRect();
-    const tabsRect = tabsContainer.value.getBoundingClientRect();
+    const rootRect = rootContainer.value.getBoundingClientRect();
+    const buttonRect = logoButton.value.getBoundingClientRect();
+    const buttonBasedWidth = Math.max(0, Math.round(buttonRect.right - rootRect.left));
 
-    // Prefer the actual logo button width; fall back to container
-    const buttonRect = logoButton.value?.getBoundingClientRect();
-    const baseWidth = buttonRect?.width ?? logoRect.width;
-    // Add small offset to move menu items slightly to the right
-    logoWidth.value = baseWidth + 20;
-    menuWidth.value = baseWidth + 20 + tabsRect.width;
+    // Start menu right after the provider logo button with a small visual breathing gap.
+    // Do not include the subreddit chip width, otherwise a large visual gap appears on Reddit.
+    logoWidth.value = Math.max(0, Math.min(Math.round(rootRect.width), buttonBasedWidth + 14));
+    const buttons = Array.from(menuItemsRow.value?.querySelectorAll('button') || []) as HTMLElement[];
+    const measuredButtonsWidth = buttons.reduce((sum, button) => {
+      return sum + Math.ceil(button.getBoundingClientRect().width || 0);
+    }, 0);
+    const measuredGapsWidth = Math.max(0, buttons.length - 1) * 8;
+    const measuredContentWidth = measuredButtonsWidth + measuredGapsWidth;
+    const fallbackScrollWidth = Math.max(0, Math.ceil(menuItemsRow.value?.scrollWidth || 0));
+    const contentWidth = Math.max(measuredContentWidth, fallbackScrollWidth);
+    menuWidth.value = contentWidth;
   } catch (error) {
     console.warn('Error calculating menu width:', error);
-    // Fallback on error
     logoWidth.value = 200;
-    menuWidth.value = typeof window !== 'undefined' ? window.innerWidth - 64 : 800;
+    menuWidth.value = 0;
   }
 }
 
 function toggleMenu() {
   if (props.isLoading) return; // Don't allow toggling while loading
   if (!menuOpen.value) {
-    // Calculate width before opening - use nextTick to ensure DOM is ready
+    // Open first, then measure on next frames so loaded logos are included.
+    menuOpen.value = true;
     nextTick(() => {
       calculateMenuWidth();
-      menuOpen.value = true;
+      if (typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+          calculateMenuWidth();
+        });
+        window.setTimeout(() => {
+          calculateMenuWidth();
+        }, 120);
+      }
     });
   } else {
     menuOpen.value = false;
@@ -343,6 +399,12 @@ function handleMenuClick(provider: Provider) {
   emit('providerChange', provider);
   console.log('Emitted providerChange event:', provider);
 }
+
+const recalculateMenuWidthSoon = () => {
+  nextTick(() => {
+    calculateMenuWidth();
+  });
+};
 
 const fallbackTabs: DiscussionTab[] = [
   // {
@@ -431,11 +493,6 @@ const handleAvatarError = () => {
 const showTabs = computed(() => props.showTabs);
 const showOnlyActiveTab = computed(() => currentProvider.value !== 'reddit');
 
-// Watch for prop changes
-watch(() => props.provider, (newProvider) => {
-  currentProvider.value = newProvider;
-});
-
 // Update avatar when prop changes
 watch(subredditAvatar, (val) => {
   avatarSrc.value = val || defaultSubredditIconUrl;
@@ -478,50 +535,72 @@ watch(() => props.isLoading, (loading) => {
 // Close menu when clicking outside
 function handleClickOutside(event: MouseEvent) {
   const target = event.target as HTMLElement;
-  const menuContainer = document.querySelector('.flex.items-center.gap-2.shrink-0.relative');
-  if (menuContainer && !menuContainer.contains(target) && menuOpen.value) {
-    menuOpen.value = false;
-  }
+  const root = rootContainer.value;
+  const panel = menuPanel.value;
+  if (!menuOpen.value) return;
+  if (root?.contains(target) || panel?.contains(target)) return;
+  menuOpen.value = false;
 }
+
+const handleWindowResize = () => {
+  if (menuOpen.value) {
+    calculateMenuWidth();
+  }
+};
+
+watch(() => props.provider, (newProvider) => {
+  currentProvider.value = newProvider;
+  recalculateMenuWidthSoon();
+});
+
+watch(currentProvider, () => {
+  recalculateMenuWidthSoon();
+});
+
+watch(menuItems, () => {
+  recalculateMenuWidthSoon();
+});
+
+watch(() => showTabs.value, () => {
+  recalculateMenuWidthSoon();
+});
+
+watch(() => tabsContainer.value, () => {
+  if (tabsContainer.value) {
+    recalculateMenuWidthSoon();
+  }
+});
+
+watch(() => logoButton.value, () => {
+  if (logoButton.value) {
+    recalculateMenuWidthSoon();
+  }
+});
 
 onMounted(() => {
   document.addEventListener('click', handleClickOutside);
-  // Calculate initial menu width
-  nextTick(() => {
-    calculateMenuWidth();
-  });
-});
-
-// Recalculate menu width when tabs container becomes available or window resizes
-watch(() => tabsContainer.value, () => {
-  if (tabsContainer.value) {
-    nextTick(() => {
-      calculateMenuWidth();
-    });
+  recalculateMenuWidthSoon();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', handleWindowResize);
   }
 });
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('resize', () => {
-    if (menuOpen.value) {
-      calculateMenuWidth();
-    }
-  });
-}
-
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside);
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('resize', handleWindowResize);
+  }
 });
 </script>
 
 <style scoped>
 /* Scoped ripple effect (replaces global css-ripple-effect package) */
-.ripple {
+.hayami-ripple {
   position: relative;
   overflow: hidden;
 }
 
-.ripple::after {
+.hayami-ripple::after {
   content: "";
   display: block;
   position: absolute;
@@ -538,7 +617,7 @@ onUnmounted(() => {
   transition: transform 0.5s, opacity 1s;
 }
 
-.ripple:active::after {
+.hayami-ripple:active::after {
   transform: scale(0, 0);
   opacity: 0.2;
   transition: 0s;

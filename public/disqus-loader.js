@@ -2,6 +2,29 @@
 (function() {
   const scriptTag = document.currentScript;
   const targetToken = (scriptTag?.getAttribute('data-target-token') || '').trim();
+  const mutedThreadIds = [];
+
+  const muteCompetingThreadIds = (token) => {
+    if (!token) return;
+    const candidates = Array.from(document.querySelectorAll('#disqus_thread'));
+    candidates.forEach((el) => {
+      if ((el.getAttribute('data-ri-disqus-target') || '') === token) return;
+      mutedThreadIds.push(el);
+      el.setAttribute('data-ri-disqus-original-id', 'disqus_thread');
+      el.removeAttribute('id');
+    });
+  };
+
+  const restoreCompetingThreadIds = () => {
+    while (mutedThreadIds.length) {
+      const el = mutedThreadIds.pop();
+      if (!el || !el.isConnected) continue;
+      if (!el.getAttribute('id') && el.getAttribute('data-ri-disqus-original-id') === 'disqus_thread') {
+        el.setAttribute('id', 'disqus_thread');
+      }
+      el.removeAttribute('data-ri-disqus-original-id');
+    }
+  };
 
   // Find an element with id "disqus_thread" even when it lives inside a shadow root.
   // When a render token is provided, only match token-stamped targets.
@@ -43,6 +66,10 @@
   const shadowTarget = findShadowDisqusThread(targetToken);
   let renderTarget = findLightDomDisqusThread(targetToken);
   let proxyMoveObserver = null;
+
+  // Disqus bind code resolves #disqus_thread globally. If the host page already has
+  // a native thread container, tokened Hayami mounts can miss the intended target.
+  muteCompetingThreadIds(targetToken);
 
   if (!renderTarget && shadowTarget) {
     const existingProxy = targetToken
@@ -146,6 +173,7 @@
             if (embedFixed) {
               observer.disconnect();
               if (proxyMoveObserver) proxyMoveObserver.disconnect();
+              restoreCompetingThreadIds();
             }
           } catch (e) {
             console.error('[Disqus] Error fixing iframe URL:', e);
@@ -168,5 +196,11 @@
 
   if (observedTargets.size === 0) {
     console.warn('[Disqus] No disqus_thread container found; embed may fail.');
+    restoreCompetingThreadIds();
   }
+
+  // Safety restore in case Disqus never injects iframe.
+  setTimeout(() => {
+    restoreCompetingThreadIds();
+  }, 8000);
 })();
