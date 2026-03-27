@@ -9,6 +9,7 @@ import {
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
   komentoScriptSourceRegistryItem,
+  komentoScriptTargetSelectionsItem,
   komentoScriptSyncStateItem,
 } from '@/config/storage';
 import {
@@ -111,11 +112,31 @@ function formatSyncBadgeElapsed(seconds: number): string {
 }
 
 async function getUniqueKomentoOrigins(): Promise<string[]> {
-  const cached = (await komentoScriptCachedPacksItem.getValue()) || [];
+  const [cached, sources, targetSelections] = await Promise.all([
+    komentoScriptCachedPacksItem.getValue(),
+    komentoScriptSourceRegistryItem.getValue(),
+    komentoScriptTargetSelectionsItem.getValue(),
+  ]);
+  const sourceIndex = new Map(
+    (Array.isArray(sources) ? sources : []).map((source) => [String((source as any)?.id || ''), source as any]),
+  );
+  const selectionsBySource = (targetSelections && typeof targetSelections === 'object')
+    ? targetSelections as Record<string, string[]>
+    : {};
   const out = new Set<string>();
-  for (const entry of cached) {
+  for (const entry of Array.isArray(cached) ? cached : []) {
+    const sourceId = String((entry as any)?.sourceId || '').trim();
+    if (!sourceId) continue;
+    const source = sourceIndex.get(sourceId);
+    if (source && source.enabled === false) continue;
+    const hasSelectionOverride = Object.prototype.hasOwnProperty.call(selectionsBySource, sourceId);
+    const selectedTargetIds = hasSelectionOverride && Array.isArray(selectionsBySource[sourceId])
+      ? new Set(selectionsBySource[sourceId]!.map((id) => String(id || '').trim()).filter(Boolean))
+      : null;
     const targets = Array.isArray((entry as any)?.pack?.targets) ? (entry as any).pack.targets : [];
     for (const target of targets) {
+      const targetId = String((target as any)?.targetId || '').trim();
+      if (selectedTargetIds && !selectedTargetIds.has(targetId)) continue;
       const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
       for (const raw of origins) {
         const origin = String(raw || '').trim();
@@ -263,22 +284,34 @@ async function handleProxyFetch(
 
 async function getKomentoPendingPermissionsSummary() {
   const permissions = browser.permissions;
-  const [cached, sources, customMap] = await Promise.all([
+  const [cached, sources, customMap, targetSelections] = await Promise.all([
     komentoScriptCachedPacksItem.getValue(),
     komentoScriptSourceRegistryItem.getValue(),
     customSiteMappingsItem.getValue(),
+    komentoScriptTargetSelectionsItem.getValue(),
   ]);
   const sourceIndex = new Map(
     (Array.isArray(sources) ? sources : []).map((source) => [String((source as any)?.id || ''), source as any]),
   );
+  const selectionsBySource = (targetSelections && typeof targetSelections === 'object')
+    ? targetSelections as Record<string, string[]>
+    : {};
 
   const bySource = new Map<string, Set<string>>();
   const allOrigins = new Set<string>();
   for (const entry of Array.isArray(cached) ? cached : []) {
     const sourceId = String((entry as any)?.sourceId || 'unknown');
+    const source = sourceIndex.get(sourceId);
+    if (source && source.enabled === false) continue;
+    const hasSelectionOverride = Object.prototype.hasOwnProperty.call(selectionsBySource, sourceId);
+    const selectedTargetIds = hasSelectionOverride && Array.isArray(selectionsBySource[sourceId])
+      ? new Set(selectionsBySource[sourceId]!.map((id) => String(id || '').trim()).filter(Boolean))
+      : null;
     if (!bySource.has(sourceId)) bySource.set(sourceId, new Set<string>());
     const targets = Array.isArray((entry as any)?.pack?.targets) ? (entry as any).pack.targets : [];
     for (const target of targets) {
+      const targetId = String((target as any)?.targetId || '').trim();
+      if (selectedTargetIds && !selectedTargetIds.has(targetId)) continue;
       const origins = Array.isArray(target?.match?.origins) ? target.match.origins : [];
       for (const raw of origins) {
         const origin = String(raw || '').trim();
