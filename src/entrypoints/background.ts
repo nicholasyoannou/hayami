@@ -31,6 +31,37 @@ function originToPattern(origin: string): string {
   return `${origin.replace(/\/$/, '')}/*`;
 }
 
+function normalizeHttpOrigins(values: unknown[]): string[] {
+  const unique = new Set<string>();
+  for (const raw of values) {
+    const candidate = String(raw || '').trim();
+    if (!candidate) continue;
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+      unique.add(parsed.origin);
+    } catch {
+      // ignore invalid URL
+    }
+  }
+  return [...unique].sort((a, b) => a.localeCompare(b));
+}
+
+async function requestOriginPatterns(patterns: string[]): Promise<boolean> {
+  const permissions = browser.permissions;
+  if (!permissions?.request) return false;
+  return await new Promise<boolean>((resolve) => {
+    try {
+      permissions.request({ origins: patterns }, (value) => {
+        void (browser as any).runtime?.lastError;
+        resolve(Boolean(value));
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
 async function setActionBadge(text: string, color: string): Promise<void> {
   try {
     if (!browser.action?.setBadgeText || !browser.action?.setBadgeBackgroundColor) return;
@@ -1215,40 +1246,43 @@ export default defineBackground(() => {
     if (message.action === 'hayami_komento_requestPendingPermissions') {
       (async () => {
         try {
-          const requestedOrigins: string[] = Array.isArray(message.origins)
-            ? message.origins.reduce((acc: string[], value: unknown) => {
-                const normalized = String(value || '').trim();
-                if (normalized) acc.push(normalized);
-                return acc;
-              }, [])
-            : [];
+          const requestedOrigins = normalizeHttpOrigins(Array.isArray(message.origins) ? message.origins : []);
           if (requestedOrigins.length === 0) {
             sendResponse({ ok: false, error: 'No origins provided' });
             return;
           }
 
-          const normalizedOrigins = Array.from(new Set<string>(requestedOrigins));
-          const patterns = normalizedOrigins.map((origin) => originToPattern(origin));
           const permissions = browser.permissions;
           if (!permissions?.request) {
             sendResponse({ ok: false, error: 'permissions.request unavailable' });
             return;
           }
 
-          const granted = await new Promise<boolean>((resolve) => {
-            try {
-              permissions.request({ origins: patterns }, (value) => {
-                void (browser as any).runtime?.lastError;
-                resolve(Boolean(value));
-              });
-            } catch {
-              resolve(false);
+          const preSummary = await getKomentoPendingPermissionsSummary();
+          let remainingOrigins = requestedOrigins.filter((origin) => preSummary.allPendingOrigins.includes(origin));
+          if (remainingOrigins.length === 0) {
+            await refreshKomentoBadge();
+            sendResponse({ ok: true, granted: true, ...preSummary });
+            return;
+          }
+
+          let granted = true;
+          // Some browsers may only grant a subset in one call, so continue requesting pending origins.
+          for (let attempts = 0; attempts < 8 && remainingOrigins.length > 0; attempts += 1) {
+            const attemptGranted = await requestOriginPatterns(remainingOrigins.map((origin) => originToPattern(origin)));
+            if (!attemptGranted) {
+              granted = false;
+              break;
             }
-          });
+            const refreshed = await getKomentoPendingPermissionsSummary();
+            remainingOrigins = remainingOrigins.filter((origin) => refreshed.allPendingOrigins.includes(origin));
+          }
+
+          if (remainingOrigins.length > 0) granted = false;
 
           const summary = await getKomentoPendingPermissionsSummary();
           await refreshKomentoBadge();
-          sendResponse({ ok: granted, granted, ...summary });
+          sendResponse({ ok: true, granted, ...summary });
         } catch (error) {
           sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
         }
