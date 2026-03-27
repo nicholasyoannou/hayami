@@ -383,10 +383,11 @@ export function useKomentoScript(options: {
           const approvedInPopup = Math.max(0, requestedCount - pendingAfterPopup);
           if (pendingAfterPopup === 0) {
             showSuccess('Site permissions updated');
-          } else if (approvedInPopup > 0) {
-            showSuccess(`Approved ${approvedInPopup}/${requestedCount} origins. Click again to continue.`);
+            return;
           }
-          if (pendingAfterPopup === 0 || approvedInPopup > 0) return;
+          if (approvedInPopup > 0) {
+            showSuccess(`Approved ${approvedInPopup}/${requestedCount} sites.`);
+          }
         }
       }
 
@@ -405,15 +406,15 @@ export function useKomentoScript(options: {
       if (response.granted) {
         showSuccess('Site permissions updated');
       } else if (approvedCount > 0) {
-        showSuccess(`Approved ${approvedCount}/${requestedCount} origins. Click again to continue.`);
+        showSuccess(`Approved ${approvedCount}/${requestedCount} sites.`);
       } else if (response.dismissed) {
-        showError('Permission prompt was closed. Click "Approve all hosts" again to continue.');
+        showError('Permission prompt was closed.');
       } else {
         const requestError = String(response?.requestError || '').toLowerCase();
         if (requestError.includes('user gesture')) {
           showError('Permission request was not approved. Click "Approve all hosts" and confirm the prompt.');
         } else {
-          showError('Site permissions were not approved. Click "Approve all hosts" again to continue.');
+          showError('Site permissions were not approved.');
         }
       }
     } catch (error) {

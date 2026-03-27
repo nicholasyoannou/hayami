@@ -27,7 +27,6 @@ const pendingAuthSourceTabs: Partial<Record<SupportedProviderAuth, number>> = {}
 let komentoSyncInProgress = false;
 let komentoSyncStartedAt = 0;
 let komentoSyncBadgeTimer: number | undefined;
-const MAX_PERMISSION_REQUEST_ATTEMPTS = 8;
 
 type OriginPermissionRequestResult = {
   granted: boolean;
@@ -1324,41 +1323,19 @@ export default defineBackground(() => {
             return;
           }
 
-          // Request immediately to preserve user gesture, then evaluate what remains pending.
-          let dismissed = false;
-          let requestError: string | undefined;
-          let remainingOrigins = [...requestedOrigins];
-
-          const firstAttempt = await requestOriginPatterns(remainingOrigins.map((origin) => originToPattern(origin)));
-          dismissed = firstAttempt.dismissed;
-          requestError = firstAttempt.error;
-
-          let refreshed = await getKomentoPendingPermissionsSummary();
-          remainingOrigins = requestedOrigins.filter((origin) => refreshed.allPendingOrigins.includes(origin));
-
-          // Some browsers grant only a subset when requesting many origins at once.
-          // Follow up with per-origin requests in the same interaction to maximize approvals.
-          if (firstAttempt.granted && remainingOrigins.length > 0) {
-            for (
-              let attempts = 1;
-              attempts < MAX_PERMISSION_REQUEST_ATTEMPTS && remainingOrigins.length > 0;
-              attempts++
-            ) {
-              const origin = remainingOrigins.shift()!;
-              const attempt = await requestOriginPatterns([originToPattern(origin)]);
-              dismissed = dismissed || attempt.dismissed;
-              if (!requestError && attempt.error) requestError = attempt.error;
-              if (attempt.dismissed || !attempt.granted) break;
-
-              refreshed = await getKomentoPendingPermissionsSummary();
-              remainingOrigins = remainingOrigins.filter((value) => refreshed.allPendingOrigins.includes(value));
-            }
-          }
+          // Single all-at-once request only.
+          const attempt = await requestOriginPatterns(requestedOrigins.map((origin) => originToPattern(origin)));
 
           const summary = await getKomentoPendingPermissionsSummary();
           const granted = requestedOrigins.every((origin) => !summary.allPendingOrigins.includes(origin));
           await refreshKomentoBadge();
-          sendResponse({ ok: true, granted, dismissed, requestError, ...summary });
+          sendResponse({
+            ok: true,
+            granted,
+            dismissed: attempt.dismissed,
+            requestError: attempt.error,
+            ...summary,
+          });
         } catch (error) {
           sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
         }
