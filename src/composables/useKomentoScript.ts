@@ -357,6 +357,7 @@ export function useKomentoScript(options: {
     if (!komentoPendingOrigins.value.length || komentoApprovingPermissions.value) return;
     komentoApprovingPermissions.value = true;
     try {
+      const requestedCount = komentoPendingOrigins.value.length;
       const response = await browser.runtime.sendMessage({
         action: 'hayami_komento_requestPendingPermissions',
         origins: komentoPendingOrigins.value,
@@ -367,10 +368,21 @@ export function useKomentoScript(options: {
       }
       komentoPendingPermissionSources.value = Array.isArray(response.items) ? response.items : [];
       komentoPendingOrigins.value = Array.isArray(response.allPendingOrigins) ? response.allPendingOrigins : [];
+      const pendingAfter = komentoPendingOrigins.value.length;
+      const approvedCount = Math.max(0, requestedCount - pendingAfter);
       if (response.granted) {
         showSuccess('Site permissions updated');
+      } else if (approvedCount > 0) {
+        showSuccess(`Approved ${approvedCount}/${requestedCount} hosts. Click again to continue.`);
+      } else if (response.dismissed) {
+        showError('Permission prompt was closed. Click "Approve all hosts" again to continue.');
       } else {
-        showError('Permission request was dismissed');
+        const requestError = String(response?.requestError || '').toLowerCase();
+        if (requestError.includes('user gesture')) {
+          showError('Permission request was not approved. Click "Approve all hosts" and confirm the prompt.');
+        } else {
+          showError('Site permissions were not approved. Click "Approve all hosts" again to continue.');
+        }
       }
     } catch (error) {
       console.warn('Failed to request Komento permissions', error);
