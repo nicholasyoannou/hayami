@@ -1014,6 +1014,65 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
   position: relative;
 }
 
+/* Keep comment action buttons stable even if host/global reset order shifts. */
+.ri-actions .ri-action-btn {
+  background: transparent;
+  border: none;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 20px;
+  cursor: pointer;
+  color: rgb(139, 162, 173);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ri-actions .ri-action-btn:hover:not(:disabled) {
+  background: #2a2a2c;
+  color: rgb(217, 57, 0);
+}
+
+.ri-actions .ri-action-btn.ri-reply:hover:not(:disabled),
+.ri-actions .ri-action-btn.ri-share-btn:hover:not(:disabled) {
+  color: rgb(139, 162, 173);
+}
+
+.ri-actions .ri-action-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.ri-action-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.ri-share-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+  background: currentColor;
+  -webkit-mask: var(--ri-share-icon) center/18px 18px no-repeat;
+  mask: var(--ri-share-icon) center/18px 18px no-repeat;
+  filter: none;
+  opacity: 1;
+}
+
+.ri-actions .ri-action-btn.ri-share-btn.ri-copied,
+.ri-actions .ri-action-btn.ri-share-btn.ri-copied:hover {
+  color: #ff4500;
+}
+
+.ri-actions .ri-action-btn span {
+  line-height: 1;
+}
+
 .ri-own-menu-wrapper {
   position: relative;
 }

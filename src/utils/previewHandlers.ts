@@ -30,6 +30,7 @@ import {
 let cachedImgchestApiKey: string | null | undefined;
 let embedImagesEnabled = true;
 let imgurFrontendProvider: ImgurFrontendOption = 'imgur';
+const wiredPreviewContexts = new WeakMap<ContentScriptContext, true>();
 
 async function refreshImgurImagePreferences(): Promise<void> {
   try {
@@ -239,6 +240,11 @@ async function fetchPostimgImages(pageUrl: string): Promise<string[]> {
  * Automatically cleaned up through ctx lifecycle
  */
 export function wirePreviewHandlers(ctx: ContentScriptContext): void {
+  if (wiredPreviewContexts.has(ctx)) {
+    return;
+  }
+  wiredPreviewContexts.set(ctx, true);
+
   const preview = useImagePreview();
   const add = ctx.addEventListener.bind(ctx);
   let hoveredPreviewAnchor: HTMLAnchorElement | null = null;
@@ -639,5 +645,6 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   ctx.onInvalidated(() => {
     preview.cleanup();
     browser.storage.onChanged.removeListener(storageListener);
+    wiredPreviewContexts.delete(ctx);
   });
 }

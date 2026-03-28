@@ -1241,8 +1241,8 @@
 }
 
 /* New icon-based action buttons */
-.ri-actions .ri-vote-btn,
-.ri-actions .ri-action-btn {
+#reddit-inline-discussion .ri-actions .ri-vote-btn,
+#reddit-inline-discussion .ri-actions .ri-action-btn {
   background: transparent;
   border: none;
   padding: 4px 8px;
@@ -1258,8 +1258,8 @@
 }
 
 /* Inline SVG icon styling */
-.ri-actions .ri-vote-btn .ri-icon,
-.ri-actions .ri-action-btn .ri-icon {
+#reddit-inline-discussion .ri-actions .ri-vote-btn .ri-icon,
+#reddit-inline-discussion .ri-actions .ri-action-btn .ri-icon {
   width: 18px;
   height: 18px;
   display: block;
@@ -1278,52 +1278,52 @@
 }
 
 /* Default show outline, hide filled */
-.ri-vote-btn .ri-icon .filled { display: none; }
-.ri-vote-btn .ri-icon .outline { display: inline; }
+#reddit-inline-discussion .ri-vote-btn .ri-icon .filled { display: none; }
+#reddit-inline-discussion .ri-vote-btn .ri-icon .outline { display: inline; }
 
 /* Active states: swap to filled */
-.ri-vote-btn[data-state="upvoted"] .ri-icon .filled,
-.ri-vote-btn[data-state="downvoted"] .ri-icon .filled { display: inline; }
-.ri-vote-btn[data-state="upvoted"] .ri-icon .outline,
-.ri-vote-btn[data-state="downvoted"] .ri-icon .outline { display: none; }
+#reddit-inline-discussion .ri-vote-btn[data-state="upvoted"] .ri-icon .filled,
+#reddit-inline-discussion .ri-vote-btn[data-state="downvoted"] .ri-icon .filled { display: inline; }
+#reddit-inline-discussion .ri-vote-btn[data-state="upvoted"] .ri-icon .outline,
+#reddit-inline-discussion .ri-vote-btn[data-state="downvoted"] .ri-icon .outline { display: none; }
 
 /* Active state: no persistent background */
-.ri-vote-btn[data-state="upvoted"],
-.ri-vote-btn[data-state="downvoted"] { background: transparent; }
+#reddit-inline-discussion .ri-vote-btn[data-state="upvoted"],
+#reddit-inline-discussion .ri-vote-btn[data-state="downvoted"] { background: transparent; }
 
-.ri-actions .ri-vote-btn:hover:not(:disabled),
-.ri-actions .ri-action-btn:hover:not(:disabled) {
+#reddit-inline-discussion .ri-actions .ri-vote-btn:hover:not(:disabled),
+#reddit-inline-discussion .ri-actions .ri-action-btn:hover:not(:disabled) {
   background: #2a2a2c;
   color: rgb(217,57,0); /* hover color */
 }
 
-.ri-actions .ri-action-btn.ri-reply:hover:not(:disabled) {
+#reddit-inline-discussion .ri-actions .ri-action-btn.ri-reply:hover:not(:disabled) {
   color: rgb(139,162,173);
 }
 
 
 /* Downvote hover state */
-.ri-actions .ri-vote-btn.ri-downvote:hover:not(:disabled) {
+#reddit-inline-discussion .ri-actions .ri-vote-btn.ri-downvote:hover:not(:disabled) {
   color: #6A5CFF; /* downvote hover color */
 }
 
 /* Share: keep hover circle but don't light the icon/text until copied */
-.ri-actions .ri-action-btn.ri-share-btn:hover:not(:disabled) {
+#reddit-inline-discussion .ri-actions .ri-action-btn.ri-share-btn:hover:not(:disabled) {
   color: rgb(139,162,173);
 }
 
 /* Ensure copied state wins even while hovered */
-.ri-actions .ri-action-btn.ri-share-btn.ri-copied,
-.ri-actions .ri-action-btn.ri-share-btn.ri-copied:hover {
+#reddit-inline-discussion .ri-actions .ri-action-btn.ri-share-btn.ri-copied,
+#reddit-inline-discussion .ri-actions .ri-action-btn.ri-share-btn.ri-copied:hover {
   color: #ff4500;
 }
 
-.ri-actions .ri-vote-btn[data-state="upvoted"] {
+#reddit-inline-discussion .ri-actions .ri-vote-btn[data-state="upvoted"] {
   background: transparent;
   color: rgb(217,57,0); /* upvote active color */
 }
 
-.ri-actions .ri-vote-btn[data-state="downvoted"] {
+#reddit-inline-discussion .ri-actions .ri-vote-btn[data-state="downvoted"] {
   background: transparent;
   color: #6A5CFF; /* downvote active color */
 }
@@ -1571,14 +1571,14 @@
   transform: translate(-50%, -50%);
 }
 
-.ri-actions .ri-vote-btn:disabled,
-.ri-actions .ri-action-btn:disabled {
+#reddit-inline-discussion .ri-actions .ri-vote-btn:disabled,
+#reddit-inline-discussion .ri-actions .ri-action-btn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
   pointer-events: none;
 }
 
-.ri-actions .ri-action-btn span { line-height: 1; }
+#reddit-inline-discussion .ri-actions .ri-action-btn span { line-height: 1; }
 
 .ri-votes {
   display: flex;
@@ -1636,7 +1636,7 @@
 }
 
 /* Share copied state: icon and text orange; disable click while showing copied */
-.ri-action-btn.ri-share-btn.ri-copied,
+#reddit-inline-discussion .ri-action-btn.ri-share-btn.ri-copied,
 .ri-action-bubble.ri-copied {
   color: #ff4500;
   pointer-events: none;
@@ -2237,6 +2237,213 @@
 .ri-reply-box .editor-preview {
   background: #0f0f0f;
   color: #ddd;
+}
+
+/* TipTap fallback styles for inline reply editor.
+   Keep a baseline here because this stylesheet is always injected,
+   while component-scoped CSS can be delayed in manual-injection mode. */
+#reddit-inline-discussion .ri-reply-editor.editor-container {
+  display: flex;
+  flex-direction: column;
+  background: #0f0f0f;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #FFFFFF33;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  background: #0f0f0f;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .icon-btn {
+  background: none;
+  border: none;
+  color: #c9d1d9;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s;
+  display: flex;
+  align-items: center;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .icon-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .icon-btn.is-active {
+  color: #58a6ff;
+  background: rgba(88, 166, 255, 0.12);
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .divider {
+  width: 1px;
+  height: 20px;
+  background: #30363d;
+  margin: 0 6px;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .toolbar-spacer {
+  flex: 1;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area {
+  min-height: 60px;
+  padding: 0 10px;
+  background: #0f0f0f;
+  color: #c9d1d9;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #c9d1d9;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  padding: 4px 0 4px 8px;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap p.is-editor-empty:first-child::before {
+  color: #8b949e;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap p {
+  margin: 0 0 12px;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap pre {
+  background: #161b22;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  color: #c9d1d9;
+  margin: 12px 0;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap blockquote {
+  border-left: 3px solid #30363d;
+  padding-left: 12px;
+  margin: 12px 0;
+  color: #8b949e;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap code {
+  background: #21262d;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #79c0ff;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ul,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ol {
+  margin: 8px 0 8px 20px;
+  padding: 0;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ul > li {
+  list-style-type: disc;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ol > li {
+  list-style-type: decimal;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ul > li::marker,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ol > li::marker {
+  color: #c9d1d9;
+  font-size: 1.1em;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap h1 { font-size: 2em; margin: 0.67em 0; font-weight: 700; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap h2 { font-size: 1.5em; margin: 0.75em 0; font-weight: 700; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap h3 { font-size: 1.17em; margin: 1em 0; font-weight: 700; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap strong,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap b { font-weight: 700; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap em,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap i { font-style: italic; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap s,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap del,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .strike { text-decoration: line-through; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap a { color: #58a6ff; text-decoration: underline; cursor: pointer; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap a:hover { color: #79c0ff; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap sup,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .superscript { vertical-align: super; font-size: 0.8em; line-height: 0; }
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .spoiler {
+  background: #21262d;
+  color: #79c0ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.95em;
+  cursor: pointer;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .spoiler:hover,
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .spoiler:focus-visible {
+  background: transparent;
+  color: inherit;
+  border: none;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap hr {
+  border: none;
+  border-top: 1px solid #30363d;
+  margin: 16px 0;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 12px 16px;
+  background: #0f0f0f;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.cancel {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.cancel:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.comment {
+  background: #388bfd;
+  border: none;
+  color: #fff;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.comment:hover:not(:disabled) {
+  background: #1f6feb;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Aniwave thread styling */

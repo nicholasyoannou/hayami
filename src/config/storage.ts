@@ -144,14 +144,6 @@ export const seriesMappingItem = storage.defineItem<
   { fallback: {} }
 );
 
-export const DEFAULT_KOMENTOSCRIPT_SOURCES: KomentoSourceRegistryEntry[] = [
-  {
-    id: 'hayami-official',
-    url: 'https://api.hayami.moe/komentoscript/manifest.json',
-    enabled: true,
-    refreshMinutes: 10080,
-  },
-];
 
 export type KomentoCachedPackEntry = {
   sourceId: string;

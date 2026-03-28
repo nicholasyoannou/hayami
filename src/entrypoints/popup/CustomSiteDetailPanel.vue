@@ -95,14 +95,12 @@ const props = defineProps<Props>();
           @click="props.onToggleAdvanced()"
         >
           <div class="flex items-center gap-2 text-xs font-semibold text-white/85">
-            <img :src="props.infoIcon" alt="Advanced" class="h-4 w-4 settings-icon" />
-            <span>Advanced options</span>
+            <span>Custom website path globs</span>
           </div>
           <span class="text-[11px] text-white/55">{{ props.customSiteAdvancedExpanded ? 'Hide' : 'Show' }}</span>
         </button>
 
         <div v-if="props.customSiteAdvancedExpanded" class="mt-3 space-y-3">
-          <div class="text-xs font-semibold text-white/80">Custom website path globs</div>
           <p class="text-[11px] text-white/60">
             Limit where this mapping runs. Use * as wildcard. Example: /watch/*, /play/*, /anime/*
           </p>

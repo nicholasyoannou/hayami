@@ -22,6 +22,19 @@ function isDirectImgurMp4Url(href: string): boolean {
   }
 }
 
+function resetVideoSource(videoEl: HTMLVideoElement): void {
+  try {
+    videoEl.pause();
+  } catch {}
+  try {
+    videoEl.currentTime = 0;
+  } catch {}
+  try {
+    videoEl.removeAttribute('src');
+    videoEl.load();
+  } catch {}
+}
+
 /**
  * Manages image hover preview state and behavior
  */
@@ -231,9 +244,7 @@ export function useImagePreview() {
     try { if (imgPreviewEl) { imgPreviewEl.src = ''; imgPreviewEl.onload = null; imgPreviewEl.onerror = null; } } catch {}
     try {
       if (videoPreviewEl) {
-        videoPreviewEl.pause();
-        videoPreviewEl.removeAttribute('src');
-        videoPreviewEl.load();
+        resetVideoSource(videoPreviewEl);
         videoPreviewEl.onloadeddata = null;
         videoPreviewEl.onerror = null;
       }
@@ -257,6 +268,9 @@ export function useImagePreview() {
       if (!videoPreviewEl) return;
       if (imgPreviewEl) imgPreviewEl.style.display = 'none';
       videoPreviewEl.style.display = 'none';
+      videoPreviewEl.muted = true;
+      videoPreviewEl.defaultMuted = true;
+      resetVideoSource(videoPreviewEl);
       imgPreviewHost.classList.add('loading');
       if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner!);
       videoPreviewEl.dataset.riOriginalSrc = nextSrc;
@@ -274,7 +288,9 @@ export function useImagePreview() {
 
     imgPreviewEl.src = nextSrc;
     if (videoPreviewEl) {
-      videoPreviewEl.pause();
+      videoPreviewEl.muted = true;
+      videoPreviewEl.defaultMuted = true;
+      resetVideoSource(videoPreviewEl);
       videoPreviewEl.style.display = 'none';
     }
 
@@ -522,6 +538,9 @@ export function useImagePreview() {
     if (isVideoUrl(href)) {
       imgPreviewEl.style.display = 'none';
       videoPreviewEl.style.display = 'none';
+      videoPreviewEl.muted = true;
+      videoPreviewEl.defaultMuted = true;
+      resetVideoSource(videoPreviewEl);
       imgPreviewHost.classList.add('loading');
       if (!imgPreviewHost.contains(imgPreviewSpinner)) imgPreviewHost.appendChild(imgPreviewSpinner!);
       videoPreviewEl.dataset.riOriginalSrc = href;
@@ -533,7 +552,9 @@ export function useImagePreview() {
       return;
     }
 
-    videoPreviewEl.pause();
+    videoPreviewEl.muted = true;
+    videoPreviewEl.defaultMuted = true;
+    resetVideoSource(videoPreviewEl);
     videoPreviewEl.style.display = 'none';
     imgPreviewEl.src = proxifyImageUrl(href);
   }

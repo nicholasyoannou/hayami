@@ -1,5 +1,4 @@
 import {
-  DEFAULT_KOMENTOSCRIPT_SOURCES,
   komentoScriptAutoSyncItem,
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
@@ -46,7 +45,7 @@ function normalizeSources(sources: unknown): KomentoSourceRegistryEntry[] {
   const normalized = input
     .map((source) => normalizeSource(source as Partial<KomentoSourceRegistryEntry>))
     .filter((source): source is KomentoSourceRegistryEntry => Boolean(source));
-  return normalized.length ? normalized : DEFAULT_KOMENTOSCRIPT_SOURCES;
+  return normalized;
 }
 
 function extractPacksPayload(payload: unknown): unknown[] {

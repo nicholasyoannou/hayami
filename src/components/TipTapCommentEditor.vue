@@ -638,6 +638,17 @@ const isReady = computed(() => !!editor.value);
   color: #c9d1d9;
 }
 
+/* .tiptap lives inside EditorContent (child component), so it must be
+   targeted via :deep(...) from a scoped parent selector. */
+.editor-area :deep(.tiptap) {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #c9d1d9;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  padding: 4px 0 4px 8px;
+}
+
 .editor-area.disabled {
   opacity: 0.5;
   pointer-events: none;
@@ -734,20 +745,39 @@ const isReady = computed(() => !!editor.value);
 
 
 /* Headings */
-.tiptap :deep(h1) { font-size: 2em; margin: 0.67em 0; font-weight: bold; }
-.tiptap :deep(h2) { font-size: 1.5em; margin: 0.75em 0; font-weight: bold; }
-.tiptap :deep(h3) { font-size: 1.17em; margin: 1em 0; font-weight: bold; }
-/* Add h4-h6 as needed */
+.editor-area :deep(.tiptap h1) { font-size: 2em; margin: 0.67em 0; font-weight: bold; }
+.editor-area :deep(.tiptap h2) { font-size: 1.5em; margin: 0.75em 0; font-weight: bold; }
+.editor-area :deep(.tiptap h3) { font-size: 1.17em; margin: 1em 0; font-weight: bold; }
+
+/* Inline marks */
+.editor-area :deep(.tiptap strong),
+.editor-area :deep(.tiptap b) { font-weight: 700; }
+.editor-area :deep(.tiptap em),
+.editor-area :deep(.tiptap i) { font-style: italic; }
+.editor-area :deep(.tiptap s),
+.editor-area :deep(.tiptap del),
+.editor-area :deep(.tiptap .strike) { text-decoration: line-through; }
+
+/* Links */
+.editor-area :deep(.tiptap a) {
+  color: #58a6ff;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.editor-area :deep(.tiptap a:hover) {
+  color: #79c0ff;
+}
 
 /* Superscript */
-.tiptap :deep(sup), .tiptap :deep(.superscript) {
+.editor-area :deep(.tiptap sup),
+.editor-area :deep(.tiptap .superscript) {
   vertical-align: super;
   font-size: 0.8em;
   line-height: 0;
 }
 
-.tiptap :deep(.spoiler) {
-  /* Match inline code styling so spoilers read like code blocks visually */
+.editor-area :deep(.tiptap .spoiler) {
   background: #21262d;
   color: #79c0ff;
   padding: 2px 6px;
@@ -758,11 +788,17 @@ const isReady = computed(() => !!editor.value);
 }
 
 /* Reveal on hover (classic Reddit spoiler behavior) */
-.tiptap :deep(.spoiler:hover),
-.tiptap :deep(.spoiler:focus-visible) {
+.editor-area :deep(.tiptap .spoiler:hover),
+.editor-area :deep(.tiptap .spoiler:focus-visible) {
   background: transparent;
   color: inherit;
   border: none;
+}
+
+.editor-area :deep(.tiptap hr) {
+  border: none;
+  border-top: 1px solid #30363d;
+  margin: 16px 0;
 }
 
 </style>

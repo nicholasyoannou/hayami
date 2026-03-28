@@ -221,6 +221,8 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   }
 
   let featureInitialized = false;
+  let previewHandlersWired = false;
+  let modalListenersWired = false;
 
   const ensureFeatureInitialized = () => {
     if (featureInitialized) return;
@@ -228,9 +230,16 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     initState();
     setContentScriptContext(ctx);
 
-    wirePreviewHandlers(ctx);
-    setupYouTubeModalListener();
-    setupGalleryModalListener();
+    if (!previewHandlersWired) {
+      wirePreviewHandlers(ctx);
+      previewHandlersWired = true;
+    }
+
+    if (!modalListenersWired) {
+      setupYouTubeModalListener();
+      setupGalleryModalListener();
+      modalListenersWired = true;
+    }
 
     featureInitialized = true;
     debug.log('Hayami extension loaded');
