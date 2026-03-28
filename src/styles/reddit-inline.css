@@ -14,6 +14,46 @@
   text-align: left;
 }
 
+/* ==================== Host CSS Defensive Resets ==================== */
+/* Prevent host-page element-level CSS (Bootstrap, site themes, etc.)
+   from bleeding into the extension container (light DOM). */
+#reddit-inline-discussion *,
+#reddit-inline-discussion *::before,
+#reddit-inline-discussion *::after {
+  box-sizing: border-box;
+}
+
+#reddit-inline-discussion img {
+  margin: 0;            /* no !important — avatar margin overrides via !important */
+  vertical-align: baseline;
+  max-width: none;
+  border: none;
+}
+
+#reddit-inline-discussion button {
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  font-family: inherit;
+  text-align: inherit;
+  vertical-align: baseline;
+  -webkit-appearance: none;
+  appearance: none;
+  text-transform: none;
+  letter-spacing: normal;
+  line-height: inherit;
+  position: static;
+  min-height: 0;
+  min-width: 0;
+}
+
 #reddit-inline-discussion .ri-external-comments,
 #reddit-inline-discussion #disqus_thread {
   background: var(--ri-discussion-bg);
@@ -261,19 +301,26 @@
 
 #reddit-inline-discussion .ri-vote-bubble,
 #reddit-inline-discussion .ri-action-bubble {
-  display: flex;
+  display: flex !important;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 6px 12px !important;
   background: #161616;
   border: 1px solid #2c2c2c;
   border-radius: 20px;
   color: #aaa;
   font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   cursor: pointer;
   transition: all 0.15s ease;
   white-space: nowrap;
+  margin: 0;
+  min-height: 0;
+  max-height: none;
+  position: static;
+  width: auto;
+  height: auto;
 }
 
 #reddit-inline-discussion .ri-vote-bubble:hover:not(:disabled),
@@ -290,21 +337,24 @@
 
 #reddit-inline-discussion .ri-vote-bubble {
   gap: 8px;
-  padding: 6px 12px;
-  display: flex;
-  align-items: center;
-  background: #161616;
-  border: 1px solid #2c2c2c;
-  border-radius: 20px;
 }
 
 #reddit-inline-discussion .ri-vote-btn {
-  background: transparent;
-  border: none;
-  padding: 0;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
   cursor: pointer;
-  display: flex;
+  display: flex !important;
   align-items: center;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  min-width: 0 !important;
+  line-height: 1 !important;
+  font-size: inherit !important;
+  position: static !important;
+  text-align: left !important;
   transition: opacity 0.15s ease;
 }
 
@@ -318,8 +368,11 @@
 }
 
 #reddit-inline-discussion .ri-vote-icon {
-  width: 16px;
-  height: 16px;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  display: block !important;
+  flex-shrink: 0 !important;
   object-fit: contain;
   transition: filter 0.15s ease;
   cursor: pointer;
@@ -355,11 +408,17 @@
   text-align: center;
   font-weight: 600;
   color: #fff;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
 }
 
 #reddit-inline-discussion .ri-action-icon {
-  width: 16px;
-  height: 16px;
+  width: 16px !important;
+  height: 16px !important;
+  margin: 0 !important;
+  display: inline-block !important;
+  flex-shrink: 0 !important;
   object-fit: contain;
   filter: brightness(0) saturate(100%) invert(100%);
   opacity: 0.7;
@@ -634,7 +693,7 @@
 }
 
 /* Reduce left gutter for top-level once toggle is hidden */
-.ri-comment.depth-0 > .ri-gutter { width: 0; }
+.ri-comment.depth-0 > .ri-gutter { width: 0; margin-right: 0; }
 
 /* For nested comments, keep gutter width */
 .ri-comment:not(.depth-0) > .ri-gutter {
@@ -692,31 +751,39 @@
 
 /* ==================== Avatar ==================== */
 .ri-avatar {
-  width: 26px; /* enlarge nested layer avatars */
-  height: 26px;
-  border-radius: 50%;
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 50% !important;
   background: #2c2c2c;
-  display: block; /* avoid inline-img baseline gap that shifts content on load */
-  flex: 0 0 26px; /* hard-reserve width during image load */
-  min-width: 26px;
-  min-height: 26px;
-  object-fit: cover;
-  margin-right: 8px;
+  display: block !important;
+  flex: 0 0 26px !important;
+  min-width: 26px !important;
+  min-height: 26px !important;
+  max-width: 26px !important;
+  max-height: 26px !important;
+  object-fit: cover !important;
+  margin-right: 8px !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding: 0 !important;
+  border: none !important;
 }
 
 /* Slight inward nudge for nested avatars (depth > 0) to sit closer to connector */
 .ri-comment:not(.depth-0) > .ri-avatar {
-  margin-left: -9px; /* final micro left shift */
+  margin-left: -9px !important;
 }
 
 /* Slightly larger avatar for top-level comments */
 .ri-comment.depth-0 > .ri-avatar {
-  width: 28px;
-  height: 28px;
-  flex-basis: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  margin-left: -11px; /* final left shift; trunk at 3px passes through center */
+  width: 28px !important;
+  height: 28px !important;
+  flex-basis: 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  max-width: 28px !important;
+  max-height: 28px !important;
+  margin-left: -4px !important;
 }
 
 /* When collapsed, avatar shows expand.svg - style it to match icon color */
@@ -728,7 +795,7 @@
 .ri-avatar-collapsed-placeholder {
   width: 28px;
   height: 28px;
-  margin-left: -11px; /* align to trunk like top-level avatar */
+  margin-left: -4px; /* align to trunk like top-level avatar */
   border-radius: 50%;
   border: none;
   background: #8b8c90; /* solid grey fill like old DOM */
@@ -872,7 +939,7 @@
 }
 
 /* Load more buttons */
-.ri-load-more {
+#reddit-inline-discussion .ri-load-more {
   margin: 6px 0 2px 12px;
   padding: 6px 10px;
   background: #1f1f1f;
@@ -882,7 +949,8 @@
   font-size: 12px;
   font-weight: 600;
   text-align: left;
-  display: inline-flex;
+  display: inline-flex !important;
+  width: auto !important;
   align-items: center;
   gap: 8px;
   cursor: pointer;
@@ -897,13 +965,13 @@
   filter: brightness(0) saturate(100%) invert(78%) sepia(6%) saturate(0%) hue-rotate(225deg) brightness(94%) contrast(87%);
 }
 
-.ri-load-more:hover:not(:disabled) {
+#reddit-inline-discussion .ri-load-more:hover:not(:disabled) {
   background: #2a2a2a;
   border-color: #4a4a4a;
   color: #fff;
 }
 
-.ri-load-more:disabled {
+#reddit-inline-discussion .ri-load-more:disabled {
   opacity: 0.6;
   cursor: default;
 }

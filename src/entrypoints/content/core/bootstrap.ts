@@ -106,6 +106,11 @@ export function queueHandleWatchPage(ctx: ContentScriptContext): void {
 export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
   debug.log('On watch page, extracting anime info...');
 
+  // Re-run the KomentoScript pipeline now that the SPA has had time to update the DOM
+  // (the earlier loadCustomMappingForOrigin call at URL-change time may have run before
+  // the page title and selectors were updated by the SPA framework).
+  await loadCustomMappingForOrigin();
+
   // Try to get anime info immediately
   let info = getCustomAnimeInfo();
   if (!info) {

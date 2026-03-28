@@ -200,7 +200,9 @@ async function getMissingKomentoOrigins(): Promise<string[]> {
         });
         return { origin, granted };
       } catch {
-        return { origin, granted: false };
+        // Assume granted on error to avoid spurious '!' badge (e.g. permissions API
+        // not fully ready immediately after service worker startup in Chrome MV3).
+        return { origin, granted: true };
       }
     }),
   );
@@ -399,6 +401,8 @@ function handleKomentoStorageChange(changes: Record<string, any>, areaName: stri
     shouldReconfigure
     || Boolean(changes['komentoscript_cached_packs'])
     || Boolean(changes['komentoscript_sync_state'])
+    || Boolean(changes['komentoscript_target_selections'])
+    || Boolean(changes['local:komentoscript_target_selections'])
     || Boolean(changes['custom_site_mappings'])
     || Boolean(changes['local:custom_site_mappings']);
   if (shouldReconfigure) {

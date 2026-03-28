@@ -204,7 +204,9 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
                 break;
               }
               case 'number': {
-                const num = Number(String(current || '').replace(/[^0-9.]/g, ''));
+                const cleaned = String(current || '').replace(/[^0-9.]/g, '');
+                if (!cleaned) { current = ''; break; }
+                const num = Number(cleaned);
                 current = Number.isFinite(num) ? String(num) : '';
                 break;
               }
@@ -228,7 +230,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
           const selector = typeof (field as any).selector === 'string' ? (field as any).selector.trim() : '';
           const xPath = typeof (field as any).xPath === 'string' ? (field as any).xPath.trim() : '';
           const attr = typeof (field as any).attr === 'string' ? (field as any).attr : 'text';
-          const el = selector ? safeQuerySelector(selector) : selectByXPath(xPath);
+          const el = (selector ? safeQuerySelector(selector) : null) ?? selectByXPath(xPath);
           const value = elementText(el, attr);
           return value || null;
         };
@@ -333,6 +335,10 @@ export async function getCustomMountAnchor(retries = 6, delayMs = 250): Promise<
 
 export function getCustomAnimeInfo(): { animeName: string; episodeName: string } | null {
   if (!customSiteMapping) return null;
+  // Pipeline-extracted info has regex/number processing applied — always prefer it over raw element text.
+  if (komentoExtractedAnimeInfo?.animeName && komentoExtractedAnimeInfo?.episodeName) {
+    return komentoExtractedAnimeInfo;
+  }
   const evaluateXPath = (xpath?: string): Element | null => {
     if (!xpath) return null;
     try {
@@ -352,9 +358,6 @@ export function getCustomAnimeInfo(): { animeName: string; episodeName: string }
   const episodeName = episodeEl?.textContent?.trim();
   if (animeName && episodeName) {
     return { animeName, episodeName };
-  }
-  if (komentoExtractedAnimeInfo?.animeName && komentoExtractedAnimeInfo?.episodeName) {
-    return komentoExtractedAnimeInfo;
   }
   return null;
 }

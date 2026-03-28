@@ -35,3 +35,4 @@ src/lib/chibi/malsync-pages.json
 repomix-output.xml
 .env.submit
 KOMENTOSCRIPT.md
+/.claude
