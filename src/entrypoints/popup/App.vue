@@ -2016,7 +2016,7 @@ function triggerHeaderCustomMappingsImport() {
               <span>Docs</span>
             </a>
           </div>
-          <div class="mt-2 text-[13px] text-white/70">Made by nicholasdev | Hayami Komento Project</div>
+          <div class="mt-2 text-[13px] text-white/70">Made by <a href="https://nicholas.dev" target="_blank" class="text-white/70 hover:text-white/90">nicholasdev</a> | <a href="https://hayami.moe" target="_blank" class="text-white/70 hover:text-white/90">Hayami Komento Project</a></div>
         </div>
       </template>
   </div>

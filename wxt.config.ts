@@ -44,7 +44,7 @@ export default defineConfig({
         128: 'icon-128.png',
       },
     },
-    description: 'Hayami aggregates forums and comments sections together bringing anime discussions right underneath streaming platforms to you.',
+    description: 'Hayami aggregates comments sections together bringing anime discussions to you.',
     permissions: [
       'identity',
       'storage',
@@ -83,7 +83,7 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    version: '0.0.83',
+    version: '0.0.84',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
