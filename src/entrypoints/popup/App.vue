@@ -666,7 +666,10 @@ watch(currentView, async () => {
   }
 });
 
+const isPwa = window.self !== window.top;
+
 onMounted(async () => {
+  if (isPwa) document.documentElement.classList.add('pwa-mode');
   updateLayoutMode();
 
   // Load custom sites immediately so the settings panel can render this list without waiting
@@ -1476,7 +1479,7 @@ function triggerHeaderCustomMappingsImport() {
 }
 </script>
 <template>
-  <div class="flex min-w-[420px] max-w-[600px] w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
+  <div class="flex min-w-[420px] max-w-[600px] w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-x-hidden overflow-y-auto">
       <header class="flex items-center justify-between">
         <div class="flex items-center gap-3">
           <img src="/icon-128.png" alt="Hayami" class="h-12 w-12 rounded-xl bg-white/5 p-1 shadow" />
@@ -2028,7 +2031,8 @@ function triggerHeaderCustomMappingsImport() {
   width: 100%;
   height: 100%;
   background: #1f2329;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 :global(#app) {
@@ -2040,6 +2044,28 @@ function triggerHeaderCustomMappingsImport() {
 :global(::-webkit-scrollbar) {
   width: 0;
   height: 0;
+}
+
+:global(.pwa-mode ::-webkit-scrollbar),
+:global(.pwa-mode::-webkit-scrollbar) {
+  width: 6px;
+  height: 0;
+}
+
+:global(.pwa-mode ::-webkit-scrollbar-track),
+:global(.pwa-mode::-webkit-scrollbar-track) {
+  background: transparent;
+}
+
+:global(.pwa-mode ::-webkit-scrollbar-thumb),
+:global(.pwa-mode::-webkit-scrollbar-thumb) {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+:global(.pwa-mode ::-webkit-scrollbar-thumb:hover),
+:global(.pwa-mode::-webkit-scrollbar-thumb:hover) {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .fade-enter-active,
