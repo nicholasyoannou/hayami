@@ -188,7 +188,7 @@ export const komentoScriptAutoSyncItem = storage.defineItem<boolean>(
 
 export const komentoScriptSourceRegistryItem = storage.defineItem<KomentoSourceRegistryEntry[]>(
   'local:komentoscript_sources',
-  { fallback: DEFAULT_KOMENTOSCRIPT_SOURCES }
+  { fallback: [] }
 );
 
 export const komentoScriptCachedPacksItem = storage.defineItem<KomentoCachedPackEntry[]>(
