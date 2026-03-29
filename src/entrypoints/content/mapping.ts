@@ -1361,11 +1361,44 @@ export async function tryMapperFailover(
     }
 
     console.log('[Mapper Failover] Querying mapper service with series_name and season_title...');
-    const mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform);
+    let mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform);
     console.log('[Mapper Failover] Mapper service response:', mapperResult);
     if (!mapperResult || !(mapperResult as any).results || !(mapperResult as any).results.length) {
       console.log('[Mapper Failover] No results from mapper service. Full response:', mapperResult);
       return null;
+    }
+
+    // When the season_title query returns results that don't match the series name at all
+    // (e.g., searching "Season 2" returns 48 random anime), fall back to series-name-only query.
+    {
+      const normSeries = normalizeForMatch(seriesTitle);
+      const seriesTokensForCheck = normSeries.split(' ').filter((t: string) => t.length >= 3);
+      const anySeriesMatch = ((mapperResult as any).results as any[]).some((r: any) => {
+        const normName = normalizeForMatch(r?.anime_name);
+        if (!normName || !normSeries) return false;
+        if (normName.includes(normSeries) || normSeries.includes(normName)) return true;
+        // Token overlap: require at least 2 matching tokens of length >= 3
+        if (seriesTokensForCheck.length < 2) return false;
+        const nameTokens = new Set(normName.split(' ').filter((t: string) => t.length >= 3));
+        let overlap = 0;
+        for (const t of seriesTokensForCheck) {
+          if (nameTokens.has(t)) overlap++;
+        }
+        return overlap >= Math.max(2, Math.ceil(seriesTokensForCheck.length / 2));
+      });
+
+      if (!anySeriesMatch) {
+        console.log('[Mapper Failover] No results match series title, retrying without season_title...', {
+          seriesTitle,
+          seasonTitle,
+          resultCount: (mapperResult as any).results.length,
+        });
+        const fallbackResult = await fetchAnimeMapperDataBySeriesName(seriesTitle, platform, { preserveSeasonSuffix: false });
+        if (fallbackResult && Array.isArray((fallbackResult as any).results) && (fallbackResult as any).results.length > 0) {
+          console.log('[Mapper Failover] Using series-name-only fallback results:', (fallbackResult as any).results.length, 'results');
+          mapperResult = fallbackResult;
+        }
+      }
     }
 
     // Prefer provided matched_result, but re-score against season_title when possible.
