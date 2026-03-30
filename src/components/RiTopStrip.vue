@@ -109,7 +109,7 @@
           'opacity-50 cursor-not-allowed': isLoading,
           'hover:bg-[#1a1a1a]': !isLoading,
           'gap-[12px] px-[16px]': item.id === 'reddit',
-          'gap-0 px-[12px] min-w-0 justify-center': item.id !== 'reddit'
+          'gap-0 px-[16px] min-w-0 justify-center': item.id !== 'reddit'
         }"
         :disabled="isLoading"
         @click.stop="!isLoading && handleMenuClick(item.id)"

@@ -173,6 +173,7 @@ export interface AniListThreadComment {
 
 export interface AniListForumResult {
   status?: 'auth_required' | 'no_thread' | 'error' | 'ok';
+  errorMessage?: string;
   threads?: AniListThread[];
   selectedThread?: AniListThread;
   comments?: AniListThreadComment[];

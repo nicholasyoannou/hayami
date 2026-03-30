@@ -2790,10 +2790,14 @@
   }
 }
 
+#reddit-inline-discussion .aniwave-toggle,
 .aniwave-toggle {
   position: absolute;
   top: 12px;
   right: 12px;
+  left: auto;
+  inset-inline-end: 12px;
+  margin-left: 0;
   background: none;
   border: none;
   color: rgba(255, 255, 255, 0.85) !important;
@@ -2806,6 +2810,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1;
 }
 
 .aniwave-comment.is-hidden-by-parent {
@@ -2835,27 +2840,31 @@
   margin-top: 10px;
 }
 
+#reddit-inline-discussion .aniwave-load-replies,
 .aniwave-load-replies {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #0f0f0f;
-  color: #cbd5e1;
-  border: 1px solid #1f2937;
-  border-radius: 10px;
-  padding: 8px 12px;
+  background: #1e1e1e;
+  color: #f5f5f5;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 10px 14px;
   cursor: pointer;
   font-weight: 600;
   font-size: 12px;
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+  line-height: 1.2;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
+#reddit-inline-discussion .aniwave-load-replies:hover:not(:disabled),
 .aniwave-load-replies:hover:not(:disabled) {
-  border-color: #2f3c52;
+  background: #262626;
+  border-color: #333;
   color: #ffffff;
-  background: #121622;
 }
 
+#reddit-inline-discussion .aniwave-load-replies:disabled,
 .aniwave-load-replies:disabled {
   opacity: 0.6;
   cursor: default;

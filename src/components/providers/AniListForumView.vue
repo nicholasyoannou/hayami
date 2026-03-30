@@ -588,7 +588,7 @@ watch(() => props.result.pageInfo, (newInfo) => {
   </div>
 
   <div v-else-if="result.status === 'error'" style="padding:1rem; color:#f0c040;">
-    AniList forum fetch failed. Please try again shortly.
+    {{ result.errorMessage || 'AniList forum fetch failed. Please try again shortly.' }}
   </div>
 
   <div v-else class="ri-anilist-forum-view">

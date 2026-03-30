@@ -912,7 +912,11 @@ async function handleProviderChange(provider: Provider) {
   if (provider !== 'reddit') {
     // Failsafe for popup-mode provider switches: if a provider path misses clearLoading,
     // do not keep the external panel hidden forever.
-    const failsafeDelayMs = provider === 'disqus' ? 12000 : 4000;
+    const failsafeDelayMs = provider === 'disqus'
+      ? 12000
+      : provider === 'mal'
+        ? 20000
+        : 4000;
     nonRedditLoadingFailsafe = setTimeout(() => {
       if (currentProvider.value !== provider) return;
       if (!isLoading.value) return;

@@ -1,4 +1,5 @@
 import { ref, computed, watch, onScopeDispose } from 'vue';
+import { anilistProxyFetch } from '@/utils/anilistTransport';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
 import { searchCustomPosts } from '@/utils/redditApi';
@@ -190,7 +191,7 @@ export function useManualSearch(params: {
       }
     `;
 
-    const response = await fetch('https://graphql.anilist.co', {
+    const response = await anilistProxyFetch({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -234,7 +235,7 @@ export function useManualSearch(params: {
       }
     `;
 
-    const response = await fetch('https://graphql.anilist.co', {
+    const response = await anilistProxyFetch({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

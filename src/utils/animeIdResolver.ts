@@ -2,9 +2,11 @@
  * Anime ID resolver for AniList
  * Helps third-party sites get accurate anime IDs to pass to Hayami API
  * This ensures proper understanding of continuous/non-continuous anime numbering
- * 
+ *
  * Note: Uses AniList exclusively as it's more reliable and also provides MAL IDs
  */
+
+import { anilistProxyFetch } from './anilistTransport';
 
 export interface AnimeIdResult {
   malId?: number | null;
@@ -13,6 +15,32 @@ export interface AnimeIdResult {
   startYear?: number | null;
   episodeCount?: number | null;
   isAiringToday?: boolean; // If the latest episode aired today
+}
+
+export interface AnimeIdResolverErrorInfo {
+  status: number;
+  message?: string;
+}
+
+let lastAnimeIdResolverError: AnimeIdResolverErrorInfo | null = null;
+
+export function getLastAnimeIdResolverError(): AnimeIdResolverErrorInfo | null {
+  return lastAnimeIdResolverError;
+}
+
+function parseAniListErrorMessage(raw: string): string | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    const msg = parsed?.errors?.[0]?.message;
+    if (typeof msg === 'string' && msg.trim()) {
+      return msg.trim();
+    }
+  } catch {
+    // Keep raw fallback below.
+  }
+  const trimmed = raw.trim();
+  return trimmed || undefined;
 }
 
 /**
@@ -27,6 +55,8 @@ export interface AnimeIdResult {
  */
 export async function searchAniListAnime(animeName: string): Promise<AnimeIdResult | null> {
   try {
+    lastAnimeIdResolverError = null;
+
     const query = `
       query ($search: String) {
         Media(search: $search, type: ANIME) {
@@ -51,8 +81,7 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
 
     const variables = { search: animeName };
     
-    // Use direct fetch for AniList (public API)
-    const response = await fetch('https://graphql.anilist.co', {
+    const response = await anilistProxyFetch({
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -62,7 +91,16 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
     });
 
     if (!response.ok) {
-      console.warn('[AnimeIdResolver] AniList search failed:', response.status);
+      const bodyText = await response.text().catch(() => '');
+      const message = parseAniListErrorMessage(bodyText);
+      lastAnimeIdResolverError = {
+        status: response.status,
+        message,
+      };
+      console.warn('[AnimeIdResolver] AniList search failed:', {
+        status: response.status,
+        message,
+      });
       return null;
     }
 
@@ -100,6 +138,10 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
     };
   } catch (err) {
     console.error('[AnimeIdResolver] AniList search error:', err);
+    lastAnimeIdResolverError = {
+      status: 0,
+      message: err instanceof Error ? err.message : String(err),
+    };
     return null;
   }
 }
@@ -140,10 +182,12 @@ export async function getCachedAnimeIds(animeName: string): Promise<AnimeIdResul
   }
 
   const result = await resolveAnimeIds(animeName);
-  idCache.set(cacheKey, result);
-  
-  // Auto-clear cache after 10 minutes to avoid stale data
-  setTimeout(() => idCache.delete(cacheKey), 10 * 60 * 1000);
+  if (result) {
+    idCache.set(cacheKey, result);
+
+    // Auto-clear cache after 10 minutes to avoid stale data
+    setTimeout(() => idCache.delete(cacheKey), 10 * 60 * 1000);
+  }
   
   return result;
 }

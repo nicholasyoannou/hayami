@@ -2,7 +2,7 @@ import { BaseProvider } from './base-provider';
 import type { AnimeInfo } from '../types';
 import type { CommentProvider, ProviderContext } from '../types/data';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { getCachedAnimeIds } from '@/utils/animeIdResolver';
+import { getCachedAnimeIds, getLastAnimeIdResolverError } from '@/utils/animeIdResolver';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { safeClear } from '../utils/dom-helpers';
 import { getRuntimeUrl } from '@/utils/runtime';
@@ -145,7 +145,27 @@ export class AnimeCommunityProvider extends BaseProvider {
       context.clearLoadingState('animecommunity');
     } catch (error) {
       console.error('[AnimeCommunity] Failed to render embed', error);
-      context.toast.error('Failed to load The Anime Community comments');
+      const message = error instanceof Error ? error.message : String(error ?? '');
+      const isAniListUnavailable = message.startsWith('ANILIST_UNAVAILABLE:');
+
+      if (isAniListUnavailable) {
+        const detail = message.replace('ANILIST_UNAVAILABLE:', '').trim();
+        context.toast.error('AniList is unavailable right now', {
+          description: detail || 'The Anime Community comments are temporarily unavailable. Please try again later.',
+        });
+      } else {
+        context.toast.error('Failed to load The Anime Community comments');
+      }
+
+      container.style.display = 'block';
+      safeClear(container);
+      const errorEl = document.createElement('div');
+      errorEl.className = 'aniwave-error';
+      errorEl.textContent = isAniListUnavailable
+        ? 'The Anime Community is unavailable right now. Please try again later.'
+        : 'Failed to load The Anime Community comments.';
+      container.appendChild(errorEl);
+
       context.clearLoadingState('animecommunity error');
     }
   }
@@ -175,6 +195,14 @@ export class AnimeCommunityProvider extends BaseProvider {
         malId = malId ?? resolved?.malId ?? null;
         anilistId = anilistId ?? resolved?.anilistId ?? null;
 
+        if (!malId && !anilistId) {
+          const resolverError = getLastAnimeIdResolverError();
+          if (resolverError?.status && resolverError.status >= 400) {
+            const detail = resolverError.message || `AniList returned ${resolverError.status}`;
+            throw new Error(`ANILIST_UNAVAILABLE:${detail}`);
+          }
+        }
+
         if (malId) {
           animeInfo.malId = malId;
         }
@@ -182,6 +210,9 @@ export class AnimeCommunityProvider extends BaseProvider {
           animeInfo.anilistId = anilistId;
         }
       } catch (e) {
+        if (e instanceof Error && e.message.startsWith('ANILIST_UNAVAILABLE:')) {
+          throw e;
+        }
         console.warn('[AnimeCommunity] ID resolution failed', e);
       }
     }

@@ -8,6 +8,7 @@ import { getUiManager } from '@/entrypoints/content/core/ui-manager'
 import { registerAdapter } from '@/entrypoints/content/mapping'
 import { destroyState, initState, setLastAnimeInfo } from '@/entrypoints/content/state'
 import { getAniListAccessToken } from '@/utils/anilistAuth'
+import { anilistProxyFetch } from '@/utils/anilistTransport'
 import { wirePreviewHandlers } from '@/utils/previewHandlers'
 
 /**
@@ -172,7 +173,7 @@ function postSearchResponse(payload: HayamiSearchResponsePayload): void {
   )
 }
 
-function parseRetryAfterMs(response: Response): number {
+function parseRetryAfterMs(response: { headers: { get: (name: string) => string | null } }): number {
   const retryAfterHeader = response.headers.get('Retry-After')
   if (!retryAfterHeader) return 3000
   const retrySeconds = Number.parseFloat(retryAfterHeader)
@@ -199,10 +200,9 @@ async function runAniListSearchWithRetry(
       headers.Authorization = `Bearer ${accessToken}`
     }
 
-    const response = await fetch('https://graphql.anilist.co', {
+    const response = await anilistProxyFetch({
       method: 'POST',
       headers,
-      credentials: 'include',
       body: JSON.stringify({
         query: ANILIST_SEARCH_QUERY,
         variables: {

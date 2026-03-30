@@ -11,8 +11,7 @@ import type {
 } from '@/entrypoints/content/types/data';
 import { getAniListAccessToken } from './anilistAuth';
 import { extractEpisodeNumbersFromTitle } from './malForums';
-
-const ANILIST_API_URL = 'https://graphql.anilist.co';
+import { anilistProxyFetch } from './anilistTransport';
 
 interface GraphqlResult<T> {
   ok: boolean;
@@ -21,26 +20,31 @@ interface GraphqlResult<T> {
   error?: string;
 }
 
-async function graphqlRequest<T>(query: string, variables: Record<string, any>, token: string): Promise<GraphqlResult<T>> {
+async function graphqlRequest<T>(query: string, variables: Record<string, any>, token?: string | null): Promise<GraphqlResult<T>> {
   try {
-    const resp = await fetch(ANILIST_API_URL, {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    const resp = await anilistProxyFetch({
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body: JSON.stringify({ query, variables }),
     });
 
     const json = await resp.json().catch(() => null);
+    const apiMessage: string | undefined = (json as any)?.errors?.[0]?.message;
 
-    if (resp.status === 401 || resp.status === 403) {
+    if (resp.status === 401) {
       return { ok: false, status: resp.status, error: 'auth_required' };
     }
 
     if (!resp.ok || (json && Array.isArray((json as any).errors) && (json as any).errors.length)) {
-      const message = (json as any)?.errors?.[0]?.message || 'AniList request failed';
+      const message = apiMessage || 'AniList request failed';
       return { ok: false, status: resp.status, error: message };
     }
 
@@ -181,9 +185,6 @@ export async function fetchAniListThreads(
   episode?: number | null,
 ): Promise<AniListForumResult> {
   const token = await getAniListAccessToken();
-  if (!token) {
-    return { status: 'auth_required' };
-  }
 
   const threadQuery = `
     query ($page: Int, $animeId: Int) {
@@ -222,7 +223,8 @@ export async function fetchAniListThreads(
   const result = await graphqlRequest<{ data?: { Page?: any } }>(threadQuery, variables, token);
 
   if (!result.ok) {
-    return { status: result.error === 'auth_required' ? 'auth_required' : 'error' };
+    const status = result.error === 'auth_required' ? 'auth_required' : 'error';
+    return { status, errorMessage: status === 'error' ? result.error : undefined };
   }
 
   const page = (result.data as any)?.data?.Page;
@@ -248,9 +250,6 @@ export async function fetchAniListThreadComments(
   page: number = 1,
 ): Promise<{ status: 'ok' | 'auth_required' | 'error'; comments?: AniListThreadComment[]; pageInfo?: { currentPage?: number; nextPage?: number | null; hasNextPage?: boolean } }> {
   const token = await getAniListAccessToken();
-  if (!token) {
-    return { status: 'auth_required' };
-  }
 
   const query = `
     query ($threadId: Int, $page: Int) {

@@ -87,6 +87,12 @@ export class AniListProvider extends BaseProvider {
       if (!anilistId) {
         console.warn('[AniList] Missing AniList ID, unable to fetch threads');
         toast.error('AniList ID missing', { description: 'Unable to fetch AniList post for this episode.' });
+        const container = await this.getContainerWithRetry(
+          getExternalCommentsContainer,
+          CONTAINER_RETRY_ATTEMPTS,
+          CONTAINER_RETRY_DELAY_MS,
+        );
+        this.renderInlineError(container, 'Unable to fetch AniList post for this episode.');
         clearLoadingState('AniList missing anilistId');
         return;
       }
@@ -111,16 +117,19 @@ export class AniListProvider extends BaseProvider {
           ? 'error'
           : threadsResult.status;
 
+      const errorMessage = threadsResult.errorMessage ?? (commentsResult as any)?.errorMessage;
+
       discussionCache.anilist = {
         threads: threadsResult.threads,
         selectedThread: threadsResult.selectedThread,
         status,
+        errorMessage,
         comments: commentsResult?.comments,
         pageInfo: commentsResult?.pageInfo ?? { nextPage: null, hasNextPage: false },
       };
 
       if (status === 'error') {
-        toast.error('AniList forums unavailable', { description: 'Unable to load AniList comments right now.' });
+        toast.error('AniList forums unavailable', { description: errorMessage || 'Unable to load AniList comments right now.' });
       }
 
       const container = await this.getContainerWithRetry(
@@ -155,10 +164,35 @@ export class AniListProvider extends BaseProvider {
       app.mount(appRoot);
       clearLoadingState('AniList fetch complete');
     } catch (error) {
+      try {
+        const container = await this.getContainerWithRetry(
+          getExternalCommentsContainer,
+          CONTAINER_RETRY_ATTEMPTS,
+          CONTAINER_RETRY_DELAY_MS,
+        );
+        this.renderInlineError(container, 'AniList forums are unavailable right now. Please try again shortly.');
+      } catch (renderErr) {
+        console.warn('[AniList] Failed to render inline error fallback', renderErr);
+      }
       handleProviderError(error, 'AniList', 'switchTo');
       clearLoadingState('AniList error');
       throw error;
     }
+  }
+
+  private renderInlineError(container: HTMLElement, message: string): void {
+    container.style.display = 'block';
+    safeClear(container);
+
+    const box = document.createElement('div');
+    box.style.padding = '12px';
+    box.style.borderRadius = '8px';
+    box.style.background = '#0f0f0f';
+    box.style.border = '1px solid #1c1c1c';
+    box.style.color = '#e5e7eb';
+    box.textContent = message;
+
+    container.appendChild(box);
   }
 
   cleanup(): void {
