@@ -3,14 +3,11 @@ import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './src/config';
 import { hostPermissions } from './src/config';
 
 const SANDBOX_CSP = [
-  "sandbox allow-scripts allow-forms allow-popups;",
-  "script-src 'self' https://theanimecommunity.com https://*.theanimecommunity.com;",
-  "connect-src 'self' https://theanimecommunity.com https://*.theanimecommunity.com;",
-  "img-src data: https://theanimecommunity.com https://*.theanimecommunity.com;",
-  "style-src 'self' 'unsafe-inline' https://theanimecommunity.com https://*.theanimecommunity.com https://fonts.googleapis.com;",
-  "font-src 'self' data: https://theanimecommunity.com https://*.theanimecommunity.com https://fonts.gstatic.com;",
-  "object-src 'none';",
+  "sandbox allow-scripts allow-forms allow-popups allow-modals;",
+  "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' https://theanimecommunity.com https://www.theanimecommunity.com;",
+  "child-src 'self';",
 ].join(' ');
+
 process.env.NODE_ENV = 'production';
 const filteredEntrypoints = process.env.NODE_ENV === 'production'
   ? [
@@ -60,13 +57,12 @@ export default defineConfig({
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
       // Extension pages cannot load remote scripts; keep scripts self-only. AnimeCommunity remote script is loaded
-      // inside its own sandboxed page with its own CSP below.
+      // inside a dedicated sandbox page.
       extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' https: http:; frame-src 'self' https://hayami.moe;",
       sandbox: SANDBOX_CSP,
     },
     sandbox: {
-      // Serve the AnimeCommunity shim as a sandboxed page so it can fetch and execute the remote embed script.
-      pages: ['animecommunity-embed.html'],
+      pages: ['animecommunity-embed.html']
     },
     commands: {
       'open-site-mapper': {
@@ -126,7 +122,7 @@ export default defineConfig({
         });
       }
 
-      // Force sandbox CSP into manifest.content_security_policy.sandbox for MV3 validation
+      // Keep sandbox CSP explicit in output manifest to match known working TAC setup.
       if (!manifest.content_security_policy) manifest.content_security_policy = {} as any;
       (manifest.content_security_policy as any).sandbox = SANDBOX_CSP;
       if (manifest.sandbox && 'content_security_policy' in manifest.sandbox) {

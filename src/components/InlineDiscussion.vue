@@ -8,11 +8,11 @@ import TipTapCommentEditor from './TipTapCommentEditor.vue';
 import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/utils/redditApi';
 import { useDisqusSearch } from '@/composables/useDisqusSearch';
 import { useManualSearch, type Provider, type AniListSearchMedia, type MalSearchMedia } from '@/composables/useManualSearch';
-import { getCurrentUsername } from '@/utils/redditAuth';
+import { getCurrentUsername, isAuthenticated } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem } from '@/config/storage';
 
 interface Discussion {
   id: string;
@@ -57,7 +57,9 @@ const replyTarget = ref<{ id: string; key: string; draftKey: string; author?: st
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
 const redditFlairPosition = ref<'inline' | 'below'>('inline');
+const redditCommentLayout = ref<'threaded' | 'traditional'>('threaded');
 const isPostingTopComment = ref(false);
+const linkOnlyMode = ref(false);
 const replyDrafts = reactive<Record<string, string>>({});
 replyDrafts.root = '';
 
@@ -128,8 +130,13 @@ const isNoDiscussion = ref(false);
 const showRedditAuthPrompt = ref(false);
 const redditAuthReason = ref('Please log in to Reddit to load episode discussions.');
 const isStartingGuidedRedditLogin = ref(false);
+const redditAuthenticated = ref<boolean | null>(null);
 const fetchedDiscussionTitle = ref<string | null>(null);
 const fetchedDiscussionAuthor = ref<string | null>(null);
+const isRedditConnected = computed(() => redditAuthenticated.value === true);
+const hideRedditHeaderForSignedOutLinkOnly = computed(
+  () => currentProvider.value === 'reddit' && linkOnlyMode.value && redditAuthenticated.value === false,
+);
 const displayTitle = computed(() => {
   if (isLoading.value) return 'Loading discussion…';
   if (isNoDiscussion.value) {
@@ -249,13 +256,31 @@ function applyDiscussionUpdate(discussion: Discussion | undefined) {
 
 function handleRedditAuthRequired(reason?: string) {
   if (currentProvider.value !== 'reddit') return;
+  redditAuthenticated.value = false;
+  const authReason = String(reason || '');
+  const shouldShowPrompt = /\b429\b/.test(authReason);
+
+  if (!shouldShowPrompt) {
+    showRedditAuthPrompt.value = false;
+    isLoading.value = false;
+    discussionStore.clearLoading();
+    return;
+  }
+
+  if (linkOnlyMode.value) {
+    showRedditAuthPrompt.value = false;
+    isLoading.value = false;
+    discussionStore.clearLoading();
+    return;
+  }
   showRedditAuthPrompt.value = true;
-  redditAuthReason.value = reason || 'Please log in to Reddit to load episode discussions.';
+  redditAuthReason.value = reason || 'Reddit rate limit reached. Please sign in and try again shortly.';
   isLoading.value = false;
   discussionStore.clearLoading();
 }
 
 function refreshRedditCommentsAfterLogin() {
+  redditAuthenticated.value = true;
   showRedditAuthPrompt.value = false;
   isLoading.value = true;
   discussionStore.startLoading();
@@ -299,10 +324,20 @@ async function startGuidedRedditLogin() {
 
 async function loadCurrentUsername() {
   try {
+    const connected = await isAuthenticated();
+    redditAuthenticated.value = connected;
+
+    if (!connected) {
+      currentUsername.value = null;
+      return;
+    }
+
     const username = await getCurrentUsername();
-    if (username) currentUsername.value = username;
+    currentUsername.value = username;
   } catch (e) {
     console.warn('Failed to load current username', e);
+    redditAuthenticated.value = false;
+    currentUsername.value = null;
   }
 }
 
@@ -333,6 +368,42 @@ async function loadFlairPosition() {
     console.warn('Failed to load Reddit flair position', error);
     redditFlairPosition.value = 'inline';
   }
+}
+
+async function loadCommentLayout() {
+  try {
+    const value = await redditCommentLayoutItem.getValue();
+    redditCommentLayout.value = value === 'traditional' ? 'traditional' : 'threaded';
+  } catch (error) {
+    console.warn('Failed to load Reddit comment layout', error);
+    redditCommentLayout.value = 'threaded';
+  }
+}
+
+async function loadLinkOnlyMode() {
+  try {
+    linkOnlyMode.value = await linkOnlyModeItem.getValue();
+  } catch {
+    linkOnlyMode.value = false;
+  }
+}
+
+async function initializeRedditUiAuthGate() {
+  await loadLinkOnlyMode();
+  await loadCurrentUsername();
+
+  if (currentProvider.value !== 'reddit' || redditAuthenticated.value !== false) return;
+
+  if (linkOnlyMode.value) {
+    showRedditAuthPrompt.value = false;
+    isLoading.value = false;
+    discussionStore.clearLoading();
+    return;
+  }
+
+  // Do not show sign-in prompt by default for signed-out users.
+  // Prompt is reserved for runtime 429 rate-limit responses.
+  showRedditAuthPrompt.value = false;
 }
 
 const replyPlaceholder = computed(() => {
@@ -403,6 +474,10 @@ async function handleUpvote(e?: Event) {
     e.preventDefault();
     e.stopPropagation();
   }
+  if (!isRedditConnected.value) {
+    toast.error("You're not logged in to Reddit. Please sign in to vote.");
+    return;
+  }
   if (isArchived.value) return;
   
   const prevState = voteState.value;
@@ -438,8 +513,11 @@ async function handleUpvote(e?: Event) {
       voteState.value = prevState;
       currentScore.value = prevScore;
       console.error('Vote failed:', result.error);
-      if (result.error?.includes('403') || result.error?.includes('Not authenticated')) {
-        alert('Voting requires Reddit authentication. Please log in to Reddit in the extension popup.');
+      const voteError = String(result.error || '');
+      if (/403|not authenticated|modhash|login required/i.test(voteError)) {
+        toast.error("You're not logged in to Reddit. Please sign in to vote.");
+      } else {
+        toast.error('Failed to vote on this post.');
       }
     } else {
       console.log('Upvote successful, direction:', newDir);
@@ -449,7 +527,7 @@ async function handleUpvote(e?: Event) {
     voteState.value = prevState;
     currentScore.value = prevScore;
     console.error('Vote error:', error);
-    alert('Failed to vote. Please check the console for details.');
+    toast.error('Failed to vote on this post.');
   }
 }
 
@@ -457,6 +535,10 @@ async function handleDownvote(e?: Event) {
   if (e) {
     e.preventDefault();
     e.stopPropagation();
+  }
+  if (!isRedditConnected.value) {
+    toast.error("You're not logged in to Reddit. Please sign in to vote.");
+    return;
   }
   if (isArchived.value) return;
   
@@ -493,8 +575,11 @@ async function handleDownvote(e?: Event) {
       voteState.value = prevState;
       currentScore.value = prevScore;
       console.error('Vote failed:', result.error);
-      if (result.error?.includes('403') || result.error?.includes('Not authenticated')) {
-        alert('Voting requires Reddit authentication. Please log in to Reddit in the extension popup.');
+      const voteError = String(result.error || '');
+      if (/403|not authenticated|modhash|login required/i.test(voteError)) {
+        toast.error("You're not logged in to Reddit. Please sign in to vote.");
+      } else {
+        toast.error('Failed to vote on this post.');
       }
     } else {
       console.log('Downvote successful, direction:', newDir);
@@ -504,7 +589,7 @@ async function handleDownvote(e?: Event) {
     voteState.value = prevState;
     currentScore.value = prevScore;
     console.error('Vote error:', error);
-    alert('Failed to vote. Please check the console for details.');
+    toast.error('Failed to vote on this post.');
   }
 }
 
@@ -538,6 +623,10 @@ async function handleShare() {
 }
 
 function handleAddCommentClick() {
+  if (!isRedditConnected.value) {
+    toast.error("You're not logged in to Reddit. Please sign in to add comments.");
+    return;
+  }
   if (isArchived.value || isNoDiscussion.value) return;
   replyTarget.value = null;
   showTopReplyEditor.value = true;
@@ -548,6 +637,10 @@ function handleAddCommentClick() {
 }
 
 function handleReplyToComment(comment: RedditComment) {
+  if (!isRedditConnected.value) {
+    toast.error("You're not logged in to Reddit. Please sign in to add comments.");
+    return;
+  }
   if (isArchived.value || isNoDiscussion.value) return;
   const resolvedCommentId = resolveCommentId(comment);
   if (!resolvedCommentId) {
@@ -581,6 +674,11 @@ function handleCommentCollapse(commentId: string, collapsed: boolean) {
 }
 
 async function handleTopCommentSubmit(text: string, draftKey?: string) {
+  if (!isRedditConnected.value) {
+    toast.error("You're not logged in to Reddit. Please sign in to add comments.");
+    return;
+  }
+
   const trimmed = text.trim();
   if (!trimmed) {
     toast.error('Comment cannot be empty');
@@ -732,8 +830,9 @@ onMounted(() => {
   void loadEditorMode();
   void loadFlairVisibility();
   void loadFlairPosition();
+  void loadCommentLayout();
   void loadDefaultSort();
-  void loadCurrentUsername();
+  void initializeRedditUiAuthGate();
   const manualSearchHandler = (ev: Event) => {
     const detail = (ev as CustomEvent)?.detail || {};
     const animeInfo = detail.animeInfo;
@@ -1017,7 +1116,7 @@ defineExpose({
 
     <section id="reddit-inline-discussion" ref="inlineSectionRef" style="margin-top: 0; width: 100%;">
       <!-- Reddit header -->
-      <div v-if="currentProvider === 'reddit' && !showRedditAuthPrompt" class="ri-header">
+      <div v-if="currentProvider === 'reddit' && !showRedditAuthPrompt && !hideRedditHeaderForSignedOutLinkOnly" class="ri-header">
         <div class="ri-title-row pt-1">
           <h3 class="ri-title">
             {{ displayTitle }}
@@ -1047,10 +1146,12 @@ defineExpose({
           <span class="ri-author">u/{{ displayAuthor }}</span>
           <div class="ri-post-actions" v-if="!isNoDiscussion">
             <button
-              v-if="!isArchived"
+              v-if="!isArchived && !linkOnlyMode"
               id="ri-add-comment-btn"
               class="ri-add-comment-btn"
+              :class="{ 'ri-auth-disabled-action': !isRedditConnected }"
               type="button"
+              :aria-disabled="!isRedditConnected ? 'true' : 'false'"
               title="Add a top-level comment"
               @click="handleAddCommentClick"
             >
@@ -1066,7 +1167,9 @@ defineExpose({
             >
               <button
                 class="ri-vote-btn"
-                :disabled="isArchived"
+                :class="{ 'ri-auth-disabled-action': !isRedditConnected }"
+                :aria-disabled="!isRedditConnected ? 'true' : 'false'"
+                :disabled="isArchived || linkOnlyMode"
                 @click="handleUpvote"
               >
                 <img
@@ -1078,7 +1181,9 @@ defineExpose({
               <span class="ri-vote-score">{{ currentScore.toLocaleString() }}</span>
               <button
                 class="ri-vote-btn"
-                :disabled="isArchived"
+                :class="{ 'ri-auth-disabled-action': !isRedditConnected }"
+                :aria-disabled="!isRedditConnected ? 'true' : 'false'"
+                :disabled="isArchived || linkOnlyMode"
                 @click="handleDownvote"
               >
                 <img
@@ -1119,7 +1224,7 @@ defineExpose({
       </div>
 
       <!-- Inline no-discussion message to persist across provider toggles -->
-      <div v-if="currentProvider === 'reddit' && isNoDiscussion" class="ri-inline-no-discussion">
+      <div v-if="currentProvider === 'reddit' && isNoDiscussion && !linkOnlyMode" class="ri-inline-no-discussion">
         <p class="ri-inline-no-discussion__lead">No discussion thread found for:</p>
         <p class="ri-inline-no-discussion__title">{{ noDiscussionDetailTitle }}</p>
         <p class="ri-inline-no-discussion__hint">Discussion threads are usually posted shortly after an episode airs.</p>
@@ -1129,7 +1234,7 @@ defineExpose({
       </div>
 
       <!-- Toolbar - only visible for Reddit provider -->
-      <div v-if="currentProvider === 'reddit' && !isNoDiscussion && !showRedditAuthPrompt" class="ri-toolbar">
+      <div v-if="currentProvider === 'reddit' && !isNoDiscussion && !showRedditAuthPrompt && !linkOnlyMode" class="ri-toolbar">
         <div class="ri-sort">
           Sort by:
           <select 
@@ -1160,7 +1265,7 @@ defineExpose({
 
       <!-- Top reply host - only visible for Reddit provider -->
       <div
-        v-if="currentProvider === 'reddit' && !isArchived && showTopReplyEditor && !isReplyingToComment && !showRedditAuthPrompt"
+        v-if="currentProvider === 'reddit' && !isArchived && showTopReplyEditor && !isReplyingToComment && !showRedditAuthPrompt && !linkOnlyMode"
         id="ri-top-reply-host"
         class="ri-top-reply-container"
       >
@@ -1192,7 +1297,7 @@ defineExpose({
 
       <!-- Archived notice - only visible for Reddit provider -->
       <div
-        v-if="currentProvider === 'reddit' && isArchived && !showRedditAuthPrompt"
+        v-if="currentProvider === 'reddit' && isArchived && !showRedditAuthPrompt && !linkOnlyMode"
         class="ri-archived-notice"
       >
         <strong>
@@ -1222,13 +1327,24 @@ defineExpose({
 
         <!-- Reddit comments list - only mounted when loaded, on Reddit, and we have a valid discussion id -->
         <div
-          v-if="currentProvider === 'reddit' && showRedditAuthPrompt && !isLoading"
+          v-if="currentProvider === 'reddit' && showRedditAuthPrompt && !isLoading && !linkOnlyMode"
           class="ri-inline-no-discussion"
           style="border-color: rgba(255, 103, 64, 0.45);"
         >
           <p class="ri-inline-no-discussion__lead">Reddit sign-in required</p>
           <p class="ri-inline-no-discussion__title">You're not currently logged in to Reddit.</p>
           <p class="ri-inline-no-discussion__hint">{{ redditAuthReason }}</p>
+          <p v-if="redditUrl" class="ri-inline-no-discussion__hint">
+            Alternatively, see this episode discussion on
+            <a
+              :href="redditUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="ri-link"
+            >
+              Reddit
+            </a>
+          </p>
           <button
             class="ri-inline-no-discussion__cta"
             type="button"
@@ -1239,8 +1355,24 @@ defineExpose({
           </button>
         </div>
 
+        <!-- Link-only replacement for Reddit comments -->
+        <div
+          v-else-if="currentProvider === 'reddit' && !isLoading && linkOnlyMode && redditUrl && !isNoDiscussion"
+          class="ri-link-only-wrap"
+        >
+          <a
+            :href="redditUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="ri-link-only-btn"
+          >
+            View discussion on Reddit
+            <span style="font-size: 16px;">&rarr;</span>
+          </a>
+        </div>
+
         <RedditCommentList
-          v-if="currentProvider === 'reddit' && !!discussionId && !showRedditAuthPrompt && !isLoading"
+          v-if="currentProvider === 'reddit' && !!discussionId && !showRedditAuthPrompt && !isLoading && !linkOnlyMode"
           :key="`reddit-${discussionId}-${redditCommentsKey}`"
           :discussion-id="discussionId"
           :link-fullname="postFullname"
@@ -1250,9 +1382,11 @@ defineExpose({
           :is-locked="discussion.locked"
           :show-flairs="redditShowFlairs"
           :flair-position="redditFlairPosition"
+          :layout="redditCommentLayout"
           :initial-sort="commentSort"
           :search-query="searchQuery"
           :empty-message="redditEmptyMessage"
+          :is-reddit-connected="isRedditConnected"
           ref="redditListRef"
           @comments-loaded="handleCommentsLoaded"
           @auth-required="handleRedditAuthRequired"
@@ -1614,6 +1748,40 @@ defineExpose({
 </template>
 
 <style scoped>
+.ri-link-only-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  background: #2f6feb;
+  color: white;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s;
+}
+.ri-link-only-btn:hover {
+  background: #1f5fcc;
+}
+
+.ri-link-only-wrap {
+  margin-top: 8px;
+  padding: 12px 0 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  text-align: left;
+}
+
+.ri-add-comment-btn.ri-auth-disabled-action {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ri-vote-btn.ri-auth-disabled-action {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .ri-loading-wave {
   color: #bfbfbf;
   font-size: 13px;

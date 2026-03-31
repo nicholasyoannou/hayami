@@ -389,7 +389,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     const adapter = resolveAdapter();
     const adapterMode = adapter?.defaultDisplay as DisplayMode | undefined;
     const effectiveMode: EffectiveDisplayMode = resolveEffectiveDisplayMode(placement as EffectiveDisplayMode | null, adapterMode, storedMode);
-    const isInlineMode = shouldUseInlineMode(effectiveMode);
+    const popupAlreadyMounted = getUiManager().isMounted('popup');
+    const isInlineMode = !popupAlreadyMounted && shouldUseInlineMode(effectiveMode);
     currentRenderIntent = isInlineMode ? 'inline' : 'popup';
     const resolvedProvider = options?.forceProvider ?? activeUiProvider ?? (await getPreferredProvider());
     const guardProviders = options?.skipProviderGuard !== true;
@@ -717,6 +718,15 @@ async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?
 
 async function showNoDiscussionMessage(animeName: string, episodeNumber: string): Promise<void> {
   removeCommentsSkeletonLoading();
+
+  const manager = getUiManager();
+  const popupPreferred = currentRenderIntent === 'popup' || manager.isMounted('popup') || hasPopupInteractionLock();
+  if (popupPreferred) {
+    await manager.showPopupPlaceholder(`No discussion thread found for ${animeName} - Episode ${episodeNumber}.`);
+    useDiscussionStore().clearLoading();
+    return;
+  }
+
   showInlineNoCommentsUI(animeName, episodeNumber);
 }
 
@@ -1140,6 +1150,15 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'd
 
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
   normalizeRedditDiscussion(discussion);
+
+  // Preserve popup rendering within a single search lifecycle so async callbacks
+  // cannot flip the UI back to inline after the user opened the popup.
+  if (currentRenderIntent === 'popup' || getUiManager().isMounted('popup') || hasPopupInteractionLock()) {
+    currentRenderIntent = 'popup';
+    await displayDiscussion(discussion);
+    return;
+  }
+
   await loadCustomMappingForOrigin().catch(() => null);
   const storedMode: DisplayMode = await displayModeStorage.getValue().catch(() => 'popup' as DisplayMode);
   const placement = getCustomSiteMapping()?.display;

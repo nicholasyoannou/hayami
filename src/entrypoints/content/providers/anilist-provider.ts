@@ -16,6 +16,7 @@ import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataB
 import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { safeClear } from '../utils/dom-helpers';
+import { linkOnlyModeItem } from '@/config/storage';
 
 export class AniListProvider extends BaseProvider {
   readonly name: CommentProvider = 'anilist';
@@ -105,6 +106,22 @@ export class AniListProvider extends BaseProvider {
         : null;
 
       const threadsResult = await fetchAniListThreads(anilistId, animeInfoForLookup.animeName, episodeParsed);
+
+      // Link-only mode: show a button linking to the thread instead of rendering comments
+      if (await linkOnlyModeItem.getValue()) {
+        const threadUrl = threadsResult.selectedThread?.siteUrl
+          || (threadsResult.selectedThread?.id ? `https://anilist.co/forum/thread/${threadsResult.selectedThread.id}` : null);
+        if (threadUrl) {
+          const container = await this.getContainerWithRetry(
+            getExternalCommentsContainer,
+            CONTAINER_RETRY_ATTEMPTS,
+            CONTAINER_RETRY_DELAY_MS,
+          );
+          this.renderLinkButton(container, threadUrl, 'AniList', clearLoadingState);
+          return;
+        }
+      }
+
       let commentsResult: Awaited<ReturnType<typeof fetchAniListThreadComments>> | null = null;
 
       if (threadsResult.selectedThread?.id) {

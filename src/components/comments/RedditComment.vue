@@ -9,6 +9,8 @@ import { toast } from 'vue-sonner';
 const props = defineProps<{
   comment: RedditComment;
   depth?: number;
+  treeIsLastSibling?: boolean;
+  treeContinuationColumns?: boolean[];
   isArchived?: boolean;
   isLocked?: boolean;
   emojiMap?: Record<string, string>;
@@ -22,6 +24,8 @@ const props = defineProps<{
   currentUsername?: string | null;
   showFlairs?: boolean;
   flairPosition?: 'inline' | 'below';
+  isRedditConnected?: boolean;
+  layout?: 'threaded' | 'traditional';
 }>();
 
 const emit = defineEmits<{
@@ -62,6 +66,36 @@ const currentUserLower = computed(() => props.currentUsername ? props.currentUse
 const showFlairs = computed(() => props.showFlairs !== false);
 const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
 const isFlairBelow = computed(() => flairPosition.value === 'below');
+const isTraditional = computed(() => props.layout === 'traditional');
+const repliesExpanded = ref(true);
+const treeIsLastSibling = computed(() => props.treeIsLastSibling ?? true);
+const treeContinuationColumns = computed<boolean[]>(() => {
+  if (!Array.isArray(props.treeContinuationColumns)) return [];
+  return props.treeContinuationColumns.map((entry) => entry === true);
+});
+const treeAncestorContinuations = computed<boolean[]>(() => {
+  if (depth.value <= 1) return [];
+  return treeContinuationColumns.value.slice(0, depth.value - 1);
+});
+const treeExpanded = computed(() => !isCollapsed.value && (!isTraditional.value || repliesExpanded.value));
+const treeMetadata = computed(() => ({
+  depth: depth.value,
+  isLastSibling: treeIsLastSibling.value,
+  expanded: treeExpanded.value,
+  ancestorMask: treeContinuationColumns.value.map((entry) => (entry ? '1' : '0')).join(''),
+}));
+const treeStyle = computed<Record<string, string> | undefined>(() => {
+  if (!isTraditional.value) return undefined;
+  return {
+    '--ri-tree-depth': String(depth.value),
+    '--ri-tree-cols': String(depth.value + 1),
+    '--ri-tree-parent-col': String(Math.max(depth.value - 1, 0)),
+  };
+});
+const childTreeContinuations = computed<boolean[]>(() => {
+  if (!isTraditional.value) return [];
+  return [...treeContinuationColumns.value, !treeIsLastSibling.value];
+});
 const isOwn = computed(() => {
   if (props.comment.isMine) return true;
   const authorRaw = props.comment.author || '';
@@ -92,6 +126,7 @@ watch(() => props.comment.body, (b) => { localBody.value = b; });
 watch(() => props.comment.edited, (e) => { localEdited.value = e; });
 
 const isDisabled = computed(() => props.isArchived || props.isLocked || props.comment.author === '[deleted]' || isDeleted.value);
+const isReplyAuthBlocked = computed(() => props.isRedditConnected === false);
 const isHighlighted = computed(() => props.highlightIds?.has(props.comment.id) ?? false);
 const hasMoreChildren = computed(() => (props.comment.moreChildrenIds?.length || 0) > 0);
 const remainingChildrenCount = computed(() => props.comment.moreCount || props.comment.moreChildrenIds?.length || 0);
@@ -260,6 +295,22 @@ function toggleCollapse() {
   isCollapsed.value = !isCollapsed.value;
   emit('collapse', props.comment.id, isCollapsed.value);
 }
+
+function toggleRepliesExpanded() {
+  repliesExpanded.value = !repliesExpanded.value;
+}
+
+const totalReplyCount = computed(() => {
+  function count(list: RedditComment[]): number {
+    let n = 0;
+    for (const c of list) {
+      n++;
+      if (Array.isArray(c.replies)) n += count(c.replies);
+    }
+    return n;
+  }
+  return count(localReplies.value);
+});
 
 // Handle hover over children spine
 function handleSpineEnter() {
@@ -573,6 +624,10 @@ function handleShowMoreChildren() {
 }
 
 function handleReply() {
+  if (isReplyAuthBlocked.value) {
+    toast.error("You're not logged in to Reddit. Please sign in to add comments.");
+    return;
+  }
   if (props.onReply) {
     props.onReply(props.comment);
   }
@@ -762,45 +817,72 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
 </script>
 
 <template>
-  <div 
+  <div
     :class="[
       'ri-comment',
       `depth-${depth}`,
       { 'awarded': awardsCount > 0 },
       { 'ri-collapsed': isCollapsed },
       { 'ri-new-comment': isHighlighted },
-      { 'line-hover': isLineHover && depth === 0 }
+      { 'line-hover': isLineHover && depth === 0 },
+      { 'ri-traditional': isTraditional }
     ]"
     :data-comment-id="comment.id"
+    :data-tree-depth="isTraditional ? String(treeMetadata.depth) : undefined"
+    :data-tree-last-sibling="isTraditional ? (treeMetadata.isLastSibling ? '1' : '0') : undefined"
+    :data-tree-expanded="isTraditional ? (treeMetadata.expanded ? '1' : '0') : undefined"
+    :data-tree-ancestors="isTraditional ? treeMetadata.ancestorMask : undefined"
+    :style="treeStyle"
     ref="rootEl"
-    @mousemove="handleRootMouseMove"
-    @mouseenter="handleRootMouseMove"
-    @mouseleave="handleRootMouseLeave"
-    @click="handleContainerClick"
+    @mousemove="!isTraditional && handleRootMouseMove($event)"
+    @mouseenter="!isTraditional && handleRootMouseMove($event)"
+    @mouseleave="!isTraditional && handleRootMouseLeave()"
+    @click="!isTraditional && handleContainerClick($event)"
   >
-    <div 
-      v-if="depth === 0" 
-      class="ri-trunk-icon" 
-      aria-hidden="true" 
+    <div
+      v-if="depth === 0 && !isTraditional"
+      class="ri-trunk-icon"
+      aria-hidden="true"
       @click.stop="toggleCollapse"
     ></div>
 
-    <div class="ri-gutter">
-      <div 
-        class="ri-threadline" 
-        :class="{ 'ri-threadline-root': depth === 0 }" 
+    <div v-if="!isTraditional" class="ri-gutter">
+      <div
+        class="ri-threadline"
+        :class="{ 'ri-threadline-root': depth === 0 }"
         aria-hidden="false"
       ></div>
-      <div 
+      <div
         v-if="depth > 0"
         class="ri-threadline-hit"
         @click.stop="toggleCollapse"
       ></div>
-      <div 
+      <div
         v-else
         class="ri-threadline-hit-root"
         @click.stop="toggleCollapse"
       ></div>
+    </div>
+    <div v-else class="ri-trad-gutter" aria-hidden="true">
+      <span
+        v-for="(shouldContinue, colIndex) in treeAncestorContinuations"
+        :key="`tree-col-${comment.id}-${colIndex}`"
+        class="ri-trad-rail"
+        :class="{ 'ri-trad-rail--on': shouldContinue }"
+        :style="{ '--ri-tree-col': String(colIndex) }"
+      ></span>
+      <span
+        v-if="treeMetadata.depth > 0"
+        class="ri-trad-parent-rail ri-trad-parent-rail--top"
+      ></span>
+      <span
+        v-if="treeMetadata.depth > 0 && !treeMetadata.isLastSibling"
+        class="ri-trad-parent-rail ri-trad-parent-rail--bottom"
+      ></span>
+      <span
+        v-if="treeMetadata.depth > 0"
+        class="ri-trad-elbow"
+      ></span>
     </div>
     
     <div 
@@ -887,6 +969,9 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
         <button 
           v-if="!isDisabled"
           class="ri-action-btn ri-reply"
+          :class="{ 'ri-auth-disabled': isReplyAuthBlocked }"
+          :aria-disabled="isReplyAuthBlocked ? 'true' : 'false'"
+          :title="isReplyAuthBlocked ? 'Sign in to Reddit to reply' : undefined"
           @click.stop="handleReply"
         >
           <img class="ri-action-icon" :src="replyIconUrl" alt="reply" />
@@ -922,17 +1007,29 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       <!-- Reply input slot -->
       <slot name="reply-editor" :comment="comment"></slot>
       
+      <!-- Traditional: reply toggle button (shown before children) -->
+      <button
+        v-if="isTraditional && totalReplyCount > 0"
+        class="ri-trad-reply-toggle"
+        @click.stop="toggleRepliesExpanded"
+      >
+        <span class="ri-trad-toggle-arrow">{{ repliesExpanded ? '&#9650;' : '&#9660;' }}</span>
+        {{ repliesExpanded ? 'Hide replies' : `${totalReplyCount} replies` }}
+      </button>
+
       <!-- Children -->
       <!-- Render children section if there are visible replies OR if there are more children to load -->
-      <div 
-        v-if="!isCollapsed && (visibleReplies.length > 0 || hasMoreChildren || hasMoreReplies)" 
+      <div
+        v-if="!isCollapsed && (isTraditional ? repliesExpanded : true) && (visibleReplies.length > 0 || hasMoreChildren || hasMoreReplies)"
         class="ri-children"
-        :class="{ 
-          'spine-hover': isSpineHover
+        :class="{
+          'spine-hover': isSpineHover,
+          'ri-trad-children': isTraditional
         }"
         ref="childrenHost"
       >
-        <div 
+        <div
+          v-if="!isTraditional"
           class="ri-spine-hit"
           @mouseenter="handleSpineEnter"
           @mouseleave="handleSpineLeave"
@@ -944,6 +1041,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           :key="getCommentRenderKey(reply, replyIndex)"
           :comment="reply"
           :depth="depth + 1"
+          :tree-is-last-sibling="replyIndex === visibleReplies.length - 1"
+          :tree-continuation-columns="childTreeContinuations"
           :is-archived="isArchived"
           :is-locked="isLocked"
           :emoji-map="emojiMap"
@@ -955,16 +1054,18 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           :allow-deep-view="allowDeepView"
           :show-flairs="showFlairs"
           :flair-position="flairPosition"
+          :is-reddit-connected="props.isRedditConnected"
+          :layout="props.layout"
           @reply="(c) => emit('reply', c)"
           @collapse="(id, state) => emit('collapse', id, state)"
           @open-deep-view="(c) => emit('openDeepView', c)"
         >
-          <template #reply-editor="slotProps">
-            <slot name="reply-editor" v-bind="slotProps" />
+          <template #reply-editor>
+            <slot name="reply-editor" :comment="reply" />
           </template>
         </RedditComment>
-        
-        <button 
+
+        <button
           v-if="hasMoreReplies"
           class="ri-load-more"
           @click.stop="handleShowMoreReplies"
@@ -1038,6 +1139,14 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
 
 .ri-actions .ri-action-btn.ri-reply:hover:not(:disabled),
 .ri-actions .ri-action-btn.ri-share-btn:hover:not(:disabled) {
+  color: rgb(139, 162, 173);
+}
+
+.ri-actions .ri-action-btn.ri-auth-disabled,
+.ri-actions .ri-action-btn.ri-auth-disabled:hover {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: transparent;
   color: rgb(139, 162, 173);
 }
 
@@ -1147,5 +1256,32 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
   gap: 8px;
   justify-content: flex-end;
   margin-top: 8px;
+}
+
+/* Traditional layout reply toggle button (YouTube-style) */
+.ri-trad-reply-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 8px 16px;
+  color: #3ea6ff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  border: none;
+  border-radius: 18px;
+  transition: background 0.15s;
+}
+
+.ri-trad-reply-toggle:hover {
+  background: rgba(62, 166, 255, 0.12);
+}
+
+.ri-trad-toggle-arrow {
+  display: inline-block;
+  font-size: 10px;
+  line-height: 1;
 }
 </style>

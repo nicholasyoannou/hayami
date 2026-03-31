@@ -270,6 +270,7 @@ class UiManager {
 
   unmount(mode?: UiMode): void {
     const modes = mode ? [mode] : (['inline', 'popup', 'overlay'] as UiMode[]);
+    const removePopupShell = !mode;
     modes.forEach((targetMode) => {
       const entry = this.apps.get(targetMode);
       if (entry) {
@@ -286,7 +287,7 @@ class UiManager {
         this.inlineUi = null;
         setInlineDiscussionApp(null);
       }
-      if (targetMode === 'popup' && this.popupUi) {
+      if (targetMode === 'popup' && this.popupUi && removePopupShell) {
         try { this.popupUi.remove(); } catch {}
         this.popupUi = null;
         this.popupShell = null;
@@ -429,7 +430,11 @@ class UiManager {
         container.appendChild(root);
 
         let isOpen = false;
+        const isPlaceholderLoadingVisible = () => placeholder.style.display !== 'none';
         const setOpen = (open: boolean) => {
+          if (!open && isPlaceholderLoadingVisible()) {
+            return;
+          }
           isOpen = open;
           root.dataset.open = open ? 'true' : 'false';
           overlay.dataset.open = open ? 'true' : 'false';
@@ -450,12 +455,14 @@ class UiManager {
           const target = ev.target as HTMLElement | null;
           if (!target) return;
           if (target === overlay || target.classList.contains('hayami-backdrop')) {
+            if (isPlaceholderLoadingVisible()) return;
             setOpen(false);
           }
         });
 
         const onKeyDown = (ev: KeyboardEvent) => {
           if (ev.key === 'Escape' && isOpen) {
+            if (isPlaceholderLoadingVisible()) return;
             setOpen(false);
           }
         };

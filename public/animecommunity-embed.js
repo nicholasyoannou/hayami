@@ -12,7 +12,13 @@
   const HEIGHT_EVENT = 'animecommunity:height';
   const MIN_HEIGHT = 240;
   const EXTRA_PADDING = 24;
+  const EMBED_URL = 'https://theanimecommunity.com/embed.js';
+  const EMBED_SCRIPT_ID = 'animecommunity-remote-embed';
+  const EMBED_FALLBACK_SCRIPT_ID = 'animecommunity-remote-embed-fallback';
+  const TAC_IFRAME_ERROR = 'Unable to access iframe document';
   let lastSentHeight = 0;
+  let fallbackTriggered = false;
+  let fallbackBlobUrl = null;
 
   const getHost = () => document.getElementById('anime-community-comment-section');
 
@@ -87,21 +93,200 @@
     }
   }, 300);
 
-  const EMBED_URL = 'https://theanimecommunity.com/embed.js';
-  const EMBED_SCRIPT_ID = 'animecommunity-remote-embed';
+  function buildEmbedUrl() {
+    // Refresh URL weekly so active users automatically pick up upstream changes
+    // without forcing a network request on every open.
+    const weekVersion = Math.floor(Date.now() / (1000 * 60 * 60 * 24 * 7));
+    return `${EMBED_URL}?v=${weekVersion}`;
+  }
+
+  function installIframeAccessCompatibilityShim() {
+    try {
+      const frameProto = window.HTMLIFrameElement?.prototype;
+      if (!frameProto) return;
+
+      const desc = Object.getOwnPropertyDescriptor(frameProto, 'contentDocument');
+      if (desc?.configurable && typeof desc.get === 'function') {
+        const originalGet = desc.get;
+        Object.defineProperty(frameProto, 'contentDocument', {
+          configurable: true,
+          enumerable: desc.enumerable ?? true,
+          get() {
+            const direct = originalGet.call(this);
+            if (direct) return direct;
+            try {
+              return this.contentWindow?.document || null;
+            } catch {
+              return null;
+            }
+          },
+        });
+      }
+
+      const originalCreateElement = Document.prototype.createElement;
+      if (!originalCreateElement.__animeCommunityShimmed) {
+        const wrappedCreateElement = function (tagName, options) {
+          const el = originalCreateElement.call(this, tagName, options);
+          if (String(tagName).toLowerCase() === 'iframe') {
+            try {
+              if (!el.getAttribute('src') && !el.srcdoc) {
+                // In extension sandbox pages, srcdoc tends to materialize contentDocument
+                // synchronously more reliably than about:blank.
+                el.srcdoc = '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
+              }
+            } catch {
+              // noop
+            }
+          }
+          return el;
+        };
+        wrappedCreateElement.__animeCommunityShimmed = true;
+        Document.prototype.createElement = wrappedCreateElement;
+      }
+    } catch (err) {
+      console.warn('[AnimeCommunity Embed] Failed to install iframe compatibility shim', err);
+    }
+  }
+
+  function patchTacSource(source) {
+    const needle = /const iframeDocument = iframe\.contentDocument;\s*if \(!iframeDocument\) \{\s*throw new Error\("Unable to access iframe document"\);\s*\}/m;
+    const replacement = [
+      'let iframeDocument = iframe.contentDocument;',
+      'if (!iframeDocument) {',
+      '  try {',
+      '    if (!iframe.getAttribute("src") && !iframe.srcdoc) {',
+      '      iframe.srcdoc = "<!doctype html><html><head><meta charset=\\"utf-8\\"></head><body></body></html>";',
+      '    }',
+      '    iframeDocument = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document) || null;',
+      '  } catch (_) {',
+      '    iframeDocument = null;',
+      '  }',
+      '}',
+      'if (!iframeDocument) {',
+      '  throw new Error("Unable to access iframe document");',
+      '}',
+    ].join('\n');
+
+    if (!needle.test(source)) {
+      console.warn('[AnimeCommunity Embed] TAC patch needle not found; running upstream source unmodified');
+    } else {
+      source = source.replace(needle, replacement);
+    }
+
+    // Strong fallback patch: replace TAC iframe render path with direct mount to host doc.
+    const renderNeedle = /container\.innerHTML = "";[\s\S]*?const assetBase = getEmbedAssetBase\(\);/m;
+    const renderReplacement = [
+      'container.innerHTML = "";',
+      'const mountRoot = document.createElement("div");',
+      'mountRoot.id = WIDGET_MOUNT_ID;',
+      'mountRoot.style.width = "100%";',
+      'mountRoot.style.minHeight = "100px";',
+      'container.appendChild(mountRoot);',
+      'const config = window.theAnimeCommunityConfig || {};',
+      'const colorSchemeConfig = config.colorScheme || {};',
+      'const mantineColorScheme = getEffectiveMantineColorScheme(colorSchemeConfig);',
+      'const iframeDocument = document;',
+      'const iframeWindow = window;',
+      'const mountPoint = mountRoot;',
+      'const assetBase = getEmbedAssetBase();',
+    ].join('\n');
+
+    if (renderNeedle.test(source)) {
+      source = source.replace(renderNeedle, renderReplacement);
+      source = source.replace(
+        /const cleanupResize = setupIframeResize\(iframe, iframeWindow, iframeDocument\);/g,
+        'const cleanupResize = () => {};',
+      );
+    } else {
+      console.warn('[AnimeCommunity Embed] TAC direct-mount patch needle not found; fallback may still fail');
+    }
+
+    return source;
+  }
+
+  function resetTacStateForFallback() {
+    try {
+      delete window.__ANIME_COMMUNITY_WIDGET_LOADED__;
+    } catch {
+      window.__ANIME_COMMUNITY_WIDGET_LOADED__ = false;
+    }
+
+    try {
+      delete window.theAnimeCommunity;
+    } catch {
+      window.theAnimeCommunity = undefined;
+    }
+
+    const host = getHost();
+    if (host) {
+      host.innerHTML = '';
+    }
+
+    const primary = document.getElementById(EMBED_SCRIPT_ID);
+    if (primary) primary.remove();
+  }
+
+  async function loadPatchedEmbedViaBlob(reason) {
+    if (fallbackTriggered) return;
+    fallbackTriggered = true;
+
+    try {
+      console.warn('[AnimeCommunity Embed] Applying patched fallback:', reason);
+      const response = await fetch(buildEmbedUrl(), {
+        method: 'GET',
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`embed.js request failed with ${response.status}`);
+      }
+
+      const upstreamSource = await response.text();
+      const patchedSource = patchTacSource(upstreamSource);
+      const blob = new Blob(
+        [`${patchedSource}\n//# sourceURL=animecommunity-remote-embed.patched.js`],
+        { type: 'text/javascript' },
+      );
+
+      if (fallbackBlobUrl) {
+        URL.revokeObjectURL(fallbackBlobUrl);
+      }
+      fallbackBlobUrl = URL.createObjectURL(blob);
+
+      resetTacStateForFallback();
+
+      const script = document.createElement('script');
+      script.id = EMBED_FALLBACK_SCRIPT_ID;
+      script.src = fallbackBlobUrl;
+      script.async = true;
+      script.onload = () => measureAndSendHeight();
+      script.onerror = (err) => console.error('[AnimeCommunity Embed] Patched blob fallback failed', err);
+      document.head.appendChild(script);
+    } catch (err) {
+      console.error('[AnimeCommunity Embed] Failed to load patched fallback', err);
+    }
+  }
+
+  function handleTacRuntimeError(event) {
+    const message = String(event?.message || '');
+    if (!message.includes(TAC_IFRAME_ERROR)) return;
+    void loadPatchedEmbedViaBlob('iframe access error');
+  }
 
   function loadEmbedViaScript() {
     if (document.getElementById(EMBED_SCRIPT_ID)) return;
 
     const script = document.createElement('script');
     script.id = EMBED_SCRIPT_ID;
-    script.src = EMBED_URL;
+    script.src = buildEmbedUrl();
     script.async = true;
     script.crossOrigin = 'anonymous';
     script.referrerPolicy = 'no-referrer';
     script.onload = () => measureAndSendHeight();
-    script.onerror = (err) => console.error('[AnimeCommunity Embed] Failed to load remote embed.js', err);
-
+    script.onerror = () => {
+      void loadPatchedEmbedViaBlob('primary script failed to load');
+    };
     document.head.appendChild(script);
   }
 
@@ -127,5 +312,7 @@
     }
   }, 500);
 
+  window.addEventListener('error', handleTacRuntimeError, true);
+  installIframeAccessCompatibilityShim();
   loadEmbedViaScript();
 })();

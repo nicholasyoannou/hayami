@@ -2874,3 +2874,211 @@
   border-color: #f87171;
   color: #f87171;
 }
+
+/* ==================== Traditional (Tree-view threaded) Layout ==================== */
+/* Tree rails are row-driven from explicit metadata, never from nested border-left containers. */
+
+.ri-comment.ri-traditional.depth-0::before,
+.ri-comment.ri-traditional.depth-0::after {
+  content: none !important;
+  display: none !important;
+}
+
+.ri-comment.ri-traditional .ri-trunk-icon,
+.ri-comment.ri-traditional .ri-gutter,
+.ri-comment.ri-traditional .ri-threadline,
+.ri-comment.ri-traditional .ri-threadline-hit,
+.ri-comment.ri-traditional .ri-threadline-hit-root,
+.ri-comment.ri-traditional .ri-spine-hit {
+  display: none !important;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional {
+  --ri-tree-indent: 18px;
+  --ri-tree-anchor-y: 18px;
+  --ri-tree-color: #343536;
+  --ri-tree-color-hover: #555;
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  margin-bottom: 4px;
+  position: relative;
+  background: transparent;
+  border: none;
+  align-items: flex-start;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional.depth-0 {
+  padding: 12px 0;
+  margin-bottom: 8px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional > .ri-trad-gutter {
+  position: relative;
+  flex: 0 0 calc(var(--ri-tree-cols, 1) * var(--ri-tree-indent));
+  width: calc(var(--ri-tree-cols, 1) * var(--ri-tree-indent));
+  min-width: calc(var(--ri-tree-cols, 1) * var(--ri-tree-indent));
+  align-self: stretch;
+  pointer-events: none;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-rail,
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail,
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-elbow {
+  position: absolute;
+  background: var(--ri-tree-color);
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-rail {
+  top: 0;
+  bottom: 0;
+  left: calc((var(--ri-tree-col, 0) * var(--ri-tree-indent)) + 8px);
+  width: 2px;
+  opacity: 0;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-rail.ri-trad-rail--on {
+  opacity: 1;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail {
+  left: calc((var(--ri-tree-parent-col, 0) * var(--ri-tree-indent)) + 8px);
+  width: 2px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail--top {
+  top: 0;
+  height: var(--ri-tree-anchor-y);
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail--bottom {
+  top: var(--ri-tree-anchor-y);
+  bottom: 0;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-elbow {
+  top: var(--ri-tree-anchor-y);
+  left: calc((var(--ri-tree-parent-col, 0) * var(--ri-tree-indent)) + 8px);
+  width: 10px;
+  height: 2px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional:hover .ri-trad-rail.ri-trad-rail--on,
+#reddit-inline-discussion .ri-comment.ri-traditional:hover .ri-trad-parent-rail,
+#reddit-inline-discussion .ri-comment.ri-traditional:hover .ri-trad-elbow {
+  background: var(--ri-tree-color-hover);
+}
+
+/* Top-level avatar: 36px */
+#reddit-inline-discussion .ri-comment.ri-traditional.depth-0 > .ri-avatar {
+  width: 36px !important;
+  height: 36px !important;
+  flex: 0 0 36px !important;
+  min-width: 36px !important;
+  min-height: 36px !important;
+  max-width: 36px !important;
+  max-height: 36px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional.depth-0 > .ri-avatar-placeholder {
+  width: 36px;
+  height: 36px;
+  margin-left: 0;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional.depth-0 > .ri-avatar-collapsed-placeholder {
+  width: 36px;
+  height: 36px;
+  margin-left: 0;
+}
+
+/* Reply avatar: 28px */
+#reddit-inline-discussion .ri-comment.ri-traditional:not(.depth-0) > .ri-avatar {
+  width: 28px !important;
+  height: 28px !important;
+  flex: 0 0 28px !important;
+  min-width: 28px !important;
+  min-height: 28px !important;
+  max-width: 28px !important;
+  max-height: 28px !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional:not(.depth-0) > .ri-avatar-placeholder {
+  width: 28px;
+  height: 28px;
+  margin-left: 0;
+}
+
+/* No collapsed avatar filter in traditional mode */
+#reddit-inline-discussion .ri-comment.ri-traditional.depth-0.ri-collapsed > .ri-avatar {
+  filter: none;
+}
+
+/* Comment body */
+#reddit-inline-discussion .ri-comment.ri-traditional > .ri-body {
+  flex: 1;
+  min-width: 0;
+  left: 0;
+  padding-left: 0;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-username {
+  font-weight: 500;
+  font-size: 13px;
+  color: #d7dadc;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-text {
+  font-size: 14px;
+  line-height: 20px;
+  color: #d7dadc;
+  margin-top: 4px;
+}
+
+/* Children inherit indentation from per-row gutters only. */
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-children,
+#reddit-inline-discussion .ri-trad-children {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: none !important;
+  margin-top: 4px;
+  position: relative;
+}
+
+/* Collapsed state */
+#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed {
+  opacity: 1;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-text,
+#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-actions,
+#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-children,
+#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-trad-reply-toggle {
+  display: none;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed:hover {
+  opacity: 1;
+}
+
+/* "Show more replies" in traditional mode */
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-load-more {
+  margin: 8px 0 4px 0;
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  border-radius: 0;
+  color: #3ea6ff;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-load-more:hover:not(:disabled) {
+  background: none;
+  border: none;
+  color: #65b8ff;
+}

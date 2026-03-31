@@ -50,3 +50,10 @@ export const redditDeepReplyModeOptions = [
 ] as const;
 
 export type RedditDeepReplyModeOption = (typeof redditDeepReplyModeOptions)[number]['value'];
+
+export const redditCommentLayoutOptions = [
+  { value: 'threaded', label: 'Threaded (Reddit-style)' },
+  { value: 'traditional', label: 'Traditional (nested)' },
+] as const;
+
+export type RedditCommentLayoutOption = (typeof redditCommentLayoutOptions)[number]['value'];

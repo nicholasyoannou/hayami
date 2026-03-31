@@ -22,6 +22,7 @@ import {
 import { waitForElement, removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { teardownYouTubeInfiniteScroll } from '../state';
 import { toast } from 'vue-sonner';
+import { linkOnlyModeItem } from '@/config/storage';
 
 // Global state for YouTube (should be moved to state module)
 let currentYouTubeVideo: YouTubeVideo | null = null;
@@ -124,18 +125,24 @@ export class YouTubeProvider extends BaseProvider {
       if (discussionCache.youtube && (discussionCache.youtube as any).video) {
         const cachedVideo = (discussionCache.youtube as any).video as YouTubeVideo;
         setCurrentYouTubeVideo(cachedVideo);
-        
+
         const container = await this.getContainerWithRetry(
           getExternalCommentsContainer,
           CONTAINER_RETRY_ATTEMPTS,
           CONTAINER_RETRY_DELAY_MS
         );
-        container.style.display = 'block';
-        
-        safeClear(container);
-        
-        // Mount YouTube comment component
+
         const youtubeUrl = `https://www.youtube.com/watch?v=${cachedVideo.video_id}`;
+
+        if (await linkOnlyModeItem.getValue()) {
+          this.renderLinkButton(container, youtubeUrl, 'YouTube', clearLoadingState);
+          return;
+        }
+
+        container.style.display = 'block';
+        safeClear(container);
+
+        // Mount YouTube comment component
         const app = createApp(YouTubeCommentList, {
           videoId: cachedVideo.video_id,
           videoTitle: cachedVideo.title,
@@ -143,7 +150,7 @@ export class YouTubeProvider extends BaseProvider {
           initialOrder: currentYouTubeOrder,
         });
         app.mount(container);
-        
+
         clearLoadingState('YouTube render complete');
         return;
       }
@@ -183,6 +190,18 @@ export class YouTubeProvider extends BaseProvider {
         video,
         platform,
       };
+
+      // Link-only mode: show a button linking to the video instead of rendering comments
+      if (await linkOnlyModeItem.getValue()) {
+        const ytUrl = `https://www.youtube.com/watch?v=${video.video_id}`;
+        const linkContainer = await this.getContainerWithRetry(
+          getExternalCommentsContainer,
+          CONTAINER_RETRY_ATTEMPTS,
+          CONTAINER_RETRY_DELAY_MS,
+        );
+        this.renderLinkButton(linkContainer, ytUrl, 'YouTube', clearLoadingState);
+        return;
+      }
 
       // Wait for comments section to be available
       await new Promise(resolve => setTimeout(resolve, 50));

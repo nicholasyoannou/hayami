@@ -41,7 +41,7 @@ export async function getPostCommentsRuntime(postId: string, sort: RedditComment
       }
 
       if (!hasTokenCookie) {
-        return `Reddit login required (${status}): missing reddit_session cookie.`;
+        return `Reddit login required (${status}): reddit session not found.`;
       }
 
       return `Reddit login required (${status}): session appears logged in but re-authentication is needed.`;

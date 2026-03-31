@@ -19,6 +19,7 @@ import { handleProviderError } from '../utils/error-handler';
 import { getSeriesMapping, parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName, resolveAdapter } from '../mapping';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { getRuntimeUrl } from '@/utils/runtime';
+import { linkOnlyModeItem } from '@/config/storage';
 
 const buildDisqusCacheKey = (animeInfo?: AnimeInfo | null) => {
   if (!animeInfo) return null;
@@ -495,6 +496,10 @@ export class DisqusProvider extends BaseProvider {
         CONTAINER_RETRY_ATTEMPTS,
         CONTAINER_RETRY_DELAY_MS
       );
+      if (await linkOnlyModeItem.getValue() && discussionCache.disqus.thread.link) {
+        this.renderLinkButton(container, discussionCache.disqus.thread.link, 'Disqus', clearLoadingState);
+        return;
+      }
       await renderDisqusThread(
         discussionCache.disqus.thread,
         container,
@@ -586,6 +591,10 @@ export class DisqusProvider extends BaseProvider {
           CONTAINER_RETRY_ATTEMPTS,
           CONTAINER_RETRY_DELAY_MS
         );
+        if (await linkOnlyModeItem.getValue() && thread.link) {
+          this.renderLinkButton(container, thread.link, 'Disqus', clearLoadingState);
+          return;
+        }
         await renderDisqusThread(thread, container, animeInfo, clearLoadingState);
       } else {
         // No Disqus thread found, show search UI

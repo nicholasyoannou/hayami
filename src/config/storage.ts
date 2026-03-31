@@ -6,6 +6,7 @@ import type {
   RedditSortOption,
   RedditFlairPositionOption,
   RedditDeepReplyModeOption,
+  RedditCommentLayoutOption,
 } from './options';
 import type { KomentoScriptPack, KomentoSourceRegistryEntry } from '@/komentoscript';
 
@@ -40,6 +41,11 @@ export const redditDeepReplyModeItem = storage.defineItem<RedditDeepReplyModeOpt
 export const redditMaxInlineDepthItem = storage.defineItem<number>(
   'local:reddit_max_inline_depth',
   { fallback: 7 }
+);
+
+export const redditCommentLayoutItem = storage.defineItem<RedditCommentLayoutOption>(
+  'local:reddit_comment_layout',
+  { fallback: 'threaded' }
 );
 
 export const displayModeItem = storage.defineItem<DisplayModeOption>(
@@ -91,6 +97,11 @@ export const imgchestApiKeyItem = storage.defineItem<string | null>(
 export const redditClientIdItem = storage.defineItem<string | null>(
   'local:reddit_client_id',
   { fallback: null }
+);
+
+export const linkOnlyModeItem = storage.defineItem<boolean>(
+  'local:link_only_mode',
+  { fallback: false }
 );
 
 export const aniwaveAutoExpandAllItem = storage.defineItem<boolean>(

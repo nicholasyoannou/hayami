@@ -2,7 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
-import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem } from '@/config/storage';
+import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem } from '@/config/storage';
 import { getCurrentUsername } from '@/utils/redditAuth';
 
 const props = defineProps<{
@@ -19,6 +19,8 @@ const props = defineProps<{
   currentUsername?: string | null;
   showFlairs?: boolean;
   flairPosition?: 'inline' | 'below';
+  isRedditConnected?: boolean;
+  layout?: 'threaded' | 'traditional';
 }>();
 
 const emit = defineEmits<{
@@ -39,6 +41,7 @@ const rootMoreIds = ref<string[]>([]);
 const textSizeIncrease = ref(0);
 const deepReplyMode = ref<'popup' | 'reddit'>('popup');
 const maxInlineDepth = ref(8);
+const commentLayout = ref<'threaded' | 'traditional'>('threaded');
 
 function clampTextSizeIncrease(value: unknown): number {
   const amount = Math.floor(Number(value));
@@ -72,6 +75,13 @@ onMounted(async () => {
   } catch (error) {
     console.warn('Failed to load Reddit max inline depth:', error);
   }
+
+  try {
+    const layout = await redditCommentLayoutItem.getValue();
+    commentLayout.value = layout === 'traditional' ? 'traditional' : 'threaded';
+  } catch (error) {
+    console.warn('Failed to load Reddit comment layout:', error);
+  }
 });
 
 const effectiveTextSizeIncrease = computed(() =>
@@ -79,6 +89,7 @@ const effectiveTextSizeIncrease = computed(() =>
 );
 
 const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
+const effectiveLayout = computed(() => props.layout || commentLayout.value);
 
 const textSizeStyles = computed(() => ({
   '--ri-comment-text-size-increase': `${effectiveTextSizeIncrease.value}px`,
@@ -475,6 +486,8 @@ defineExpose({
         :subreddit="subreddit"
         :current-username="props.currentUsername"
         :depth="0"
+        :tree-is-last-sibling="commentIndex === visibleComments.length - 1"
+        :tree-continuation-columns="[]"
         :is-archived="isArchived"
         :is-locked="isLocked"
         :emoji-map="emojiMap"
@@ -485,6 +498,8 @@ defineExpose({
         :allow-deep-view="true"
         :show-flairs="props.showFlairs"
         :flair-position="flairPosition"
+        :is-reddit-connected="props.isRedditConnected"
+        :layout="effectiveLayout"
         @reply="handleReply"
         @collapse="handleCollapse"
         @open-deep-view="openDeepView"
@@ -539,6 +554,8 @@ defineExpose({
             :subreddit="subreddit"
             :current-username="props.currentUsername"
             :depth="0"
+            :tree-is-last-sibling="true"
+            :tree-continuation-columns="[]"
             :is-archived="isArchived"
             :is-locked="isLocked"
             :emoji-map="emojiMap"
@@ -549,6 +566,8 @@ defineExpose({
             :allow-deep-view="false"
             :show-flairs="props.showFlairs"
             :flair-position="flairPosition"
+            :is-reddit-connected="props.isRedditConnected"
+            :layout="effectiveLayout"
             @reply="handleReply"
             @collapse="handleCollapse"
           >

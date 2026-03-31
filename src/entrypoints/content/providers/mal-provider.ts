@@ -19,6 +19,7 @@ import {
 import { getSeriesMapping } from '../storage/series-mapping';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { safeClear } from '../utils/dom-helpers';
+import { linkOnlyModeItem } from '@/config/storage';
 
 export class MalProvider extends BaseProvider {
   readonly name: CommentProvider = 'mal';
@@ -100,6 +101,21 @@ export class MalProvider extends BaseProvider {
           console.log('[MAL] Picker chose topic', { title: pick.title, id: pick.id });
         } else if (!forumResult.status || forumResult.status === 'ok') {
           forumResult.status = 'no_topic';
+        }
+      }
+
+      // Link-only mode: show a button linking to the topic instead of rendering posts
+      if (await linkOnlyModeItem.getValue() && forumResult.selectedTopic) {
+        const topicUrl = forumResult.selectedTopic.url
+          || (forumResult.selectedTopic.id ? `https://myanimelist.net/forum/?topicid=${forumResult.selectedTopic.id}` : null);
+        if (topicUrl) {
+          const container = await this.getContainerWithRetry(
+            getExternalCommentsContainer,
+            CONTAINER_RETRY_ATTEMPTS,
+            CONTAINER_RETRY_DELAY_MS,
+          );
+          this.renderLinkButton(container, topicUrl, 'MyAnimeList', clearLoadingState);
+          return;
         }
       }
 

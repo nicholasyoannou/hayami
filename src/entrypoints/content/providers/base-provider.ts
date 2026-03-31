@@ -4,6 +4,7 @@
 
 import type { CommentProvider, ProviderContext } from '../types/data';
 import type { AnimeInfo } from '../types';
+import { safeClear } from '../utils/dom-helpers';
 
 /**
  * Base interface for all comment providers
@@ -62,5 +63,45 @@ export abstract class BaseProvider implements ICommentProvider {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     throw new Error('External comments container not found after retries');
+  }
+
+  /**
+   * Renders a link-only button that opens the discussion thread externally.
+   */
+  protected renderLinkButton(
+    container: HTMLElement,
+    url: string,
+    platformLabel: string,
+    clearLoadingState: (reason: string) => void,
+  ): void {
+    container.style.display = 'block';
+    safeClear(container);
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'padding: 12px 0 20px; text-align: left;';
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.textContent = `View discussion on ${platformLabel}`;
+    link.style.cssText = [
+      'display: inline-flex', 'align-items: center', 'gap: 8px',
+      'padding: 10px 20px', 'background: #2f6feb', 'color: white',
+      'border-radius: 8px', 'font-size: 14px', 'font-weight: 600',
+      'text-decoration: none', 'transition: background 0.2s',
+    ].join(';');
+    link.addEventListener('mouseenter', () => { link.style.background = '#1f5fcc'; });
+    link.addEventListener('mouseleave', () => { link.style.background = '#2f6feb'; });
+
+    const arrow = document.createElement('span');
+    arrow.textContent = '\u2192';
+    arrow.style.fontSize = '16px';
+    link.appendChild(arrow);
+
+    wrapper.appendChild(link);
+    container.appendChild(wrapper);
+
+    clearLoadingState(`${platformLabel} link-only`);
   }
 }

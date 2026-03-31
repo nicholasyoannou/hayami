@@ -98,7 +98,6 @@ export class AnimeCommunityProvider extends BaseProvider {
 
       // Build iframe that points to an extension-served embed shim page (web_accessible_resource)
       const iframe = document.createElement('iframe');
-      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation');
       iframe.setAttribute('referrerpolicy', 'no-referrer');
       iframe.style.width = '100%';
       iframe.style.height = '320px';
