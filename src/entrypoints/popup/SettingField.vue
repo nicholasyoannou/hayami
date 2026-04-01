@@ -150,7 +150,7 @@ function hideHelpTooltip() {
       </template>
 
       <template v-else-if="setting.type === 'slider'">
-        <div class="flex items-center gap-3">
+        <div class="flex min-w-0 items-center gap-2">
           <input
             type="range"
             :min="setting.min"
@@ -159,9 +159,9 @@ function hideHelpTooltip() {
             :value="modelValue as number"
             :disabled="disabled"
             @input="(e) => emit('save', parseFloat((e.target as HTMLInputElement).value))"
-            class="w-24"
+            class="w-24 shrink-0"
           />
-          <span class="w-14 text-right text-sm font-semibold text-white/80">{{ formattedSliderValue }}</span>
+          <span class="min-w-[6.5rem] text-right text-sm font-semibold text-white/80 whitespace-nowrap">{{ formattedSliderValue }}</span>
         </div>
       </template>
 

@@ -343,7 +343,7 @@ const settingDefinitions: SettingDefinition[] = [
     category: 'provider',
     providerId: 'reddit',
     label: 'Reddit Client ID',
-    infoUrl: 'https://docs.hayami.moe/reddit',
+    infoUrl: 'https://docs.hayami.moe/reddit-software-app',
     placeholder: 'Enter Reddit Client ID',
     fallback: '',
     load: async () => (await redditClientIdItem.getValue()) || '',
@@ -738,8 +738,37 @@ const showFeedbackFrame = ref(false);
 const isCompactLayout = ref(false);
 const feedbackFrameUrl = 'https://hayami.moe/appFeedb/feedbackiframe?source=hayami-extension';
 const feedbackAllowedOrigins = ['https://hayami.moe'];
+const hideScrollbarsClass = 'hayami-hide-scrollbars';
+const pwaScrollbarsClass = 'hayami-pwa-scrollbars';
+const isEmbeddedPopup = (() => {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+})();
 let successTimer: number | undefined;
 let errorTimer: number | undefined;
+
+function getScrollbarModeRoots(): HTMLElement[] {
+  return [document.documentElement, document.body, document.getElementById('app')]
+    .filter((node): node is HTMLElement => node instanceof HTMLElement);
+}
+
+function applyScrollbarModeClasses() {
+  const roots = getScrollbarModeRoots();
+  for (const root of roots) {
+    root.classList.toggle(hideScrollbarsClass, !isEmbeddedPopup);
+    root.classList.toggle(pwaScrollbarsClass, isEmbeddedPopup);
+  }
+}
+
+function clearScrollbarModeClasses() {
+  const roots = getScrollbarModeRoots();
+  for (const root of roots) {
+    root.classList.remove(hideScrollbarsClass, pwaScrollbarsClass);
+  }
+}
 
 // Reset popup scroll when changing between views so each screen starts at the top
 watch(currentView, async () => {
@@ -756,6 +785,7 @@ watch(currentView, async () => {
 });
 
 onMounted(async () => {
+  applyScrollbarModeClasses();
   updateLayoutMode();
 
   // Load custom sites immediately so the settings panel can render this list without waiting
@@ -779,6 +809,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  clearScrollbarModeClasses();
   window.removeEventListener('message', handleFeedbackMessage);
   window.removeEventListener('keydown', handleFeedbackKeydown);
   window.removeEventListener('resize', updateLayoutMode);
@@ -2142,9 +2173,63 @@ function triggerHeaderCustomMappingsImport() {
   background: #1f2329;
 }
 
-:global(::-webkit-scrollbar) {
+:global(html.hayami-hide-scrollbars::-webkit-scrollbar),
+:global(body.hayami-hide-scrollbars::-webkit-scrollbar),
+:global(html.hayami-hide-scrollbars *::-webkit-scrollbar),
+:global(body.hayami-hide-scrollbars *::-webkit-scrollbar) {
   width: 0;
   height: 0;
+}
+
+:global(html.hayami-pwa-scrollbars),
+:global(body.hayami-pwa-scrollbars),
+:global(html.hayami-pwa-scrollbars *),
+:global(body.hayami-pwa-scrollbars *) {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.24) rgba(255, 255, 255, 0.08);
+}
+
+:global(html.hayami-pwa-scrollbars),
+:global(body.hayami-pwa-scrollbars) {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+:global(#app.hayami-pwa-scrollbars) {
+  max-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+:global(html.hayami-pwa-scrollbars::-webkit-scrollbar),
+:global(body.hayami-pwa-scrollbars::-webkit-scrollbar),
+:global(html.hayami-pwa-scrollbars *::-webkit-scrollbar),
+:global(body.hayami-pwa-scrollbars *::-webkit-scrollbar) {
+  width: 10px;
+  height: 10px;
+}
+
+:global(html.hayami-pwa-scrollbars::-webkit-scrollbar-track),
+:global(body.hayami-pwa-scrollbars::-webkit-scrollbar-track),
+:global(html.hayami-pwa-scrollbars *::-webkit-scrollbar-track),
+:global(body.hayami-pwa-scrollbars *::-webkit-scrollbar-track) {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+:global(html.hayami-pwa-scrollbars::-webkit-scrollbar-thumb),
+:global(body.hayami-pwa-scrollbars::-webkit-scrollbar-thumb),
+:global(html.hayami-pwa-scrollbars *::-webkit-scrollbar-thumb),
+:global(body.hayami-pwa-scrollbars *::-webkit-scrollbar-thumb) {
+  background: rgba(255, 255, 255, 0.24);
+  border-radius: 999px;
+  border: 2px solid rgba(31, 35, 41, 0.85);
+}
+
+:global(html.hayami-pwa-scrollbars::-webkit-scrollbar-thumb:hover),
+:global(body.hayami-pwa-scrollbars::-webkit-scrollbar-thumb:hover),
+:global(html.hayami-pwa-scrollbars *::-webkit-scrollbar-thumb:hover),
+:global(body.hayami-pwa-scrollbars *::-webkit-scrollbar-thumb:hover) {
+  background: rgba(255, 255, 255, 0.35);
 }
 
 .fade-enter-active,
