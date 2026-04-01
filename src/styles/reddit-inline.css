@@ -1675,7 +1675,7 @@
   content: "";
   position: absolute;
   top: 0;
-  bottom: 0;
+  bottom: var(--thread-line-bottom, 0);
   left: -7px; /* keep sum margin-left + offset = 11 */
   width: 2px;
   background: #343536;
@@ -2875,11 +2875,12 @@
   color: #f87171;
 }
 
-/* ==================== Traditional (Tree-view threaded) Layout ==================== */
-/* Tree rails are row-driven from explicit metadata, never from nested border-left containers. */
+/* ==================== Traditional (Nested Comment) Layout ==================== */
+/* Clean nested tree-view inspired by ishadeed.com/article/comment-component   */
 
-.ri-comment.ri-traditional.depth-0::before,
-.ri-comment.ri-traditional.depth-0::after {
+/* --- Reset: suppress ALL threaded-mode pseudo-elements on traditional --- */
+.ri-comment.ri-traditional::before,
+.ri-comment.ri-traditional::after {
   content: none !important;
   display: none !important;
 }
@@ -2893,15 +2894,24 @@
   display: none !important;
 }
 
+/* Suppress threaded-mode spine + child connectors on traditional children */
+#reddit-inline-discussion .ri-trad-children::before,
+#reddit-inline-discussion .ri-trad-children.spine-hover::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* --- Base comment layout --- */
+/* --trad-spacing (1-5) is set on the list container; drives all gap/indent values */
 #reddit-inline-discussion .ri-comment.ri-traditional {
-  --ri-tree-indent: 18px;
-  --ri-tree-anchor-y: 18px;
-  --ri-tree-color: #343536;
-  --ri-tree-color-hover: #555;
+  --trad-avatar: 2rem;
+  --trad-line-color: #3a3a3c;
+  --trad-line-hover: #636366;
+  --trad-content-offset: calc(0.5rem + var(--trad-spacing, 3) * 0.25rem);
   display: flex;
-  gap: 10px;
-  padding: 8px 0;
-  margin-bottom: 4px;
+  gap: 0.5rem;
+  padding: calc(0.125rem + var(--trad-spacing, 3) * 0.25rem) 0;
+  margin: 0;
   position: relative;
   background: transparent;
   border: none;
@@ -2909,116 +2919,46 @@
 }
 
 #reddit-inline-discussion .ri-comment.ri-traditional.depth-0 {
-  padding: 12px 0;
-  margin-bottom: 8px;
+  padding: calc(0.25rem + var(--trad-spacing, 3) * 0.25rem) 0;
+  margin-bottom: 0;
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional > .ri-trad-gutter {
-  position: relative;
-  flex: 0 0 calc(var(--ri-tree-cols, 1) * var(--ri-tree-indent));
-  width: calc(var(--ri-tree-cols, 1) * var(--ri-tree-indent));
-  min-width: calc(var(--ri-tree-cols, 1) * var(--ri-tree-indent));
-  align-self: stretch;
-  pointer-events: none;
+/* Nested replies: smaller avatar */
+#reddit-inline-discussion .ri-comment.ri-traditional:not(.depth-0) {
+  --trad-avatar: 1.5rem;
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-rail,
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail,
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-elbow {
-  position: absolute;
-  background: var(--ri-tree-color);
+/* --- Avatar --- */
+#reddit-inline-discussion .ri-comment.ri-traditional > .ri-avatar {
+  width: var(--trad-avatar) !important;
+  height: var(--trad-avatar) !important;
+  flex: 0 0 var(--trad-avatar) !important;
+  min-width: var(--trad-avatar) !important;
+  min-height: var(--trad-avatar) !important;
+  max-width: var(--trad-avatar) !important;
+  max-height: var(--trad-avatar) !important;
+  border-radius: 50%;
+  margin: 0 !important;
+  object-fit: cover;
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-rail {
-  top: 0;
-  bottom: 0;
-  left: calc((var(--ri-tree-col, 0) * var(--ri-tree-indent)) + 8px);
-  width: 2px;
-  opacity: 0;
+#reddit-inline-discussion .ri-comment.ri-traditional > .ri-avatar-placeholder {
+  width: var(--trad-avatar);
+  height: var(--trad-avatar);
+  border-radius: 50%;
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-rail.ri-trad-rail--on {
-  opacity: 1;
+#reddit-inline-discussion .ri-comment.ri-traditional > .ri-avatar-collapsed-placeholder {
+  width: var(--trad-avatar);
+  height: var(--trad-avatar);
+  border-radius: 50%;
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail {
-  left: calc((var(--ri-tree-parent-col, 0) * var(--ri-tree-indent)) + 8px);
-  width: 2px;
-}
-
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail--top {
-  top: 0;
-  height: var(--ri-tree-anchor-y);
-}
-
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-parent-rail--bottom {
-  top: var(--ri-tree-anchor-y);
-  bottom: 0;
-}
-
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-elbow {
-  top: var(--ri-tree-anchor-y);
-  left: calc((var(--ri-tree-parent-col, 0) * var(--ri-tree-indent)) + 8px);
-  width: 10px;
-  height: 2px;
-}
-
-#reddit-inline-discussion .ri-comment.ri-traditional:hover .ri-trad-rail.ri-trad-rail--on,
-#reddit-inline-discussion .ri-comment.ri-traditional:hover .ri-trad-parent-rail,
-#reddit-inline-discussion .ri-comment.ri-traditional:hover .ri-trad-elbow {
-  background: var(--ri-tree-color-hover);
-}
-
-/* Top-level avatar: 36px */
-#reddit-inline-discussion .ri-comment.ri-traditional.depth-0 > .ri-avatar {
-  width: 36px !important;
-  height: 36px !important;
-  flex: 0 0 36px !important;
-  min-width: 36px !important;
-  min-height: 36px !important;
-  max-width: 36px !important;
-  max-height: 36px !important;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-}
-
-#reddit-inline-discussion .ri-comment.ri-traditional.depth-0 > .ri-avatar-placeholder {
-  width: 36px;
-  height: 36px;
-  margin-left: 0;
-}
-
-#reddit-inline-discussion .ri-comment.ri-traditional.depth-0 > .ri-avatar-collapsed-placeholder {
-  width: 36px;
-  height: 36px;
-  margin-left: 0;
-}
-
-/* Reply avatar: 28px */
-#reddit-inline-discussion .ri-comment.ri-traditional:not(.depth-0) > .ri-avatar {
-  width: 28px !important;
-  height: 28px !important;
-  flex: 0 0 28px !important;
-  min-width: 28px !important;
-  min-height: 28px !important;
-  max-width: 28px !important;
-  max-height: 28px !important;
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-}
-
-#reddit-inline-discussion .ri-comment.ri-traditional:not(.depth-0) > .ri-avatar-placeholder {
-  width: 28px;
-  height: 28px;
-  margin-left: 0;
-}
-
-/* No collapsed avatar filter in traditional mode */
-#reddit-inline-discussion .ri-comment.ri-traditional.depth-0.ri-collapsed > .ri-avatar {
+#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed > .ri-avatar {
   filter: none;
 }
 
-/* Comment body */
+/* --- Body --- */
 #reddit-inline-discussion .ri-comment.ri-traditional > .ri-body {
   flex: 1;
   min-width: 0;
@@ -3027,31 +2967,95 @@
 }
 
 #reddit-inline-discussion .ri-comment.ri-traditional .ri-username {
-  font-weight: 500;
-  font-size: 13px;
-  color: #d7dadc;
+  font-weight: 600;
+  font-size: 0.8125rem;
+  color: #e5e5e5;
 }
 
 #reddit-inline-discussion .ri-comment.ri-traditional .ri-text {
-  font-size: 14px;
-  line-height: 20px;
-  color: #d7dadc;
-  margin-top: 4px;
+  font-size: 0.875rem;
+  line-height: 1.43;
+  color: #d1d1d6;
+  margin-top: 0.25rem;
 }
 
-/* Children inherit indentation from per-row gutters only. */
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-children,
-#reddit-inline-discussion .ri-trad-children {
-  margin-left: 0;
-  padding-left: 0;
+/* --- Vertical connector line from parent avatar down to children --- */
+/* Re-enable ::after only when this comment has visible children */
+#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-body > .ri-trad-children)::after {
+  content: "" !important;
+  display: block !important;
+  position: absolute;
+  left: calc(var(--trad-avatar) / 2 - 1px);
+  top: calc(var(--trad-avatar) + 0.5rem + var(--trad-spacing, 3) * 0.25rem);
+  bottom: var(--trad-line-bottom, 0);
+  height: auto;
+  width: 2px;
+  background: var(--trad-line-color);
+  pointer-events: none;
+  z-index: 1;
+  border: none !important;
+  border-radius: 1px;
+  opacity: 1 !important;
+}
+
+/* --- Clickable hit area over the vertical line --- */
+#reddit-inline-discussion .ri-comment.ri-traditional > .ri-trad-line-hit {
+  position: absolute;
+  left: calc(var(--trad-avatar) / 2 - 10px);
+  top: calc(var(--trad-avatar) + 0.5rem + var(--trad-spacing, 3) * 0.25rem);
+  bottom: var(--trad-line-bottom, 0);
+  width: 20px;
+  cursor: pointer;
+  z-index: 2;
+  background: transparent;
+}
+
+/* Hover: brighten vertical line when hit area is hovered */
+#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover)::after {
+  background: var(--trad-line-hover);
+}
+
+/* Hover: brighten direct-child elbow connectors when line is hovered */
+#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover) > .ri-body > .ri-trad-children > .ri-comment.ri-traditional::before {
+  border-color: var(--trad-line-hover);
+}
+
+/* --- Children container: break out of body to align with avatar column --- */
+#reddit-inline-discussion .ri-comment.ri-traditional > .ri-body > .ri-trad-children {
+  margin-left: calc(-1 * (var(--trad-avatar) + 0.5rem));
+  padding-left: calc(var(--trad-avatar) / 2 + var(--trad-content-offset));
+  width: calc(100% + var(--trad-avatar) + 0.5rem);
   border-left: none !important;
-  margin-top: 4px;
+  margin-top: 0.25rem;
   position: relative;
+  overflow: visible;
 }
 
-/* Collapsed state */
+/* --- Tree connector: curved elbow on each child comment --- */
+/* Re-enable ::before for children inside trad-children */
+#reddit-inline-discussion .ri-trad-children > .ri-comment.ri-traditional::before {
+  content: "" !important;
+  display: block !important;
+  position: absolute;
+  left: calc(-1 * var(--trad-content-offset) - 1px);
+  top: 0;
+  height: calc(var(--trad-avatar) / 2 + 0.125rem + var(--trad-spacing, 3) * 0.25rem);
+  width: var(--trad-content-offset);
+  border-left: 2px solid var(--trad-line-color);
+  border-bottom: 2px solid var(--trad-line-color);
+  border-bottom-left-radius: 10px;
+  border-right: none !important;
+  border-top: none !important;
+  background: transparent !important;
+  pointer-events: none;
+  opacity: 1 !important;
+  z-index: 1;
+}
+
+/* --- Collapsed state --- */
 #reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed {
   opacity: 1;
+  cursor: pointer;
 }
 
 #reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-text,
@@ -3062,23 +3066,79 @@
 }
 
 #reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed:hover {
-  opacity: 1;
+  opacity: 0.85;
 }
 
-/* "Show more replies" in traditional mode */
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-load-more {
-  margin: 8px 0 4px 0;
-  padding: 8px 16px;
-  background: none;
-  border: none;
-  border-radius: 0;
-  color: #3ea6ff;
-  font-size: 13px;
+/* --- Reply toggle: YouTube-style dark pill button --- */
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-reply-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #262626;
+  color: #aaa;
+  font-size: 0.8125rem;
   font-weight: 500;
+  border: none;
+  border-radius: 1.125rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-reply-toggle:hover {
+  background: #3a3a3a;
+}
+
+/* --- Load more: YouTube-style dark pill button --- */
+#reddit-inline-discussion .ri-comment.ri-traditional .ri-load-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0.5rem 0 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  color: #aaa;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  border: none;
+  border-radius: 1.125rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative; /* for elbow pseudo-element */
 }
 
 #reddit-inline-discussion .ri-comment.ri-traditional .ri-load-more:hover:not(:disabled) {
-  background: none;
-  border: none;
-  color: #65b8ff;
+  background: #3a3a3a;
+  color: #ccc;
 }
+
+/* --- Elbow connector on load-more buttons (YouTube-style curve) --- */
+#reddit-inline-discussion .ri-trad-children > .ri-load-more::before {
+  content: "";
+  display: block;
+  position: absolute;
+  left: calc(-1 * var(--trad-content-offset) - 1px);
+  top: 0;
+  height: 50%;
+  width: var(--trad-content-offset);
+  border-left: 2px solid var(--trad-line-color);
+  border-bottom: 2px solid var(--trad-line-color);
+  border-bottom-left-radius: 10px;
+  border-right: none;
+  border-top: none;
+  background: transparent;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Hover: brighten load-more elbow when parent line is hovered */
+#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover) > .ri-body > .ri-trad-children > .ri-load-more::before {
+  border-color: var(--trad-line-hover);
+}
+
+/* --- Line truncation note ---
+   JS (updateTruncatedLines in RedditComment.vue) sets --trad-line-bottom and
+   --thread-line-bottom via getBoundingClientRect when the .truncate-lines
+   ancestor class is present.  The variables are consumed directly by the base
+   ::after / ::before / .ri-trad-line-hit rules above (fallback: 0 = full length). */

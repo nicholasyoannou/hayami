@@ -45,7 +45,19 @@ export const redditMaxInlineDepthItem = storage.defineItem<number>(
 
 export const redditCommentLayoutItem = storage.defineItem<RedditCommentLayoutOption>(
   'local:reddit_comment_layout',
-  { fallback: 'threaded' }
+  { fallback: 'traditional' }
+);
+
+// Traditional layout spacing level (1-5, controls vertical gap + indentation depth)
+export const redditTraditionalSpacingItem = storage.defineItem<number>(
+  'local:reddit_traditional_spacing',
+  { fallback: 3 }
+);
+
+// Truncate vertical thread lines at the last reply (instead of extending to the bottom)
+export const redditTruncateLinesItem = storage.defineItem<boolean>(
+  'local:reddit_truncate_lines',
+  { fallback: true }
 );
 
 export const displayModeItem = storage.defineItem<DisplayModeOption>(

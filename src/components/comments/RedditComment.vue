@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, onUpdated, nextTick, watch } from 'vue';
 import { voteThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
 import { markdownToHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
@@ -291,6 +291,126 @@ onUnmounted(() => {
   document.removeEventListener('click', closeOwnMenu);
 });
 
+/* ---- Line truncation (JS-driven) ----
+ * Calculates the precise bottom offset for each parent's vertical connector
+ * line so it stops at the last child's avatar center (traditional) or elbow
+ * connector bottom (threaded).  The value is written as a CSS custom property
+ * and consumed by the `.truncate-lines` CSS rules.
+ */
+let truncationRO: ResizeObserver | null = null;
+
+function updateTruncatedLines() {
+  // Traditional mode – set --trad-line-bottom on the root .ri-comment element
+  if (isTraditional.value) {
+    if (!rootEl.value) return;
+
+    // Only truncate when the setting is active (ancestor has .truncate-lines)
+    if (!rootEl.value.closest('.truncate-lines')) {
+      rootEl.value.style.removeProperty('--trad-line-bottom');
+      return;
+    }
+
+    const tradChildren = rootEl.value.querySelector(':scope > .ri-body > .ri-trad-children');
+    if (!tradChildren) {
+      rootEl.value.style.removeProperty('--trad-line-bottom');
+      return;
+    }
+
+    const parentRect = rootEl.value.getBoundingClientRect();
+
+    // The elbow connectors use border-bottom-left-radius: 10px.  The parent
+    // line must stop where the curve *begins* (10px above the corner point),
+    // otherwise the straight line overshoots past the visible curve.
+    const CURVE_RADIUS = 10;
+
+    // If load-more buttons exist, extend line to the last button's elbow curve start
+    const loadMoreBtns = tradChildren.querySelectorAll(':scope > .ri-load-more');
+    if (loadMoreBtns.length > 0) {
+      const lastBtn = loadMoreBtns[loadMoreBtns.length - 1] as HTMLElement;
+      const btnRect = lastBtn.getBoundingClientRect();
+      const btnCenterY = btnRect.top + btnRect.height / 2;
+      const lineBottom = Math.max(0, parentRect.bottom - (btnCenterY - CURVE_RADIUS));
+      rootEl.value.style.setProperty('--trad-line-bottom', `${lineBottom}px`);
+      return;
+    }
+
+    // No load-more buttons: stop at the last comment's elbow curve start
+    const lastComment = tradChildren.querySelector(':scope > .ri-comment:last-of-type') as HTMLElement | null;
+    if (lastComment) {
+      const avatar = lastComment.querySelector(':scope > .ri-avatar') as HTMLElement | null;
+      if (avatar) {
+        const avatarRect = avatar.getBoundingClientRect();
+        const avatarCenterY = avatarRect.top + avatarRect.height / 2;
+        const lineBottom = Math.max(0, parentRect.bottom - (avatarCenterY - CURVE_RADIUS));
+        rootEl.value.style.setProperty('--trad-line-bottom', `${lineBottom}px`);
+        return;
+      }
+    }
+
+    rootEl.value.style.removeProperty('--trad-line-bottom');
+    return;
+  }
+
+  // Threaded mode – set --thread-line-bottom on the .ri-children container
+  if (childrenHost.value) {
+    // Only truncate when the setting is active
+    if (!childrenHost.value.closest('.truncate-lines')) {
+      childrenHost.value.style.removeProperty('--thread-line-bottom');
+      return;
+    }
+
+    const hostRect = childrenHost.value.getBoundingClientRect();
+
+    // Threaded elbow uses border-bottom-left-radius: 6px
+    const THREAD_CURVE_RADIUS = 6;
+
+    // If load-more buttons exist, extend line to the last button's center
+    const loadMoreBtns = childrenHost.value.querySelectorAll(':scope > .ri-load-more');
+    if (loadMoreBtns.length > 0) {
+      const lastBtn = loadMoreBtns[loadMoreBtns.length - 1] as HTMLElement;
+      const btnRect = lastBtn.getBoundingClientRect();
+      const btnCenterY = btnRect.top + btnRect.height / 2;
+      const lineBottom = Math.max(0, hostRect.bottom - (btnCenterY - THREAD_CURVE_RADIUS));
+      childrenHost.value.style.setProperty('--thread-line-bottom', `${lineBottom}px`);
+      return;
+    }
+
+    // No load-more buttons: stop at the last comment's elbow curve start
+    const lastComment = childrenHost.value.querySelector(':scope > .ri-comment:last-of-type') as HTMLElement | null;
+    if (lastComment) {
+      const lastChildRect = lastComment.getBoundingClientRect();
+      // Elbow connector: top 5px + height 12px → bottom at 17px from child top
+      // Curve starts 6px above that (border-bottom-left-radius: 6px)
+      const elbowBottomY = lastChildRect.top + 17;
+      const lineBottom = Math.max(0, hostRect.bottom - (elbowBottomY - THREAD_CURVE_RADIUS));
+      childrenHost.value.style.setProperty('--thread-line-bottom', `${lineBottom}px`);
+    } else {
+      childrenHost.value.style.removeProperty('--thread-line-bottom');
+    }
+  }
+}
+
+onMounted(() => {
+  nextTick(() => {
+    updateTruncatedLines();
+    // Observe own size changes so that descendant expansions (which
+    // change this element's height) trigger a recalculation.
+    if (rootEl.value) {
+      truncationRO = new ResizeObserver(updateTruncatedLines);
+      truncationRO.observe(rootEl.value);
+    }
+  });
+});
+
+onUpdated(() => {
+  nextTick(updateTruncatedLines);
+});
+
+onUnmounted(() => {
+  truncationRO?.disconnect();
+  truncationRO = null;
+});
+
 function toggleCollapse() {
   isCollapsed.value = !isCollapsed.value;
   emit('collapse', props.comment.id, isCollapsed.value);
@@ -456,9 +576,17 @@ function handleRootClick(ev: MouseEvent) {
 }
 
 // Handle clicks on the entire comment container:
-// - For depth 0, defer to handleRootClick (line-based toggle)
-// - For deeper comments, if currently collapsed, expand on click anywhere in the container
+// - Traditional mode: click anywhere on a collapsed comment to re-expand
+// - Threaded depth 0: defer to handleRootClick (line-based toggle)
+// - Threaded deeper: if collapsed, expand on click anywhere
 function handleContainerClick(ev: MouseEvent) {
+  if (isTraditional.value) {
+    if (isCollapsed.value) {
+      ev.stopPropagation();
+      toggleCollapse();
+    }
+    return;
+  }
   if (depth.value === 0) {
     handleRootClick(ev);
     return;
@@ -467,6 +595,10 @@ function handleContainerClick(ev: MouseEvent) {
     ev.stopPropagation();
     toggleCollapse();
   }
+}
+
+function handleTradLineClick() {
+  toggleCollapse();
 }
 
 async function handleUpvote() {
@@ -766,6 +898,9 @@ const visibleReplies = computed(() => {
 });
 
 const hasMoreReplies = computed(() => localReplies.value.length > visibleReplies.value.length);
+const hasChildrenSection = computed(
+  () => visibleReplies.value.length > 0 || hasMoreChildren.value || hasMoreReplies.value,
+);
 
 const maxInlineDepth = computed(() => {
   const raw = Math.floor(Number(props.maxInlineDepth ?? 8));
@@ -837,7 +972,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
     @mousemove="!isTraditional && handleRootMouseMove($event)"
     @mouseenter="!isTraditional && handleRootMouseMove($event)"
     @mouseleave="!isTraditional && handleRootMouseLeave()"
-    @click="!isTraditional && handleContainerClick($event)"
+    @click="handleContainerClick($event)"
   >
     <div
       v-if="depth === 0 && !isTraditional"
@@ -863,29 +998,14 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
         @click.stop="toggleCollapse"
       ></div>
     </div>
-    <div v-else class="ri-trad-gutter" aria-hidden="true">
-      <span
-        v-for="(shouldContinue, colIndex) in treeAncestorContinuations"
-        :key="`tree-col-${comment.id}-${colIndex}`"
-        class="ri-trad-rail"
-        :class="{ 'ri-trad-rail--on': shouldContinue }"
-        :style="{ '--ri-tree-col': String(colIndex) }"
-      ></span>
-      <span
-        v-if="treeMetadata.depth > 0"
-        class="ri-trad-parent-rail ri-trad-parent-rail--top"
-      ></span>
-      <span
-        v-if="treeMetadata.depth > 0 && !treeMetadata.isLastSibling"
-        class="ri-trad-parent-rail ri-trad-parent-rail--bottom"
-      ></span>
-      <span
-        v-if="treeMetadata.depth > 0"
-        class="ri-trad-elbow"
-      ></span>
-    </div>
-    
-    <div 
+    <!-- Traditional mode: tree connectors handled by CSS pseudo-elements -->
+    <div
+      v-if="isTraditional && hasChildrenSection && !isCollapsed"
+      class="ri-trad-line-hit"
+      @click.stop="handleTradLineClick"
+    ></div>
+
+    <div
       v-if="showExpandAvatar" 
       class="ri-avatar ri-avatar-placeholder ri-avatar-collapsed-placeholder" 
       @click.stop="toggleCollapse"
@@ -902,7 +1022,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
     <div class="ri-body">
       <div class="ri-line1" :class="{ 'ri-line1--flair-below': isFlairBelow }">
         <span class="ri-username">u/{{ comment.author }}</span>
-        <span v-if="comment.distinguished === 'moderator'" class="ri-mod-badge">MOD</span>
+        <span v-if="String(comment.distinguished || '').toLowerCase() === 'moderator'" class="ri-mod-badge">MOD</span>
         <span v-if="flairHtml && !isFlairBelow" v-html="flairHtml"></span>
         <span
           v-if="comment.stickied"
@@ -1007,20 +1127,10 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       <!-- Reply input slot -->
       <slot name="reply-editor" :comment="comment"></slot>
       
-      <!-- Traditional: reply toggle button (shown before children) -->
-      <button
-        v-if="isTraditional && totalReplyCount > 0"
-        class="ri-trad-reply-toggle"
-        @click.stop="toggleRepliesExpanded"
-      >
-        <span class="ri-trad-toggle-arrow">{{ repliesExpanded ? '&#9650;' : '&#9660;' }}</span>
-        {{ repliesExpanded ? 'Hide replies' : `${totalReplyCount} replies` }}
-      </button>
-
       <!-- Children -->
       <!-- Render children section if there are visible replies OR if there are more children to load -->
       <div
-        v-if="!isCollapsed && (isTraditional ? repliesExpanded : true) && (visibleReplies.length > 0 || hasMoreChildren || hasMoreReplies)"
+        v-if="!isCollapsed && hasChildrenSection"
         class="ri-children"
         :class="{
           'spine-hover': isSpineHover,
@@ -1258,30 +1368,36 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
   margin-top: 8px;
 }
 
-/* Traditional layout reply toggle button (YouTube-style) */
+/* Traditional layout reply toggle button (YouTube-style dark pill) */
 .ri-trad-reply-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
-  padding: 8px 16px;
-  color: #3ea6ff;
-  font-size: 14px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  color: #aaa;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  background: none;
+  background: #262626;
   border: none;
   border-radius: 18px;
   transition: background 0.15s;
 }
 
 .ri-trad-reply-toggle:hover {
-  background: rgba(62, 166, 255, 0.12);
+  background: #3a3a3a;
 }
 
 .ri-trad-toggle-arrow {
   display: inline-block;
   font-size: 10px;
   line-height: 1;
+}
+
+/* Clickable line hit area */
+.ri-trad-line-hit {
+  position: absolute;
+  cursor: pointer;
 }
 </style>

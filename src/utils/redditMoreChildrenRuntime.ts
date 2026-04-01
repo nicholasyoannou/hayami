@@ -1,6 +1,6 @@
 import { getAccessToken } from './redditAuth';
 import { extensionFetchTransport } from './redditTransport';
-import { parseComments, parseLegacyContentMeta } from './redditCommentParsing';
+import { parseComments, parseLegacyContentMeta, resolveCommentDistinguished } from './redditCommentParsing';
 import type { RedditComment, RedditCommentSort } from './redditApi';
 
 type GetMoreChildrenOptions = {
@@ -123,7 +123,7 @@ export async function getMoreChildrenRuntime(
           edited: d.edited,
           likes: d.likes,
           stickied: d.stickied,
-          distinguished: d.distinguished,
+          distinguished: resolveCommentDistinguished(d, d.content || d.contentHTML || d.body_html || ''),
           is_submitter: d.is_submitter,
           author_flair_text: d.author_flair_text || legacyMeta?.flairText || null,
           author_flair_richtext: d.author_flair_richtext || legacyMeta?.flairRichtext,

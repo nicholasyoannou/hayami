@@ -1,5 +1,29 @@
 import type { RedditComment } from './redditApi';
 
+function normalizeDistinguished(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+export function resolveCommentDistinguished(data: any, legacyContent?: string): string | undefined {
+  const direct = normalizeDistinguished(data?.distinguished ?? data?.distinguished_type);
+  if (direct) return direct;
+
+  // Some Reddit payload variants expose role flags instead of `distinguished`.
+  if (data?.author_is_mod === true || data?.is_author_mod === true || data?.author_is_moderator === true) {
+    return 'moderator';
+  }
+  if (data?.author_is_admin === true || data?.is_admin === true || data?.author_is_employee === true) {
+    return 'admin';
+  }
+
+  const legacyMeta = parseLegacyContentMeta(
+    legacyContent || data?.content || data?.contentHTML || data?.body_html || '',
+  );
+  return normalizeDistinguished(legacyMeta?.distinguished);
+}
+
 export function parseComments(children: any[], devDebug: (...args: any[]) => void = () => {}): RedditComment[] {
   return children
     .filter(child => child.kind === 't1') // t1 = comment
@@ -25,7 +49,7 @@ export function parseComments(children: any[], devDebug: (...args: any[]) => voi
         edited: data.edited,
         likes: data.likes,
         stickied: data.stickied,
-        distinguished: data.distinguished,
+        distinguished: resolveCommentDistinguished(data),
         is_submitter: data.is_submitter,
         author_flair_text: data.author_flair_text || null,
         author_flair_richtext: data.author_flair_richtext,
@@ -98,6 +122,7 @@ export function parseLegacyContentMeta(content: string): {
   author?: string;
   createdUtc?: number;
   score?: number;
+  distinguished?: string;
   flairText?: string;
   flairRichtext?: Array<{ e?: string; t?: string; a?: string; u?: string }>;
 } | null {
@@ -149,6 +174,20 @@ export function parseLegacyContentMeta(content: string): {
         if (Number.isFinite(parsed)) {
           score = parsed;
         }
+      }
+    }
+
+    let distinguished: string | undefined;
+    const distinguishedAttrMatch = decoded.match(/(?:data-distinguished|distinguished)=["']([^"']+)["']/i);
+    if (distinguishedAttrMatch?.[1]) {
+      distinguished = normalizeDistinguished(distinguishedAttrMatch[1]);
+    }
+    if (!distinguished) {
+      if (/<span[^>]*class=["'][^"']*\bmoderator\b[^"']*["']/i.test(decoded)) {
+        distinguished = 'moderator';
+      }
+      else if (/<span[^>]*class=["'][^"']*\badmin\b[^"']*["']/i.test(decoded)) {
+        distinguished = 'admin';
       }
     }
 
@@ -228,6 +267,7 @@ export function parseLegacyContentMeta(content: string): {
       author,
       createdUtc,
       score,
+      distinguished,
       flairText,
       flairRichtext: flairRichtext.length > 0 ? flairRichtext : undefined,
     };

@@ -8,11 +8,11 @@ import TipTapCommentEditor from './TipTapCommentEditor.vue';
 import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/utils/redditApi';
 import { useDisqusSearch } from '@/composables/useDisqusSearch';
 import { useManualSearch, type Provider, type AniListSearchMedia, type MalSearchMedia } from '@/composables/useManualSearch';
-import { getCurrentUsername, isAuthenticated } from '@/utils/redditAuth';
+import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem } from '@/config/storage';
 
 interface Discussion {
   id: string;
@@ -324,7 +324,24 @@ async function startGuidedRedditLogin() {
 
 async function loadCurrentUsername() {
   try {
-    const connected = await isAuthenticated();
+    const configuredClientId = (await redditClientIdItem.getValue())?.trim() || '';
+
+    if (configuredClientId) {
+      const connected = await isAuthenticated();
+      redditAuthenticated.value = connected;
+
+      if (!connected) {
+        currentUsername.value = null;
+        return;
+      }
+
+      currentUsername.value = await getCurrentUsername();
+      return;
+    }
+
+    // Cookie-session mode (no configured client ID): trust background cookie check.
+    const cookieState = await browser.runtime.sendMessage({ action: 'hayami_checkRedditTokenCookie' });
+    const connected = !!cookieState?.loggedIn;
     redditAuthenticated.value = connected;
 
     if (!connected) {
@@ -332,8 +349,24 @@ async function loadCurrentUsername() {
       return;
     }
 
-    const username = await getCurrentUsername();
-    currentUsername.value = username;
+    let username = await getStoredUsername();
+    if (!username) {
+      try {
+        const profile = await browser.runtime.sendMessage({ action: 'hayami_getRedditCookieSessionProfile' });
+        const profileUsername = typeof profile?.username === 'string' ? profile.username.trim() : '';
+        if (profile?.loggedIn && profileUsername) {
+          username = profileUsername;
+          await browser.storage.local.set({
+            reddit_username: profileUsername,
+            reddit_profile_pic: profile?.profilePic || null,
+          });
+        }
+      } catch {
+        // Keep auth as connected even if profile hydration fails.
+      }
+    }
+
+    currentUsername.value = username || null;
   } catch (e) {
     console.warn('Failed to load current username', e);
     redditAuthenticated.value = false;

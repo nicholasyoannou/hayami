@@ -8,6 +8,7 @@ import { extensionFetchTransport, crProxyFetchTransport } from './redditTranspor
 import {
   getSubredditAboutCachedInternal,
   getSubredditEmojiMapInternal,
+  getSubredditModeratorSetInternal,
 } from './redditSubredditCache';
 import { getPostCommentsRuntime } from './redditCommentsRuntime';
 import { getMoreChildrenRuntime } from './redditMoreChildrenRuntime';
@@ -228,6 +229,10 @@ export async function getSubredditAboutCached(subreddit: string): Promise<any | 
  */
 export async function getSubredditEmojiMap(subreddit: string): Promise<Record<string, string>> {
   return getSubredditEmojiMapInternal(subreddit);
+}
+
+export async function getSubredditModeratorSet(subreddit: string): Promise<Set<string>> {
+  return getSubredditModeratorSetInternal(subreddit);
 }
 
 export async function getPostComments(postId: string, sort: RedditCommentSort = 'confidence'): Promise<RedditCommentsResult> {

@@ -45,6 +45,8 @@ import {
   redditDeepReplyModeItem,
   redditMaxInlineDepthItem,
   redditCommentLayoutItem,
+  redditTraditionalSpacingItem,
+  redditTruncateLinesItem,
   linkOnlyModeItem,
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
@@ -93,6 +95,8 @@ type SettingValueMap = {
   redditFlairPosition: RedditFlairPositionOption;
   redditDeepReplyMode: RedditDeepReplyModeOption;
   redditCommentLayout: RedditCommentLayoutOption;
+  redditTraditionalSpacing: number;
+  redditTruncateLines: boolean;
   redditMaxInlineDepth: number;
   commentTextSizeIncrease: number;
   imgurClientId: string;
@@ -476,6 +480,52 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to update comment layout',
   },
   {
+    key: 'redditTraditionalSpacing',
+    type: 'slider',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Traditional layout spacing',
+    description: 'Adjust breathing room between nested comment layers in traditional layout.',
+    min: 1,
+    max: 5,
+    step: 1,
+    formatValue: (value) => {
+      const labels: Record<number, string> = { 1: 'Compact', 2: 'Snug', 3: 'Comfortable', 4: 'Spacious', 5: 'Roomy' };
+      return labels[Number(value)] ?? 'Comfortable';
+    },
+    fallback: 3,
+    load: async () => {
+      const raw = await redditTraditionalSpacingItem.getValue();
+      const num = Math.floor(Number(raw));
+      return !Number.isFinite(num) ? 3 : Math.max(1, Math.min(5, num));
+    },
+    save: async (value) => {
+      const clamped = Math.max(1, Math.min(5, Math.floor(Number(value) || 3)));
+      await redditTraditionalSpacingItem.setValue(clamped);
+    },
+    successMessage: (value) => {
+      const labels: Record<number, string> = { 1: 'Compact', 2: 'Snug', 3: 'Comfortable', 4: 'Spacious', 5: 'Roomy' };
+      return `Traditional spacing set to ${labels[Number(value)] ?? 'Comfortable'}`;
+    },
+    errorMessage: 'Failed to save traditional spacing',
+  },
+  {
+    key: 'redditTruncateLines',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Truncate thread lines at last reply',
+    description: 'Stop vertical connector lines at the last reply instead of extending to the bottom of the thread. Applies to both layout modes.',
+    fallback: true,
+    load: async () => {
+      const value = await redditTruncateLinesItem.getValue();
+      return value !== false;
+    },
+    save: async (value) => redditTruncateLinesItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Thread lines truncated at last reply' : 'Thread lines extend to full height'),
+    errorMessage: 'Failed to save line truncation setting',
+  },
+  {
     key: 'aniwaveAutoExpandAll',
     type: 'toggle',
     category: 'provider',
@@ -610,7 +660,9 @@ const settingValues = reactive<SettingValueMap>({
   redditShowFlairs: true,
   redditFlairPosition: 'inline',
   redditDeepReplyMode: 'popup',
-  redditCommentLayout: 'threaded',
+  redditCommentLayout: 'traditional',
+  redditTraditionalSpacing: 3,
+  redditTruncateLines: true,
   redditMaxInlineDepth: 7,
   redditClientId: '',
   commentTextSizeIncrease: 0,

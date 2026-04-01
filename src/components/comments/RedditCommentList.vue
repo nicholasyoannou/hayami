@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import RedditComment from './RedditComment.vue';
-import { getPostComments, getMoreChildren, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
-import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem } from '@/config/storage';
+import { getPostComments, getMoreChildren, getSubredditModeratorSet, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
+import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem } from '@/config/storage';
 import { getCurrentUsername } from '@/utils/redditAuth';
 
 const props = defineProps<{
@@ -37,11 +37,15 @@ const error = ref<string | null>(null);
 const currentSort = ref<RedditCommentSort>(props.initialSort || 'confidence');
 const highlightIds = ref<Set<string>>(new Set());
 const rootMoreIds = ref<string[]>([]);
+const moderatorUsernames = ref<Set<string>>(new Set());
+const moderatorLookupSubreddit = ref<string | null>(null);
 
 const textSizeIncrease = ref(0);
 const deepReplyMode = ref<'popup' | 'reddit'>('popup');
 const maxInlineDepth = ref(8);
-const commentLayout = ref<'threaded' | 'traditional'>('threaded');
+const commentLayout = ref<'threaded' | 'traditional'>('traditional');
+const traditionalSpacing = ref(3);
+const truncateLines = ref(true);
 
 function clampTextSizeIncrease(value: unknown): number {
   const amount = Math.floor(Number(value));
@@ -82,6 +86,20 @@ onMounted(async () => {
   } catch (error) {
     console.warn('Failed to load Reddit comment layout:', error);
   }
+
+  try {
+    const raw = await redditTraditionalSpacingItem.getValue();
+    const num = Math.floor(Number(raw));
+    traditionalSpacing.value = Number.isFinite(num) ? Math.max(1, Math.min(5, num)) : 3;
+  } catch (error) {
+    console.warn('Failed to load traditional spacing:', error);
+  }
+
+  try {
+    truncateLines.value = (await redditTruncateLinesItem.getValue()) !== false;
+  } catch (error) {
+    console.warn('Failed to load truncate lines setting:', error);
+  }
 });
 
 const effectiveTextSizeIncrease = computed(() =>
@@ -93,6 +111,7 @@ const effectiveLayout = computed(() => props.layout || commentLayout.value);
 
 const textSizeStyles = computed(() => ({
   '--ri-comment-text-size-increase': `${effectiveTextSizeIncrease.value}px`,
+  '--trad-spacing': String(traditionalSpacing.value),
 }));
 
 const deepViewRoot = ref<RedditCommentData | null>(null);
@@ -176,6 +195,10 @@ function mergeRepliesById(
   existing: RedditCommentData[] | undefined,
   incoming: RedditCommentData[] | undefined,
 ): RedditCommentData[] {
+  const keepExistingWhenMissing = <T>(nextValue: T | null | undefined, prevValue: T): T => {
+    return nextValue == null ? prevValue : nextValue;
+  };
+
   const existingList = Array.isArray(existing) ? existing : [];
   const incomingList = Array.isArray(incoming) ? incoming : [];
   if (incomingList.length === 0) return [...existingList];
@@ -198,10 +221,87 @@ function mergeRepliesById(
       replies: mergeRepliesById(prev.replies, item.replies),
       moreChildrenIds: item.moreChildrenIds ?? prev.moreChildrenIds,
       moreCount: item.moreCount ?? prev.moreCount,
+      distinguished: keepExistingWhenMissing(item.distinguished, prev.distinguished),
+      stickied: keepExistingWhenMissing(item.stickied, prev.stickied),
+      is_submitter: keepExistingWhenMissing(item.is_submitter, prev.is_submitter),
+      author_flair_text: keepExistingWhenMissing(item.author_flair_text, prev.author_flair_text),
+      author_flair_richtext: keepExistingWhenMissing(item.author_flair_richtext, prev.author_flair_richtext),
+      author_flair_background_color: keepExistingWhenMissing(item.author_flair_background_color, prev.author_flair_background_color),
+      author_flair_text_color: keepExistingWhenMissing(item.author_flair_text_color, prev.author_flair_text_color),
     });
   }
 
   return Array.from(byId.values());
+}
+
+function normalizeSubredditName(value?: string | null): string {
+  return String(value || '').replace(/^r\//i, '').trim().toLowerCase();
+}
+
+function normalizeRedditUsername(value?: string | null): string {
+  return String(value || '').replace(/^u\//i, '').trim().toLowerCase();
+}
+
+function extractSubredditFromPermalink(permalink?: string): string {
+  const path = String(permalink || '');
+  const match = path.match(/\/r\/([^/]+)/i);
+  return normalizeSubredditName(match?.[1] || '');
+}
+
+function findSubredditInCommentTree(list: RedditCommentData[] | undefined): string {
+  if (!Array.isArray(list) || list.length === 0) return '';
+  for (const comment of list) {
+    const fromPermalink = extractSubredditFromPermalink(comment.permalink);
+    if (fromPermalink) return fromPermalink;
+    if (Array.isArray(comment.replies) && comment.replies.length > 0) {
+      const nested = findSubredditInCommentTree(comment.replies);
+      if (nested) return nested;
+    }
+  }
+  return '';
+}
+
+function resolveSubredditForModeratorLookup(seedComments?: RedditCommentData[]): string {
+  const fromProps = normalizeSubredditName(props.subreddit || '');
+  if (fromProps) return fromProps;
+  const fromSeed = findSubredditInCommentTree(seedComments);
+  if (fromSeed) return fromSeed;
+  return findSubredditInCommentTree(comments.value);
+}
+
+async function ensureModeratorUsernames(seedComments?: RedditCommentData[]): Promise<void> {
+  const subreddit = resolveSubredditForModeratorLookup(seedComments);
+  if (!subreddit) return;
+  if (moderatorLookupSubreddit.value === subreddit && moderatorUsernames.value.size > 0) return;
+  try {
+    moderatorUsernames.value = await getSubredditModeratorSet(subreddit);
+    moderatorLookupSubreddit.value = subreddit;
+  } catch (e) {
+    console.warn('Failed to load subreddit moderators for badge fallback:', e);
+  }
+}
+
+function applyModeratorFallback(list: RedditCommentData[] | undefined): void {
+  if (!Array.isArray(list) || list.length === 0) return;
+  const mods = moderatorUsernames.value;
+  if (!mods || mods.size === 0) return;
+
+  const walk = (nodes: RedditCommentData[]) => {
+    for (const node of nodes) {
+      const role = String(node.distinguished || '').trim().toLowerCase();
+      if (!role) {
+        const author = normalizeRedditUsername(node.author);
+        if (author && mods.has(author)) {
+          node.distinguished = 'moderator';
+        }
+      }
+      if (Array.isArray(node.replies) && node.replies.length > 0) {
+        walk(node.replies);
+      }
+    }
+  };
+
+  walk(list);
 }
 
 async function loadComments(sort: RedditCommentSort = 'confidence') {
@@ -243,6 +343,8 @@ async function loadComments(sort: RedditCommentSort = 'confidence') {
     }
 
     comments.value = tagMine(result.comments || []);
+  await ensureModeratorUsernames(comments.value);
+  applyModeratorFallback(comments.value);
     rootMoreIds.value = Array.isArray(result.rootMoreChildrenIds) ? [...result.rootMoreChildrenIds] : [];
     renderedCount.value = Math.min(pageSize, comments.value.length);
     // hasMore should be true if there are more comments to show OR if there are rootMoreIds to fetch
@@ -279,6 +381,8 @@ function loadMoreComments() {
         subreddit: props.subreddit,
       });
       if (Array.isArray(added) && added.length > 0) {
+        await ensureModeratorUsernames(added);
+        applyModeratorFallback(added);
         comments.value = mergeRepliesById(comments.value, added);
         renderedCount.value = Math.min(comments.value.length, renderedCount.value + added.length);
       }
@@ -356,6 +460,8 @@ async function loadMoreForComment(commentId: string) {
     
     // Merge new replies with existing ones - create new array to ensure reactivity
     const filteredAdded = (Array.isArray(added) ? added : []).filter((reply) => reply.id !== target.id);
+    await ensureModeratorUsernames(filteredAdded);
+    applyModeratorFallback(filteredAdded);
     target.replies = mergeRepliesById(target.replies, filteredAdded);
     
     // Force Vue reactivity by creating a new array reference
@@ -452,7 +558,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="ri-comment-list" :style="textSizeStyles">
+  <div class="ri-comment-list" :class="{ 'truncate-lines': truncateLines }" :style="textSizeStyles">
     <!-- Loading state -->
     <template v-if="isLoading">
       <div v-for="i in 6" :key="i" class="ri-skel">
