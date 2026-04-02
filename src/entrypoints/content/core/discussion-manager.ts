@@ -1151,9 +1151,9 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'd
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
   normalizeRedditDiscussion(discussion);
 
-  // Preserve popup rendering within a single search lifecycle so async callbacks
-  // cannot flip the UI back to inline after the user opened the popup.
-  if (currentRenderIntent === 'popup' || getUiManager().isMounted('popup') || hasPopupInteractionLock()) {
+  // Preserve popup rendering only when popup is actually mounted or interaction-locked.
+  // This avoids stale render intent forcing popup on hosts that default to inline.
+  if (getUiManager().isMounted('popup') || hasPopupInteractionLock()) {
     currentRenderIntent = 'popup';
     await displayDiscussion(discussion);
     return;

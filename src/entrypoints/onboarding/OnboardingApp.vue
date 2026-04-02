@@ -4,32 +4,34 @@ import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import AccountManagement from '@/components/AccountManagement.vue';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
-import { imgchestApiKeyItem, imgurClientIdItem, onboardingCompleteItem } from '@/config/storage';
-import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
+import { imgchestApiKeyItem, onboardingCompleteItem } from '@/config/storage';
 
 const currentStep = ref(0);
 const isComplete = ref(false);
-const imgurApiKey = ref('');
 const imagechestApiKey = ref('');
 
 const progress = computed(() => {
   return ((currentStep.value + 1) / steps.length) * 100;
 });
 
-const platforms = [
-  { id: 'reddit', name: 'Reddit', icon: getRuntimeUrl('assets/topCommentMenu/reddit.svg') },
-  { id: 'youtube', name: 'YouTube', icon: getRuntimeUrl('assets/topCommentMenu/youtubeLogo.svg') },
-  { id: 'disqus', name: 'Disqus', icon: getRuntimeUrl('assets/topCommentMenu/disqusLogo.svg') },
-  { id: 'mal', name: 'MAL Forums', icon: getRuntimeUrl('assets/topCommentMenu/malLogo.svg') }
-];
+const formattedStepContentHtml = computed(() => {
+  const normalized = steps[currentStep.value].content.replace(/\\n/g, '\n');
+  const escaped = normalized
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  return escaped
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n/g, '<br>');
+});
 
 onMounted(async () => {
   try {
-    const [storedImgur, storedImagechest] = await Promise.all([
-      imgurClientIdItem.getValue(),
-      imgchestApiKeyItem.getValue(),
-    ]);
-    if (storedImgur) imgurApiKey.value = storedImgur;
+    const storedImagechest = await imgchestApiKeyItem.getValue();
     if (storedImagechest) imagechestApiKey.value = storedImagechest;
   } catch (e) {
     console.warn('Failed to load image host keys', e);
@@ -39,39 +41,42 @@ onMounted(async () => {
 
 const steps = [
   {
-    title: '🎉 Welcome to Hayami!',
-    content: "Hayami brings episode discussions to you on the streaming platform your on. This onboarding allows you to set up Hayami to your liking.",
-    icon: ''
+    title: 'Welcome to Hayami!',
+    content: "Hayami Komento brings episode discussions to you, through comments straight underneath anime episodes. This onboarding introduces you to its various features, and allows you to set up Hayami to your liking.\n\n **Let’s do a rundown to get you started — takes less than a minute!**",
+    icon: '🎉'
   },
   {
-    title: 'How Hayami works',
-    content: 'It works by using your social accounts to display comments from internet-wide episode discussions beneath the video player (or however you choose to display it). All your accounts are connected locally - Hayami\'s backends map the episode itself to the discussions themselves.',
-    icon: ''
+    title: 'Understanding how Hayami works',
+    content: 'Hayami syncs episode discussions internet-wide, served & embedded however you choose to display them. All your accounts are connected locally — and all your comments are fetched, sent, and displayed all from your browser.\n\n **Supported sites**: Out the box, Hayami supports Crunchyroll, and Netflix, but any site can support Hayami, setup by you through [custom websites](https://docs.hayami.moe/custom-websites), or by syncing to community [KomentoScript](https://docs.hayami.moe/komento-script) instances. More on this later in the setup guide. \n\n**Supported discussion platforms**: Hayami supports Reddit, Disqus, MAL, AniList, and YouTube, with support for more platforms coming in-future.',
+    icon: '🔁'
   },
   {
-    title: '🔐 Connect your accounts',
+    title: 'Connect your accounts',
     content: 'Connect the accounts for platforms you intend to view comments from.',
-    icon: ''
+    icon: '🔐'
   },
   {
     title: 'Image previews',
-    content: 'Add Imgur and ImageChest API keys so image previews can work smoothly. You can skip if you do not use image previews.',
-    icon: ''
+    content: 'Add your ImageChest API key so image previews can work smoothly. This is required for image previews.',
+    icon: '🖼️'
   },
   {
-    title: 'Regarding custom sites',
+    title: 'Custom sites',
     content: 'If you wish to add custom sites, right click, and click \'Configure site with Hayami\'. You can choose how you want the comments section mounted. Ensure you choose the anime name and episode number through this screen (ensuring that the episode number will be consistent). Upon doing so, the comments section should mount. If it doesn\'t, try refreshing.',
-    icon: ''
+    icon: '🌐'
   },
   {
-    title: 'And last of all, feedback.',
+    title: 'Feedback',
     content: 'If you want to leave feedback, you can do so through the extension popup, using the feedback icon at the very top. Don\'t hesitate to drop feedback by, as it helps continue improve Hayami. Thanks for using the extension!',
-    icon: ''
+    icon: '💬'
   }
 ];
 
 function nextStep() {
   if (currentStep.value === 3) {
+    if (!imagechestApiKey.value.trim()) {
+      return;
+    }
     persistMediaKeys();
   }
   if (currentStep.value < steps.length - 1) {
@@ -102,10 +107,7 @@ async function completeOnboarding() {
 
 async function persistMediaKeys() {
   try {
-    await Promise.all([
-      imgurClientIdItem.setValue(imgurApiKey.value.trim() || null),
-      imgchestApiKeyItem.setValue(imagechestApiKey.value.trim() || null),
-    ]);
+    await imgchestApiKeyItem.setValue(imagechestApiKey.value.trim() || null);
   } catch (e) {
     console.warn('Failed to persist image host keys', e);
   }
@@ -116,78 +118,58 @@ async function persistMediaKeys() {
   <div class="onboarding-container">
     <div class="background-art">
       <div class="stars"></div>
-      <div class="trees"></div>
     </div>
     
     <div class="progress-bar-container" v-if="!isComplete">
       <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
     
-    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep < 4 }" v-if="!isComplete">
+    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep <= 1 }" v-if="!isComplete">
       <div class="modal-content">
-        <div v-if="steps[currentStep].icon" class="step-icon">{{ steps[currentStep].icon }}</div>
         <div class="step-title-row">
+          <span v-if="steps[currentStep].icon" class="step-icon-inline">{{ steps[currentStep].icon }}</span>
           <h1 class="step-title">{{ steps[currentStep].title }}</h1>
           <a
-            v-if="currentStep === 3"
+            v-if="currentStep === 3 || currentStep === 4"
             class="step-title-info"
-            href="https://docs.hayami.moe/image-previews"
+            :href="currentStep === 3 ? 'https://docs.hayami.moe/image-previews' : 'https://docs.hayami.moe/custom-websites'"
             target="_blank"
             rel="noreferrer"
-            aria-label="Open image preview docs"
+            :aria-label="currentStep === 3 ? 'Open image preview docs' : 'Open custom websites docs'"
           >
-            <img :src="infoIcon" alt="info" />
+            <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
         </div>
-        <p class="step-content">{{ steps[currentStep].content }}</p>
+        <p class="step-content" v-html="formattedStepContentHtml"></p>
+        <a
+          v-if="currentStep === 4"
+          class="step-content-link"
+          href="https://docs.hayami.moe/custom-websites"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Read the custom websites guide
+        </a>
         
-        <video 
+        <img
           v-if="currentStep === 0"
           class="showcase-video"
-          autoplay
-          loop
-          muted
-          playsinline
-        >
-          <source src="https://hayami.moe/_nuxt/HayamiRedditShowcase.ByIDaH2F.mp4" type="video/mp4" />
-        </video>
-        
-        <div v-if="currentStep === 1" class="marquee-container">
-          <div class="marquee-fade-left"></div>
-          <div class="marquee-track">
-            <div class="marquee-content">
-              <div class="marquee-item" v-for="platform in platforms" :key="platform.id">
-                <img :src="platform.icon" :alt="platform.name" class="marquee-logo" />
-              </div>
-              <!-- Duplicate for seamless loop -->
-              <div class="marquee-item" v-for="platform in platforms" :key="`${platform.id}-dup1`">
-                <img :src="platform.icon" :alt="platform.name" class="marquee-logo" />
-              </div>
-              <!-- Second duplicate to ensure seamless transition -->
-              <div class="marquee-item" v-for="platform in platforms" :key="`${platform.id}-dup2`">
-                <img :src="platform.icon" :alt="platform.name" class="marquee-logo" />
-              </div>
-            </div>
-          </div>
-          <div class="marquee-fade-right"></div>
-        </div>
+          src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Frame11.png"
+          alt="Hayami onboarding preview"
+        />
         
         <AccountManagement v-if="currentStep === 2" hide-reddit-connect />
 
         <div v-if="currentStep === 3" class="keys-step">
           <div class="form-grid">
             <ApiKeyInput
-              v-model="imgurApiKey"
-              label="Imgur Client ID"
-              placeholder="e.g. 123abc..."
-              type="text"
-              @save="persistMediaKeys"
-            />
-            <ApiKeyInput
               v-model="imagechestApiKey"
               label="ImageChest API Key"
               placeholder="e.g. ich_xxx..."
               type="text"
+              required
+              required-message="ImageChest API key is required."
+              show-save-tick
               @save="persistMediaKeys"
             />
           </div>
@@ -225,8 +207,10 @@ async function persistMediaKeys() {
     
     <div class="onboarding-modal" v-else>
       <div class="modal-content">
-        <div class="step-icon"></div>
-        <h1 class="step-title">All Set!</h1>
+        <div class="step-title-row">
+          <span class="step-icon-inline">✅</span>
+          <h1 class="step-title">All Set!</h1>
+        </div>
         <p class="step-content">Opening settings to get you started...</p>
       </div>
     </div>
@@ -254,12 +238,10 @@ async function persistMediaKeys() {
 .background-art {
   position: absolute;
   inset: 0;
-  opacity: 0.4;
-  /* color filtering */
-  filter: brightness(0.8) contrast(1.2) saturate(0.8);
-  background: url('/assets/simple-bg.jpg') no-repeat center center;
+  background: url('https://hayami.moe/images/onboarding-bg.png') no-repeat center center;
   background-size: cover;
   overflow: hidden;
+  filter: brightness(0.75) saturate(1.1);
 }
 
 .stars {
@@ -284,50 +266,23 @@ async function persistMediaKeys() {
   50% { opacity: 0.8; }
 }
 
-.trees {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 50%;
-  background: 
-    linear-gradient(to right, 
-      transparent 0%,
-      rgba(255, 140, 0, 0.15) 20%,
-      rgba(255, 165, 0, 0.25) 40%,
-      rgba(255, 140, 0, 0.2) 60%,
-      rgba(255, 165, 0, 0.15) 80%,
-      transparent 100%
-    ),
-    radial-gradient(ellipse 200% 100% at 50% 100%, 
-      rgba(139, 69, 19, 0.3) 0%,
-      transparent 70%
-    );
-  mask-image: 
-    radial-gradient(ellipse 150% 80% at 30% 100%, black 40%, transparent 60%),
-    radial-gradient(ellipse 120% 70% at 70% 100%, black 35%, transparent 55%);
-  -webkit-mask-image: 
-    radial-gradient(ellipse 150% 80% at 30% 100%, black 40%, transparent 60%),
-    radial-gradient(ellipse 120% 70% at 70% 100%, black 35%, transparent 55%);
-}
-
 .onboarding-modal {
   position: relative;
   z-index: 10;
-  background: rgba(30, 30, 40, 0.95);
-  backdrop-filter: blur(20px);
-  border-radius: 16px;
-  padding: 26px 40px;
-  padding-left: 40px;
-  max-width: 650px;
+  background: rgba(22, 24, 32, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-radius: 20px;
+  padding: 28px 36px 24px;
+  max-width: 680px;
   width: 90%;
-  box-shadow: 0 5px 5px rgba(0, 0, 0, 0.5);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   animation: fadeIn 0.4s ease-out;
 }
 
 .onboarding-modal.fixed-size {
-  min-height: 500px;
+  height: 500px;
   display: flex;
   flex-direction: column;
 }
@@ -373,22 +328,16 @@ async function persistMediaKeys() {
   transition: width 0.3s ease;
 }
 
-.step-icon {
-  font-size: 64px;
-  margin-bottom: 24px;
-  animation: bounce 0.6s ease-out;
-  text-align: left;
-}
-
-@keyframes bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-10px); }
+.step-icon-inline {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .step-title {
-  font-size: 28px;
-  font-weight: 600;
-  margin: 0 0 15px 0;
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0;
   color: white;
   line-height: 1.3;
   text-align: left;
@@ -398,38 +347,72 @@ async function persistMediaKeys() {
   display: flex;
   align-items: center;
   gap: 10px;
+  margin-bottom: 14px;
 }
 
 .step-title-info {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: auto;
-  height: auto;
-  padding: 0;
-  border: none;
-  background: transparent;
-  transform: translateY(-2px);
-  transition: transform 0.2s ease;
+  text-decoration: none;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  width: 16px;
+  height: 16px;
+  padding: 1.15px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.65);
+  transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 
 .step-title-info:hover {
-  transform: translateY(-1px);
+  color: white;
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
-.step-title-info img {
-  width: 18px;
-  height: 18px;
-  display: block;
+.step-title-info-glyph {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .step-content {
   font-size: 16px;
   line-height: 1.7;
-  color: rgba(255, 255, 255, 0.85);
-  margin: 0 0 25px 0;
+  color: rgba(255, 255, 255, 0.82);
+  margin: 0 0 20px 0;
   max-width: 100%;
   text-align: left;
+  white-space: pre-line;
+}
+
+.step-content :deep(a) {
+  color: rgba(91, 168, 255, 0.95);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.step-content :deep(a:hover) {
+  color: #8bc2ff;
+}
+
+.step-content-link {
+  display: inline-flex;
+  width: fit-content;
+  margin: -6px 0 16px;
+  color: rgba(91, 168, 255, 0.95);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.step-content-link:hover {
+  color: #8bc2ff;
 }
 
 .showcase-video {
@@ -442,82 +425,6 @@ async function persistMediaKeys() {
   display: block;
 }
 
-.marquee-container {
-  position: relative;
-  width: 100%;
-  height: 70px;
-  margin: 20px 0 32px 0;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-}
-
-.marquee-fade-left,
-.marquee-fade-right {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 80px;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.marquee-fade-left {
-  left: 0;
-  background: linear-gradient(to right, rgba(30, 30, 40, 0.95) 0%, transparent 100%);
-}
-
-.marquee-fade-right {
-  right: 0;
-  background: linear-gradient(to left, rgba(30, 30, 40, 0.95) 0%, transparent 100%);
-}
-
-.marquee-track {
-  width: 100%;
-  overflow: hidden;
-  position: relative;
-}
-
-.marquee-content {
-  display: flex;
-  align-items: center;
-  gap: 40px;
-  animation: marquee 20s linear infinite;
-  will-change: transform;
-}
-
-@keyframes marquee {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-33.333%);
-  }
-}
-
-.marquee-item {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  padding: 0 20px;
-  height: 45px;
-}
-
-.marquee-logo {
-  height: 45px;
-  width: auto;
-  max-width: 150px;
-  object-fit: contain;
-  object-position: center;
-  opacity: 0.7;
-  transition: opacity 0.3s ease;
-}
-
-.marquee-logo:hover {
-  opacity: 1;
-}
-
 .modal-actions {
   display: flex;
   gap: 12px;
@@ -527,38 +434,39 @@ async function persistMediaKeys() {
 }
 
 .btn {
-  border-radius: 8px;
+  border-radius: 50px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  font-size: 15px;
 }
 
 .btn-primary {
   flex: 1;
-  padding: 10px 32px;
-  font-size: 14px;
-  background: #5ba8ff;
-  color: white;
-  border: 1px solid transparent;
+  padding: 11px 32px;
+  background: rgba(100, 130, 180, 0.5);
+  color: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
 .btn-primary:hover {
-  background: #4a98ef;
-  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(100, 130, 180, 0.65);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .btn-back {
-  padding: 10px 24px;
-  font-size: 14px;
+  padding: 11px 22px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   min-width: 80px;
 }
 
 .btn-back:hover {
-  color: rgba(255, 255, 255, 0.9);
-  border-color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.85);
+  border-color: rgba(255, 255, 255, 0.35);
   background: rgba(255, 255, 255, 0.05);
 }
 

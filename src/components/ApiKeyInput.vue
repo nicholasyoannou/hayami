@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onBeforeUnmount } from 'vue';
 
 interface Props {
   modelValue?: string;
@@ -11,6 +11,9 @@ interface Props {
   error?: string;
   success?: string;
   infoUrl?: string;
+  required?: boolean;
+  requiredMessage?: string;
+  showSaveTick?: boolean;
 }
 
 interface Emits {
@@ -26,7 +29,10 @@ const props = withDefaults(defineProps<Props>(), {
   loading: false,
   error: '',
   success: '',
-  infoUrl: undefined
+  infoUrl: undefined,
+  required: false,
+  requiredMessage: 'This field is required.',
+  showSaveTick: false
 });
 
 const emit = defineEmits<Emits>();
@@ -36,9 +42,38 @@ const internalValue = computed({
   set: (value: string) => emit('update:modelValue', value)
 });
 
+const showSavedTick = ref(false);
+const localError = ref('');
+let tickTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const clearTickTimeout = () => {
+  if (tickTimeout) {
+    clearTimeout(tickTimeout);
+    tickTimeout = null;
+  }
+};
+
+onBeforeUnmount(() => {
+  clearTickTimeout();
+});
+
 const handleSave = () => {
   if (!props.disabled && !props.loading) {
+    if (props.required && !internalValue.value.trim()) {
+      localError.value = props.requiredMessage;
+      return;
+    }
+
+    localError.value = '';
     emit('save');
+    if (props.showSaveTick) {
+      showSavedTick.value = true;
+      clearTickTimeout();
+      tickTimeout = setTimeout(() => {
+        showSavedTick.value = false;
+        tickTimeout = null;
+      }, 950);
+    }
   }
 };
 
@@ -77,12 +112,21 @@ const handleKeydown = (event: KeyboardEvent) => {
       />
       <button
         class="api-key-input__save-btn"
+        :class="{ 'api-key-input__save-btn--saved': showSavedTick }"
         :disabled="disabled || loading"
         @click="handleSave"
       >
         <span v-if="loading" class="api-key-input__loading">...</span>
+        <span v-else-if="showSavedTick" class="api-key-input__saved">
+          <span class="api-key-input__tick" aria-hidden="true">✓</span>
+          Saved
+        </span>
         <span v-else>Save</span>
       </button>
+    </div>
+
+    <div v-if="localError" class="api-key-input__message api-key-input__error">
+      {{ localError }}
     </div>
     
     <!-- Error message -->
@@ -203,6 +247,16 @@ const handleKeydown = (event: KeyboardEvent) => {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.api-key-input__save-btn--saved {
+  background: rgba(34, 197, 94, 0.28);
+  border-color: rgba(134, 239, 172, 0.55);
+  color: #dcfce7;
+}
+
+.api-key-input__save-btn--saved:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.35);
+}
+
 .api-key-input__save-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -211,6 +265,24 @@ const handleKeydown = (event: KeyboardEvent) => {
 .api-key-input__loading {
   display: inline-block;
   animation: pulse 1.5s ease-in-out infinite;
+}
+
+.api-key-input__saved {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  line-height: 1;
+  animation: tick-pop 0.2s ease-out;
+}
+
+.api-key-input__tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  transform-origin: center;
+  animation: tick-draw 0.25s ease-out;
 }
 
 .api-key-input__message {
@@ -232,6 +304,28 @@ const handleKeydown = (event: KeyboardEvent) => {
   }
   50% {
     opacity: 0.5;
+  }
+}
+
+@keyframes tick-pop {
+  from {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes tick-draw {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }
 </style>
