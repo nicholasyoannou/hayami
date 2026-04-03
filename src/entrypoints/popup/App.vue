@@ -2272,6 +2272,13 @@ function triggerHeaderCustomMappingsImport() {
   height: 0;
 }
 
+:global(html.hayami-hide-scrollbars),
+:global(body.hayami-hide-scrollbars) {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
 :global(html.hayami-pwa-scrollbars),
 :global(body.hayami-pwa-scrollbars),
 :global(html.hayami-pwa-scrollbars *),

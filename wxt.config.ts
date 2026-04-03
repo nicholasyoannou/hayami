@@ -79,7 +79,7 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    version: '0.0.84',
+    version: '0.0.85',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL

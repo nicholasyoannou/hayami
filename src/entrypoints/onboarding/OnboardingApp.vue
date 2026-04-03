@@ -1,13 +1,11 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted } from 'vue';
-import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import AccountManagement from '@/components/AccountManagement.vue';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
 import { imgchestApiKeyItem, onboardingCompleteItem } from '@/config/storage';
 
 const currentStep = ref(0);
-const isComplete = ref(false);
 const imagechestApiKey = ref('');
 
 // Background lazy-load state
@@ -88,13 +86,18 @@ const steps = [
     icon: '🖼️'
   },
   {
+    title: 'Note on mapping',
+    content: '**Hayami can get mappings wrong**. Server-side Hayami collates anime discussions; Hayami’s mappings aren’t perfect, and may sometimes get your series or episode number incorrectly. There’s many reasons for this, but one example is S2E1 may be Episode 25 somewhere else.\n\n **The good news is you can manually set-once, and forget per-season this mapping yourself**. On all discussion platforms, you should (see a ”?”)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-45.png) or (“Wrong anime?” text)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Screenshot2026-03-28175605.png) in the upper-portion of the discussion platform. After the dialog has launched, check if the shown anime name is correct, and (if not, click the “wrong anime“ trigger)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-47.png), (search and select the right series)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-48.png). After, (select the episode your on)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-49.png). Your mapping should be saved for the rest of the season. \n\nFor further documentation on setting this up, see this section on the [getting started page](https://docs.hayami.moe/getting-started#some-things-you-definitely-need-to-know).',
+    icon: '🧭'
+  },
+  {
     title: 'Custom sites',
     content: 'Hayami allows you to configure custom sites in two ways: through the extension\'s [custom sites feature](https://docs.hayami.moe/custom-websites), or by syncing to community [KomentoScript](https://docs.hayami.moe/komento-script) instances.\n\n**Custom sites**: If you wish to add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/customMappingHayami.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page. You can also sync custom websites from a third-party URL that syncs weekly. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites).\n\n**KomentoScript**: KomentoScript is an advanced site-mapping feature, allowing syncing from a third-party URL aiming to serve community-driven configurations. By syncing to a KomentoScript instance, you get pre-configured configurations of custom sites, and updates associated to it, synced weekly. Read more on the [KomentoScript documentation](https://docs.hayami.moe/komento-script).',
     icon: '🌐'
   },
   {
     title: 'Support Hayami',
-    content: 'Hayami is a free extension, but costs money to run and maintain the servers that power not only mapping, but also archival (for some discussion platforms) and media hosting features. If you enjoy using Hayami, consider supporting the project monetarily through [Ko-Fi](https://hayami.moe/donate).\n\n[Feedback](https://docs.hayami.moe/feedback) is heavily appreciated as it helps me understand not only what sucks, but things you want improved, which can be shared through the feedback form in the (extension\'s popup)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg) (anonymously, or not), the [Discord server](https://discord.gg/EqefXt7tHn), or via email at [hi@hayami.moe](mailto:hi@hayami.moe). Hayami has been in-development since November 2025, so knowing how you interact with the extension helps me know how to improve it.\n\nIn either sense, thank you for using Hayami—hopefully it makes your anime watching experience more enjoyable, bringing discussions to you in a more seamless way. If you\'ve got feedback, please feel free to share them anytime. Happy commenting!\n\n — Nicholas',
+    content: 'Hayami is a free extension, but costs money to run and maintain the servers that power not only mapping, but also archival (for some discussion platforms), media hosting features, and Hayami\'s domain. If you enjoy using Hayami, consider supporting the project monetarily through [Ko-Fi](https://hayami.moe/donate).\n\n[Feedback](https://docs.hayami.moe/feedback) is heavily appreciated as it helps me understand not only what sucks, but things you want improved, which can be shared through the feedback form in the (extension\'s popup)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg) (anonymously, or not), the [Discord server](https://discord.gg/EqefXt7tHn), or via email at [hi@hayami.moe](mailto:hi@hayami.moe). Hayami has been in-development since November 2025, so knowing how you interact with the extension helps me know how to improve it.\n\nIn either sense, thank you for using Hayami—hopefully it makes your anime watching experience more enjoyable, bringing discussions to you in a more seamless way. If you\'ve got feedback, please feel free to share them anytime. Happy commenting!\n\n — Nicholas',
     icon: '💬'
   }
 ];
@@ -117,16 +120,10 @@ function prevStep() {
 }
 
 async function completeOnboarding() {
-  isComplete.value = true;
   // Mark onboarding as complete
   await onboardingCompleteItem.setValue(true);
-  // Open the popup for setup
-  setTimeout(() => {
-    browser.tabs.create({
-      url: getRuntimeUrl('popup.html')
-    });
-    window.close();
-  }, 1500);
+  // Redirect directly to popup setup
+  window.location.href = getRuntimeUrl('popup.html');
 }
 
 async function persistMediaKeys() {
@@ -144,27 +141,31 @@ async function persistMediaKeys() {
       <div class="stars"></div>
     </div>
     
-    <div class="progress-bar-container" v-if="!isComplete">
+    <div class="progress-bar-container">
       <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
     
-    <div class="onboarding-modal fixed-size" v-if="!isComplete">
+    <div class="onboarding-modal fixed-size">
       <div class="modal-content">
         <div class="step-title-row">
           <span v-if="steps[currentStep].icon" class="step-icon-inline">{{ steps[currentStep].icon }}</span>
           <h1 class="step-title">{{ steps[currentStep].title }}</h1>
           <a
-            v-if="currentStep === 3 || currentStep === 4"
+            v-if="currentStep === 3 || currentStep === 4 || currentStep === 5"
             class="step-title-info"
-            :href="currentStep === 3 ? 'https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key' : 'https://docs.hayami.moe/custom-websites'"
+            :href="currentStep === 3 ? 'https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key' : currentStep === 4 ? 'https://docs.hayami.moe/getting-started#some-things-you-definitely-need-to-know' : 'https://docs.hayami.moe/custom-websites'"
             target="_blank"
             rel="noreferrer"
-            :aria-label="currentStep === 3 ? 'Open image preview docs' : 'Open custom websites docs'"
+            :aria-label="currentStep === 3 ? 'Open image preview docs' : currentStep === 4 ? 'Open mapping note docs' : 'Open custom websites docs'"
           >
             <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
         </div>
-        <p class="step-content" v-html="formattedStepContentHtml"></p>
+        <p
+          class="step-content"
+          :class="{ 'step-content--connect-padding': currentStep === 2 }"
+          v-html="formattedStepContentHtml"
+        ></p>
         
         <div v-if="currentStep === 0" class="skeleton-wrap">
           <div v-if="!imageLoaded['showcase']" class="skeleton skeleton--showcase"></div>
@@ -210,16 +211,6 @@ async function persistMediaKeys() {
             {{ currentStep === steps.length - 1 ? 'Get Started' : 'Next' }}
           </button>
         </div>
-      </div>
-    </div>
-    
-    <div class="onboarding-modal" v-else>
-      <div class="modal-content">
-        <div class="step-title-row">
-          <span class="step-icon-inline">✅</span>
-          <h1 class="step-title">All Set!</h1>
-        </div>
-        <p class="step-content">Opening settings to get you started...</p>
       </div>
     </div>
   </div>
@@ -330,6 +321,10 @@ async function persistMediaKeys() {
   margin: 0 0 12px 0;
   font-size: 15px;
   line-height: 1.55;
+}
+
+.onboarding-modal.fixed-size .step-content.step-content--connect-padding {
+  padding-bottom: 10px;
 }
 
 .onboarding-modal.fixed-size .keys-step {
