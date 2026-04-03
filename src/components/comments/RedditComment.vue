@@ -1170,8 +1170,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           @collapse="(id, state) => emit('collapse', id, state)"
           @open-deep-view="(c) => emit('openDeepView', c)"
         >
-          <template #reply-editor>
-            <slot name="reply-editor" :comment="reply" />
+          <template #reply-editor="childSlotProps">
+            <slot name="reply-editor" v-bind="childSlotProps" />
           </template>
         </RedditComment>
 
