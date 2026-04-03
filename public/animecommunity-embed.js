@@ -3,7 +3,11 @@
     const params = new URLSearchParams(window.location.search);
     const raw = params.get('config');
     if (raw) {
-      window.theAnimeCommunityConfig = JSON.parse(decodeURIComponent(raw));
+      try {
+        window.theAnimeCommunityConfig = JSON.parse(raw);
+      } catch {
+        window.theAnimeCommunityConfig = JSON.parse(decodeURIComponent(raw));
+      }
     }
   } catch (e) {
     console.error('[AnimeCommunity Embed] Failed to parse config', e);
@@ -13,9 +17,12 @@
   const MIN_HEIGHT = 240;
   const EXTRA_PADDING = 24;
   const EMBED_URL = 'https://theanimecommunity.com/embed.js';
+  const EMBED_ASSET_BASE = 'https://theanimecommunity.com';
   const EMBED_SCRIPT_ID = 'animecommunity-remote-embed';
   const EMBED_FALLBACK_SCRIPT_ID = 'animecommunity-remote-embed-fallback';
   const TAC_IFRAME_ERROR = 'Unable to access iframe document';
+  const TAC_UNTRUSTED_ORIGIN_WARNING = 'Received message from untrusted origin:';
+  const SAFE_LOCAL_STORAGE_GLOBAL = '__HAYAMI_SAFE_LOCAL_STORAGE__';
   let lastSentHeight = 0;
   let fallbackTriggered = false;
   let fallbackBlobUrl = null;
@@ -100,6 +107,68 @@
     return `${EMBED_URL}?v=${weekVersion}`;
   }
 
+  function buildPatchedPrelude() {
+    return `
+(function () {
+  if (!window.${SAFE_LOCAL_STORAGE_GLOBAL}) {
+    const map = new Map();
+    const fallbackStorage = {
+      getItem(key) {
+        const normalized = String(key);
+        return map.has(normalized) ? map.get(normalized) : null;
+      },
+      setItem(key, value) {
+        map.set(String(key), String(value));
+      },
+      removeItem(key) {
+        map.delete(String(key));
+      },
+      clear() {
+        map.clear();
+      },
+      key(index) {
+        const keys = Array.from(map.keys());
+        return keys[index] ?? null;
+      },
+      get length() {
+        return map.size;
+      },
+    };
+
+    let resolvedStorage = fallbackStorage;
+    try {
+      resolvedStorage = window.localStorage;
+    } catch (_) {
+      resolvedStorage = fallbackStorage;
+    }
+
+    Object.defineProperty(window, '${SAFE_LOCAL_STORAGE_GLOBAL}', {
+      value: resolvedStorage,
+      configurable: true,
+      enumerable: false,
+      writable: false,
+    });
+  }
+
+  const originalWarn = console.warn;
+  if (typeof originalWarn === 'function' && !originalWarn.__hayamiTacWrapped) {
+    const wrappedWarn = function (...args) {
+      try {
+        if (typeof args[0] === 'string' && args[0].includes('${TAC_UNTRUSTED_ORIGIN_WARNING}') && String(args[1]) === 'null') {
+          return;
+        }
+      } catch (_) {
+        // noop
+      }
+      return originalWarn.apply(this, args);
+    };
+    wrappedWarn.__hayamiTacWrapped = true;
+    console.warn = wrappedWarn;
+  }
+})();
+`.trim();
+  }
+
   function installIframeAccessCompatibilityShim() {
     try {
       const frameProto = window.HTMLIFrameElement?.prototype;
@@ -173,6 +242,16 @@
       source = source.replace(needle, replacement);
     }
 
+    source = source
+      .replace(/\bwindow\.localStorage(?=\s*\.)/g, `window.${SAFE_LOCAL_STORAGE_GLOBAL}`)
+      .replace(/\bself\.localStorage(?=\s*\.)/g, `window.${SAFE_LOCAL_STORAGE_GLOBAL}`)
+      .replace(/\blocalStorage(?=\s*\.)/g, `window.${SAFE_LOCAL_STORAGE_GLOBAL}`);
+
+    source = source.replace(
+      /if \(event\.origin !== trustedOrigin\) \{\s*console\.warn\("Received message from untrusted origin:", event\.origin\);\s*return;\s*\}/m,
+      'if (event.origin !== trustedOrigin && event.origin !== "null") { console.warn("Received message from untrusted origin:", event.origin); return; }',
+    );
+
     // Strong fallback patch: replace TAC iframe render path with direct mount to host doc.
     const renderNeedle = /container\.innerHTML = "";[\s\S]*?const assetBase = getEmbedAssetBase\(\);/m;
     const renderReplacement = [
@@ -188,7 +267,7 @@
       'const iframeDocument = document;',
       'const iframeWindow = window;',
       'const mountPoint = mountRoot;',
-      'const assetBase = getEmbedAssetBase();',
+      `const assetBase = "${EMBED_ASSET_BASE}";`,
     ].join('\n');
 
     if (renderNeedle.test(source)) {
@@ -244,8 +323,9 @@
 
       const upstreamSource = await response.text();
       const patchedSource = patchTacSource(upstreamSource);
+      const patchedPrelude = buildPatchedPrelude();
       const blob = new Blob(
-        [`${patchedSource}\n//# sourceURL=animecommunity-remote-embed.patched.js`],
+        [`${patchedPrelude}\n${patchedSource}\n//# sourceURL=animecommunity-remote-embed.patched.js`],
         { type: 'text/javascript' },
       );
 

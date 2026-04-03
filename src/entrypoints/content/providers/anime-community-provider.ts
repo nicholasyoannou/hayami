@@ -123,7 +123,7 @@ export class AnimeCommunityProvider extends BaseProvider {
       };
 
       const embedUrl = new URL(getRuntimeUrl('animecommunity-embed.html'));
-      embedUrl.searchParams.set('config', encodeURIComponent(JSON.stringify(cfg)));
+      embedUrl.searchParams.set('config', JSON.stringify(cfg));
 
       iframe.src = embedUrl.toString();
       container.appendChild(iframe);
