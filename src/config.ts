@@ -89,6 +89,7 @@ export const hostPermissions = [
       'https://oauth.reddit.com/*',
       'https://old.reddit.com/*',
       '*://*.crunchyroll.com/*',
+      'https://disqus.com/*',
       'https://*.disqus.com/*',
       'https://api.myanimelist.net/*',
       'https://myanimelist.net/*',

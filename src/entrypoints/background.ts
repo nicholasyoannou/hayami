@@ -919,6 +919,137 @@ export default defineBackground(() => {
       return true;
     }
 
+    if (message.action === 'hayami_checkDisqusSession') {
+      (async () => {
+        try {
+          // Check for 'disqusauth' cookie on disqus.com
+          const directUrls = ['https://disqus.com/', 'https://www.disqus.com/'];
+          let cookie: any = null;
+          for (const url of directUrls) {
+            try {
+              cookie = await browser.cookies.get({ url, name: 'disqusauth' });
+              if (cookie) break;
+            } catch { /* continue */ }
+          }
+
+          if (!cookie) {
+            // Fallback: scan all cookies
+            const allCookies = await browser.cookies.getAll({});
+            cookie = allCookies.find((c) => {
+              if (c?.name !== 'disqusauth') return false;
+              const domain = (c.domain || '').replace(/^\./, '').toLowerCase();
+              return domain === 'disqus.com' || domain.endsWith('.disqus.com');
+            }) || null;
+          }
+
+          if (!cookie?.value) {
+            sendResponse({ loggedIn: false });
+            return;
+          }
+
+          // Parse username from disqusauth cookie value
+          // Format: "1|disqus_USERNAME|0|1|0||385091656|//a.disquscdn.com/...|1"
+          let username: string | null = null;
+          try {
+            const parts = cookie.value.split('|');
+            if (parts.length >= 2 && parts[1]) {
+              username = parts[1];
+            }
+          } catch { /* ignore parse errors */ }
+
+          sendResponse({ loggedIn: true, username });
+        } catch (error) {
+          console.warn('[background] Failed to check Disqus session', error);
+          sendResponse({ loggedIn: false });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_openDisqusLoginGuided') {
+      (async () => {
+        const loginUrl = typeof message.url === 'string' && message.url.trim()
+          ? message.url.trim()
+          : 'https://disqus.com/profile/login/';
+
+        let loginTabId: number | null = null;
+        let loginWindowId: number | null = null;
+        let cleanedUp = false;
+
+        const cleanup = () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
+          try { browser.tabs.onUpdated.removeListener(handleUpdated); } catch {}
+          try { browser.tabs.onRemoved.removeListener(handleRemoved); } catch {}
+        };
+
+        const handleRemoved = (removedTabId: number) => {
+          if (removedTabId !== loginTabId) return;
+          cleanup();
+        };
+
+        const isDisqusHomeUrl = (rawUrl?: string | null): boolean => {
+          if (!rawUrl) return false;
+          try {
+            const parsed = new URL(rawUrl);
+            const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+            if (host !== 'disqus.com') return false;
+            return parsed.pathname === '/' || parsed.pathname === '';
+          } catch {
+            return false;
+          }
+        };
+
+        const handleUpdated = async (updatedTabId: number, changeInfo: any, tab: any) => {
+          if (updatedTabId !== loginTabId) return;
+          const currentUrl = changeInfo?.url || tab?.url;
+          if (!isDisqusHomeUrl(currentUrl)) return;
+
+          cleanup();
+          try {
+            if (typeof loginWindowId === 'number') {
+              await browser.windows.remove(loginWindowId);
+            } else if (typeof loginTabId === 'number') {
+              await browser.tabs.remove(loginTabId);
+            }
+          } catch {
+            // ignore close failures
+          }
+        };
+
+        try {
+          const createdWindow = await browser.windows.create({
+            url: loginUrl,
+            type: 'popup',
+            focused: true,
+            width: 520,
+            height: 760,
+          });
+
+          const createdTab = createdWindow?.tabs?.[0];
+          loginWindowId = typeof createdWindow?.id === 'number' ? createdWindow.id : null;
+
+          if (typeof createdTab?.id !== 'number') {
+            sendResponse({ success: false, error: 'Failed to open Disqus login popup.' });
+            return;
+          }
+
+          loginTabId = createdTab.id;
+          browser.tabs.onUpdated.addListener(handleUpdated);
+          browser.tabs.onRemoved.addListener(handleRemoved);
+
+          sendResponse({ success: true, tabId: loginTabId, windowId: loginWindowId });
+        } catch (error) {
+          cleanup();
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to open Disqus login popup.',
+          });
+        }
+      })();
+      return true;
+    }
+
     if (message.action === 'hayami_unregister_scripts_for_host') {
       (async () => {
         try {

@@ -71,43 +71,51 @@ onMounted(async () => {
 
 <template>
   <div class="account-management">
-    <div class="account-management-grid">
-      <div class="account-item" v-for="account in accounts" :key="account.id">
-        <div class="account-item-left">
-          <img :src="account.icon" :alt="account.name" class="account-icon" />
-          <div class="account-info">
-            <div class="account-title-row">
-              <p class="account-provider">{{ account.name }}</p>
-              <span v-if="defaultProvider === account.id" class="default-pill">Default</span>
+    <div class="account-card-grid">
+      <div
+        class="account-card"
+        :class="[`account-card--${account.id}`]"
+        v-for="account in accounts"
+        :key="account.id"
+      >
+        <div class="card-left">
+          <div class="icon-wrapper" :class="`icon-wrapper--${account.id}`">
+            <img :src="account.icon" :alt="account.name" class="account-icon" />
+          </div>
+          <div class="card-info">
+            <div class="card-name-row">
+              <p class="account-name">{{ account.name }}</p>
+              <span v-if="defaultProvider === account.id" class="default-badge">Default</span>
             </div>
             <p class="account-status">
-              {{ props.hideRedditConnect && account.id === 'reddit'
-                ? 'No login required'
-                : account.requiresAuth
-                  ? (account.isConnected
-                      ? (account.username ? `${account.username}` : 'Connected')
-                      : 'Not connected')
-                  : 'No login required' }}
+              {{ account.isConnected
+                ? (account.username
+                    ? account.username
+                    : (account.id === 'reddit' || account.id === 'disqus')
+                      ? 'Connected via browser session'
+                      : 'Connected')
+                : 'Not connected' }}
             </p>
           </div>
         </div>
-        <div class="account-actions">
-          <button 
-            v-if="account.requiresAuth && !(props.hideRedditConnect && account.id === 'reddit')"
-            class="account-btn" 
-            :disabled="account.isLoading" 
+
+        <div class="card-actions">
+          <button
+            v-if="account.requiresAuth"
+            class="connect-btn"
+            :class="{ 'connect-btn--disconnect': account.isConnected }"
+            :disabled="account.isLoading"
             @click="handleAccountAction(account.id)"
           >
-            {{ account.isConnected ? 'Logout' : 'Connect' }}
+            <span v-if="account.isLoading" class="btn-spinner"></span>
+            <span v-else>{{ account.isConnected ? 'Disconnect' : 'Connect' }}</span>
           </button>
           <button
-            v-if="!(defaultProvider === account.id)"
-            class="default-btn"
-            :class="{ 'default-btn--active': defaultProvider === account.id }"
-            :disabled="defaultProvider === account.id"
+            v-if="defaultProvider !== account.id"
+            class="set-default-btn"
             @click="setDefault(account.id)"
           >
-            <span v-if="!(defaultProvider === account.id)">Make Default</span>
+            Set Default
           </button>
         </div>
       </div>
@@ -119,139 +127,184 @@ onMounted(async () => {
 .account-management {
   display: flex;
   flex-direction: column;
-  gap: 20px;
 }
 
-.account-management-subtitle {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
-  line-height: 1.5;
-}
-
-.account-management-grid {
+.account-card-grid {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  justify-content: center;
+  flex: 1;
 }
 
-.account-item {
+.account-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px;
-  border-radius: 16px;
-  background: rgba(40, 40, 50, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   transition: all 0.2s ease;
 }
 
-.account-item:hover {
-  background: rgba(40, 40, 50, 0.9);
-  border-color: rgba(255, 255, 255, 0.2);
+.account-card:first-child {
+  padding-top: 0;
 }
 
-.account-item-left {
+.account-card:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+/* Left side: icon + info */
+.card-left {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
-.account-title-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.account-icon {
+.icon-wrapper {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
-  padding: 8px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
-.account-info {
+.icon-wrapper--reddit { background: rgba(255, 69, 0, 0.12); }
+.icon-wrapper--disqus { background: rgba(45, 137, 239, 0.12); }
+.icon-wrapper--youtube { background: rgba(255, 0, 0, 0.1); }
+.icon-wrapper--mal { background: rgba(46, 81, 162, 0.15); }
+.icon-wrapper--anilist { background: rgba(2, 169, 255, 0.12); }
+
+.account-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.card-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.account-provider {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.7);
+.card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.account-name {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: white;
   margin: 0;
+  line-height: 1.2;
+}
+
+.default-badge {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.18);
+  color: #a5b4fc;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  white-space: nowrap;
 }
 
 .account-status {
-  font-size: 16px;
-  font-weight: 600;
-  color: white;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.4);
   margin: 0;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.account-actions {
+/* Right side: action buttons */
+.card-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
-.account-btn {
-  padding: 8px 16px;
+.connect-btn {
+  padding: 6px 16px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.account-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-.account-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.default-btn {
-  padding: 8px 12px;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  color: white;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(91, 168, 255, 0.13);
+  color: #93c5fd;
+  border: 1px solid rgba(91, 168, 255, 0.22);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  white-space: nowrap;
 }
 
-.default-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.3);
+.connect-btn:hover:not(:disabled) {
+  background: rgba(91, 168, 255, 0.22);
+  border-color: rgba(91, 168, 255, 0.38);
+  color: #bfdbfe;
 }
 
-.default-btn:disabled {
-  opacity: 0.8;
-  cursor: default;
+.connect-btn--disconnect {
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.1);
 }
 
-.default-btn--active {
-  background: rgba(99, 102, 241, 0.2);
-  border-color: rgba(99, 102, 241, 0.5);
+.connect-btn--disconnect:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.28);
+  color: #fca5a5;
 }
 
-.default-pill {
-  padding: 4px 8px;
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.2);
-  color: #c7d2fe;
+.connect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-spinner {
+  width: 11px;
+  height: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-top-color: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.set-default-btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.07);
   font-size: 12px;
-  font-weight: 700;
-  border: 1px solid rgba(99, 102, 241, 0.4);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.set-default-btn:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.28);
+  color: #a5b4fc;
 }
 </style>

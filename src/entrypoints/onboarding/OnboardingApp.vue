@@ -10,6 +10,15 @@ const currentStep = ref(0);
 const isComplete = ref(false);
 const imagechestApiKey = ref('');
 
+// Background lazy-load state
+const bgLoaded = ref(false);
+
+// Image loading states for skeleton loaders
+const imageLoaded = ref<Record<string, boolean>>({});
+function onImageLoad(key: string) {
+  imageLoaded.value[key] = true;
+}
+
 const progress = computed(() => {
   return ((currentStep.value + 1) / steps.length) * 100;
 });
@@ -30,6 +39,11 @@ const formattedStepContentHtml = computed(() => {
 });
 
 onMounted(async () => {
+  // Lazy-load background image
+  const bgImg = new Image();
+  bgImg.onload = () => { bgLoaded.value = true; };
+  bgImg.src = 'https://hayami.moe/images/onboarding-bg.png';
+
   try {
     const storedImagechest = await imgchestApiKeyItem.getValue();
     if (storedImagechest) imagechestApiKey.value = storedImagechest;
@@ -116,7 +130,7 @@ async function persistMediaKeys() {
 
 <template>
   <div class="onboarding-container">
-    <div class="background-art">
+    <div class="background-art" :class="{ 'bg-loaded': bgLoaded }">
       <div class="stars"></div>
     </div>
     
@@ -124,7 +138,7 @@ async function persistMediaKeys() {
       <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
     
-    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep <= 1 }" v-if="!isComplete">
+    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep <= 2 }" v-if="!isComplete">
       <div class="modal-content">
         <div class="step-title-row">
           <span v-if="steps[currentStep].icon" class="step-icon-inline">{{ steps[currentStep].icon }}</span>
@@ -132,7 +146,7 @@ async function persistMediaKeys() {
           <a
             v-if="currentStep === 3 || currentStep === 4"
             class="step-title-info"
-            :href="currentStep === 3 ? 'https://docs.hayami.moe/image-previews' : 'https://docs.hayami.moe/custom-websites'"
+            :href="currentStep === 3 ? 'https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key' : 'https://docs.hayami.moe/custom-websites'"
             target="_blank"
             rel="noreferrer"
             :aria-label="currentStep === 3 ? 'Open image preview docs' : 'Open custom websites docs'"
@@ -151,14 +165,18 @@ async function persistMediaKeys() {
           Read the custom websites guide
         </a>
         
-        <img
-          v-if="currentStep === 0"
-          class="showcase-video"
-          src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Frame11.png"
-          alt="Hayami onboarding preview"
-        />
+        <div v-if="currentStep === 0" class="skeleton-wrap">
+          <div v-if="!imageLoaded['showcase']" class="skeleton skeleton--showcase"></div>
+          <img
+            class="showcase-video"
+            :class="{ 'img-loaded': imageLoaded['showcase'] }"
+            src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Frame11.png"
+            alt="Hayami onboarding preview"
+            @load="onImageLoad('showcase')"
+          />
+        </div>
         
-        <AccountManagement v-if="currentStep === 2" hide-reddit-connect />
+        <AccountManagement v-if="currentStep === 2" />
 
         <div v-if="currentStep === 3" class="keys-step">
           <div class="form-grid">
@@ -173,25 +191,40 @@ async function persistMediaKeys() {
               @save="persistMediaKeys"
             />
           </div>
-          <img
-            class="preview-gif"
-            src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation2-ezgif.com-optimize.gif"
-            alt="Animated preview of image previews in Hayami"
-          />
+          <div class="skeleton-wrap">
+            <div v-if="!imageLoaded['preview']" class="skeleton skeleton--preview"></div>
+            <img
+              class="preview-gif"
+              :class="{ 'img-loaded': imageLoaded['preview'] }"
+              src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation2-ezgif.com-optimize.gif"
+              alt="Animated preview of image previews in Hayami"
+              @load="onImageLoad('preview')"
+            />
+          </div>
         </div>
         
         <div v-if="currentStep === 4" class="custom-sites-embed">
-          <img
-            src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation4.gif"
-            alt="Custom sites configuration preview"
-          />
+          <div class="skeleton-wrap">
+            <div v-if="!imageLoaded['customsites']" class="skeleton skeleton--embed"></div>
+            <img
+              :class="{ 'img-loaded': imageLoaded['customsites'] }"
+              src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation4.gif"
+              alt="Custom sites configuration preview"
+              @load="onImageLoad('customsites')"
+            />
+          </div>
         </div>
 
         <div v-if="currentStep === 5" class="feedback-embed">
-          <img
-            src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg"
-            alt="How to leave feedback in Hayami"
-          />
+          <div class="skeleton-wrap">
+            <div v-if="!imageLoaded['feedback']" class="skeleton skeleton--feedback"></div>
+            <img
+              :class="{ 'img-loaded': imageLoaded['feedback'] }"
+              src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg"
+              alt="How to leave feedback in Hayami"
+              @load="onImageLoad('feedback')"
+            />
+          </div>
         </div>
         
         <div class="modal-actions">
@@ -242,6 +275,12 @@ async function persistMediaKeys() {
   background-size: cover;
   overflow: hidden;
   filter: brightness(0.75) saturate(1.1);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.background-art.bg-loaded {
+  opacity: 1;
 }
 
 .stars {
@@ -285,6 +324,7 @@ async function persistMediaKeys() {
   height: 500px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 @keyframes fadeIn {
@@ -554,6 +594,49 @@ async function persistMediaKeys() {
 .field-hint {
   font-size: 12px;
   color: rgba(255, 255, 255, 0.65);
+}
+
+/* Skeleton loading for images */
+.skeleton-wrap {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  flex: 1;
+  min-height: 0;
+}
+
+.skeleton {
+  width: 100%;
+  height: 100%;
+  min-height: 80px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.04) 25%, rgba(255, 255, 255, 0.08) 50%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.showcase-video:not(.img-loaded),
+.preview-gif:not(.img-loaded),
+.custom-sites-embed img:not(.img-loaded),
+.feedback-embed img:not(.img-loaded) {
+  opacity: 0;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
+.showcase-video.img-loaded,
+.preview-gif.img-loaded,
+.custom-sites-embed img.img-loaded,
+.feedback-embed img.img-loaded {
+  opacity: 1;
+  transition: opacity 0.3s ease;
 }
 
 </style>

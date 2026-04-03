@@ -681,7 +681,7 @@ const redditDisplayStatus = computed(() => {
   const account = getRedditAccount();
   if (!account?.isConnected) return 'Not connected';
   if (account.username) return `u/${account.username}`;
-  return 'Connected';
+  return redditUsesCookieMode.value ? 'Connected via browser session' : 'Connected';
 });
 
 const activeSettingsCategory = computed(() =>
@@ -1538,6 +1538,10 @@ function getAniListAccount() {
   return getAccount('anilist');
 }
 
+function getDisqusAccount() {
+  return getAccount('disqus');
+}
+
 // Account action handlers
 async function handleLogin() {
   const actions = getAccountActions('reddit');
@@ -1580,6 +1584,16 @@ function handleAniListLogin() {
 
 function handleAniListLogout() {
   const actions = getAccountActions('anilist');
+  return actions.disconnect();
+}
+
+function handleDisqusLogin() {
+  const actions = getAccountActions('disqus');
+  return actions.connect();
+}
+
+function handleDisqusLogout() {
+  const actions = getAccountActions('disqus');
   return actions.disconnect();
 }
 
@@ -1717,6 +1731,10 @@ function triggerHeaderCustomMappingsImport() {
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
                   <div class="truncate">{{ redditDisplayStatus }}</div>
+                </div>
+                <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
+                  <img src="/assets/topCommentMenu/disqusLogo.svg" alt="Disqus" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
+                  <div class="truncate">{{ getDisqusAccount()?.isConnected ? (getDisqusAccount()?.username || 'Connected') : 'Not connected' }}</div>
                 </div>
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
@@ -2051,8 +2069,8 @@ function triggerHeaderCustomMappingsImport() {
                     <div>
                       <p class="text-sm text-white/70">Reddit</p>
                       <p class="text-base font-semibold">{{ redditDisplayStatus }}</p>
-                      <p v-if="redditUsesCookieMode" class="text-xs text-white/70">Connected via browser session</p>
-                      <p v-else class="text-xs text-white/70">{{ getRedditAccount()?.isConnected ? 'Connected via Reddit (software-app)' : 'Login with Reddit (software-app)' }}</p>
+                      <p v-if="redditUsesCookieMode && getRedditAccount()?.isConnected" class="text-xs text-white/70">Connected via browser session</p>
+                      <p v-else-if="!redditUsesCookieMode" class="text-xs text-white/70">{{ getRedditAccount()?.isConnected ? 'Connected via Reddit (software-app)' : 'Login with Reddit (software-app)' }}</p>
                     </div>
                   </div>
                   <button
@@ -2061,6 +2079,20 @@ function triggerHeaderCustomMappingsImport() {
                     @click="redditUsesCookieMode ? handleLogin() : (getRedditAccount()?.isConnected ? handleLogout() : handleLogin())"
                   >
                     {{ redditUsesCookieMode ? (redditCanLogin ? 'Login' : 'Connected') : (getRedditAccount()?.isConnected ? 'Logout' : 'Login') }}
+                  </button>
+                </div>
+
+                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
+                  <div class="flex items-center gap-3">
+                    <img src="/assets/topCommentMenu/disqusLogo.svg" alt="Disqus" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
+                    <div>
+                      <p class="text-sm text-white/70">Disqus</p>
+                      <p class="text-base font-semibold">{{ getDisqusAccount()?.isConnected ? (getDisqusAccount()?.username || 'Connected') : 'Not connected' }}</p>
+                      <p v-if="getDisqusAccount()?.isConnected" class="text-xs text-white/70">Connected via browser session</p>
+                    </div>
+                  </div>
+                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20 disabled:opacity-50" :disabled="anyAccountLoading" @click="getDisqusAccount()?.isConnected ? handleDisqusLogout() : handleDisqusLogin()">
+                    {{ getDisqusAccount()?.isConnected ? 'Logout' : 'Login' }}
                   </button>
                 </div>
 

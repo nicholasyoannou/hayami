@@ -49,6 +49,9 @@ export function useAccountManagement() {
   const isMALLoggedIn = ref(false);
   const isAniListLoggedIn = ref(false);
 
+  const isDisqusLoggedIn = ref(false);
+  const disqusUsername = ref<string | null>(null);
+
   // Get runtime URL for icons
   const getRuntimeUrl = (path: string) => {
     if (typeof browser !== 'undefined' && browser.runtime?.getURL) {
@@ -73,11 +76,11 @@ export function useAccountManagement() {
       id: 'disqus',
       name: 'Disqus',
       icon: getRuntimeUrl('assets/topCommentMenu/disqusLogo.svg'),
-      isConnected: true,
+      isConnected: false,
       username: null,
       profilePic: null,
       isLoading: false,
-      requiresAuth: false,
+      requiresAuth: true,
     },
     {
       id: 'youtube',
@@ -135,6 +138,12 @@ export function useAccountManagement() {
     const anilistAccount = accounts.value.find(acc => acc.id === 'anilist');
     if (anilistAccount) {
       anilistAccount.isConnected = isAniListLoggedIn.value;
+    }
+
+    const disqusAccount = accounts.value.find(acc => acc.id === 'disqus');
+    if (disqusAccount) {
+      disqusAccount.isConnected = isDisqusLoggedIn.value;
+      disqusAccount.username = disqusUsername.value;
     }
   }
 
@@ -230,6 +239,21 @@ export function useAccountManagement() {
       isAniListLoggedIn.value = await isAniListAuthenticated();
     } catch (error) {
       console.error('Error checking AniList auth status:', error);
+    }
+  }
+
+  async function checkDisqusAuth() {
+    const account = accounts.value.find(acc => acc.id === 'disqus');
+    if (account) account.isLoading = true;
+    try {
+      const result = await browser.runtime.sendMessage({ action: 'hayami_checkDisqusSession' });
+      isDisqusLoggedIn.value = !!result?.loggedIn;
+      disqusUsername.value = result?.username || null;
+    } catch {
+      isDisqusLoggedIn.value = false;
+      disqusUsername.value = null;
+    } finally {
+      if (account) account.isLoading = false;
     }
   }
 
@@ -371,21 +395,35 @@ export function useAccountManagement() {
   async function connectMAL() {
     const account = accounts.value.find(acc => acc.id === 'mal');
     if (account) account.isLoading = true;
-    
+
     try {
       const result = await authenticateWithMAL();
       if (result.success) {
-        // MAL login completes after the redirect flow at /pwa/link/mal; poll shortly after.
-        setTimeout(() => {
-          checkMALAuth();
-          updateAccountStates();
-        }, 2000);
+        // Poll until MAL auth completes (redirect flow at /pwa/link/mal)
+        void (async () => {
+          const deadline = Date.now() + 90000;
+          while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            try {
+              const authenticated = await isMALAuthenticated();
+              if (authenticated) {
+                isMALLoggedIn.value = true;
+                if (account) account.isLoading = false;
+                updateAccountStates();
+                return;
+              }
+            } catch {
+              // keep polling
+            }
+          }
+          if (account) account.isLoading = false;
+        })();
+        return;
       }
     } catch (error) {
       console.error('MAL login error:', error);
-    } finally {
-      if (account) account.isLoading = false;
     }
+    if (account) account.isLoading = false;
   }
 
   async function disconnectMAL() {
@@ -406,27 +444,41 @@ export function useAccountManagement() {
   async function connectAniList() {
     const account = accounts.value.find(acc => acc.id === 'anilist');
     if (account) account.isLoading = true;
-    
+
     try {
       const result = await authenticateWithAniList();
       if (result.success) {
-        // AniList login opens in new tab, check status after delay
-        setTimeout(() => {
-          checkAniListAuth();
-          updateAccountStates();
-        }, 2000);
+        // Poll until AniList auth completes (implicit grant redirect)
+        void (async () => {
+          const deadline = Date.now() + 90000;
+          while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            try {
+              const authenticated = await isAniListAuthenticated();
+              if (authenticated) {
+                isAniListLoggedIn.value = true;
+                if (account) account.isLoading = false;
+                updateAccountStates();
+                return;
+              }
+            } catch {
+              // keep polling
+            }
+          }
+          if (account) account.isLoading = false;
+        })();
+        return;
       }
     } catch (error) {
       console.error('AniList login error:', error);
-    } finally {
-      if (account) account.isLoading = false;
     }
+    if (account) account.isLoading = false;
   }
 
   async function disconnectAniList() {
     const account = accounts.value.find(acc => acc.id === 'anilist');
     if (account) account.isLoading = true;
-    
+
     try {
       await logoutAniList();
       isAniListLoggedIn.value = false;
@@ -436,6 +488,53 @@ export function useAccountManagement() {
     } finally {
       if (account) account.isLoading = false;
     }
+  }
+
+  async function connectDisqus() {
+    const account = accounts.value.find(acc => acc.id === 'disqus');
+    if (account) account.isLoading = true;
+
+    try {
+      const popup = await browser.runtime.sendMessage({
+        action: 'hayami_openDisqusLoginGuided',
+        url: 'https://disqus.com/profile/login/',
+      });
+      if (!popup?.success) {
+        throw new Error(popup?.error || 'Failed to open Disqus login popup');
+      }
+
+      // Poll for cookie-based login completion
+      void (async () => {
+        const deadline = Date.now() + 60000;
+        while (Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          try {
+            const res = await browser.runtime.sendMessage({ action: 'hayami_checkDisqusSession' });
+            if (res?.loggedIn) {
+              isDisqusLoggedIn.value = true;
+              disqusUsername.value = res?.username || null;
+              updateAccountStates();
+              return;
+            }
+          } catch {
+            // keep polling
+          }
+        }
+      })();
+    } catch (error) {
+      console.error('Disqus login error:', error);
+      throw error;
+    } finally {
+      if (account) account.isLoading = false;
+    }
+  }
+
+  async function disconnectDisqus() {
+    // Cookie-based mode: cannot revoke browser cookies from extension scope.
+    // Just clear local state.
+    isDisqusLoggedIn.value = false;
+    disqusUsername.value = null;
+    updateAccountStates();
   }
 
   // Get account actions
@@ -467,9 +566,9 @@ export function useAccountManagement() {
         };
       case 'disqus':
         return {
-          connect: async () => {},
-          disconnect: async () => {},
-          refresh: async () => {},
+          connect: connectDisqus,
+          disconnect: disconnectDisqus,
+          refresh: checkDisqusAuth,
         };
       default:
         throw new Error(`Unknown account ID: ${accountId}`);
@@ -482,6 +581,7 @@ export function useAccountManagement() {
     try {
       await Promise.all([
         checkRedditAuth(),
+        checkDisqusAuth(),
         checkYouTubeAuth(),
         checkMALAuth(),
         checkAniListAuth(),
