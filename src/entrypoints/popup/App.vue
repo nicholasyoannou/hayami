@@ -77,9 +77,11 @@ import KomentoPendingPermissionsCard from './KomentoPendingPermissionsCard.vue';
 import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
 import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
+import CustomSitesSyncSettingsPanel from './CustomSitesSyncSettingsPanel.vue';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
 import type { KomentoSourceRegistryEntry } from '@/komentoscript';
 import { useKomentoScript, type KomentoPendingPermissionSource, type KomentoSourceTargetOption } from '@/composables/useKomentoScript';
+import { useCustomSitesSync } from '@/composables/useCustomSitesSync';
 
 type SettingValueMap = {
   displayMode: DisplayModeOption;
@@ -108,13 +110,13 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync';
 type SettingsNavItem = {
-  id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript';
+  id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync';
   label: string;
   description: string;
   icon: string;
-  kind: 'settings' | 'providers' | 'custom-sites' | 'komentoscript';
+  kind: 'settings' | 'providers' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync';
 };
 type OptionEntry<T> = { value: T; label: string };
 
@@ -798,6 +800,7 @@ onMounted(async () => {
     loadAllSettings(),
     loadKomentoSyncStatus(),
     loadKomentoPendingPermissions(),
+    loadCustomSitesSyncStatus(),
   ]);
   await customSitesPromise;
   await applyInitialRouteParams();
@@ -880,6 +883,33 @@ const {
   onImportKomentoScriptsFileChange, loadKomentoSyncStatus, saveKomentoToggle,
   saveKomentoSourceDraft, removeKomentoSource, runKomentoSyncNow,
 } = useKomentoScript({ showSuccess, showError });
+
+// Custom Sites Sync composable
+const {
+  syncEnabled: customSitesSyncEnabled,
+  autoSync: customSitesAutoSync,
+  sources: customSitesSyncSources,
+  syncState: customSitesSyncState,
+  syncing: customSitesSyncing,
+  sourceEditorOpen: customSitesSyncSourceEditorOpen,
+  sourceDraft: customSitesSyncSourceDraft,
+  sourceEditingId: customSitesSyncSourceEditingId,
+  lastSyncText: customSitesLastSyncText,
+  totalMappingsLoaded: customSitesTotalMappingsLoaded,
+  recentHistory: customSitesRecentHistory,
+  sourceFormTitle: customSitesSourceFormTitle,
+  sourcesSorted: customSitesSourcesSorted,
+  mappingCountBySource: customSitesMappingCountBySource,
+  loadSyncStatus: loadCustomSitesSyncStatus,
+  saveToggle: saveCustomSitesSyncToggle,
+  resetSourceDraft: resetCustomSitesSyncSourceDraft,
+  openSourceDraft: openCustomSitesSyncSourceDraft,
+  editSource: editCustomSitesSyncSource,
+  saveSourceDraft: saveCustomSitesSyncSourceDraft,
+  removeSource: removeCustomSitesSyncSource,
+  runSyncNow: runCustomSitesSyncNow,
+  formatHistoryWhen: formatCustomSitesSyncHistoryWhen,
+} = useCustomSitesSync({ showSuccess, showError });
 
 async function handleSettingChange(setting: SettingDefinition, value: SettingValueMap[SettingKey]) {
   try {
@@ -965,6 +995,10 @@ function handleStorageChange(
   if (Object.keys(changes).some((key) => key.includes('komentoscript_'))) {
     void loadKomentoSyncStatus();
     void loadKomentoPendingPermissions();
+  }
+
+  if (Object.keys(changes).some((key) => key.includes('custom_sites_sync_'))) {
+    void loadCustomSitesSyncStatus();
   }
 }
 
@@ -1727,7 +1761,7 @@ function triggerHeaderCustomMappingsImport() {
                 <img :src="accountIcon" alt="Connected accounts" class="h-6 w-6" />
                 <span>Connected accounts</span>
               </div>
-              <div class="space-y-3 text-base text-white/90">
+              <div class="home-accounts-preview space-y-3 text-base text-white/90">
                 <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
                   <div class="truncate">{{ redditDisplayStatus }}</div>
@@ -1740,13 +1774,9 @@ function triggerHeaderCustomMappingsImport() {
                   <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
                   <div class="truncate">{{ getYouTubeAccount()?.isConnected ? `Google ${getYouTubeAccount()?.username || 'YouTube user'}` : 'Not linked' }}</div>
                 </div>
-                <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
+                <div class="home-accounts-fade flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
                   <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
                   <div class="truncate">{{ getMALAccount()?.isConnected ? 'MyAnimeList connected' : 'Not connected' }}</div>
-                </div>
-                <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
-                  <img src="/assets/topCommentMenu/anilistIcon.svg" alt="AniList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ getAniListAccount()?.isConnected ? 'AniList connected' : 'Not connected' }}</div>
                 </div>
               </div>
               <div class="mt-6 space-y-2">
@@ -1776,7 +1806,7 @@ function triggerHeaderCustomMappingsImport() {
                     v-for="item in settingsNavItems"
                     :key="item.id"
                     class="group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-base text-white/95 transition hover:bg-white/[0.06]"
-                    @click="selectedSettingsCategory = item.id; settingsScreen = item.kind === 'providers' ? 'providers' : item.kind === 'custom-sites' ? 'custom-sites' : item.kind === 'komentoscript' ? 'komentoscript' : 'category'"
+                    @click="selectedSettingsCategory = item.id; settingsScreen = item.kind === 'providers' ? 'providers' : item.kind === 'custom-sites' ? 'custom-sites' : item.kind === 'komentoscript' ? 'komentoscript' : item.kind === 'custom-sites-sync' ? 'custom-sites-sync' : 'category'"
                   >
                     <img :src="item.icon" :alt="item.label" class="h-6 w-6 settings-icon shrink-0" />
                     <div class="min-w-0 flex-1">
@@ -1877,6 +1907,7 @@ function triggerHeaderCustomMappingsImport() {
                     :on-import-mappings-file-change="onImportCustomMappingsFileChange"
                     :on-load-custom-site-mappings="loadCustomSiteMappings"
                     :on-open-custom-site-detail="openCustomSiteDetail"
+                    :on-open-sync-settings="() => { settingsScreen = 'custom-sites-sync'; }"
                     :on-remove-custom-site="removeCustomSite"
                     :get-favicon-url="getFaviconUrl"
                     :format-origin="formatOrigin"
@@ -1931,6 +1962,35 @@ function triggerHeaderCustomMappingsImport() {
                   :get-favicon-url="getFaviconUrl"
                   :format-origin="formatOrigin"
                   :is-pending-source-expanded="isKomentoPendingSourceExpanded"
+                />
+              </template>
+
+              <template v-else-if="settingsScreen === 'custom-sites-sync'">
+                <CustomSitesSyncSettingsPanel
+                  :back-icon="backIcon"
+                  :settings-icon="customSitesIcon"
+                  :sync-enabled="customSitesSyncEnabled"
+                  :auto-sync="customSitesAutoSync"
+                  :last-sync-text="customSitesLastSyncText"
+                  :total-mappings-loaded="customSitesTotalMappingsLoaded"
+                  :syncing="customSitesSyncing"
+                  :sync-state="customSitesSyncState"
+                  :source-form-title="customSitesSourceFormTitle"
+                  :source-editor-open="customSitesSyncSourceEditorOpen"
+                  :source-draft="customSitesSyncSourceDraft"
+                  :source-editing-id="customSitesSyncSourceEditingId"
+                  :sources-sorted="customSitesSourcesSorted"
+                  :recent-history="customSitesRecentHistory"
+                  :mapping-count-by-source="customSitesMappingCountBySource"
+                  :on-back="() => { settingsScreen = 'custom-sites'; }"
+                  :on-save-toggle="saveCustomSitesSyncToggle"
+                  :on-run-sync-now="runCustomSitesSyncNow"
+                  :on-open-source-draft="openCustomSitesSyncSourceDraft"
+                  :on-reset-source-draft="resetCustomSitesSyncSourceDraft"
+                  :on-save-source-draft="saveCustomSitesSyncSourceDraft"
+                  :on-edit-source="editCustomSitesSyncSource"
+                  :on-remove-source="removeCustomSitesSyncSource"
+                  :format-history-when="formatCustomSitesSyncHistoryWhen"
                 />
               </template>
 
@@ -2088,7 +2148,6 @@ function triggerHeaderCustomMappingsImport() {
                     <div>
                       <p class="text-sm text-white/70">Disqus</p>
                       <p class="text-base font-semibold">{{ getDisqusAccount()?.isConnected ? (getDisqusAccount()?.username || 'Connected') : 'Not connected' }}</p>
-                      <p v-if="getDisqusAccount()?.isConnected" class="text-xs text-white/70">Connected via browser session</p>
                     </div>
                   </div>
                   <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20 disabled:opacity-50" :disabled="anyAccountLoading" @click="getDisqusAccount()?.isConnected ? handleDisqusLogout() : handleDisqusLogin()">
@@ -2291,5 +2350,12 @@ function triggerHeaderCustomMappingsImport() {
 
 .settings-icon {
   filter: brightness(0) invert(1);
+}
+
+/* Home screen account list: 4th item fades out to hint at more */
+.home-accounts-fade {
+  mask-image: linear-gradient(to bottom, white 10%, transparent 95%);
+  -webkit-mask-image: linear-gradient(to bottom, white 10%, transparent 95%);
+  pointer-events: none;
 }
 </style>

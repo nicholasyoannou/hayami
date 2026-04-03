@@ -4,6 +4,8 @@ import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import {
   customSiteMappingsItem,
+  customSitesSyncCachedItem,
+  customSitesSyncEnabledItem,
   displayModeItem,
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
@@ -93,6 +95,23 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
     if (entry && mappingMatchesPath(entry, location.pathname)) {
       customSiteMapping = entry;
       return customSiteMapping;
+    }
+
+    // Check synced custom site mappings (manual mappings take priority above)
+    const syncEnabled = Boolean(await customSitesSyncEnabledItem.getValue());
+    if (syncEnabled) {
+      const syncedCached = (await customSitesSyncCachedItem.getValue()) || [];
+      for (const cachedEntry of syncedCached) {
+        for (const mapping of (cachedEntry?.mappings || [])) {
+          if (mapping?.origin === location.origin) {
+            const candidate = mapping as CustomSiteMapping;
+            if (mappingMatchesPath(candidate, location.pathname)) {
+              customSiteMapping = candidate;
+              return customSiteMapping;
+            }
+          }
+        }
+      }
     }
 
     const komentoEnabled = Boolean(await komentoScriptEnabledItem.getValue());

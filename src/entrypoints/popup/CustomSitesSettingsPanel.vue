@@ -13,6 +13,7 @@ type Props = {
   onImportMappingsFileChange: (event: Event) => void | Promise<void>;
   onLoadCustomSiteMappings: () => void | Promise<void>;
   onOpenCustomSiteDetail: (site: CustomSiteMapping) => void | Promise<void>;
+  onOpenSyncSettings: () => void | Promise<void>;
   onRemoveCustomSite: (site: CustomSiteMapping) => void | Promise<void>;
   getFaviconUrl: (origin: string) => string;
   formatOrigin: (origin: string) => string;
@@ -40,6 +41,21 @@ function triggerCustomMappingsImport() {
   </div>
 
   <div class="space-y-4">
+    <div class="rounded-xl bg-white/5 px-3 py-3">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <p class="text-sm text-white/80">Custom Sites Sync</p>
+          <p class="text-xs text-white/60">Sync custom mappings from third-party JSON sources.</p>
+        </div>
+        <button
+          class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15"
+          @click="props.onOpenSyncSettings()"
+        >
+          Open
+        </button>
+      </div>
+    </div>
+
     <div class="space-y-2 rounded-xl bg-white/5 px-3 py-3">
       <input
         ref="importCustomMappingsInput"

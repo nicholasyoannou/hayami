@@ -16,6 +16,12 @@ export function renderDisqusContainer(threadId: string, threadUrl: string, threa
         <span style="flex:1; min-width:0;">${metaText}</span>
         <button
           type="button"
+          class="ri-disqus-stuck-btn"
+          data-disqus-stuck
+          style="background:none; border:none; color:rgba(255,255,255,0.45); cursor:pointer; padding:0; font-size:12px; font-weight:600; white-space:nowrap;"
+        >Stuck?</button>
+        <button
+          type="button"
           class="ri-disqus-wrong-anime-btn"
           data-disqus-wrong-anime
           style="margin-left:auto; background:none; border:none; color:#8dd4ff; cursor:pointer; padding:0; font-size:12px; font-weight:600; white-space:nowrap;"

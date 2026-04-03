@@ -246,3 +246,78 @@ export const komentoScriptSyncHistoryItem = storage.defineItem<KomentoSyncHistor
   'local:komentoscript_sync_history',
   { fallback: [] }
 );
+
+// ── Custom Sites Sync ──────────────────────────────────────────────────
+
+export type CustomSitesSyncSource = {
+  id: string;
+  url: string;
+  enabled: boolean;
+};
+
+export type CustomSitesSyncCachedEntry = {
+  sourceId: string;
+  fetchedAt: string;
+  mappings: Record<string, any>[];
+};
+
+export type CustomSitesSyncState = {
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  sourcesAttempted: number;
+  sourcesSucceeded: number;
+  mappingsLoaded: number;
+};
+
+export type CustomSitesSyncHistoryEntry = {
+  at: string;
+  reason: string;
+  ok: boolean;
+  sourcesAttempted: number;
+  sourcesSucceeded: number;
+  mappingsLoaded: number;
+  firstError?: string | null;
+};
+
+export const customSitesSyncEnabledItem = storage.defineItem<boolean>(
+  'local:custom_sites_sync_enabled',
+  { fallback: false }
+);
+
+export const customSitesSyncAutoSyncItem = storage.defineItem<boolean>(
+  'local:custom_sites_sync_auto_sync',
+  { fallback: true }
+);
+
+export const customSitesSyncSourcesItem = storage.defineItem<CustomSitesSyncSource[]>(
+  'local:custom_sites_sync_sources',
+  { fallback: [] }
+);
+
+export const customSitesSyncCachedItem = storage.defineItem<CustomSitesSyncCachedEntry[]>(
+  'local:custom_sites_sync_cached',
+  { fallback: [] }
+);
+
+export const customSitesSyncEtagsItem = storage.defineItem<Record<string, string>>(
+  'local:custom_sites_sync_etags',
+  { fallback: {} }
+);
+
+export const customSitesSyncStateItem = storage.defineItem<CustomSitesSyncState>(
+  'local:custom_sites_sync_state',
+  {
+    fallback: {
+      lastSyncedAt: null,
+      lastError: null,
+      sourcesAttempted: 0,
+      sourcesSucceeded: 0,
+      mappingsLoaded: 0,
+    },
+  }
+);
+
+export const customSitesSyncHistoryItem = storage.defineItem<CustomSitesSyncHistoryEntry[]>(
+  'local:custom_sites_sync_history',
+  { fallback: [] }
+);

@@ -23,6 +23,11 @@ const progress = computed(() => {
   return ((currentStep.value + 1) / steps.length) * 100;
 });
 
+function isLikelyImageUrl(value: string) {
+  const trimmed = value.trim();
+  return /^https?:\/\//i.test(trimmed) && /\.(?:png|jpe?g|gif|webp|svg|avif)(?:\?.*)?$/i.test(trimmed);
+}
+
 const formattedStepContentHtml = computed(() => {
   const normalized = steps[currentStep.value].content.replace(/\\n/g, '\n');
   const escaped = normalized
@@ -33,7 +38,15 @@ const formattedStepContentHtml = computed(() => {
     .replace(/'/g, '&#39;');
 
   return escaped
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>')
+    .replace(/\(([^()\n]+)\)\(([^()\n]+)\)/g, (_, rawLabel: string, rawValue: string) => {
+      const label = rawLabel.trim();
+      const value = rawValue.trim();
+      if (isLikelyImageUrl(value)) {
+        return `<span class="step-inline-image-hint" tabindex="0"><span class="step-inline-image-label">${label}</span><span class="step-inline-image-popup" role="tooltip"><img src="${value}" alt="${label} preview" loading="lazy" /></span></span>`;
+      }
+      return `<span class="step-inline-hint" tabindex="0" data-hover="${value}">${label}</span>`;
+    })
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br>');
 });
@@ -61,7 +74,7 @@ const steps = [
   },
   {
     title: 'Understanding how Hayami works',
-    content: 'Hayami syncs episode discussions internet-wide, served & embedded however you choose to display them. All your accounts are connected locally — and all your comments are fetched, sent, and displayed all from your browser.\n\n **Supported sites**: Out the box, Hayami supports Crunchyroll, and Netflix, but any site can support Hayami, setup by you through [custom websites](https://docs.hayami.moe/custom-websites), or by syncing to community [KomentoScript](https://docs.hayami.moe/komento-script) instances. More on this later in the setup guide. \n\n**Supported discussion platforms**: Hayami supports Reddit, Disqus, MAL, AniList, and YouTube, with support for more platforms coming in-future.',
+    content: 'Hayami syncs episode discussions internet-wide, served & embedded however you choose to display them. All your accounts are connected locally — and all your comments are fetched, sent, and displayed all from your browser.\n\n **Supported sites**: Out the box, Hayami supports Crunchyroll, and Netflix, but any site can support Hayami, setup by you through [custom websites](https://docs.hayami.moe/custom-websites), or by syncing to community [KomentoScript](https://docs.hayami.moe/komento-script) instances. More on this later in the setup guide. \n\n**Supported discussion platforms**: Hayami supports Reddit, Disqus, MAL, AniList, The Anime Community, (Aniwave)(Archived comments 2016-2024) and YouTube, with support for more platforms coming in-future.',
     icon: '🔁'
   },
   {
@@ -71,26 +84,23 @@ const steps = [
   },
   {
     title: 'Image previews',
-    content: 'Add your ImageChest API key so image previews can work smoothly. This is required for image previews.',
+    content: 'Add your ImageChest API key so image previews can work smoothly. This is required for image previews. Read on how to get an ImageChest API key [here](https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key).',
     icon: '🖼️'
   },
   {
     title: 'Custom sites',
-    content: 'If you wish to add custom sites, right click, and click \'Configure site with Hayami\'. You can choose how you want the comments section mounted. Ensure you choose the anime name and episode number through this screen (ensuring that the episode number will be consistent). Upon doing so, the comments section should mount. If it doesn\'t, try refreshing.',
+    content: 'Hayami allows you to configure custom sites in two ways: through the extension\'s [custom sites feature](https://docs.hayami.moe/custom-websites), or by syncing to community [KomentoScript](https://docs.hayami.moe/komento-script) instances.\n\n**Custom sites**: If you wish to add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/customMappingHayami.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page. You can also sync custom websites from a third-party URL that syncs weekly. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites).\n\n**KomentoScript**: KomentoScript is an advanced site-mapping feature, allowing syncing from a third-party URL aiming to serve community-driven configurations. By syncing to a KomentoScript instance, you get pre-configured configurations of custom sites, and updates associated to it, synced weekly. Read more on the [KomentoScript documentation](https://docs.hayami.moe/komento-script).',
     icon: '🌐'
   },
   {
-    title: 'Feedback',
-    content: 'If you want to leave feedback, you can do so through the extension popup, using the feedback icon at the very top. Don\'t hesitate to drop feedback by, as it helps continue improve Hayami. Thanks for using the extension!',
+    title: 'Support Hayami',
+    content: 'Hayami is a free extension, but costs money to run and maintain the servers that power not only mapping, but also archival (for some discussion platforms) and media hosting features. If you enjoy using Hayami, consider supporting the project monetarily through [Ko-Fi](https://hayami.moe/donate).\n\n[Feedback](https://docs.hayami.moe/feedback) is heavily appreciated as it helps me understand not only what sucks, but things you want improved, which can be shared through the feedback form in the (extension\'s popup)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg) (anonymously, or not), the [Discord server](https://discord.gg/EqefXt7tHn), or via email at [hi@hayami.moe](mailto:hi@hayami.moe). Hayami has been in-development since November 2025, so knowing how you interact with the extension helps me know how to improve it.\n\nIn either sense, thank you for using Hayami—hopefully it makes your anime watching experience more enjoyable, bringing discussions to you in a more seamless way. If you\'ve got feedback, please feel free to share them anytime. Happy commenting!\n\n — Nicholas',
     icon: '💬'
   }
 ];
 
 function nextStep() {
   if (currentStep.value === 3) {
-    if (!imagechestApiKey.value.trim()) {
-      return;
-    }
     persistMediaKeys();
   }
   if (currentStep.value < steps.length - 1) {
@@ -138,7 +148,7 @@ async function persistMediaKeys() {
       <div class="progress-bar" :style="{ width: `${progress}%` }"></div>
     </div>
     
-    <div class="onboarding-modal" :class="{ 'fixed-size': currentStep <= 2 }" v-if="!isComplete">
+    <div class="onboarding-modal fixed-size" v-if="!isComplete">
       <div class="modal-content">
         <div class="step-title-row">
           <span v-if="steps[currentStep].icon" class="step-icon-inline">{{ steps[currentStep].icon }}</span>
@@ -155,15 +165,6 @@ async function persistMediaKeys() {
           </a>
         </div>
         <p class="step-content" v-html="formattedStepContentHtml"></p>
-        <a
-          v-if="currentStep === 4"
-          class="step-content-link"
-          href="https://docs.hayami.moe/custom-websites"
-          target="_blank"
-          rel="noreferrer"
-        >
-          Read the custom websites guide
-        </a>
         
         <div v-if="currentStep === 0" class="skeleton-wrap">
           <div v-if="!imageLoaded['showcase']" class="skeleton skeleton--showcase"></div>
@@ -185,8 +186,6 @@ async function persistMediaKeys() {
               label="ImageChest API Key"
               placeholder="e.g. ich_xxx..."
               type="text"
-              required
-              required-message="ImageChest API key is required."
               show-save-tick
               @save="persistMediaKeys"
             />
@@ -199,30 +198,6 @@ async function persistMediaKeys() {
               src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation2-ezgif.com-optimize.gif"
               alt="Animated preview of image previews in Hayami"
               @load="onImageLoad('preview')"
-            />
-          </div>
-        </div>
-        
-        <div v-if="currentStep === 4" class="custom-sites-embed">
-          <div class="skeleton-wrap">
-            <div v-if="!imageLoaded['customsites']" class="skeleton skeleton--embed"></div>
-            <img
-              :class="{ 'img-loaded': imageLoaded['customsites'] }"
-              src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation4.gif"
-              alt="Custom sites configuration preview"
-              @load="onImageLoad('customsites')"
-            />
-          </div>
-        </div>
-
-        <div v-if="currentStep === 5" class="feedback-embed">
-          <div class="skeleton-wrap">
-            <div v-if="!imageLoaded['feedback']" class="skeleton skeleton--feedback"></div>
-            <img
-              :class="{ 'img-loaded': imageLoaded['feedback'] }"
-              src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg"
-              alt="How to leave feedback in Hayami"
-              @load="onImageLoad('feedback')"
             />
           </div>
         </div>
@@ -324,7 +299,7 @@ async function persistMediaKeys() {
   height: 500px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 @keyframes fadeIn {
@@ -348,6 +323,33 @@ async function persistMediaKeys() {
 
 .onboarding-modal.fixed-size .modal-content {
   min-height: 0;
+  overflow: visible;
+}
+
+.onboarding-modal.fixed-size .step-content {
+  margin: 0 0 12px 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.onboarding-modal.fixed-size .keys-step {
+  margin-top: 8px;
+  gap: 10px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.onboarding-modal.fixed-size .form-grid {
+  gap: 10px;
+}
+
+.onboarding-modal.fixed-size .skeleton-wrap {
+  flex: 1;
+  min-height: 120px;
+}
+
+.onboarding-modal.fixed-size .modal-actions {
+  padding-top: 14px;
 }
 
 .progress-bar-container {
@@ -433,13 +435,110 @@ async function persistMediaKeys() {
 }
 
 .step-content :deep(a) {
-  color: rgba(91, 168, 255, 0.95);
+  color: rgba(226, 240, 255, 0.96);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 
 .step-content :deep(a:hover) {
-  color: #8bc2ff;
+  color: #ffffff;
+}
+
+.step-content :deep(.step-inline-hint) {
+  position: relative;
+  display: inline;
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.45);
+  cursor: help;
+  color: rgba(255, 255, 255, 0.9);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.step-content :deep(.step-inline-hint:hover),
+.step-content :deep(.step-inline-hint:focus-visible) {
+  color: #ffffff;
+  border-bottom-color: rgba(255, 255, 255, 0.7);
+  outline: none;
+}
+
+.step-content :deep(.step-inline-hint::after) {
+  content: attr(data-hover);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: 220px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: #171c24;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+  text-align: left;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 30;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.step-content :deep(.step-inline-hint:hover::after),
+.step-content :deep(.step-inline-hint:focus-visible::after) {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.step-content :deep(.step-inline-image-hint) {
+  position: relative;
+  display: inline;
+  cursor: zoom-in;
+}
+
+.step-content :deep(.step-inline-image-label) {
+  border-bottom: 1px dotted rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.9);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.step-content :deep(.step-inline-image-hint:hover .step-inline-image-label),
+.step-content :deep(.step-inline-image-hint:focus-visible .step-inline-image-label) {
+  color: #ffffff;
+  border-bottom-color: rgba(255, 255, 255, 0.7);
+  outline: none;
+}
+
+.step-content :deep(.step-inline-image-popup) {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: min(440px, 88vw);
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.step-content :deep(.step-inline-image-popup img) {
+  display: block;
+  max-width: min(440px, 88vw);
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+}
+
+.step-content :deep(.step-inline-image-hint:hover .step-inline-image-popup),
+.step-content :deep(.step-inline-image-hint:focus-visible .step-inline-image-popup) {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 .step-content-link {
@@ -518,45 +617,9 @@ async function persistMediaKeys() {
 }
 
 .preview-gif {
+  display: block;
   width: 100%;
-  max-width: 100%;
   height: auto;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.custom-sites-embed {
-  display: flex;
-  justify-content: center;
-  margin-top: 12px;
-}
-
-.custom-sites-embed img {
-  width: 100%;
-  max-width: 100%;
-  height: auto;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-}
-
-.feedback-embed {
-  display: flex;
-  justify-content: center;
-  margin-top: 12px;
-}
-
-.feedback-embed img {
-  width: 100%;
-  max-width: 420px;
-  height: auto;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(0, 0, 0, 0.2);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 .form-grid {
@@ -621,9 +684,7 @@ async function persistMediaKeys() {
 }
 
 .showcase-video:not(.img-loaded),
-.preview-gif:not(.img-loaded),
-.custom-sites-embed img:not(.img-loaded),
-.feedback-embed img:not(.img-loaded) {
+.preview-gif:not(.img-loaded) {
   opacity: 0;
   position: absolute;
   top: 0;
@@ -632,11 +693,13 @@ async function persistMediaKeys() {
 }
 
 .showcase-video.img-loaded,
-.preview-gif.img-loaded,
-.custom-sites-embed img.img-loaded,
-.feedback-embed img.img-loaded {
+.preview-gif.img-loaded {
   opacity: 1;
   transition: opacity 0.3s ease;
+}
+
+.showcase-video.img-loaded {
+  opacity: 0.82;
 }
 
 </style>

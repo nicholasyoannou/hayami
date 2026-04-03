@@ -5,6 +5,9 @@ import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALA
 import { authenticateWithAniList } from '@/utils/anilistAuth';
 import {
   customSiteMappingsItem,
+  customSitesSyncCachedItem,
+  customSitesSyncEnabledItem,
+  customSitesSyncSourcesItem,
   komentoScriptAutoSyncItem,
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
@@ -19,6 +22,13 @@ import {
   shouldRunStartupKomentoSync,
   syncKomentoScripts,
 } from '@/komentoscript';
+import {
+  CUSTOM_SITES_SYNC_WEEKLY_ALARM,
+  ensureCustomSitesSyncSourcesInitialized,
+  ensureCustomSitesSyncAlarm,
+  shouldRunStartupCustomSitesSync,
+  syncCustomSitesSources,
+} from '@/custom-sites-sync';
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
 
@@ -163,9 +173,15 @@ async function getUniqueKomentoOrigins(): Promise<string[]> {
 }
 
 async function getUniqueCustomMappingOrigins(): Promise<string[]> {
-  const map = (await customSiteMappingsItem.getValue()) || {};
+  const [map, syncedCached, syncEnabled] = await Promise.all([
+    customSiteMappingsItem.getValue(),
+    customSitesSyncCachedItem.getValue(),
+    customSitesSyncEnabledItem.getValue(),
+  ]);
   const out = new Set<string>();
-  for (const key of Object.keys(map)) {
+
+  // Manual custom site mappings
+  for (const key of Object.keys(map || {})) {
     const origin = String(key || '').trim();
     if (!origin) continue;
     try {
@@ -177,6 +193,25 @@ async function getUniqueCustomMappingOrigins(): Promise<string[]> {
       // ignore invalid origins
     }
   }
+
+  // Synced custom site mappings
+  if (syncEnabled && Array.isArray(syncedCached)) {
+    for (const entry of syncedCached) {
+      for (const mapping of (entry?.mappings || [])) {
+        const origin = String(mapping?.origin || '').trim();
+        if (!origin) continue;
+        try {
+          const normalized = new URL(origin).origin;
+          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+            out.add(normalized);
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
   return [...out].sort((a, b) => a.localeCompare(b));
 }
 
@@ -293,11 +328,14 @@ async function handleProxyFetch(
 
 async function getKomentoPendingPermissionsSummary() {
   const permissions = browser.permissions;
-  const [cached, sources, customMap, targetSelections] = await Promise.all([
+  const [cached, sources, customMap, targetSelections, syncedCached, syncSources, syncEnabled] = await Promise.all([
     komentoScriptCachedPacksItem.getValue(),
     komentoScriptSourceRegistryItem.getValue(),
     customSiteMappingsItem.getValue(),
     komentoScriptTargetSelectionsItem.getValue(),
+    customSitesSyncCachedItem.getValue(),
+    customSitesSyncSourcesItem.getValue(),
+    customSitesSyncEnabledItem.getValue(),
   ]);
   const sourceIndex = new Map(
     (Array.isArray(sources) ? sources : []).map((source) => [String((source as any)?.id || ''), source as any]),
@@ -351,6 +389,27 @@ async function getKomentoPendingPermissionsSummary() {
     bySource.set('custom-websites', customOrigins);
   }
 
+  // Synced custom site mappings
+  if (syncEnabled && Array.isArray(syncedCached)) {
+    const syncSourceIndex = new Map(
+      (Array.isArray(syncSources) ? syncSources : []).map((s: any) => [String(s?.id || ''), s]),
+    );
+    for (const entry of syncedCached) {
+      const sourceId = String((entry as any)?.sourceId || 'unknown');
+      const source = syncSourceIndex.get(sourceId);
+      if (source && source.enabled === false) continue;
+      if (!bySource.has(`sync:${sourceId}`)) bySource.set(`sync:${sourceId}`, new Set<string>());
+      for (const mapping of ((entry as any)?.mappings || [])) {
+        const raw = String(mapping?.origin || '').trim();
+        if (!raw) continue;
+        for (const normalized of extractHttpOrigins(raw)) {
+          bySource.get(`sync:${sourceId}`)?.add(normalized);
+          allOrigins.add(normalized);
+        }
+      }
+    }
+  }
+
   const granted = new Set<string>();
   if (permissions?.contains) {
     await Promise.all(
@@ -375,7 +434,9 @@ async function getKomentoPendingPermissionsSummary() {
         sourceId,
         sourceLabel: sourceId === 'custom-websites'
           ? 'Custom websites'
-          : String(source?.id || sourceId),
+          : sourceId.startsWith('sync:')
+            ? `Synced: ${sourceId.slice(5)}`
+            : String(source?.id || sourceId),
         pendingOrigins,
       };
     })
@@ -397,16 +458,25 @@ function handleKomentoStorageChange(changes: Record<string, any>, areaName: stri
     Boolean(changes['komentoscript_enabled'])
     || Boolean(changes['komentoscript_auto_sync'])
     || Boolean(changes['komentoscript_sources']);
+  const shouldReconfigureCustomSync =
+    Boolean(changes['custom_sites_sync_enabled'])
+    || Boolean(changes['custom_sites_sync_auto_sync'])
+    || Boolean(changes['custom_sites_sync_sources']);
   const shouldRefreshBadge =
     shouldReconfigure
+    || shouldReconfigureCustomSync
     || Boolean(changes['komentoscript_cached_packs'])
     || Boolean(changes['komentoscript_sync_state'])
     || Boolean(changes['komentoscript_target_selections'])
     || Boolean(changes['local:komentoscript_target_selections'])
     || Boolean(changes['custom_site_mappings'])
-    || Boolean(changes['local:custom_site_mappings']);
+    || Boolean(changes['local:custom_site_mappings'])
+    || Boolean(changes['custom_sites_sync_cached']);
   if (shouldReconfigure) {
     void ensureKomentoSyncAlarm();
+  }
+  if (shouldReconfigureCustomSync) {
+    void ensureCustomSitesSyncAlarm();
   }
   if (shouldRefreshBadge) {
     void refreshKomentoBadge();
@@ -693,9 +763,14 @@ export default defineBackground(() => {
 
   void ensureKomentoSourceRegistryInitialized();
   void ensureKomentoSyncAlarm();
+  void ensureCustomSitesSyncSourcesInitialized();
+  void ensureCustomSitesSyncAlarm();
   void (async () => {
     if (await shouldRunStartupKomentoSync()) {
       await runKomentoSyncWithBadge('startup');
+    }
+    if (await shouldRunStartupCustomSitesSync()) {
+      await syncCustomSitesSources('startup');
     }
     await refreshKomentoBadge();
   })();
@@ -708,8 +783,13 @@ export default defineBackground(() => {
   });
 
   browser.alarms?.onAlarm?.addListener((alarm) => {
-    if (!alarm || alarm.name !== KOMENTOSCRIPT_WEEKLY_ALARM) return;
-    void runKomentoSyncWithBadge('weekly-alarm');
+    if (!alarm) return;
+    if (alarm.name === KOMENTOSCRIPT_WEEKLY_ALARM) {
+      void runKomentoSyncWithBadge('weekly-alarm');
+    }
+    if (alarm.name === CUSTOM_SITES_SYNC_WEEKLY_ALARM) {
+      void syncCustomSitesSources('weekly-alarm');
+    }
   });
 
   domainPermissionToggle();
@@ -739,7 +819,10 @@ export default defineBackground(() => {
     await registerContextMenu();
     await ensureKomentoSourceRegistryInitialized();
     await ensureKomentoSyncAlarm();
+    await ensureCustomSitesSyncSourcesInitialized();
+    await ensureCustomSitesSyncAlarm();
     await runKomentoSyncWithBadge(details.reason === 'install' ? 'install' : 'update');
+    await syncCustomSitesSources(details.reason === 'install' ? 'install' : 'update');
     if (details.reason === 'install') {
       console.log('Extension installed - opening onboarding');
       await browser.tabs.create({
@@ -1423,6 +1506,19 @@ export default defineBackground(() => {
         try {
           const result = await runKomentoSyncWithBadge('manual');
           await ensureKomentoSyncAlarm();
+          sendResponse(result);
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_customSitesSync_syncNow') {
+      (async () => {
+        try {
+          const result = await syncCustomSitesSources('manual');
+          await ensureCustomSitesSyncAlarm();
           sendResponse(result);
         } catch (error) {
           sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });

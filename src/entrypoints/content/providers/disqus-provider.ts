@@ -411,6 +411,20 @@ async function renderDisqusThread(
     disqusThreadEl.setAttribute('data-ri-disqus-target', renderToken);
   }
 
+  // "Stuck?" button – re-renders the current Disqus thread from scratch
+  const stuckBtn = container.querySelector<HTMLButtonElement>('[data-disqus-stuck]');
+  if (stuckBtn) {
+    stuckBtn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      console.log('[DisqusProvider] Stuck? button clicked – reloading thread');
+      // Remove existing Disqus scripts and iframes before re-rendering
+      removeScripts(ASSETS.DISQUS_LOADER);
+      removeIframes('disqus.com');
+      renderDisqusThread(thread, container, animeInfo, clearLoadingState);
+    };
+  }
+
   const wrongAnimeBtn = container.querySelector<HTMLButtonElement>('[data-disqus-wrong-anime]');
   if (wrongAnimeBtn) {
     wrongAnimeBtn.onclick = (event) => {
