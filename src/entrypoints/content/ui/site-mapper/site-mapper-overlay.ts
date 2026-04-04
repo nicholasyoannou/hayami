@@ -876,6 +876,13 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       const segments = compact.split('/').filter(Boolean);
       if (segments.length === 0) return '/';
 
+      // Single-segment pathnames (e.g. /ascendance-of-a-bookworm-episode-1)
+      // have no "section root" to scope to — the slug itself IS
+      // the page. Using `/${slug}/*` would compile to `^/slug/.*$` which does
+      // not match the saved page, so the mapping never re-matches. Fall back
+      // to `/*` so every top-level slug on the origin is covered.
+      if (segments.length === 1) return '/*';
+
       // Auto-scope to the section root: /w/slug -> /w/*, /watch/title -> /watch/*.
       return `/${segments[0]}/*`;
     };

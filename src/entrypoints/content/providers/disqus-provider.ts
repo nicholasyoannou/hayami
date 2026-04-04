@@ -559,7 +559,7 @@ export class DisqusProvider extends BaseProvider {
         }
       }
 
-      // Fallback for non-Crunchyroll pages (e.g., animepahe) without episode IDs
+      // Fallback for non-Crunchyroll pages without episode IDs
       if (!thread && animeInfo.animeName) {
         const mapperData = await fetchAnimeMapperDataBySeriesName(mapperAnimeName, 'disqus');
         console.log('[DisqusProvider][series-mapper] result count', mapperData?.results?.length || 0);

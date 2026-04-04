@@ -938,7 +938,7 @@ export async function tryMapperFailover(
       episodeOverride,
     });
 
-    // If we are not on a Crunchyroll watch URL (e.g., animepahe), skip CR metadata and
+    // If we are not on a Crunchyroll watch URL, skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.
     const extractEpisodeFromInfo = (): number | null => {
       const parseLooseNumeric = (value: string | null | undefined): number | null => {

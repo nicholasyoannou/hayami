@@ -1060,6 +1060,12 @@ function normalizePathGlob(input: unknown): string | null {
   const segments = glob.split('/').filter(Boolean);
   if (segments.length === 0) return '/';
 
+  // Preserve explicit wildcard globs the user typed in directly. `/*` means
+  // "any single top-level slug" (needed for specific sites whose
+  // episode pages live at the origin root), and deeper patterns like
+  // `/anime/*` or `/foo/*/bar` should not be collapsed to the first segment.
+  if (segments[segments.length - 1] === '*') return glob;
+
   // Keep scope broad and user-friendly for dynamic watch pages, e.g. /w/slug -> /w/*.
   return `/${segments[0]}/*`;
 }
