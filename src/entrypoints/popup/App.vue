@@ -1057,14 +1057,13 @@ function normalizePathGlob(input: unknown): string | null {
   glob = glob.length > 1 ? glob.replace(/\/+$/, '') : glob;
   if (!glob) return null;
 
+  // If the user's input already contains a wildcard, it is an explicit pattern
+  // — trust it verbatim. This covers `/*`, `/watch*`, `/anime/*`, `/foo/*/bar`,
+  // `/ep-*-subbed`, etc. Only concrete pathnames (no `*`) get auto-scoped below.
+  if (glob.includes('*')) return glob;
+
   const segments = glob.split('/').filter(Boolean);
   if (segments.length === 0) return '/';
-
-  // Preserve explicit wildcard globs the user typed in directly. `/*` means
-  // "any single top-level slug" (needed for specific sites whose
-  // episode pages live at the origin root), and deeper patterns like
-  // `/anime/*` or `/foo/*/bar` should not be collapsed to the first segment.
-  if (segments[segments.length - 1] === '*') return glob;
 
   // Keep scope broad and user-friendly for dynamic watch pages, e.g. /w/slug -> /w/*.
   return `/${segments[0]}/*`;

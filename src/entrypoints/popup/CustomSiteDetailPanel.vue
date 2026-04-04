@@ -83,6 +83,10 @@ const props = defineProps<Props>();
           <div class="truncate text-white/60">{{ props.selectedCustomSite.titleSelector || '—' }}</div>
         </div>
         <div class="rounded-lg bg-black/10 px-3 py-2">
+          <div class="font-semibold text-white/80">Anime name regex</div>
+          <div class="truncate text-white/60">{{ props.selectedCustomSite.titleRegex || '—' }}</div>
+        </div>
+        <div class="rounded-lg bg-black/10 px-3 py-2">
           <div class="font-semibold text-white/80">Episode selector</div>
           <div class="truncate text-white/60">{{ props.selectedCustomSite.episodeSelector || '—' }}</div>
         </div>
