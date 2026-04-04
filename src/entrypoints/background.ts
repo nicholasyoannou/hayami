@@ -32,6 +32,75 @@ import {
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
 
+/**
+ * One-time migration: move user config from local storage to sync storage.
+ * Existing users have their KomentoScript sources, custom site mappings, etc.
+ * in browser.storage.local. We copy them to browser.storage.sync so they
+ * sync across devices. The local copies are removed to avoid stale data.
+ */
+const SYNC_MIGRATION_KEY = 'hayami_sync_migration_v1';
+const SYNC_MIGRATION_KEYS = [
+  'komentoscript_enabled',
+  'komentoscript_auto_sync',
+  'komentoscript_use_synced_mappings',
+  'komentoscript_sources',
+  'komentoscript_target_selections',
+  'custom_sites_sync_enabled',
+  'custom_sites_sync_auto_sync',
+  'custom_sites_sync_sources',
+  'custom_site_mappings',
+  'series_mapping',
+];
+
+async function migrateLocalToSync(): Promise<void> {
+  try {
+    // Check if migration already ran
+    const { [SYNC_MIGRATION_KEY]: alreadyMigrated } = await browser.storage.local.get(SYNC_MIGRATION_KEY);
+    if (alreadyMigrated) return;
+
+    const localData = await browser.storage.local.get(SYNC_MIGRATION_KEYS);
+    const toSync: Record<string, any> = {};
+    const toRemoveFromLocal: string[] = [];
+
+    for (const key of SYNC_MIGRATION_KEYS) {
+      if (key in localData && localData[key] !== undefined && localData[key] !== null) {
+        toSync[key] = localData[key];
+        toRemoveFromLocal.push(key);
+      }
+    }
+
+    if (Object.keys(toSync).length > 0) {
+      // Only write to sync if there's actually data to migrate
+      // Check sync first to avoid overwriting data from another device
+      const existingSync = await browser.storage.sync.get(Object.keys(toSync));
+      const finalSync: Record<string, any> = {};
+      for (const [key, value] of Object.entries(toSync)) {
+        // Only migrate if sync doesn't already have data for this key
+        if (!(key in existingSync) || existingSync[key] === undefined || existingSync[key] === null) {
+          finalSync[key] = value;
+        }
+      }
+
+      if (Object.keys(finalSync).length > 0) {
+        await browser.storage.sync.set(finalSync);
+        console.log('[background] Migrated to sync storage:', Object.keys(finalSync));
+      }
+
+      // Remove migrated keys from local storage
+      if (toRemoveFromLocal.length > 0) {
+        await browser.storage.local.remove(toRemoveFromLocal);
+      }
+    }
+
+    // Mark migration as complete
+    await browser.storage.local.set({ [SYNC_MIGRATION_KEY]: true });
+    console.log('[background] Sync storage migration complete');
+  } catch (error) {
+    console.warn('[background] Sync storage migration failed (non-fatal)', error);
+    // Don't mark as complete so it retries next startup
+  }
+}
+
 type SupportedProviderAuth = 'youtube' | 'mal' | 'anilist';
 const pendingAuthSourceTabs: Partial<Record<SupportedProviderAuth, number>> = {};
 let komentoSyncInProgress = false;
@@ -453,7 +522,9 @@ async function getKomentoPendingPermissionsSummary() {
 }
 
 function handleKomentoStorageChange(changes: Record<string, any>, areaName: string): void {
-  if (areaName !== 'local') return;
+  if (areaName !== 'local' && areaName !== 'sync') return;
+  // Config flags live in sync storage; cached data lives in local storage.
+  // React to changes from either area.
   const shouldReconfigure =
     Boolean(changes['komentoscript_enabled'])
     || Boolean(changes['komentoscript_auto_sync'])
@@ -468,9 +539,7 @@ function handleKomentoStorageChange(changes: Record<string, any>, areaName: stri
     || Boolean(changes['komentoscript_cached_packs'])
     || Boolean(changes['komentoscript_sync_state'])
     || Boolean(changes['komentoscript_target_selections'])
-    || Boolean(changes['local:komentoscript_target_selections'])
     || Boolean(changes['custom_site_mappings'])
-    || Boolean(changes['local:custom_site_mappings'])
     || Boolean(changes['custom_sites_sync_cached']);
   if (shouldReconfigure) {
     void ensureKomentoSyncAlarm();
@@ -1511,6 +1580,9 @@ export default defineBackground(() => {
 
   // --- Remaining initialization (non-critical, wrapped in try-catch) ---
   // Everything below is safe to fail without breaking message handling.
+
+  // Migrate user config from local → sync storage (one-time, for existing users)
+  void migrateLocalToSync();
 
   // Safety cleanup: remove stale session poll-block rules from previous runs.
   void (async () => {

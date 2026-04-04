@@ -149,13 +149,14 @@ export const redditDefaultSortItem = storage.defineItem<RedditSortOption>(
   { fallback: 'confidence' }
 );
 
-// Site mapper custom mappings per origin
+// Site mapper custom mappings per origin (synced across devices)
 export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
-  'local:custom_site_mappings',
+  'sync:custom_site_mappings',
   { fallback: {} }
 );
 
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
+// Synced across devices
 export const seriesMappingItem = storage.defineItem<
   Record<string, Record<string, Record<string, {
     episodeOffset: number;
@@ -163,7 +164,7 @@ export const seriesMappingItem = storage.defineItem<
     aniwaveIsDub?: boolean;
   }>>>
 >(
-  'local:series_mapping',
+  'sync:series_mapping',
   { fallback: {} }
 );
 
@@ -194,23 +195,24 @@ export type KomentoSyncHistoryEntry = {
   firstError?: string | null;
 };
 
+// KomentoScript configuration (synced across devices)
 export const komentoScriptEnabledItem = storage.defineItem<boolean>(
-  'local:komentoscript_enabled',
+  'sync:komentoscript_enabled',
   { fallback: true }
 );
 
 export const komentoScriptUseSyncedMappingsItem = storage.defineItem<boolean>(
-  'local:komentoscript_use_synced_mappings',
+  'sync:komentoscript_use_synced_mappings',
   { fallback: true }
 );
 
 export const komentoScriptAutoSyncItem = storage.defineItem<boolean>(
-  'local:komentoscript_auto_sync',
+  'sync:komentoscript_auto_sync',
   { fallback: true }
 );
 
 export const komentoScriptSourceRegistryItem = storage.defineItem<KomentoSourceRegistryEntry[]>(
-  'local:komentoscript_sources',
+  'sync:komentoscript_sources',
   { fallback: [] }
 );
 
@@ -220,7 +222,7 @@ export const komentoScriptCachedPacksItem = storage.defineItem<KomentoCachedPack
 );
 
 export const komentoScriptTargetSelectionsItem = storage.defineItem<KomentoTargetSelectionsBySource>(
-  'local:komentoscript_target_selections',
+  'sync:komentoscript_target_selections',
   { fallback: {} }
 );
 
@@ -279,18 +281,19 @@ export type CustomSitesSyncHistoryEntry = {
   firstError?: string | null;
 };
 
+// Custom sites sync configuration (synced across devices)
 export const customSitesSyncEnabledItem = storage.defineItem<boolean>(
-  'local:custom_sites_sync_enabled',
+  'sync:custom_sites_sync_enabled',
   { fallback: false }
 );
 
 export const customSitesSyncAutoSyncItem = storage.defineItem<boolean>(
-  'local:custom_sites_sync_auto_sync',
+  'sync:custom_sites_sync_auto_sync',
   { fallback: true }
 );
 
 export const customSitesSyncSourcesItem = storage.defineItem<CustomSitesSyncSource[]>(
-  'local:custom_sites_sync_sources',
+  'sync:custom_sites_sync_sources',
   { fallback: [] }
 );
 

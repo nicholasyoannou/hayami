@@ -44,11 +44,12 @@ export const REDDIT_DURATION = 'permanent';
  * 7. Click "CREATE"
  * 8. Copy the client ID and replace the value below
  *
- * Uses a standard OAuth2 + PKCE flow (no client secret needed) that works
- * across all browsers without requiring the `identity` permission.
+ * Uses OAuth2 + PKCE without the `identity` permission.
+ * Client secret is handled server-side by GOOGLE_TOKEN_PROXY_URL.
  */
-export const GOOGLE_CLIENT_ID = '74928001886-t3tbc872m0mkflh0rr175s5ag1nn5t70.apps.googleusercontent.com';
+export const GOOGLE_CLIENT_ID = '74928001886-bavjjpe0373j7066gphv7k6ltld23s9c.apps.googleusercontent.com';
 export const GOOGLE_REDIRECT_URI = 'https://hayami.moe/pwa/link/youtube';
+export const GOOGLE_TOKEN_PROXY_URL = 'https://api.hayami.moe/youtube/token';
 
 /**
  * Google OAuth scopes for YouTube

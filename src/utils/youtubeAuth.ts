@@ -7,13 +7,14 @@
  * Flow:
  * 1. Generate state + code_verifier, store in browser.storage.local.
  * 2. Open Google's OAuth authorize endpoint in a popup window.
- * 3. Google redirects to https://hayami.moe/pwa/link/youtube with an auth code.
+ * 3. Google redirects to https://hayami.moe/pwa/link/youtube.
  * 4. The PWA content script on that page calls completeYouTubeRedirect().
- * 5. Exchange code for tokens via Google's token endpoint (public client, PKCE).
+ * 5. Exchange code for tokens via the Hayami API token proxy.
  */
 
 import { browser } from 'wxt/browser';
-import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES, GOOGLE_REDIRECT_URI } from '@/config';
+import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES, GOOGLE_REDIRECT_URI, GOOGLE_TOKEN_PROXY_URL } from '@/config';
+import { fetchHayami } from '@/utils/hayamiApi';
 
 // Validate configuration (non-blocking warning)
 if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.length === 0) {
@@ -32,7 +33,6 @@ const STORAGE_KEYS = {
 };
 
 const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
-const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const TOKEN_REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 
 interface YouTubeAuthResult {
@@ -48,6 +48,8 @@ interface GoogleTokenResponse {
   expires_in: number;
   refresh_token?: string;
   scope?: string;
+  error?: string;
+  error_description?: string;
 }
 
 interface YouTubeAuthOptions {
@@ -70,6 +72,57 @@ function base64UrlEncode(buffer: ArrayBuffer): string {
   let binary = '';
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function buildGoogleTokenError(status: number, rawBody: string): string {
+  const fallback = `Token exchange failed (${status})`;
+
+  try {
+    const parsed = JSON.parse(rawBody) as { error?: string; error_description?: string };
+    const error = parsed.error || 'unknown_error';
+    const description = parsed.error_description || '';
+
+    if (error === 'invalid_client') {
+      return 'Token exchange failed: invalid_client. Ensure Hayami API is using the correct Google OAuth client secret for this client ID.';
+    }
+
+    if (error === 'invalid_grant') {
+      return 'Token exchange failed: invalid_grant. The auth code may be reused/expired, or redirect URI mismatch exists between authorize and token exchange.';
+    }
+
+    if (description) {
+      return `Token exchange failed: ${error} (${description})`;
+    }
+
+    return `Token exchange failed: ${error}`;
+  } catch {
+    return fallback;
+  }
+}
+
+async function exchangeYouTubeTokenViaProxy(body: Record<string, string>): Promise<GoogleTokenResponse | null> {
+  if (!GOOGLE_TOKEN_PROXY_URL || GOOGLE_TOKEN_PROXY_URL.includes('your-proxy.example.com')) {
+    console.warn('[YouTube] Token proxy URL not configured');
+    return null;
+  }
+
+  const resp = await fetchHayami(GOOGLE_TOKEN_PROXY_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    console.warn('[YouTube] Proxy token exchange failed', resp.status, text);
+    throw new Error(buildGoogleTokenError(resp.status, text));
+  }
+
+  const json = await resp.json() as GoogleTokenResponse;
+  return json;
 }
 
 async function storeTokens(response: GoogleTokenResponse): Promise<void> {
@@ -183,9 +236,11 @@ export async function completeYouTubeRedirect(url: string): Promise<YouTubeAuthR
     const code = parsed.searchParams.get('code');
     const returnedState = parsed.searchParams.get('state');
     const authError = parsed.searchParams.get('error');
+    const authErrorDescription = parsed.searchParams.get('error_description');
 
     if (authError) {
-      return { success: false, error: `Authorization denied: ${authError}` };
+      const detail = authErrorDescription ? ` (${authErrorDescription})` : '';
+      return { success: false, error: `Authorization denied: ${authError}${detail}` };
     }
 
     if (!code) {
@@ -202,29 +257,18 @@ export async function completeYouTubeRedirect(url: string): Promise<YouTubeAuthR
       return { success: false, error: 'PKCE verifier missing; please retry login' };
     }
 
-    // Exchange code for tokens (public client with PKCE — no client_secret needed)
-    const tokenBody = new URLSearchParams({
+    const tokenData = await exchangeYouTubeTokenViaProxy({
       grant_type: 'authorization_code',
       code,
+      code_verifier: storedVerifier,
       redirect_uri: GOOGLE_REDIRECT_URI,
       client_id: GOOGLE_CLIENT_ID,
-      code_verifier: storedVerifier,
     });
 
-    const tokenResp = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: tokenBody.toString(),
-      credentials: 'omit',
-    });
-
-    if (!tokenResp.ok) {
-      const errText = await tokenResp.text();
-      console.warn('[YouTube] Token exchange failed', tokenResp.status, errText);
-      return { success: false, error: 'Token exchange failed' };
+    if (!tokenData) {
+      return { success: false, error: 'Token exchange failed: proxy returned no data' };
     }
 
-    const tokenData = await tokenResp.json() as GoogleTokenResponse;
     await storeTokens(tokenData);
 
     // Fetch and store user identity
@@ -284,25 +328,17 @@ export async function getYouTubeAccessToken(interactive: boolean = false): Promi
 
 async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   try {
-    const body = new URLSearchParams({
+    const data = await exchangeYouTubeTokenViaProxy({
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: GOOGLE_CLIENT_ID,
+      redirect_uri: GOOGLE_REDIRECT_URI,
     });
 
-    const resp = await fetch(GOOGLE_TOKEN_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-      credentials: 'omit',
-    });
-
-    if (!resp.ok) {
-      console.warn('[YouTube] Token refresh failed', resp.status);
+    if (!data) {
       return null;
     }
 
-    const data = await resp.json() as GoogleTokenResponse;
     await storeTokens(data);
     return data.access_token;
   } catch (error) {
