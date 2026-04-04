@@ -39,6 +39,8 @@ import domainPermissionToggle from "webext-permission-toggle";
  * sync across devices. The local copies are removed to avoid stale data.
  */
 const SYNC_MIGRATION_KEY = 'hayami_sync_migration_v1';
+// Only small config items go to sync. Large blobs (custom_site_mappings, series_mapping,
+// cached packs, etc.) stay in local because browser.storage.sync has an 8KB per-item limit.
 const SYNC_MIGRATION_KEYS = [
   'komentoscript_enabled',
   'komentoscript_auto_sync',
@@ -48,13 +50,35 @@ const SYNC_MIGRATION_KEYS = [
   'custom_sites_sync_enabled',
   'custom_sites_sync_auto_sync',
   'custom_sites_sync_sources',
-  'custom_site_mappings',
-  'series_mapping',
 ];
 
 async function migrateLocalToSync(): Promise<void> {
   try {
-    // Check if migration already ran
+    // --- Phase 1: Recover items that were mistakenly moved to sync in v1 ---
+    // custom_site_mappings and series_mapping can exceed sync's 8KB per-item limit,
+    // so they must stay in local. If the v1 migration already ran and moved them,
+    // copy them back to local and remove from sync.
+    const RECOVER_FROM_SYNC = ['custom_site_mappings', 'series_mapping'];
+    try {
+      const syncData = await browser.storage.sync.get(RECOVER_FROM_SYNC);
+      for (const key of RECOVER_FROM_SYNC) {
+        if (key in syncData && syncData[key] !== undefined && syncData[key] !== null) {
+          // Check if local is empty for this key (was deleted by v1 migration)
+          const localData = await browser.storage.local.get(key);
+          if (!(key in localData) || localData[key] === undefined || localData[key] === null
+              || (typeof localData[key] === 'object' && Object.keys(localData[key]).length === 0)) {
+            await browser.storage.local.set({ [key]: syncData[key] });
+            console.log(`[background] Recovered ${key} from sync back to local`);
+          }
+          // Remove from sync regardless (it shouldn't be there)
+          await browser.storage.sync.remove(key);
+        }
+      }
+    } catch (err) {
+      console.warn('[background] Sync recovery check failed (non-fatal)', err);
+    }
+
+    // --- Phase 2: Migrate small config items from local → sync ---
     const { [SYNC_MIGRATION_KEY]: alreadyMigrated } = await browser.storage.local.get(SYNC_MIGRATION_KEY);
     if (alreadyMigrated) return;
 

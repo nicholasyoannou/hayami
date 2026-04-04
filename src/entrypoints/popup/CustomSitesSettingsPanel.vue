@@ -11,6 +11,7 @@ type Props = {
   removingSiteOrigin: string | null;
   onBack: () => void;
   onImportMappingsFileChange: (event: Event) => void | Promise<void>;
+  onExportAllMappings: () => void | Promise<void>;
   onLoadCustomSiteMappings: () => void | Promise<void>;
   onOpenCustomSiteDetail: (site: CustomSiteMapping) => void | Promise<void>;
   onOpenSyncSettings: () => void | Promise<void>;
@@ -75,6 +76,14 @@ function triggerCustomMappingsImport() {
             @click="triggerCustomMappingsImport"
           >
             Import
+          </button>
+          <button
+            class="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-50"
+            @click="props.onExportAllMappings()"
+            :disabled="props.sortedCustomSiteMappings.length === 0"
+            title="Export all custom site mappings"
+          >
+            Export all
           </button>
           <button
             class="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15 disabled:opacity-60"

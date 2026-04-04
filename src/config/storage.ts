@@ -149,14 +149,15 @@ export const redditDefaultSortItem = storage.defineItem<RedditSortOption>(
   { fallback: 'confidence' }
 );
 
-// Site mapper custom mappings per origin (synced across devices)
+// Site mapper custom mappings per origin
+// Kept in local storage because mappings can exceed browser.storage.sync's 8KB per-item limit.
 export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
-  'sync:custom_site_mappings',
+  'local:custom_site_mappings',
   { fallback: {} }
 );
 
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
-// Synced across devices
+// Kept in local storage because nested mappings can exceed browser.storage.sync's 8KB per-item limit.
 export const seriesMappingItem = storage.defineItem<
   Record<string, Record<string, Record<string, {
     episodeOffset: number;
@@ -164,7 +165,7 @@ export const seriesMappingItem = storage.defineItem<
     aniwaveIsDub?: boolean;
   }>>>
 >(
-  'sync:series_mapping',
+  'local:series_mapping',
   { fallback: {} }
 );
 

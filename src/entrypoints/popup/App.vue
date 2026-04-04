@@ -721,6 +721,7 @@ const customSiteIncludePathInput = ref('');
 const customSiteExcludePathInput = ref('');
 const customSitePathGlobsSaving = ref(false);
 const customSiteAdvancedExpanded = ref(false);
+const commentsBackgroundColorDraft = ref('');
 // KomentoScript state and functions are managed by the useKomentoScript composable.
 // It is initialized after showSuccess/showError are defined (see below).
 // KomentoScript state, computed properties, and functions are provided by useKomentoScript composable (initialized below showSuccess/showError).
@@ -789,6 +790,7 @@ watch(currentView, async () => {
 onMounted(async () => {
   applyScrollbarModeClasses();
   updateLayoutMode();
+  detectBrowserActionPopup();
 
   // Load custom sites immediately so the settings panel can render this list without waiting
   // for unrelated account/model/bootstrap calls.
@@ -1074,6 +1076,72 @@ function hydrateSelectedCustomSitePathGlobDrafts() {
   customSiteExcludePathGlobsDraft.value = normalizePathGlobList(selectedCustomSite.value?.excludePathGlobs);
   customSiteIncludePathInput.value = '';
   customSiteExcludePathInput.value = '';
+  commentsBackgroundColorDraft.value = selectedCustomSite.value?.commentsBackgroundColor || '';
+}
+
+function isValidCssColor(value: string): boolean {
+  const trimmed = (value || '').trim();
+  if (!trimmed) return false;
+  return /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-zA-Z]+)$/.test(trimmed);
+}
+
+async function saveCommentsBackgroundColor() {
+  const site = selectedCustomSite.value;
+  if (!site?.origin) return;
+  const color = commentsBackgroundColorDraft.value.trim();
+  if (!color) {
+    showError('Enter a color or press Clear');
+    return;
+  }
+  if (!isValidCssColor(color)) {
+    showError('Invalid color value');
+    return;
+  }
+  try {
+    const map = (await customSiteMappingsItem.getValue()) || {};
+    const existing = map[site.origin] as CustomSiteMapping | undefined;
+    if (!existing) {
+      showError('This custom site no longer exists');
+      await refreshSelectedCustomSite();
+      return;
+    }
+    const next: CustomSiteMapping = { ...existing, commentsBackgroundColor: color };
+    map[site.origin] = next;
+    await customSiteMappingsItem.setValue(map);
+    await loadCustomSiteMappings();
+    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || next;
+    selectedCustomSite.value = updated;
+    commentsBackgroundColorDraft.value = updated.commentsBackgroundColor || '';
+    showSuccess('Comments background color saved');
+  } catch (error) {
+    console.warn('Failed to save comments background color', error);
+    showError('Could not save background color');
+  }
+}
+
+async function clearCommentsBackgroundColor() {
+  const site = selectedCustomSite.value;
+  if (!site?.origin) return;
+  try {
+    const map = (await customSiteMappingsItem.getValue()) || {};
+    const existing = map[site.origin] as CustomSiteMapping | undefined;
+    if (!existing) {
+      showError('This custom site no longer exists');
+      await refreshSelectedCustomSite();
+      return;
+    }
+    const { commentsBackgroundColor: _removed, ...rest } = existing as any;
+    map[site.origin] = rest as CustomSiteMapping;
+    await customSiteMappingsItem.setValue(map);
+    await loadCustomSiteMappings();
+    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || (rest as CustomSiteMapping);
+    selectedCustomSite.value = updated;
+    commentsBackgroundColorDraft.value = '';
+    showSuccess('Background color cleared');
+  } catch (error) {
+    console.warn('Failed to clear comments background color', error);
+    showError('Could not clear background color');
+  }
 }
 
 function addCustomSitePathGlob(kind: 'include' | 'exclude', rawInput?: string) {
@@ -1233,6 +1301,37 @@ function buildCustomMappingExportFilename(site: CustomSiteMapping): string {
     host = String(site.origin || 'site').replace(/[^a-zA-Z0-9.-]/g, '_');
   }
   return `hayami-custom-mapping-${host}.json`;
+}
+
+async function exportAllCustomSiteMappings() {
+  try {
+    const all = [...customSiteMappings.value];
+    if (all.length === 0) {
+      showError('No custom site mappings to export');
+      return;
+    }
+    const payload = {
+      format: 'hayami.custom-site-mappings',
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      mappings: all,
+    };
+    const json = JSON.stringify(payload, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    anchor.download = `hayami-custom-mappings-${stamp}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    showSuccess(`Exported ${all.length} mapping${all.length === 1 ? '' : 's'}`);
+  } catch (error) {
+    console.warn('Failed to export all custom site mappings', error);
+    showError('Could not export custom site mappings');
+  }
 }
 
 async function exportCustomSiteMapping(site: CustomSiteMapping) {
@@ -1635,6 +1734,42 @@ function closePopupWindow() {
   window.close();
 }
 
+const isBrowserActionPopup = ref(false);
+
+async function detectBrowserActionPopup() {
+  try {
+    if (typeof window === 'undefined') return;
+    if (window.parent !== window) {
+      isBrowserActionPopup.value = false;
+      return;
+    }
+    const tabs = (browser as any)?.tabs;
+    if (tabs && typeof tabs.getCurrent === 'function') {
+      const current = await tabs.getCurrent();
+      // In browser-action popup, getCurrent resolves to undefined.
+      isBrowserActionPopup.value = !current;
+      return;
+    }
+    isBrowserActionPopup.value = false;
+  } catch {
+    isBrowserActionPopup.value = false;
+  }
+}
+
+async function openPopupInTab() {
+  try {
+    const url = browser.runtime.getURL('/popup.html');
+    if ((browser as any)?.tabs?.create) {
+      await (browser as any).tabs.create({ url, active: true });
+    } else {
+      window.open(url, '_blank');
+    }
+    window.close();
+  } catch (error) {
+    console.warn('Failed to open popup in tab', error);
+  }
+}
+
 function triggerHeaderCustomMappingsImport() {
   currentView.value = 'settings';
   selectedSettingsCategory.value = 'custom-sites';
@@ -1687,6 +1822,19 @@ function triggerHeaderCustomMappingsImport() {
               </svg>
             </button>
           </div>
+          <button
+            v-if="isBrowserActionPopup"
+            @click="openPopupInTab"
+            class="rounded-full p-1 text-white/80 transition hover:bg-white/10 hover:text-white active:scale-95"
+            aria-label="Open in larger view"
+            title="Open in larger view"
+          >
+            <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 3h7v7" />
+              <path d="M10 14 21 3" />
+              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+            </svg>
+          </button>
           <button
             @click="closePopupWindow"
             class="rounded-full p-1 text-white/80 transition hover:bg-white/10 hover:text-white active:scale-95"
@@ -1905,6 +2053,7 @@ function triggerHeaderCustomMappingsImport() {
                     :removing-site-origin="removingSiteOrigin"
                     :on-back="() => { settingsScreen = 'menu'; }"
                     :on-import-mappings-file-change="onImportCustomMappingsFileChange"
+                    :on-export-all-mappings="exportAllCustomSiteMappings"
                     :on-load-custom-site-mappings="loadCustomSiteMappings"
                     :on-open-custom-site-detail="openCustomSiteDetail"
                     :on-open-sync-settings="() => { settingsScreen = 'custom-sites-sync'; }"
@@ -2006,8 +2155,12 @@ function triggerHeaderCustomMappingsImport() {
                   :custom-site-include-path-input="customSiteIncludePathInput"
                   :custom-site-exclude-path-input="customSiteExcludePathInput"
                   :custom-site-path-globs-saving="customSitePathGlobsSaving"
+                  :comments-background-color-draft="commentsBackgroundColorDraft"
                   :on-back="backToCustomSites"
                   :on-export-mapping="exportCustomSiteMapping"
+                  :on-set-comments-background-color="(value) => { commentsBackgroundColorDraft = value; }"
+                  :on-save-comments-background-color="saveCommentsBackgroundColor"
+                  :on-clear-comments-background-color="clearCommentsBackgroundColor"
                   :on-toggle-advanced="() => { customSiteAdvancedExpanded = !customSiteAdvancedExpanded; }"
                   :on-add-path-glob="addCustomSitePathGlob"
                   :on-remove-path-glob="removeCustomSitePathGlob"

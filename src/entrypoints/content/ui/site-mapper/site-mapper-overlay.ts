@@ -231,6 +231,25 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         </div>
       </div>
       <div class="row">
+        <div class="field" data-field="episodeRegex" style="grid-column: span 2;">
+          <label>Episode number extractor <span class="hint">Optional. Build a regex by highlighting the episode number in the raw text</span></label>
+          <div style="display:flex; gap:8px; align-items:center;">
+            <input id="episodeRegex" type="text" placeholder="e.g. episode\s*(\d+)" />
+            <button class="pick" id="buildEpisodeRegex" type="button">Build from highlight</button>
+            <button class="pick" id="clearEpisodeRegex" type="button">Clear</button>
+          </div>
+          <div id="episodeRegexHelper" style="display:none; margin-top:8px; padding:8px; border-radius:8px; background:rgba(255,255,255,0.05);">
+            <div class="hint" style="margin-bottom:6px;">Highlight the episode number (e.g. <code>4</code> or <code>episode 4</code>) in the text below:</div>
+            <div id="episodeRegexSourceText" style="user-select:text; cursor:text; padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.25); font-size:12px; line-height:1.5; white-space:pre-wrap; word-break:break-word;"></div>
+            <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
+              <button class="pick" id="episodeRegexApply" type="button">Apply selection</button>
+              <button class="pick" id="episodeRegexCancel" type="button">Cancel</button>
+              <span id="episodeRegexPreview" class="hint"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row">
         <div class="field" data-field="iconText" style="grid-column: span 2;">
           <label>Text label <span class="hint">Shown when text-based icon mode is selected</span></label>
           <input id="iconDisplayText" type="text" placeholder="Hayami" />
@@ -264,6 +283,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const anchorInput = shadow.getElementById('anchorSelector') as HTMLInputElement;
     const titleInput = shadow.getElementById('titleSelector') as HTMLInputElement;
     const episodeInput = shadow.getElementById('episodeSelector') as HTMLInputElement;
+    const episodeRegexInput = shadow.getElementById('episodeRegex') as HTMLInputElement | null;
+    const buildEpisodeRegexBtn = shadow.getElementById('buildEpisodeRegex') as HTMLButtonElement | null;
+    const clearEpisodeRegexBtn = shadow.getElementById('clearEpisodeRegex') as HTMLButtonElement | null;
+    const episodeRegexHelper = shadow.getElementById('episodeRegexHelper') as HTMLElement | null;
+    const episodeRegexSourceText = shadow.getElementById('episodeRegexSourceText') as HTMLElement | null;
+    const episodeRegexApplyBtn = shadow.getElementById('episodeRegexApply') as HTMLButtonElement | null;
+    const episodeRegexCancelBtn = shadow.getElementById('episodeRegexCancel') as HTMLButtonElement | null;
+    const episodeRegexPreviewEl = shadow.getElementById('episodeRegexPreview') as HTMLElement | null;
     const paddingInput = shadow.getElementById('sidePadding') as HTMLInputElement | null;
     const placementTabs = shadow.getElementById('placementTabs') as HTMLElement | null;
     const iconKindTabs = shadow.getElementById('iconKindTabs') as HTMLElement | null;
@@ -281,6 +308,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       anchor: shadow.querySelector('[data-field="anchor"]') as HTMLElement | null,
       title: shadow.querySelector('[data-field="title"]') as HTMLElement | null,
       episode: shadow.querySelector('[data-field="episode"]') as HTMLElement | null,
+      episodeRegex: shadow.querySelector('[data-field="episodeRegex"]') as HTMLElement | null,
       iconKind: shadow.querySelector('[data-field="iconKind"]') as HTMLElement | null,
       iconAction: shadow.querySelector('[data-field="iconAction"]') as HTMLElement | null,
       iconText: shadow.querySelector('[data-field="iconText"]') as HTMLElement | null,
@@ -296,6 +324,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       anchorInput.value = currentMapping.anchorSelector || '';
       titleInput.value = currentMapping.titleSelector || '';
       episodeInput.value = currentMapping.episodeSelector || '';
+      if (episodeRegexInput) episodeRegexInput.value = currentMapping.episodeRegex || '';
       if (paddingInput) paddingInput.value = (currentMapping.sidePadding ?? '').toString();
       selectedIconKind = currentMapping.iconDisplayKind === 'icon' ? 'icon' : 'text';
       selectedIconAction = currentMapping.iconDisplayAction === 'replace' ? 'replace' : 'popup';
@@ -336,11 +365,11 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     }
 
     const placementFieldVisibility: Record<DisplayPlacement, string[]> = {
-      below: ['anchor', 'mount', 'title', 'episode', 'padding'],
-      insert: ['mount', 'title', 'episode', 'padding'],
-      replace: ['anchor', 'title', 'episode', 'padding'],
-      popup: ['title', 'episode'],
-      icon: ['mount', 'title', 'episode', 'iconKind', 'iconAction', 'iconText', 'padding'],
+      below: ['anchor', 'mount', 'title', 'episode', 'episodeRegex', 'padding'],
+      insert: ['mount', 'title', 'episode', 'episodeRegex', 'padding'],
+      replace: ['anchor', 'title', 'episode', 'episodeRegex', 'padding'],
+      popup: ['title', 'episode', 'episodeRegex'],
+      icon: ['mount', 'title', 'episode', 'episodeRegex', 'iconKind', 'iconAction', 'iconText', 'padding'],
     };
 
     function syncIconKindSelection() {
@@ -605,6 +634,129 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       runExtractionPreview();
     });
 
+    const escapeRegExpLiteral = (value: string): string =>
+      value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const buildEpisodeRegexFromSelection = (fullText: string, start: number, end: number): string | null => {
+      if (start < 0 || end <= start || end > fullText.length) return null;
+      const selected = fullText.slice(start, end);
+      if (!selected.trim()) return null;
+
+      // Find a digit run within the selected substring. This becomes the capture group.
+      const digitMatch = /\d+/.exec(selected);
+      if (!digitMatch) return null;
+
+      const localDigitStart = digitMatch.index;
+      const localDigitEnd = localDigitStart + digitMatch[0].length;
+
+      // Everything in the selection around the digit becomes literal context.
+      const prefixLiteral = escapeRegExpLiteral(selected.slice(0, localDigitStart))
+        .replace(/\\\s+/g, '\\s*')
+        .replace(/ +/g, '\\s*');
+      const suffixLiteral = escapeRegExpLiteral(selected.slice(localDigitEnd))
+        .replace(/\\\s+/g, '\\s*')
+        .replace(/ +/g, '\\s*');
+
+      return `${prefixLiteral}(\\d+)${suffixLiteral}`;
+    };
+
+    const getEpisodeSourceText = (): string => {
+      const el = safeQuerySelector(episodeInput.value);
+      if (!el) return '';
+      const text = ((el as HTMLElement).innerText || el.textContent || '').trim();
+      return sanitizePreviewText(text, 500);
+    };
+
+    const closeEpisodeRegexHelper = () => {
+      if (episodeRegexHelper) episodeRegexHelper.style.display = 'none';
+      if (episodeRegexPreviewEl) episodeRegexPreviewEl.textContent = '';
+    };
+
+    buildEpisodeRegexBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const source = getEpisodeSourceText();
+      if (!source) {
+        toast.error('Set a working episode selector first');
+        return;
+      }
+      if (!episodeRegexHelper || !episodeRegexSourceText) return;
+      episodeRegexSourceText.textContent = source;
+      episodeRegexHelper.style.display = '';
+      if (episodeRegexPreviewEl) episodeRegexPreviewEl.textContent = 'Highlight the episode number, then click "Apply selection".';
+    });
+
+    clearEpisodeRegexBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (episodeRegexInput) episodeRegexInput.value = '';
+      closeEpisodeRegexHelper();
+    });
+
+    episodeRegexCancelBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      closeEpisodeRegexHelper();
+    });
+
+    episodeRegexApplyBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      if (!episodeRegexSourceText || !episodeRegexInput) return;
+      const fullText = episodeRegexSourceText.textContent || '';
+
+      // Read the selection inside the shadow DOM.
+      const shadowRoot = episodeRegexSourceText.getRootNode() as ShadowRoot;
+      let selectedText = '';
+      let startOffset = -1;
+      let endOffset = -1;
+
+      try {
+        const sel = (shadowRoot as any).getSelection ? (shadowRoot as any).getSelection() : window.getSelection();
+        if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
+          const range = sel.getRangeAt(0);
+          if (episodeRegexSourceText.contains(range.startContainer) && episodeRegexSourceText.contains(range.endContainer)) {
+            selectedText = range.toString();
+            // Compute offset within the flat textContent.
+            const preRange = document.createRange();
+            preRange.selectNodeContents(episodeRegexSourceText);
+            preRange.setEnd(range.startContainer, range.startOffset);
+            startOffset = preRange.toString().length;
+            endOffset = startOffset + selectedText.length;
+          }
+        }
+      } catch (err) {
+        console.warn('[site-mapper] selection read failed', err);
+      }
+
+      if (startOffset < 0 || !selectedText.trim()) {
+        // Fallback: if user just wants plain digit extraction.
+        const digitOnly = /\d+/.exec(fullText);
+        if (!digitOnly) {
+          toast.error('Please highlight the episode number first');
+          return;
+        }
+        episodeRegexInput.value = '(\\d+)';
+        if (episodeRegexPreviewEl) episodeRegexPreviewEl.textContent = `Preview match: ${digitOnly[0]}`;
+        closeEpisodeRegexHelper();
+        toast.success('Episode regex set');
+        return;
+      }
+
+      const built = buildEpisodeRegexFromSelection(fullText, startOffset, endOffset);
+      if (!built) {
+        toast.error('Selection must contain a number');
+        return;
+      }
+
+      episodeRegexInput.value = built;
+      try {
+        const re = new RegExp(built, 'i');
+        const m = re.exec(fullText);
+        if (episodeRegexPreviewEl) {
+          episodeRegexPreviewEl.textContent = m ? `Preview match: ${(m[1] ?? m[0]).trim()}` : 'No match on sample text';
+        }
+      } catch {}
+      closeEpisodeRegexHelper();
+      toast.success('Episode regex built');
+    });
+
     [titleInput, episodeInput].forEach((input) => {
       input.addEventListener('input', () => runExtractionPreview());
       input.addEventListener('change', () => runExtractionPreview());
@@ -624,6 +776,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         anchorInput.value = '';
         titleInput.value = '';
         episodeInput.value = '';
+        if (episodeRegexInput) episodeRegexInput.value = '';
         if (paddingInput) paddingInput.value = '';
         if (iconDisplayTextInput) iconDisplayTextInput.value = 'Hayami';
         (mountInput as any)._hayamiXPath = '';
@@ -997,6 +1150,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         mountSelector: mountInput.value.trim() || anchorInput.value.trim() || 'body',
         titleSelector: titleInput.value.trim(),
         episodeSelector: episodeInput.value.trim(),
+        episodeRegex: (episodeRegexInput?.value || '').trim() || undefined,
         sidePadding,
         anchorXPath: (anchorInput as any)._hayamiXPath || currentMapping?.anchorXPath || '',
         mountXPath: (mountInput as any)._hayamiXPath || currentMapping?.mountXPath || '',

@@ -14,7 +14,9 @@ export interface CustomSiteMapping {
   mountSelector: string;
   titleSelector: string;
   episodeSelector: string;
+  episodeRegex?: string;
   sidePadding?: number;
+  commentsBackgroundColor?: string;
   anchorXPath?: string;
   mountXPath?: string;
   titleXPath?: string;

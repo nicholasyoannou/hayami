@@ -12,8 +12,12 @@ type Props = {
   customSiteIncludePathInput: string;
   customSiteExcludePathInput: string;
   customSitePathGlobsSaving: boolean;
+  commentsBackgroundColorDraft: string;
   onBack: () => void;
   onExportMapping: (site: CustomSiteMapping) => void | Promise<void>;
+  onSetCommentsBackgroundColor: (value: string) => void;
+  onSaveCommentsBackgroundColor: () => void | Promise<void>;
+  onClearCommentsBackgroundColor: () => void | Promise<void>;
   onToggleAdvanced: () => void;
   onAddPathGlob: (kind: 'include' | 'exclude', rawInput?: string) => void;
   onRemovePathGlob: (kind: 'include' | 'exclude', glob: string) => void;
@@ -83,8 +87,57 @@ const props = defineProps<Props>();
           <div class="truncate text-white/60">{{ props.selectedCustomSite.episodeSelector || '—' }}</div>
         </div>
         <div class="rounded-lg bg-black/10 px-3 py-2">
+          <div class="font-semibold text-white/80">Episode regex</div>
+          <div class="truncate text-white/60">{{ props.selectedCustomSite.episodeRegex || '—' }}</div>
+        </div>
+        <div class="rounded-lg bg-black/10 px-3 py-2">
           <div class="font-semibold text-white/80">Side padding</div>
           <div class="truncate text-white/60">{{ props.selectedCustomSite.sidePadding ?? 0 }}px</div>
+        </div>
+      </div>
+
+      <div class="mt-2 rounded-lg bg-black/10 px-3 py-3 space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-semibold text-white/85">Comments background color</div>
+            <div class="text-[11px] text-white/55">Override the background of the comments section on this site.</div>
+          </div>
+          <span
+            class="inline-block h-5 w-5 rounded border border-white/25"
+            :style="{ backgroundColor: props.commentsBackgroundColorDraft || 'transparent' }"
+            aria-hidden="true"
+          ></span>
+        </div>
+        <div class="flex items-center gap-2">
+          <input
+            type="color"
+            class="h-8 w-10 cursor-pointer rounded border border-white/15 bg-transparent p-0"
+            :value="/^#([0-9a-fA-F]{6})$/.test(props.commentsBackgroundColorDraft) ? props.commentsBackgroundColorDraft : '#000000'"
+            @input="props.onSetCommentsBackgroundColor(($event.target as HTMLInputElement).value)"
+            aria-label="Pick comments background color"
+          />
+          <input
+            type="text"
+            class="min-w-0 flex-1 rounded-lg bg-white/10 px-3 py-2 text-xs text-white placeholder:text-white/45 focus:outline focus:outline-2 focus:outline-white/30"
+            placeholder="#1a1a1a, rgb(20,20,20), transparent, ..."
+            :value="props.commentsBackgroundColorDraft"
+            @input="props.onSetCommentsBackgroundColor(($event.target as HTMLInputElement).value)"
+          />
+          <button
+            type="button"
+            class="rounded-lg bg-cyan-500/25 px-3 py-2 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/35"
+            @click="props.onSaveCommentsBackgroundColor()"
+          >
+            Save
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-white/10 px-3 py-2 text-[11px] font-semibold text-white/85 hover:bg-white/15"
+            @click="props.onClearCommentsBackgroundColor()"
+            title="Clear override"
+          >
+            Clear
+          </button>
         </div>
       </div>
 

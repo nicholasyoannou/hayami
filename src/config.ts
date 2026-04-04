@@ -99,7 +99,6 @@ export const hostPermissions = [
       'https://api.imgur.com/*',
       'https://imgur.com/*',
       'https://*.imgur.com/*',
-      'https://catbox.moe/*',
       'https://postimg.cc/*',
       'https://*.postimg.cc/*',
       'https://api.bilibili.com/*',

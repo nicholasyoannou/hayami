@@ -80,11 +80,25 @@ export function applySidePadding(target: HTMLElement | null | undefined): void {
   if (!target) return;
   const raw = customSiteMapping?.sidePadding;
   const numeric = typeof raw === 'string' ? Number.parseFloat(raw as any) : raw;
-  if (numeric === undefined || numeric === null) return;
-  if (!Number.isFinite(numeric) || numeric < 0) return;
-  target.style.boxSizing = 'border-box';
-  target.style.paddingLeft = `${numeric}px`;
-  target.style.paddingRight = `${numeric}px`;
+  if (numeric !== undefined && numeric !== null && Number.isFinite(numeric) && numeric >= 0) {
+    target.style.boxSizing = 'border-box';
+    target.style.paddingLeft = `${numeric}px`;
+    target.style.paddingRight = `${numeric}px`;
+  }
+  applyCommentsBackgroundColor(target);
+}
+
+export function applyCommentsBackgroundColor(target: HTMLElement | null | undefined): void {
+  if (!target) return;
+  const raw = customSiteMapping?.commentsBackgroundColor;
+  if (typeof raw !== 'string') return;
+  const trimmed = raw.trim();
+  if (!trimmed) return;
+  // Basic sanity check: allow #hex, rgb(a), hsl(a), and common color names.
+  if (!/^(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-zA-Z]+)$/.test(trimmed)) return;
+  try {
+    target.style.backgroundColor = trimmed;
+  } catch {}
 }
 
 export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | null> {
@@ -374,11 +388,29 @@ export function getCustomAnimeInfo(): { animeName: string; episodeName: string }
     ? safeQuerySelector(customSiteMapping.episodeSelector)
     : evaluateXPath(customSiteMapping.episodeXPath);
   const animeName = titleEl?.textContent?.trim();
-  const episodeName = episodeEl?.textContent?.trim();
+  let episodeName = episodeEl?.textContent?.trim();
+  if (episodeName && customSiteMapping.episodeRegex) {
+    const extracted = applyEpisodeRegex(episodeName, customSiteMapping.episodeRegex);
+    if (extracted) episodeName = extracted;
+  }
   if (animeName && episodeName) {
     return { animeName, episodeName };
   }
   return null;
+}
+
+export function applyEpisodeRegex(text: string, pattern: string): string | null {
+  const trimmedPattern = String(pattern || '').trim();
+  if (!trimmedPattern) return null;
+  try {
+    const re = new RegExp(trimmedPattern, 'i');
+    const match = re.exec(String(text || ''));
+    if (!match) return null;
+    // Prefer first capture group; fallback to full match.
+    return (match[1] ?? match[0] ?? '').trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 export function getElementCssSelector(el: Element): string {
