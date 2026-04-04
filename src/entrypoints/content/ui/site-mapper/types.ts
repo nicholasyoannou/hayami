@@ -13,6 +13,7 @@ export interface CustomSiteMapping {
   anchorSelector: string;
   mountSelector: string;
   titleSelector: string;
+  titleRegex?: string;
   episodeSelector: string;
   episodeRegex?: string;
   sidePadding?: number;

@@ -387,10 +387,14 @@ export function getCustomAnimeInfo(): { animeName: string; episodeName: string }
   const episodeEl = customSiteMapping.episodeSelector
     ? safeQuerySelector(customSiteMapping.episodeSelector)
     : evaluateXPath(customSiteMapping.episodeXPath);
-  const animeName = titleEl?.textContent?.trim();
+  let animeName = titleEl?.textContent?.trim();
+  if (animeName && customSiteMapping.titleRegex) {
+    const extracted = applyFieldRegex(animeName, customSiteMapping.titleRegex);
+    if (extracted) animeName = extracted;
+  }
   let episodeName = episodeEl?.textContent?.trim();
   if (episodeName && customSiteMapping.episodeRegex) {
-    const extracted = applyEpisodeRegex(episodeName, customSiteMapping.episodeRegex);
+    const extracted = applyFieldRegex(episodeName, customSiteMapping.episodeRegex);
     if (extracted) episodeName = extracted;
   }
   if (animeName && episodeName) {
@@ -399,7 +403,11 @@ export function getCustomAnimeInfo(): { animeName: string; episodeName: string }
   return null;
 }
 
-export function applyEpisodeRegex(text: string, pattern: string): string | null {
+/**
+ * Apply a user-authored regex to a field's raw text. Prefers the first capture group;
+ * falls back to the full match. Returns null on any failure / non-match.
+ */
+export function applyFieldRegex(text: string, pattern: string): string | null {
   const trimmedPattern = String(pattern || '').trim();
   if (!trimmedPattern) return null;
   try {

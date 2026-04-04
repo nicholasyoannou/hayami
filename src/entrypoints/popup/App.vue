@@ -48,6 +48,7 @@ import {
   redditTraditionalSpacingItem,
   redditTruncateLinesItem,
   linkOnlyModeItem,
+  siteMapperAdvancedModeItem,
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
@@ -107,6 +108,7 @@ type SettingValueMap = {
   aniwaveAutoExpandAll: boolean;
   aniwaveAutoExpandDepth: number;
   aniwaveHideReplyContext: boolean;
+  siteMapperAdvancedMode: boolean;
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
@@ -200,6 +202,18 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => linkOnlyModeItem.setValue(value),
     successMessage: (value) => (value ? 'Link-only mode enabled' : 'Link-only mode disabled'),
     errorMessage: 'Failed to save Link-only mode',
+  },
+  {
+    key: 'siteMapperAdvancedMode',
+    type: 'toggle',
+    category: 'general',
+    label: 'Show advanced site mapper details',
+    description: 'Reveal the raw CSS selectors and extracted text in the "Map site with Hayami" overlay. Leave off for a cleaner, simpler interface.',
+    fallback: false,
+    load: () => siteMapperAdvancedModeItem.getValue(),
+    save: (value) => siteMapperAdvancedModeItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Advanced site mapper details enabled' : 'Advanced site mapper details hidden'),
+    errorMessage: 'Failed to save site mapper preference',
   },
   {
     key: 'commentTextSizeIncrease',
@@ -673,6 +687,7 @@ const settingValues = reactive<SettingValueMap>({
   aniwaveAutoExpandAll: true,
   aniwaveAutoExpandDepth: 3,
   aniwaveHideReplyContext: false,
+  siteMapperAdvancedMode: false,
 });
 
 const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));

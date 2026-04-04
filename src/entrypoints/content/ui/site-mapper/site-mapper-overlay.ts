@@ -18,6 +18,7 @@ import { extractEpisodeNumber } from '@/utils/episode-utils';
 import {
   customSiteMappingsItem,
   displayModeItem,
+  siteMapperAdvancedModeItem,
 } from '@/config/storage';
 
 export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void): void {
@@ -164,6 +165,230 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
           background: rgba(255,255,255,0.09);
         }
       }
+
+      /* ---- Compact "Map site" UI ---- */
+      .panel { width: min(900px, 94vw); padding: 24px 26px 22px; gap: 18px; }
+      .panel h2 { font-size: 18px; }
+      .tab-row { padding: 5px; gap: 6px; }
+      .tab-row .tab { padding: 9px 12px; font-size: 12px; font-weight: 600; border-radius: 8px; }
+      .mapper-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 14px 22px;
+        min-width: 0;
+      }
+      .mapper-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 34px;
+        min-width: 0;
+      }
+      .mapper-row.hidden { display: none; }
+      .mapper-row .row-label {
+        font-size: 13px;
+        font-weight: 600;
+        color: rgba(255,255,255,0.82);
+        flex-shrink: 0;
+        white-space: nowrap;
+      }
+      .mapper-row .row-value {
+        flex: 1;
+        min-width: 0;
+        font-size: 12px;
+        color: rgba(255,255,255,0.55);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding: 6px 10px;
+        border-radius: 7px;
+        background: rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.06);
+        outline: none;
+      }
+      .mapper-row.is-set .row-value { color: #f7f7fb; }
+      .mapper-row .row-value:focus-visible { border-color: rgba(91,168,255,0.5); }
+      .info-tip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        border: 1px solid rgba(255,255,255,0.28);
+        color: rgba(255,255,255,0.72);
+        background: transparent;
+        cursor: help;
+        flex-shrink: 0;
+        font-size: 10px;
+        font-weight: 700;
+        font-family: inherit;
+        line-height: 1;
+        padding: 0;
+      }
+      .info-tip:hover { border-color: rgba(255,255,255,0.5); color: #fff; }
+      /* ---- Custom floating tooltip (shared) ---- */
+      .hayami-tooltip {
+        position: fixed;
+        z-index: 2147483002;
+        max-width: 260px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #171c24;
+        border: 1px solid rgba(255,255,255,0.15);
+        color: rgba(255,255,255,0.88);
+        font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+        font-size: 11px;
+        line-height: 1.45;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.5);
+        pointer-events: none;
+        white-space: normal;
+        word-break: break-word;
+        opacity: 0;
+        transform: translate(-50%, -4px);
+        transition: opacity 120ms ease;
+      }
+      .hayami-tooltip.is-visible { opacity: 1; transform: translate(-50%, 0); }
+      .pick-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 6px;
+        border: 1px solid rgba(91,168,255,0.5);
+        background: rgba(91,168,255,0.1);
+        color: #cfe5ff;
+        cursor: pointer;
+        flex-shrink: 0;
+        min-width: 52px;
+      }
+      .pick-btn:hover { background: rgba(91,168,255,0.22); }
+      .pick-btn.is-set {
+        border-color: rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.05);
+        color: rgba(255,255,255,0.82);
+      }
+      .icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.14);
+        background: transparent;
+        color: rgba(255,255,255,0.65);
+        cursor: pointer;
+        padding: 0;
+        flex-shrink: 0;
+      }
+      .icon-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+      .icon-btn.is-active {
+        border-color: rgba(91,168,255,0.6);
+        color: #cfe5ff;
+        background: rgba(91,168,255,0.12);
+      }
+      .icon-btn svg { width: 12px; height: 12px; }
+      .regex-popover {
+        grid-column: 1 / -1;
+        margin: 2px 0 4px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.08);
+        display: none;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .regex-popover.is-open { display: flex; }
+      .regex-popover .source-text {
+        user-select: text;
+        cursor: text;
+        padding: 6px 8px;
+        border-radius: 6px;
+        background: rgba(0,0,0,0.3);
+        font-size: 11px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 80px;
+        overflow: auto;
+      }
+      .regex-popover .hint { font-size: 11px; color: rgba(255,255,255,0.6); }
+      .regex-popover ::selection { background: rgba(45, 212, 191, 0.4); color: #fff; }
+      .regex-popover .popover-actions {
+        display: flex;
+        gap: 6px;
+        align-items: center;
+      }
+      .regex-popover .popover-actions .hint { margin-left: auto; }
+      .regex-popover .pick-btn { padding: 3px 8px; min-width: 0; }
+      .raw-selector-row {
+        display: none;
+        grid-column: 1 / -1;
+        align-items: center;
+        gap: 6px;
+        margin-top: -2px;
+      }
+      .raw-selector-row .raw-label {
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: rgba(255,255,255,0.4);
+        min-width: 58px;
+      }
+      .advanced-mode .raw-selector-row { display: flex; }
+      .raw-selector-row.is-open { display: flex; }
+      .raw-selector-row input {
+        flex: 1;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+        padding: 5px 8px;
+        border-radius: 6px;
+      }
+      .inline-inputs {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 140px);
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+      }
+      .inline-inputs .mini-field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .inline-inputs .mini-field > input { min-width: 0; }
+      .inline-inputs .mini-field > .tab-row { min-width: 0; flex: 1; }
+      .inline-inputs .mini-field label {
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(255,255,255,0.68);
+        white-space: nowrap;
+      }
+      .inline-inputs .mini-field input {
+        flex: 1;
+        padding: 6px 9px;
+        font-size: 12px;
+        border-radius: 7px;
+      }
+      .inline-inputs .mini-field.hidden { display: none; }
+      .inline-inputs.hidden { display: none; }
+      .inline-inputs.icon-tabs-row {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      }
+      .footer-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+      .footer-row .left-actions { display: flex; gap: 6px; }
+      .footer-row .right-actions { display: flex; gap: 8px; }
+      .footer-row button { padding: 7px 12px; font-size: 12px; }
     `;
     shadow.appendChild(style);
 
@@ -171,149 +396,223 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     container.className = 'overlay';
     const panel = document.createElement('div');
     panel.className = 'panel';
+    const pencilIconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4z"/></svg>`;
+    const escapeAttr = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const tip = (text: string, id?: string) =>
+      `<button type="button" class="info-tip"${id ? ` id="${id}"` : ''} data-hayami-tip="${escapeAttr(text)}" aria-label="${escapeAttr(text)}" tabindex="0">?</button>`;
+
     panel.innerHTML = `
       <h2>Map this site to Hayami</h2>
       <div class="tab-row" id="placementTabs">
-        <button class="tab active" data-placement="below">Below element</button>
-        <button class="tab" data-placement="insert">Insert inline</button>
-        <button class="tab" data-placement="replace">Replace element</button>
-        <button class="tab" data-placement="popup">Popup only</button>
-        <button class="tab" data-placement="icon">Icon / Text trigger</button>
+        <button class="tab active" data-placement="below">Below</button>
+        <button class="tab" data-placement="insert">Inline</button>
+        <button class="tab" data-placement="replace">Replace</button>
+        <button class="tab" data-placement="popup">Popup</button>
+        <button class="tab" data-placement="icon">Icon</button>
       </div>
-      <div class="row" data-field="iconKindRow">
-        <div class="field" data-field="iconKind" style="grid-column: span 2;">
-          <label>Icon mode style</label>
-          <div class="tab-row" id="iconKindTabs">
-            <button class="tab active" data-icon-kind="text">Text-based</button>
-            <button class="tab" data-icon-kind="icon">Icon-based</button>
+
+      <div class="inline-inputs icon-tabs-row" data-field="iconKindRow">
+        <div class="mini-field" data-field="iconKind">
+          <label>Icon style</label>
+          <div class="tab-row" id="iconKindTabs" style="flex:1;">
+            <button class="tab active" data-icon-kind="text">Text</button>
+            <button class="tab" data-icon-kind="icon">Icon</button>
           </div>
         </div>
-      </div>
-      <div class="row" data-field="iconActionRow">
-        <div class="field" data-field="iconAction" style="grid-column: span 2;">
-          <label>On click behavior</label>
-          <div class="tab-row" id="iconActionTabs">
+        <div class="mini-field" data-field="iconAction">
+          <label>Click</label>
+          <div class="tab-row" id="iconActionTabs" style="flex:1;">
             <button class="tab active" data-icon-action="popup">Popup</button>
             <button class="tab" data-icon-action="replace">Replace</button>
           </div>
         </div>
       </div>
-      <div class="row">
-        <div class="field" data-field="mount">
-          <label id="mountLabel">Mount selector <span class="hint">Where comments should appear or icon should sit</span></label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="mountSelector" type="text" placeholder="CSS selector" />
-            <button class="pick" data-target="mount">Pick</button>
+
+      <div class="mapper-grid">
+        <div class="mapper-row" data-field="title">
+          <button class="pick-btn" data-target="title" data-pick-kind="title">Pick</button>
+          <span class="row-label">Title</span>
+          ${tip('The element on the page that contains the anime or show title.')}
+          <span class="row-value" data-preview-value="title" data-tip-overflow tabindex="0">Not picked</span>
+          <button class="icon-btn" id="titleRegexToggle" type="button" aria-label="Build title extractor" data-hayami-tip="Build a regex to clean up the title">${pencilIconSvg}</button>
+        </div>
+        <div class="mapper-row" data-field="episode">
+          <button class="pick-btn" data-target="episode" data-pick-kind="episode">Pick</button>
+          <span class="row-label">Episode</span>
+          ${tip('The element that contains the episode number.')}
+          <span class="row-value" data-preview-value="episode" data-tip-overflow tabindex="0">Not picked</span>
+          <button class="icon-btn" id="episodeRegexToggle" type="button" aria-label="Build episode extractor" data-hayami-tip="Build a regex to extract the episode number">${pencilIconSvg}</button>
+        </div>
+
+        <div class="regex-popover" data-regex-popover="title">
+          <div class="hint">Highlight just the <b>title</b> portion below, then Apply.</div>
+          <div class="source-text" data-regex-source="title"></div>
+          <div class="popover-actions">
+            <button class="pick-btn" data-regex-apply="title" type="button">Apply</button>
+            <button class="icon-btn" data-regex-clear="title" type="button" aria-label="Clear" title="Clear">✕</button>
+            <span class="hint" data-regex-preview="title"></span>
           </div>
         </div>
-        <div class="field" data-field="anchor">
-          <label id="anchorLabel">Display target selector <span class="hint">Element to anchor below/replace</span></label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="anchorSelector" type="text" placeholder="CSS selector" />
-            <button class="pick" data-target="anchor">Pick</button>
+        <div class="regex-popover" data-regex-popover="episode">
+          <div class="hint">Highlight just the <b>episode number</b> below, then Apply.</div>
+          <div class="source-text" data-regex-source="episode"></div>
+          <div class="popover-actions">
+            <button class="pick-btn" data-regex-apply="episode" type="button">Apply</button>
+            <button class="icon-btn" data-regex-clear="episode" type="button" aria-label="Clear" title="Clear">✕</button>
+            <span class="hint" data-regex-preview="episode"></span>
           </div>
         </div>
+
+        <div class="mapper-row" data-field="mount">
+          <button class="pick-btn" data-target="mount" data-pick-kind="mount">Pick</button>
+          <span class="row-label" id="mountLabelText">Mount selector</span>
+          ${tip('Parent container Hayami will mount its comments inside. If left blank, Display target is used.', 'mountInfoTip')}
+          <button class="icon-btn" id="mountRawToggle" type="button" aria-label="Edit raw mount selector" data-hayami-tip="Edit the raw CSS selector manually">${pencilIconSvg}</button>
+        </div>
+        <div class="mapper-row" data-field="anchor">
+          <button class="pick-btn" data-target="anchor" data-pick-kind="anchor">Pick</button>
+          <span class="row-label" id="anchorLabelText">Display target</span>
+          ${tip("The site's existing comments element. Hayami will append inside it, replace it, or hide it depending on the display mode.", 'anchorInfoTip')}
+          <button class="icon-btn" id="anchorRawToggle" type="button" aria-label="Edit raw anchor selector" data-hayami-tip="Edit the raw CSS selector manually">${pencilIconSvg}</button>
+        </div>
+
+        <div class="raw-selector-row"><span class="raw-label">Title CSS</span><input id="titleSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Episode CSS</span><input id="episodeSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row" data-raw-for="mount"><span class="raw-label">Mount CSS</span><input id="mountSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row" data-raw-for="anchor"><span class="raw-label">Anchor CSS</span><input id="anchorSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Title regex</span><input id="titleRegex" type="text" placeholder="Title regex" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Episode regex</span><input id="episodeRegex" type="text" placeholder="Episode regex" /></div>
       </div>
-      <div class="row">
-        <div class="field" data-field="title">
-          <label>Anime title selector</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="titleSelector" type="text" placeholder="CSS selector" />
-            <button class="pick" data-target="title">Pick</button>
-          </div>
-        </div>
-        <div class="field" data-field="episode">
-          <label>Episode selector</label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="episodeSelector" type="text" placeholder="CSS selector" />
-            <button class="pick" data-target="episode">Pick</button>
-          </div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="field" data-field="episodeRegex" style="grid-column: span 2;">
-          <label>Episode number extractor <span class="hint">Optional. Build a regex by highlighting the episode number in the raw text</span></label>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <input id="episodeRegex" type="text" placeholder="e.g. episode\s*(\d+)" />
-            <button class="pick" id="buildEpisodeRegex" type="button">Build from highlight</button>
-            <button class="pick" id="clearEpisodeRegex" type="button">Clear</button>
-          </div>
-          <div id="episodeRegexHelper" style="display:none; margin-top:8px; padding:8px; border-radius:8px; background:rgba(255,255,255,0.05);">
-            <div class="hint" style="margin-bottom:6px;">Highlight the episode number (e.g. <code>4</code> or <code>episode 4</code>) in the text below:</div>
-            <div id="episodeRegexSourceText" style="user-select:text; cursor:text; padding:6px 8px; border-radius:6px; background:rgba(0,0,0,0.25); font-size:12px; line-height:1.5; white-space:pre-wrap; word-break:break-word;"></div>
-            <div style="display:flex; gap:8px; margin-top:6px; align-items:center;">
-              <button class="pick" id="episodeRegexApply" type="button">Apply selection</button>
-              <button class="pick" id="episodeRegexCancel" type="button">Cancel</button>
-              <span id="episodeRegexPreview" class="hint"></span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="row">
-        <div class="field" data-field="iconText" style="grid-column: span 2;">
-          <label>Text label <span class="hint">Shown when text-based icon mode is selected</span></label>
+
+      <div class="inline-inputs">
+        <div class="mini-field" data-field="iconText">
+          <label>Label</label>
           <input id="iconDisplayText" type="text" placeholder="Hayami" />
         </div>
-      </div>
-      <div class="row">
-        <div class="field" data-field="padding" style="grid-column: span 2;">
-          <label>Side padding (px) <span class="hint">Adds horizontal space inside the injected comments</span></label>
+        <div class="mini-field" data-field="padding">
+          <label>Padding</label>
           <input id="sidePadding" type="number" min="0" step="4" placeholder="0" />
         </div>
       </div>
-      <div class="preview-card">
-        <div class="section-title">Extraction preview</div>
-        <div class="preview-line" id="extractionPreview">Awaiting preview…</div>
-        <div class="hint" id="previewHint">Uses your selectors for title and episode extraction.</div>
-        <div class="preview-actions">
-          <button class="pick" id="previewExtraction">Preview extraction</button>
-          <button class="pick" id="resetOverrides">Reset mapping</button>
+
+      <div class="footer-row">
+        <div class="left-actions">
+          <button class="pick" id="resetOverrides">Reset</button>
         </div>
-      </div>
-      <div class="actions">
-        <button id="cancelMapper">Cancel</button>
-        <button id="saveMapper" class="primary">Save & Embed</button>
+        <div class="right-actions">
+          <button id="cancelMapper">Cancel</button>
+          <button id="saveMapper" class="primary">Save & Embed</button>
+        </div>
       </div>
     `;
     container.appendChild(panel);
     shadow.appendChild(container);
     document.body.appendChild(overlay);
 
+    // ---- Custom tooltip (shared by info icons and ellipsis overflow) ----
+    const tooltipEl = document.createElement('div');
+    tooltipEl.className = 'hayami-tooltip';
+    tooltipEl.setAttribute('role', 'tooltip');
+    shadow.appendChild(tooltipEl);
+    let tooltipHideTimer: number | null = null;
+    const showTooltip = (target: HTMLElement, text: string) => {
+      if (!text) return;
+      if (tooltipHideTimer !== null) {
+        window.clearTimeout(tooltipHideTimer);
+        tooltipHideTimer = null;
+      }
+      tooltipEl.textContent = text;
+      tooltipEl.classList.add('is-visible');
+      const rect = target.getBoundingClientRect();
+      // Temporarily measure to clamp to viewport.
+      tooltipEl.style.left = '0px';
+      tooltipEl.style.top = '0px';
+      const tipRect = tooltipEl.getBoundingClientRect();
+      const margin = 8;
+      const center = rect.left + rect.width / 2;
+      const half = tipRect.width / 2;
+      const minCenter = margin + half;
+      const maxCenter = window.innerWidth - margin - half;
+      const clamped = Math.min(Math.max(center, minCenter), maxCenter);
+      let top = rect.bottom + 8;
+      if (top + tipRect.height > window.innerHeight - margin) {
+        top = Math.max(margin, rect.top - tipRect.height - 8);
+      }
+      tooltipEl.style.left = `${clamped}px`;
+      tooltipEl.style.top = `${top}px`;
+    };
+    const hideTooltip = () => {
+      tooltipEl.classList.remove('is-visible');
+    };
+    const resolveTipText = (el: HTMLElement): string | null => {
+      const direct = el.getAttribute('data-hayami-tip');
+      if (direct) return direct;
+      // Ellipsis-overflow detection for elements marked with data-tip-overflow.
+      if (el.hasAttribute('data-tip-overflow')) {
+        const full = el.getAttribute('data-full-text') || el.textContent || '';
+        if (el.scrollWidth > el.clientWidth + 1 && full) return full;
+      }
+      return null;
+    };
+    const onTipEnter = (ev: Event) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      const owner = target.closest('[data-hayami-tip],[data-tip-overflow]') as HTMLElement | null;
+      if (!owner) return;
+      const text = resolveTipText(owner);
+      if (text) showTooltip(owner, text);
+    };
+    const onTipLeave = (ev: Event) => {
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-hayami-tip],[data-tip-overflow]')) hideTooltip();
+    };
+    shadow.addEventListener('mouseover', onTipEnter, true);
+    shadow.addEventListener('mouseout', onTipLeave, true);
+    shadow.addEventListener('focusin', onTipEnter, true);
+    shadow.addEventListener('focusout', onTipLeave, true);
+
     const mountInput = shadow.getElementById('mountSelector') as HTMLInputElement;
     const anchorInput = shadow.getElementById('anchorSelector') as HTMLInputElement;
     const titleInput = shadow.getElementById('titleSelector') as HTMLInputElement;
     const episodeInput = shadow.getElementById('episodeSelector') as HTMLInputElement;
     const episodeRegexInput = shadow.getElementById('episodeRegex') as HTMLInputElement | null;
-    const buildEpisodeRegexBtn = shadow.getElementById('buildEpisodeRegex') as HTMLButtonElement | null;
-    const clearEpisodeRegexBtn = shadow.getElementById('clearEpisodeRegex') as HTMLButtonElement | null;
-    const episodeRegexHelper = shadow.getElementById('episodeRegexHelper') as HTMLElement | null;
-    const episodeRegexSourceText = shadow.getElementById('episodeRegexSourceText') as HTMLElement | null;
-    const episodeRegexApplyBtn = shadow.getElementById('episodeRegexApply') as HTMLButtonElement | null;
-    const episodeRegexCancelBtn = shadow.getElementById('episodeRegexCancel') as HTMLButtonElement | null;
-    const episodeRegexPreviewEl = shadow.getElementById('episodeRegexPreview') as HTMLElement | null;
+    const titleRegexInput = shadow.getElementById('titleRegex') as HTMLInputElement | null;
+    const titleRegexToggleBtn = shadow.getElementById('titleRegexToggle') as HTMLButtonElement | null;
+    const episodeRegexToggleBtn = shadow.getElementById('episodeRegexToggle') as HTMLButtonElement | null;
     const paddingInput = shadow.getElementById('sidePadding') as HTMLInputElement | null;
     const placementTabs = shadow.getElementById('placementTabs') as HTMLElement | null;
     const iconKindTabs = shadow.getElementById('iconKindTabs') as HTMLElement | null;
     const iconActionTabs = shadow.getElementById('iconActionTabs') as HTMLElement | null;
-    const extractionPreview = shadow.getElementById('extractionPreview') as HTMLElement | null;
-    const previewHint = shadow.getElementById('previewHint') as HTMLElement | null;
-    const previewBtn = shadow.getElementById('previewExtraction') as HTMLButtonElement | null;
     const resetOverridesBtn = shadow.getElementById('resetOverrides') as HTMLButtonElement | null;
     const iconDisplayTextInput = shadow.getElementById('iconDisplayText') as HTMLInputElement | null;
-    const mountLabel = shadow.getElementById('mountLabel') as HTMLElement | null;
-    const anchorLabel = shadow.getElementById('anchorLabel') as HTMLElement | null;
+    const mountLabelText = shadow.getElementById('mountLabelText') as HTMLElement | null;
+    const anchorLabelText = shadow.getElementById('anchorLabelText') as HTMLElement | null;
+    const previewTitleValue = shadow.querySelector('[data-preview-value="title"]') as HTMLElement | null;
+    const previewEpisodeValue = shadow.querySelector('[data-preview-value="episode"]') as HTMLElement | null;
+    const previewTitleRow = shadow.querySelector('.mapper-row[data-field="title"]') as HTMLElement | null;
+    const previewEpisodeRow = shadow.querySelector('.mapper-row[data-field="episode"]') as HTMLElement | null;
+    const iconKindRowEl = shadow.querySelector('[data-field="iconKindRow"]') as HTMLElement | null;
 
     const fieldGroups: Record<string, HTMLElement | null> = {
-      mount: shadow.querySelector('[data-field="mount"]') as HTMLElement | null,
-      anchor: shadow.querySelector('[data-field="anchor"]') as HTMLElement | null,
-      title: shadow.querySelector('[data-field="title"]') as HTMLElement | null,
-      episode: shadow.querySelector('[data-field="episode"]') as HTMLElement | null,
-      episodeRegex: shadow.querySelector('[data-field="episodeRegex"]') as HTMLElement | null,
-      iconKind: shadow.querySelector('[data-field="iconKind"]') as HTMLElement | null,
-      iconAction: shadow.querySelector('[data-field="iconAction"]') as HTMLElement | null,
-      iconText: shadow.querySelector('[data-field="iconText"]') as HTMLElement | null,
-      padding: shadow.querySelector('[data-field="padding"]') as HTMLElement | null,
+      mount: shadow.querySelector('.mapper-row[data-field="mount"]') as HTMLElement | null,
+      anchor: shadow.querySelector('.mapper-row[data-field="anchor"]') as HTMLElement | null,
+      title: shadow.querySelector('.mapper-row[data-field="title"]') as HTMLElement | null,
+      episode: shadow.querySelector('.mapper-row[data-field="episode"]') as HTMLElement | null,
+      iconKind: shadow.querySelector('.mini-field[data-field="iconKind"]') as HTMLElement | null,
+      iconAction: shadow.querySelector('.mini-field[data-field="iconAction"]') as HTMLElement | null,
+      iconText: shadow.querySelector('.mini-field[data-field="iconText"]') as HTMLElement | null,
+      padding: shadow.querySelector('.mini-field[data-field="padding"]') as HTMLElement | null,
     };
+
+    // Apply advanced-mode CSS class if user has opted in (reveals raw selectors / regex inputs).
+    void (async () => {
+      try {
+        const advanced = Boolean(await siteMapperAdvancedModeItem.getValue());
+        if (advanced) panel.classList.add('advanced-mode');
+      } catch {}
+    })();
 
     let selectedIconKind: IconDisplayKind = 'text';
     let selectedIconAction: IconDisplayAction = 'popup';
@@ -325,6 +624,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       titleInput.value = currentMapping.titleSelector || '';
       episodeInput.value = currentMapping.episodeSelector || '';
       if (episodeRegexInput) episodeRegexInput.value = currentMapping.episodeRegex || '';
+      if (titleRegexInput) titleRegexInput.value = currentMapping.titleRegex || '';
       if (paddingInput) paddingInput.value = (currentMapping.sidePadding ?? '').toString();
       selectedIconKind = currentMapping.iconDisplayKind === 'icon' ? 'icon' : 'text';
       selectedIconAction = currentMapping.iconDisplayAction === 'replace' ? 'replace' : 'popup';
@@ -365,11 +665,11 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     }
 
     const placementFieldVisibility: Record<DisplayPlacement, string[]> = {
-      below: ['anchor', 'mount', 'title', 'episode', 'episodeRegex', 'padding'],
-      insert: ['mount', 'title', 'episode', 'episodeRegex', 'padding'],
-      replace: ['anchor', 'title', 'episode', 'episodeRegex', 'padding'],
-      popup: ['title', 'episode', 'episodeRegex'],
-      icon: ['mount', 'title', 'episode', 'episodeRegex', 'iconKind', 'iconAction', 'iconText', 'padding'],
+      below: ['anchor', 'mount', 'title', 'episode', 'padding'],
+      insert: ['mount', 'title', 'episode', 'padding'],
+      replace: ['anchor', 'title', 'episode', 'padding'],
+      popup: ['title', 'episode'],
+      icon: ['mount', 'title', 'episode', 'iconKind', 'iconAction', 'iconText', 'padding'],
     };
 
     function syncIconKindSelection() {
@@ -412,28 +712,33 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         el.classList.toggle('hidden', !visible.has(key));
       });
 
-      if (mountLabel) {
-        mountLabel.innerHTML = selectedPlacement === 'icon'
-          ? 'Trigger selector <span class="hint">Where the Hayami trigger should be inserted</span>'
-          : 'Mount selector <span class="hint">Where comments should appear or icon should sit</span>';
-      }
-      if (anchorLabel) {
-        anchorLabel.innerHTML = selectedPlacement === 'icon'
-          ? 'Initial comments selector <span class="hint">Used for replace mode to toggle site comments</span>'
-          : 'Display target selector <span class="hint">Element to anchor below/replace</span>';
+      if (iconKindRowEl) {
+        const showIconBar = visible.has('iconKind') || visible.has('iconAction');
+        iconKindRowEl.classList.toggle('hidden', !showIconBar);
       }
 
-      if (previewHint) {
-        const inlineModes: DisplayPlacement[] = ['below', 'insert', 'replace'];
-        if (selectedPlacement === 'icon') {
-          previewHint.textContent = selectedIconAction === 'replace'
-            ? 'Icon/Text replace mode toggles between site comments and Hayami.'
-            : 'Icon/Text popup mode opens Hayami in popup from your selected trigger.';
-          return;
-        }
-        previewHint.textContent = inlineModes.includes(selectedPlacement)
-          ? 'Preview uses your selectors for extraction.'
-          : 'Popup mode uses your extraction selectors for preview only.';
+      const isIconMode = selectedPlacement === 'icon';
+      if (mountLabelText) {
+        mountLabelText.textContent = isIconMode ? 'Trigger location' : 'Mount selector';
+      }
+      if (anchorLabelText) {
+        anchorLabelText.textContent = isIconMode ? 'Initial comments element' : 'Display target';
+      }
+      const mountTip = shadow.getElementById('mountInfoTip');
+      if (mountTip) {
+        const text = isIconMode
+          ? 'Where the Hayami icon or text trigger will be inserted on the page.'
+          : 'Parent container Hayami will mount its comments inside. If left blank, Display target is used.';
+        mountTip.setAttribute('data-hayami-tip', text);
+        mountTip.setAttribute('aria-label', text);
+      }
+      const anchorTip = shadow.getElementById('anchorInfoTip');
+      if (anchorTip) {
+        const text = isIconMode
+          ? "The site's existing comments element. In Replace mode it toggles with Hayami when the trigger is clicked; in Popup mode it stays hidden while Hayami is open."
+          : "The site's existing comments element. Hayami will append inside it, replace it, or hide it depending on the display mode.";
+        anchorTip.setAttribute('data-hayami-tip', text);
+        anchorTip.setAttribute('aria-label', text);
       }
     }
 
@@ -599,110 +904,185 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       });
     };
 
+    const applyUserRegex = (text: string, pattern: string | undefined | null): string | null => {
+      const trimmed = String(pattern || '').trim();
+      if (!trimmed) return null;
+      try {
+        const re = new RegExp(trimmed, 'i');
+        const m = re.exec(text);
+        if (!m) return null;
+        return (m[1] ?? m[0] ?? '').trim() || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const setPreviewRow = (row: HTMLElement | null, valueEl: HTMLElement | null, value: string | null) => {
+      if (!row || !valueEl) return;
+      if (value && value.length > 0) {
+        row.classList.add('is-set');
+        valueEl.textContent = value;
+        valueEl.setAttribute('data-full-text', value);
+      } else {
+        row.classList.remove('is-set');
+        valueEl.textContent = 'Not picked';
+        valueEl.removeAttribute('data-full-text');
+      }
+    };
+
+    const updateStatusPill = (field: 'mount' | 'anchor' | 'title' | 'episode') => {
+      const input = inputsByField(field);
+      const value = (input?.value || '').trim();
+      const row = shadow.querySelector(`.mapper-row[data-field="${field}"]`) as HTMLElement | null;
+      const pickBtn = shadow.querySelector(`.pick-btn[data-target="${field}"]`) as HTMLButtonElement | null;
+      const isSet = value.length > 0;
+      if (row) row.classList.toggle('is-set', isSet);
+      if (pickBtn) {
+        pickBtn.classList.toggle('is-set', isSet);
+        pickBtn.textContent = isSet ? 'Re-pick' : pickBtn.dataset.defaultLabel || 'Pick';
+      }
+    };
+
+    const inputsByField = (field: string): HTMLInputElement | null => {
+      if (field === 'mount') return mountInput;
+      if (field === 'anchor') return anchorInput;
+      if (field === 'title') return titleInput;
+      if (field === 'episode') return episodeInput;
+      return null;
+    };
+
+    // Cache default pick button labels for restore after "Re-pick".
+    shadow.querySelectorAll<HTMLButtonElement>('.pick-btn[data-target]').forEach((btn) => {
+      btn.dataset.defaultLabel = btn.textContent || '';
+    });
+
     const runExtractionPreview = () => {
-      if (!extractionPreview) return;
+      const rawTitle = extractTitlePreviewFromSelector(titleInput.value);
+      const rawEpisode = getRawTextFromSelector(episodeInput.value);
 
-      const manualTitle = extractTitlePreviewFromSelector(titleInput.value);
-      const manualEpisode = extractEpisodeNumberFromSelector(episodeInput.value);
-      const usingManual = Boolean(manualTitle || manualEpisode);
-
-      if (usingManual || titleInput.value.trim() || episodeInput.value.trim()) {
-        const parts = [
-          manualTitle ? `Title: ${manualTitle}` : 'Title: (none)',
-          manualEpisode ? `Episode: ${manualEpisode}` : 'Episode: (none detected)',
-          `Identifier: ${identifierFallback()}`,
-          'Source: selectors',
-        ];
-        extractionPreview.textContent = parts.join(' | ');
-        return;
+      let finalTitle: string | null = rawTitle;
+      if (rawTitle && titleRegexInput?.value.trim()) {
+        const extracted = applyUserRegex(rawTitle, titleRegexInput.value);
+        if (extracted) finalTitle = extracted;
       }
 
-      const fallbackParts = [
-        'Title: (none)',
-        'Episode: (none)',
-        `Identifier: ${identifierFallback()}`,
-        'Source: current page',
-      ];
-      extractionPreview.textContent = fallbackParts.join(' | ');
+      let finalEpisode: string | null = null;
+      if (rawEpisode) {
+        const compact = sanitizePreviewText(rawEpisode, 320);
+        if (episodeRegexInput?.value.trim()) {
+          finalEpisode = applyUserRegex(compact, episodeRegexInput.value);
+        }
+        if (!finalEpisode) {
+          finalEpisode = extractEpisodeNumber(compact) || null;
+        }
+      }
+
+      setPreviewRow(previewTitleRow, previewTitleValue, finalTitle);
+      setPreviewRow(previewEpisodeRow, previewEpisodeValue, finalEpisode);
+
+      ['mount', 'anchor', 'title', 'episode'].forEach((f) =>
+        updateStatusPill(f as 'mount' | 'anchor' | 'title' | 'episode')
+      );
     };
 
     updateResetButtonVisibility();
     runExtractionPreview();
 
-    previewBtn?.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      runExtractionPreview();
-    });
-
     const escapeRegExpLiteral = (value: string): string =>
       value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+    // Build an episode regex from a selection within a source string.
+    // Prefers capturing a digit run within the selection using its literal surrounding context.
     const buildEpisodeRegexFromSelection = (fullText: string, start: number, end: number): string | null => {
       if (start < 0 || end <= start || end > fullText.length) return null;
       const selected = fullText.slice(start, end);
       if (!selected.trim()) return null;
-
-      // Find a digit run within the selected substring. This becomes the capture group.
       const digitMatch = /\d+/.exec(selected);
       if (!digitMatch) return null;
-
       const localDigitStart = digitMatch.index;
       const localDigitEnd = localDigitStart + digitMatch[0].length;
-
-      // Everything in the selection around the digit becomes literal context.
-      const prefixLiteral = escapeRegExpLiteral(selected.slice(0, localDigitStart))
+      const prefix = escapeRegExpLiteral(selected.slice(0, localDigitStart))
         .replace(/\\\s+/g, '\\s*')
         .replace(/ +/g, '\\s*');
-      const suffixLiteral = escapeRegExpLiteral(selected.slice(localDigitEnd))
+      const suffix = escapeRegExpLiteral(selected.slice(localDigitEnd))
         .replace(/\\\s+/g, '\\s*')
         .replace(/ +/g, '\\s*');
-
-      return `${prefixLiteral}(\\d+)${suffixLiteral}`;
+      return `${prefix}(\\d+)${suffix}`;
     };
 
-    const getEpisodeSourceText = (): string => {
-      const el = safeQuerySelector(episodeInput.value);
+    // Build a title regex by treating the selection as the capture region and using
+    // the surrounding full text (with digit runs generalized to \d+) as literal context.
+    const buildTitleRegexFromSelection = (fullText: string, start: number, end: number): string | null => {
+      if (start < 0 || end <= start || end > fullText.length) return null;
+      const selectedTrimmed = fullText.slice(start, end).trim();
+      if (!selectedTrimmed) return null;
+
+      const normalize = (value: string): string =>
+        escapeRegExpLiteral(value)
+          .replace(/\\\s+/g, '\\s*')
+          .replace(/ +/g, '\\s*')
+          .replace(/\d+/g, '\\d+');
+
+      const before = fullText.slice(0, start);
+      const after = fullText.slice(end);
+      const prefix = normalize(before);
+      const suffix = normalize(after);
+      const startAnchor = before.trim().length === 0 ? '^' : '';
+      const endAnchor = after.trim().length === 0 ? '$' : '';
+      return `${startAnchor}${prefix}(.+?)${suffix}${endAnchor}`;
+    };
+
+    const getSourceTextForField = (field: 'title' | 'episode'): string => {
+      const input = field === 'title' ? titleInput : episodeInput;
+      const el = safeQuerySelector(input.value);
       if (!el) return '';
       const text = ((el as HTMLElement).innerText || el.textContent || '').trim();
       return sanitizePreviewText(text, 500);
     };
 
-    const closeEpisodeRegexHelper = () => {
-      if (episodeRegexHelper) episodeRegexHelper.style.display = 'none';
-      if (episodeRegexPreviewEl) episodeRegexPreviewEl.textContent = '';
+    const getPopoverEls = (field: 'title' | 'episode') => ({
+      popover: shadow.querySelector(`.regex-popover[data-regex-popover="${field}"]`) as HTMLElement | null,
+      sourceEl: shadow.querySelector(`[data-regex-source="${field}"]`) as HTMLElement | null,
+      previewEl: shadow.querySelector(`[data-regex-preview="${field}"]`) as HTMLElement | null,
+      toggleBtn: field === 'title' ? titleRegexToggleBtn : episodeRegexToggleBtn,
+      regexInput: field === 'title' ? titleRegexInput : episodeRegexInput,
+    });
+
+    const closeRegexPopover = (field: 'title' | 'episode') => {
+      const { popover, previewEl, toggleBtn } = getPopoverEls(field);
+      popover?.classList.remove('is-open');
+      if (previewEl) previewEl.textContent = '';
+      toggleBtn?.classList.remove('is-active');
     };
 
-    buildEpisodeRegexBtn?.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      const source = getEpisodeSourceText();
+    const openRegexPopover = (field: 'title' | 'episode') => {
+      const { popover, sourceEl, previewEl, toggleBtn } = getPopoverEls(field);
+      if (!popover || !sourceEl) return;
+
+      // Close the other popover if open.
+      closeRegexPopover(field === 'title' ? 'episode' : 'title');
+
+      const source = getSourceTextForField(field);
       if (!source) {
-        toast.error('Set a working episode selector first');
+        toast.error(`Pick the ${field} element first`);
         return;
       }
-      if (!episodeRegexHelper || !episodeRegexSourceText) return;
-      episodeRegexSourceText.textContent = source;
-      episodeRegexHelper.style.display = '';
-      if (episodeRegexPreviewEl) episodeRegexPreviewEl.textContent = 'Highlight the episode number, then click "Apply selection".';
-    });
+      sourceEl.textContent = source;
+      popover.classList.add('is-open');
+      toggleBtn?.classList.add('is-active');
+      if (previewEl) {
+        previewEl.textContent = field === 'episode'
+          ? 'Highlight the episode number, then Apply.'
+          : 'Highlight the title portion, then Apply.';
+      }
+    };
 
-    clearEpisodeRegexBtn?.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      if (episodeRegexInput) episodeRegexInput.value = '';
-      closeEpisodeRegexHelper();
-    });
+    const applyRegexFromPopover = (field: 'title' | 'episode') => {
+      const { sourceEl, previewEl, regexInput } = getPopoverEls(field);
+      if (!sourceEl || !regexInput) return;
+      const fullText = sourceEl.textContent || '';
 
-    episodeRegexCancelBtn?.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      closeEpisodeRegexHelper();
-    });
-
-    episodeRegexApplyBtn?.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      if (!episodeRegexSourceText || !episodeRegexInput) return;
-      const fullText = episodeRegexSourceText.textContent || '';
-
-      // Read the selection inside the shadow DOM.
-      const shadowRoot = episodeRegexSourceText.getRootNode() as ShadowRoot;
+      const shadowRoot = sourceEl.getRootNode() as ShadowRoot;
       let selectedText = '';
       let startOffset = -1;
       let endOffset = -1;
@@ -711,11 +1091,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         const sel = (shadowRoot as any).getSelection ? (shadowRoot as any).getSelection() : window.getSelection();
         if (sel && sel.rangeCount > 0 && !sel.isCollapsed) {
           const range = sel.getRangeAt(0);
-          if (episodeRegexSourceText.contains(range.startContainer) && episodeRegexSourceText.contains(range.endContainer)) {
+          if (sourceEl.contains(range.startContainer) && sourceEl.contains(range.endContainer)) {
             selectedText = range.toString();
-            // Compute offset within the flat textContent.
             const preRange = document.createRange();
-            preRange.selectNodeContents(episodeRegexSourceText);
+            preRange.selectNodeContents(sourceEl);
             preRange.setEnd(range.startContainer, range.startOffset);
             startOffset = preRange.toString().length;
             endOffset = startOffset + selectedText.length;
@@ -726,38 +1105,118 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
 
       if (startOffset < 0 || !selectedText.trim()) {
-        // Fallback: if user just wants plain digit extraction.
-        const digitOnly = /\d+/.exec(fullText);
-        if (!digitOnly) {
-          toast.error('Please highlight the episode number first');
+        if (field === 'episode') {
+          const digitOnly = /\d+/.exec(fullText);
+          if (!digitOnly) {
+            toast.error('Highlight the episode number first');
+            return;
+          }
+          regexInput.value = '(\\d+)';
+          if (previewEl) previewEl.textContent = `Preview: ${digitOnly[0]}`;
+          closeRegexPopover(field);
+          runExtractionPreview();
+          toast.success('Episode extractor set');
           return;
         }
-        episodeRegexInput.value = '(\\d+)';
-        if (episodeRegexPreviewEl) episodeRegexPreviewEl.textContent = `Preview match: ${digitOnly[0]}`;
-        closeEpisodeRegexHelper();
-        toast.success('Episode regex set');
+        toast.error('Highlight the title first');
         return;
       }
 
-      const built = buildEpisodeRegexFromSelection(fullText, startOffset, endOffset);
+      const built = field === 'episode'
+        ? buildEpisodeRegexFromSelection(fullText, startOffset, endOffset)
+        : buildTitleRegexFromSelection(fullText, startOffset, endOffset);
+
       if (!built) {
-        toast.error('Selection must contain a number');
+        toast.error(field === 'episode' ? 'Selection must contain a number' : 'Invalid selection');
         return;
       }
 
-      episodeRegexInput.value = built;
+      regexInput.value = built;
       try {
         const re = new RegExp(built, 'i');
         const m = re.exec(fullText);
-        if (episodeRegexPreviewEl) {
-          episodeRegexPreviewEl.textContent = m ? `Preview match: ${(m[1] ?? m[0]).trim()}` : 'No match on sample text';
+        if (previewEl) {
+          previewEl.textContent = m ? `Preview: ${(m[1] ?? m[0]).trim()}` : 'No match on sample text';
         }
       } catch {}
-      closeEpisodeRegexHelper();
-      toast.success('Episode regex built');
+      closeRegexPopover(field);
+      runExtractionPreview();
+      toast.success(field === 'episode' ? 'Episode extractor built' : 'Title extractor built');
+    };
+
+    titleRegexToggleBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const popover = shadow.querySelector('.regex-popover[data-regex-popover="title"]') as HTMLElement | null;
+      if (popover?.classList.contains('is-open')) {
+        closeRegexPopover('title');
+      } else {
+        openRegexPopover('title');
+      }
     });
 
-    [titleInput, episodeInput].forEach((input) => {
+    const mountRawToggleBtn = shadow.getElementById('mountRawToggle') as HTMLButtonElement | null;
+    mountRawToggleBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const rawRow = shadow.querySelector('.raw-selector-row[data-raw-for="mount"]') as HTMLElement | null;
+      if (!rawRow) return;
+      const isOpen = rawRow.classList.toggle('is-open');
+      mountRawToggleBtn.classList.toggle('is-active', isOpen);
+      if (isOpen) {
+        const input = rawRow.querySelector('input') as HTMLInputElement | null;
+        input?.focus();
+      }
+    });
+
+    const anchorRawToggleBtn = shadow.getElementById('anchorRawToggle') as HTMLButtonElement | null;
+    anchorRawToggleBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const rawRow = shadow.querySelector('.raw-selector-row[data-raw-for="anchor"]') as HTMLElement | null;
+      if (!rawRow) return;
+      const isOpen = rawRow.classList.toggle('is-open');
+      anchorRawToggleBtn.classList.toggle('is-active', isOpen);
+      if (isOpen) {
+        const input = rawRow.querySelector('input') as HTMLInputElement | null;
+        input?.focus();
+      }
+    });
+
+    episodeRegexToggleBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const popover = shadow.querySelector('.regex-popover[data-regex-popover="episode"]') as HTMLElement | null;
+      if (popover?.classList.contains('is-open')) {
+        closeRegexPopover('episode');
+      } else {
+        openRegexPopover('episode');
+      }
+    });
+
+    shadow.querySelectorAll<HTMLButtonElement>('[data-regex-apply]').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const field = btn.getAttribute('data-regex-apply') as 'title' | 'episode' | null;
+        if (field) applyRegexFromPopover(field);
+      });
+    });
+
+    shadow.querySelectorAll<HTMLButtonElement>('[data-regex-clear]').forEach((btn) => {
+      btn.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const field = btn.getAttribute('data-regex-clear') as 'title' | 'episode' | null;
+        if (!field) return;
+        const { regexInput, previewEl } = getPopoverEls(field);
+        if (regexInput) regexInput.value = '';
+        if (previewEl) previewEl.textContent = 'Cleared.';
+        runExtractionPreview();
+      });
+    });
+
+    [titleInput, episodeInput, mountInput, anchorInput].forEach((input) => {
+      input.addEventListener('input', () => runExtractionPreview());
+      input.addEventListener('change', () => runExtractionPreview());
+    });
+
+    [titleRegexInput, episodeRegexInput].forEach((input) => {
+      if (!input) return;
       input.addEventListener('input', () => runExtractionPreview());
       input.addEventListener('change', () => runExtractionPreview());
     });
@@ -777,6 +1236,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         titleInput.value = '';
         episodeInput.value = '';
         if (episodeRegexInput) episodeRegexInput.value = '';
+        if (titleRegexInput) titleRegexInput.value = '';
         if (paddingInput) paddingInput.value = '';
         if (iconDisplayTextInput) iconDisplayTextInput.value = 'Hayami';
         (mountInput as any)._hayamiXPath = '';
@@ -804,10 +1264,12 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       if (clickShield) {
         clickShield.removeEventListener('mousemove', handleHover, true);
         clickShield.removeEventListener('click', handlePick, true);
+        clickShield.removeEventListener('keydown', handlePickerKeydown, true);
       }
       document.removeEventListener('mousemove', handleHover, true);
       document.removeEventListener('keydown', handlePickerKeydown, true);
       window.removeEventListener('keydown', handlePickerKeydown, true);
+      shadow.removeEventListener('keydown', handlePickerKeydown as any, true);
       document.removeEventListener('click', handlePick, true);
       container.classList.remove('picking');
       panel.classList.remove('hidden');
@@ -859,6 +1321,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         clickShield.style.background = 'transparent';
         clickShield.style.cursor = 'crosshair';
         clickShield.style.pointerEvents = 'auto';
+        clickShield.tabIndex = 0;
+        clickShield.style.outline = 'none';
         document.body.appendChild(clickShield);
       }
       return clickShield;
@@ -1098,9 +1562,12 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         highlightBox = null;
       }
       overlay.style.pointerEvents = '';
+      // Programmatic .value assignment doesn't fire 'input'/'change' events,
+      // so refresh the extraction preview and status pills manually.
+      runExtractionPreview();
     }
 
-    shadow.querySelectorAll('button.pick[data-target]').forEach((btn) => {
+    shadow.querySelectorAll('.pick-btn[data-target]').forEach((btn) => {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
         const target = (ev.currentTarget as HTMLElement).getAttribute('data-target') || '';
@@ -1116,10 +1583,15 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         const shield = ensureClickShield();
         shield.addEventListener('mousemove', handleHover, true);
         shield.addEventListener('click', handlePick, true);
+        shield.addEventListener('keydown', handlePickerKeydown, true);
         document.addEventListener('mousemove', handleHover, true);
         document.addEventListener('keydown', handlePickerKeydown, true);
         window.addEventListener('keydown', handlePickerKeydown, true);
+        shadow.addEventListener('keydown', handlePickerKeydown as any, true);
         document.addEventListener('click', handlePick, true);
+        // Move keyboard focus to the shield so Escape isn't swallowed by the
+        // host page (e.g. video players that capture keyboard events).
+        try { shield.focus({ preventScroll: true } as FocusOptions); } catch {}
       });
     });
 
@@ -1151,6 +1623,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         titleSelector: titleInput.value.trim(),
         episodeSelector: episodeInput.value.trim(),
         episodeRegex: (episodeRegexInput?.value || '').trim() || undefined,
+        titleRegex: (titleRegexInput?.value || '').trim() || undefined,
         sidePadding,
         anchorXPath: (anchorInput as any)._hayamiXPath || currentMapping?.anchorXPath || '',
         mountXPath: (mountInput as any)._hayamiXPath || currentMapping?.mountXPath || '',

@@ -156,6 +156,13 @@ export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
   { fallback: {} }
 );
 
+// Advanced mode for the "Map site with Hayami" overlay.
+// When enabled, shows the raw CSS selectors and extracted text preview strings.
+export const siteMapperAdvancedModeItem = storage.defineItem<boolean>(
+  'sync:site_mapper_advanced_mode',
+  { fallback: false }
+);
+
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
 // Kept in local storage because nested mappings can exceed browser.storage.sync's 8KB per-item limit.
 export const seriesMappingItem = storage.defineItem<
