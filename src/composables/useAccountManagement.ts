@@ -16,6 +16,7 @@ import {
 } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malAuth';
 import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilistAuth';
+import { sendMessageWithRetry } from '@/utils/runtime';
 
 export interface Account {
   id: 'reddit' | 'youtube' | 'mal' | 'anilist' | 'disqus';
@@ -159,7 +160,7 @@ export function useAccountManagement() {
         authenticated = await isAuthenticated();
       } else {
         try {
-          const cookieState = await browser.runtime.sendMessage({ action: 'hayami_checkRedditTokenCookie' });
+          const cookieState = await sendMessageWithRetry({ action: 'hayami_checkRedditTokenCookie' });
           authenticated = !!cookieState?.loggedIn;
           // Cookie mode should not trigger Reddit profile requests on popup open.
           // We only use cookie presence as the source of truth for connected state.
@@ -172,7 +173,7 @@ export function useAccountManagement() {
 
             if (!storedUsername) {
               try {
-                const profile = await browser.runtime.sendMessage({ action: 'hayami_getRedditCookieSessionProfile' });
+                const profile = await sendMessageWithRetry({ action: 'hayami_getRedditCookieSessionProfile' });
                 if (profile?.loggedIn && profile?.username) {
                   username.value = profile.username;
                   profilePic.value = profile?.profilePic || null;
@@ -246,7 +247,7 @@ export function useAccountManagement() {
     const account = accounts.value.find(acc => acc.id === 'disqus');
     if (account) account.isLoading = true;
     try {
-      const result = await browser.runtime.sendMessage({ action: 'hayami_checkDisqusSession' });
+      const result = await sendMessageWithRetry({ action: 'hayami_checkDisqusSession' });
       isDisqusLoggedIn.value = !!result?.loggedIn;
       disqusUsername.value = result?.username || null;
     } catch {
@@ -277,7 +278,7 @@ export function useAccountManagement() {
         return;
       }
 
-      const popup = await browser.runtime.sendMessage({
+      const popup = await sendMessageWithRetry({
         action: 'hayami_openRedditLoginGuided',
         url: 'https://www.reddit.com/login',
       });
@@ -292,11 +293,11 @@ export function useAccountManagement() {
         while (Date.now() < deadline) {
           await new Promise((resolve) => setTimeout(resolve, 1000));
           try {
-            const res = await browser.runtime.sendMessage({ action: 'hayami_checkRedditTokenCookie' });
+            const res = await sendMessageWithRetry({ action: 'hayami_checkRedditTokenCookie' });
             if (res?.loggedIn) {
               isLoggedIn.value = true;
               try {
-                const profile = await browser.runtime.sendMessage({ action: 'hayami_getRedditCookieSessionProfile' });
+                const profile = await sendMessageWithRetry({ action: 'hayami_getRedditCookieSessionProfile' });
                 username.value = profile?.username || null;
                 profilePic.value = profile?.profilePic || null;
                 if (profile?.username || profile?.profilePic) {
@@ -353,20 +354,37 @@ export function useAccountManagement() {
   async function connectYouTube() {
     const account = accounts.value.find(acc => acc.id === 'youtube');
     if (account) account.isLoading = true;
-    
+
     try {
       const result = await authenticateWithYouTube();
       if (result.success) {
-        isYouTubeLoggedIn.value = true;
-        youtubeUsername.value = result.username || null;
-        youtubeProfilePic.value = await getStoredYouTubeProfilePic();
-        updateAccountStates();
+        // Poll until YouTube auth completes (redirect flow at /pwa/link/youtube)
+        void (async () => {
+          const deadline = Date.now() + 90000;
+          while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+            try {
+              const authenticated = await isYouTubeAuthenticated();
+              if (authenticated) {
+                isYouTubeLoggedIn.value = true;
+                youtubeUsername.value = await getStoredYouTubeUsername();
+                youtubeProfilePic.value = await getStoredYouTubeProfilePic();
+                if (account) account.isLoading = false;
+                updateAccountStates();
+                return;
+              }
+            } catch {
+              // keep polling
+            }
+          }
+          if (account) account.isLoading = false;
+        })();
+        return;
       }
     } catch (error) {
       console.error('YouTube login error:', error);
-    } finally {
-      if (account) account.isLoading = false;
     }
+    if (account) account.isLoading = false;
   }
 
   async function disconnectYouTube() {
@@ -495,7 +513,7 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
-      const popup = await browser.runtime.sendMessage({
+      const popup = await sendMessageWithRetry({
         action: 'hayami_openDisqusLoginGuided',
         url: 'https://disqus.com/profile/login/',
       });
@@ -509,7 +527,7 @@ export function useAccountManagement() {
         while (Date.now() < deadline) {
           await new Promise((resolve) => setTimeout(resolve, 1500));
           try {
-            const res = await browser.runtime.sendMessage({ action: 'hayami_checkDisqusSession' });
+            const res = await sendMessageWithRetry({ action: 'hayami_checkDisqusSession' });
             if (res?.loggedIn) {
               isDisqusLoggedIn.value = true;
               disqusUsername.value = res?.username || null;

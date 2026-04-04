@@ -7,6 +7,7 @@
 
 import { ref, reactive, computed } from 'vue';
 import { browser } from 'wxt/browser';
+import { sendMessageWithRetry } from '@/utils/runtime';
 import {
   customSitesSyncAutoSyncItem,
   customSitesSyncCachedItem,
@@ -234,7 +235,7 @@ export function useCustomSitesSync(options: {
     if (syncing.value) return;
     syncing.value = true;
     try {
-      const response = await browser.runtime.sendMessage({
+      const response = await sendMessageWithRetry({
         action: 'hayami_customSitesSync_syncNow',
       });
       await loadSyncStatus();

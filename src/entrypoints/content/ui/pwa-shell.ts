@@ -4,6 +4,7 @@ import { getRuntimeUrl } from '@/utils/runtime';
 import { completeAniListImplicitGrant } from '@/utils/anilistAuth';
 import { completeMALRedirect } from '@/utils/malAuth';
 import { completeRedditRedirectCallback } from '@/utils/redditAuth';
+import { completeYouTubeRedirect } from '@/utils/youtubeAuth';
 
 function resetPageChrome(): void {
   document.documentElement.style.height = '100%';
@@ -228,6 +229,54 @@ async function handleMALRedirect(ctx: ContentScriptContext): Promise<void> {
   });
 }
 
+async function handleYouTubeRedirect(ctx: ContentScriptContext): Promise<void> {
+  resetPageChrome();
+  document.body.innerHTML = '';
+
+  const status = renderMessage('Completing YouTube login...', 'Give us a second to save your session.');
+  document.body.append(status);
+
+  const result = await completeYouTubeRedirect(window.location.href || '');
+
+  if (result.success) {
+    try {
+      await browser.runtime.sendMessage({ action: 'hayami_providerAuthFlowCompleted', provider: 'youtube' });
+    } catch {}
+
+    status.replaceWith(
+      renderMessage(
+        'YouTube connected',
+        'You are all set! You can close this tab or head back to the Hayami popup.',
+        '#a5b4fc'
+      )
+    );
+
+    try {
+      await browser.runtime.sendMessage({ action: 'hayami_closeTab' });
+    } catch {}
+
+    try {
+      history.replaceState(null, '', `${window.location.origin}/pwa`);
+    } catch {}
+
+    setTimeout(() => {
+      window.location.href = `${window.location.origin}/pwa`;
+    }, 1200);
+  } else {
+    status.replaceWith(
+      renderMessage(
+        'YouTube connection failed',
+        result.error || 'We could not complete the YouTube login. Please try again.',
+        '#fca5a5'
+      )
+    );
+  }
+
+  ctx.onInvalidated(() => {
+    document.getElementById('hayami-pwa-shell')?.remove();
+  });
+}
+
 export async function mountPwaShell(ctx: ContentScriptContext): Promise<void> {
   const path = window.location.pathname || '';
   console.log('[PWA Shell] Checking path:', path);
@@ -247,6 +296,12 @@ export async function mountPwaShell(ctx: ContentScriptContext): Promise<void> {
   if (path.startsWith('/pwa/link/mal')) {
     console.log('[PWA Shell] Handling MAL redirect');
     await handleMALRedirect(ctx);
+    return;
+  }
+
+  if (path.startsWith('/pwa/link/youtube')) {
+    console.log('[PWA Shell] Handling YouTube redirect');
+    await handleYouTubeRedirect(ctx);
     return;
   }
 

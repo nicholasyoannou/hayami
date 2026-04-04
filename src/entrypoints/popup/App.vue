@@ -1644,7 +1644,7 @@ function triggerHeaderCustomMappingsImport() {
 }
 </script>
 <template>
-  <div class="flex min-w-[420px] max-w-[600px] w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
+  <div class="flex w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
       <header class="flex items-center justify-between">
         <div class="flex items-center gap-3">
           <img src="/icon-128.png" alt="Hayami" class="h-12 w-12 rounded-xl bg-white/5 p-1 shadow" />
@@ -2252,14 +2252,14 @@ function triggerHeaderCustomMappingsImport() {
 <style scoped>
 :global(html, body) {
   margin: 0;
-  width: 100%;
+  width: 460px;
   height: 100%;
   background: #1f2329;
   overflow: hidden;
 }
 
 :global(#app) {
-  width: 100%;
+  width: 460px;
   height: 100%;
   background: #1f2329;
 }

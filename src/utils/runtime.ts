@@ -1,9 +1,39 @@
+import { browser } from 'wxt/browser';
+
 export function getRuntimeUrl(path: string): string {
-  const runtime = (globalThis.browser ?? globalThis.chrome)?.runtime;
+  const runtime = browser?.runtime ?? (globalThis.browser ?? globalThis.chrome)?.runtime;
   if (!runtime?.getURL) return path;
   try {
     return runtime.getURL(path);
   } catch {
     return path;
   }
+}
+
+/**
+ * Sends a message to the background script with automatic retry.
+ * Firefox can throw "Could not establish connection. Receiving end does not exist."
+ * when the background event page hasn't woken up yet. This retries with increasing
+ * delays to give the background time to start.
+ */
+export async function sendMessageWithRetry<T = any>(message: any, maxRetries = 5): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const result = await browser.runtime.sendMessage(message);
+      return result as T;
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      // Only retry on connection errors (background not ready yet)
+      if (!msg.includes('Could not establish connection') && !msg.includes('Receiving end does not exist')) {
+        throw err;
+      }
+      if (attempt < maxRetries - 1) {
+        // Increasing delays: 500, 1000, 1500, 2000ms
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError;
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { toast } from 'vue-sonner';
-import { browser } from 'wxt/browser';
+import { sendMessageWithRetry } from '@/utils/runtime';
 
 type AuthProvider = 'anilist' | 'mal' | 'youtube';
 
@@ -17,7 +17,7 @@ async function openSettingsAndSignIn() {
   isOpeningSettings.value = true;
 
   try {
-    const response = await browser.runtime.sendMessage({
+    const response = await sendMessageWithRetry({
       action: 'hayami_startProviderAuth',
       provider: props.provider,
     });

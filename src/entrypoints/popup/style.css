@@ -10,11 +10,13 @@
   body {
     @apply bg-[#16191f] text-white antialiased;
     margin: 0;
+    width: 460px;
     min-height: 100vh;
   }
 
   #app {
     @apply flex items-start justify-center p-4;
+    width: 460px;
     min-height: 100vh;
   }
 }

@@ -1,6 +1,6 @@
 import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
 import { exchangeCodeForToken as exchangeRedditCode } from '@/utils/redditAuth';
-import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
+import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth, completeYouTubeRedirect } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 import { authenticateWithAniList } from '@/utils/anilistAuth';
 import {
@@ -747,92 +747,9 @@ async function getRedditSessionProfile(): Promise<{ loggedIn: boolean; username?
 export default defineBackground(() => {
   console.log('Hayami - Background service started');
 
-  // Safety cleanup: remove stale session poll-block rules from previous runs.
-  void (async () => {
-    try {
-      const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
-      if (dnr?.updateSessionRules) {
-        await dnr.updateSessionRules({ removeRuleIds: [POLL_RULE_ID] });
-      }
-    } catch (error) {
-      console.warn('[background] Failed to clear stale Disqus poll block rule', error);
-    }
-  })();
-
-  browser.storage.onChanged.addListener(handleKomentoStorageChange);
-
-  void ensureKomentoSourceRegistryInitialized();
-  void ensureKomentoSyncAlarm();
-  void ensureCustomSitesSyncSourcesInitialized();
-  void ensureCustomSitesSyncAlarm();
-  void (async () => {
-    if (await shouldRunStartupKomentoSync()) {
-      await runKomentoSyncWithBadge('startup');
-    }
-    if (await shouldRunStartupCustomSitesSync()) {
-      await syncCustomSitesSources('startup');
-    }
-    await refreshKomentoBadge();
-  })();
-
-  browser.permissions?.onAdded?.addListener(() => {
-    void refreshKomentoBadge();
-  });
-  browser.permissions?.onRemoved?.addListener(() => {
-    void refreshKomentoBadge();
-  });
-
-  browser.alarms?.onAlarm?.addListener((alarm) => {
-    if (!alarm) return;
-    if (alarm.name === KOMENTOSCRIPT_WEEKLY_ALARM) {
-      void runKomentoSyncWithBadge('weekly-alarm');
-    }
-    if (alarm.name === CUSTOM_SITES_SYNC_WEEKLY_ALARM) {
-      void syncCustomSitesSources('weekly-alarm');
-    }
-  });
-
-  domainPermissionToggle();
-
-  void registerContextMenu();
-
-  browser.contextMenus.onClicked.addListener(async (info, tab) => {
-    if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id || !tab.url) return;
-    await openMapperForTab(tab.id, tab.url);
-  });
-
-  browser.commands.onCommand.addListener(async (command) => {
-    if (command === 'open-site-mapper') {
-      try {
-        const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-        if (!tab?.id || !tab.url) return;
-        await openMapperForTab(tab.id, tab.url);
-      } catch (e) {
-        console.warn('Site mapper command failed', e);
-      }
-      return;
-    }
-  });
-
-  // Listen for extension installation
-  browser.runtime.onInstalled.addListener(async (details) => {
-    await registerContextMenu();
-    await ensureKomentoSourceRegistryInitialized();
-    await ensureKomentoSyncAlarm();
-    await ensureCustomSitesSyncSourcesInitialized();
-    await ensureCustomSitesSyncAlarm();
-    await runKomentoSyncWithBadge(details.reason === 'install' ? 'install' : 'update');
-    await syncCustomSitesSources(details.reason === 'install' ? 'install' : 'update');
-    if (details.reason === 'install') {
-      console.log('Extension installed - opening onboarding');
-      await browser.tabs.create({
-        url: browser.runtime.getURL('/onboarding.html'),
-      });
-    }
-  });
-
-  // Single listener for all messages to avoid conflicts
-  // When multiple listeners exist, Chrome calls all of them, which can cause port closure issues
+  // CRITICAL: Register the message listener FIRST, before any other initialization
+  // that might throw and prevent it from being registered. On Firefox MV2, if anything
+  // throws before this point, the popup/content scripts get "Could not establish connection".
   const setPollBlockForTab = async (tabId: number, enable: boolean) => {
     const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
     if (!dnr) return;
@@ -1278,24 +1195,13 @@ export default defineBackground(() => {
           pendingAuthSourceTabs[provider] = sourceTabId;
 
           if (provider === 'youtube') {
-            const result = await authenticateWithYouTube();
+            const result = await authenticateWithYouTube({ openInTab: false });
             if (!result.success) {
               delete pendingAuthSourceTabs[provider];
               sendResponse({ ok: false, error: result.error || 'YouTube authentication failed' });
               return;
             }
-
-            try {
-              await browser.tabs.sendMessage(sourceTabId, {
-                action: 'hayami_providerAuthCompleted',
-                provider,
-              });
-            } catch {
-              // origin tab may no longer be available
-            }
-
-            delete pendingAuthSourceTabs[provider];
-            sendResponse({ ok: true, provider, completed: true });
+            sendResponse({ ok: true, provider, completed: false });
             return;
           }
 
@@ -1601,5 +1507,109 @@ export default defineBackground(() => {
 
     // Return false for unhandled messages (allows other listeners to process)
     return false;
+  });
+
+  // --- Remaining initialization (non-critical, wrapped in try-catch) ---
+  // Everything below is safe to fail without breaking message handling.
+
+  // Safety cleanup: remove stale session poll-block rules from previous runs.
+  void (async () => {
+    try {
+      const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
+      if (dnr?.updateSessionRules) {
+        await dnr.updateSessionRules({ removeRuleIds: [POLL_RULE_ID] });
+      }
+    } catch (error) {
+      console.warn('[background] Failed to clear stale Disqus poll block rule', error);
+    }
+  })();
+
+  browser.storage.onChanged.addListener(handleKomentoStorageChange);
+
+  void ensureKomentoSourceRegistryInitialized();
+  void ensureKomentoSyncAlarm();
+  void ensureCustomSitesSyncSourcesInitialized();
+  void ensureCustomSitesSyncAlarm();
+  void (async () => {
+    if (await shouldRunStartupKomentoSync()) {
+      await runKomentoSyncWithBadge('startup');
+    }
+    if (await shouldRunStartupCustomSitesSync()) {
+      await syncCustomSitesSources('startup');
+    }
+    await refreshKomentoBadge();
+  })();
+
+  browser.permissions?.onAdded?.addListener(() => {
+    void refreshKomentoBadge();
+  });
+  browser.permissions?.onRemoved?.addListener(() => {
+    void refreshKomentoBadge();
+  });
+
+  browser.alarms?.onAlarm?.addListener((alarm) => {
+    if (!alarm) return;
+    if (alarm.name === KOMENTOSCRIPT_WEEKLY_ALARM) {
+      void runKomentoSyncWithBadge('weekly-alarm');
+    }
+    if (alarm.name === CUSTOM_SITES_SYNC_WEEKLY_ALARM) {
+      void syncCustomSitesSources('weekly-alarm');
+    }
+  });
+
+  try {
+    domainPermissionToggle();
+  } catch (err) {
+    console.warn('[background] domainPermissionToggle failed (non-fatal)', err);
+  }
+
+  void registerContextMenu();
+
+  try {
+    browser.contextMenus.onClicked.addListener(async (info, tab) => {
+      if (info.menuItemId !== CONTEXT_MENU_ID || !tab?.id || !tab.url) return;
+      await openMapperForTab(tab.id, tab.url);
+    });
+  } catch (err) {
+    console.warn('[background] contextMenus.onClicked registration failed', err);
+  }
+
+  try {
+    browser.commands.onCommand.addListener(async (command) => {
+      if (command === 'open-site-mapper') {
+        try {
+          const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+          if (!tab?.id || !tab.url) return;
+          await openMapperForTab(tab.id, tab.url);
+        } catch (e) {
+          console.warn('Site mapper command failed', e);
+        }
+        return;
+      }
+    });
+  } catch (err) {
+    console.warn('[background] commands.onCommand registration failed', err);
+  }
+
+  // Listen for extension installation
+  browser.runtime.onInstalled.addListener(async (details) => {
+    // Open onboarding first, before any async sync work that might fail/hang.
+    if (details.reason === 'install') {
+      console.log('Extension installed - opening onboarding');
+      try {
+        await browser.tabs.create({
+          url: browser.runtime.getURL('/onboarding.html'),
+        });
+      } catch (err) {
+        console.warn('Failed to open onboarding tab', err);
+      }
+    }
+    await registerContextMenu();
+    await ensureKomentoSourceRegistryInitialized();
+    await ensureKomentoSyncAlarm();
+    await ensureCustomSitesSyncSourcesInitialized();
+    await ensureCustomSitesSyncAlarm();
+    await runKomentoSyncWithBadge(details.reason === 'install' ? 'install' : 'update');
+    await syncCustomSitesSources(details.reason === 'install' ? 'install' : 'update');
   });
 });

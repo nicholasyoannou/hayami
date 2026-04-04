@@ -1,16 +1,19 @@
 /**
  * YouTube/Google OAuth2 Authentication Utility
- * 
- * This module handles Google OAuth2 authentication for Chrome extensions
- * to access YouTube Data API v3 using chrome.identity.getAuthToken.
- * 
- * This is the recommended approach for Chrome Extensions using Google services.
- * 
- * NOTE: chrome.identity API is only available in background scripts and popup scripts.
- * Content scripts should use message passing to get tokens.
+ *
+ * Uses a popup-window OAuth flow (authorization code) that works across all
+ * browsers (Chrome, Firefox, etc.) without requiring the `identity` permission.
+ *
+ * Flow:
+ * 1. Generate state + code_verifier, store in browser.storage.local.
+ * 2. Open Google's OAuth authorize endpoint in a popup window.
+ * 3. Google redirects to https://hayami.moe/pwa/link/youtube with an auth code.
+ * 4. The PWA content script on that page calls completeYouTubeRedirect().
+ * 5. Exchange code for tokens via Google's token endpoint (public client, PKCE).
  */
 
-import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from '@/config';
+import { browser } from 'wxt/browser';
+import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES, GOOGLE_REDIRECT_URI } from '@/config';
 
 // Validate configuration (non-blocking warning)
 if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.length === 0) {
@@ -21,40 +24,64 @@ if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.length === 0) {
 const STORAGE_KEYS = {
   username: 'youtube_username',
   profilePic: 'youtube_profile_pic',
+  accessToken: 'youtube_access_token',
+  refreshToken: 'youtube_refresh_token',
+  tokenExpiry: 'youtube_token_expiry',
+  oauthState: 'youtube_oauth_state',
+  codeVerifier: 'youtube_code_verifier',
 };
+
+const GOOGLE_AUTH_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+const TOKEN_REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
 
 interface YouTubeAuthResult {
   success: boolean;
   username?: string;
   error?: string;
+  message?: string;
 }
 
-const TOKEN_REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke';
-
-/**
- * Helper to check if we're in a context that has chrome.identity access
- */
-function hasIdentityAccess(): boolean {
-  return typeof browser !== 'undefined' && typeof browser.identity !== 'undefined';
+interface GoogleTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  refresh_token?: string;
+  scope?: string;
 }
 
-function clearAllCachedTokens(): Promise<void> {
-  if (!hasIdentityAccess()) return Promise.resolve();
-  return new Promise((resolve) => {
-    const clearFn = (browser.identity as any).clearAllCachedAuthTokens;
-    if (typeof clearFn === 'function') {
-      clearFn.call(browser.identity, () => resolve());
-    } else {
-      resolve();
-    }
-  });
+interface YouTubeAuthOptions {
+  openInTab?: boolean;
 }
 
-async function removeCachedToken(token: string | null): Promise<void> {
-  if (!token || !hasIdentityAccess()) return;
-  await new Promise<void>((resolve) => {
-    browser.identity.removeCachedAuthToken({ token }, () => resolve());
-  });
+function generateRandomString(length = 64): string {
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, (byte) => ('0' + byte.toString(16)).slice(-2)).join('');
+}
+
+async function sha256(plain: string): Promise<ArrayBuffer> {
+  const encoder = new TextEncoder();
+  return crypto.subtle.digest('SHA-256', encoder.encode(plain));
+}
+
+function base64UrlEncode(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+async function storeTokens(response: GoogleTokenResponse): Promise<void> {
+  const expiryTime = Date.now() + response.expires_in * 1000;
+  const data: Record<string, any> = {
+    [STORAGE_KEYS.accessToken]: response.access_token,
+    [STORAGE_KEYS.tokenExpiry]: expiryTime,
+  };
+  if (response.refresh_token) {
+    data[STORAGE_KEYS.refreshToken] = response.refresh_token;
+  }
+  await browser.storage.local.set(data);
 }
 
 async function revokeYouTubeToken(token: string | null): Promise<void> {
@@ -70,81 +97,68 @@ async function revokeYouTubeToken(token: string | null): Promise<void> {
   }
 }
 
-async function resetYouTubeSession(token: string | null = null): Promise<void> {
-  await removeCachedToken(token);
-  await clearAllCachedTokens();
-}
-
 /**
- * Gets YouTube access token via message passing (for content scripts)
+ * Initiates the Google OAuth flow by opening a popup window.
+ * Works on all browsers without requiring the `identity` permission.
  */
-async function getTokenViaMessage(): Promise<string | null> {
-  try {
-    const response = await browser.runtime.sendMessage({ action: 'hayami_getYouTubeToken' });
-    return response?.token || null;
-  } catch (error) {
-    console.error('Error getting token via message:', error);
-    return null;
-  }
-}
-
-/**
- * Initiates the Google OAuth flow using browser.identity.getAuthToken
- * This is the recommended method for Chrome Extensions using Google services
- * 
- * NOTE: This must be called from a background script or popup script
- */
-export async function authenticateWithYouTube(): Promise<YouTubeAuthResult> {
+export async function authenticateWithYouTube(options: YouTubeAuthOptions = {}): Promise<YouTubeAuthResult> {
   try {
     if (!GOOGLE_CLIENT_ID) {
       return { success: false, error: 'Google client ID is not configured' };
     }
 
-    if (!hasIdentityAccess()) {
-      return { success: false, error: 'browser.identity API not available in this context' };
+    if (!GOOGLE_REDIRECT_URI) {
+      return { success: false, error: 'Google redirect URI is not configured' };
     }
 
-    // Clear any existing cached token to force re-authentication with correct scopes
-    const existingToken = await getYouTubeAccessToken(false);
-    if (existingToken) {
-      console.log('Removing existing token to force re-authentication with correct scopes');
-      await resetYouTubeSession(existingToken);
-    } else {
-      await clearAllCachedTokens();
-    }
+    const state = generateRandomString(32);
+    const codeVerifier = generateRandomString(64);
+    const codeChallenge = base64UrlEncode(await sha256(codeVerifier));
 
-    // Get access token using Chrome's built-in OAuth flow
-    // Chrome automatically handles token refresh and caching
-    // The scopes are defined in manifest.json oauth2.scopes
-    const token = await new Promise<string>((resolve, reject) => {
-      const getToken = (allowRetry: boolean) => {
-        browser.identity.getAuthToken({ interactive: true }, (tok) => {
-          const errMsg = browser.runtime.lastError?.message || '';
-          if (errMsg) {
-            const normalized = errMsg.toLowerCase();
-            if (allowRetry && (normalized.includes('revoked') || normalized.includes('invalid grant'))) {
-              clearAllCachedTokens().then(() => getToken(false));
-              return;
-            }
-            reject(new Error(errMsg));
-            return;
-          }
-          if (!tok) {
-            reject(new Error('No token received'));
-            return;
-          }
-          resolve(tok);
-        });
-      };
-      getToken(true);
+    await browser.storage.local.set({
+      [STORAGE_KEYS.oauthState]: state,
+      [STORAGE_KEYS.codeVerifier]: codeVerifier,
     });
 
-    // Fetch and store user identity
-    const username = await getYouTubeUsername(token);
+    const authUrl = new URL(GOOGLE_AUTH_ENDPOINT);
+    authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
+    authUrl.searchParams.set('redirect_uri', GOOGLE_REDIRECT_URI);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('scope', GOOGLE_SCOPES);
+    authUrl.searchParams.set('state', state);
+    authUrl.searchParams.set('code_challenge', codeChallenge);
+    authUrl.searchParams.set('code_challenge_method', 'S256');
+    authUrl.searchParams.set('access_type', 'offline');
+    authUrl.searchParams.set('prompt', 'consent');
+
+    const urlStr = authUrl.toString();
+
+    const shouldOpenTab = options.openInTab === true;
+    if (shouldOpenTab && browser?.tabs?.create) {
+      await browser.tabs.create({ url: urlStr, active: true });
+    } else if (browser?.windows?.create) {
+      const canUseWindowMetrics = typeof window !== 'undefined';
+      await browser.windows.create({
+        url: urlStr,
+        type: 'popup',
+        width: 520,
+        height: 760,
+        ...(canUseWindowMetrics
+          ? {
+              left: Math.round(window.screenX + (window.outerWidth - 520) / 2),
+              top: Math.round(window.screenY + (window.outerHeight - 760) / 2),
+            }
+          : {}),
+      });
+    } else if (browser?.tabs?.create) {
+      await browser.tabs.create({ url: urlStr, active: true });
+    } else {
+      window.open(urlStr, '_blank', 'noopener');
+    }
 
     return {
       success: true,
-      username: username || 'Unknown',
+      message: 'YouTube login opened. Complete it to finish connecting.',
     };
   } catch (error) {
     console.error('YouTube authentication error:', error);
@@ -156,60 +170,143 @@ export async function authenticateWithYouTube(): Promise<YouTubeAuthResult> {
 }
 
 /**
- * Gets a valid access token using chrome.identity.getAuthToken
- * Chrome automatically handles token refresh and caching
- * 
- * @param interactive - If true, will prompt user to authenticate if needed
- * 
- * NOTE: If called from a content script, this will use message passing to the background script.
- * If called from background/popup, it uses chrome.identity directly.
+ * Completes the YouTube OAuth redirect by exchanging the auth code for tokens.
+ * Called from the PWA content script on the redirect page.
  */
-export async function getYouTubeAccessToken(interactive: boolean = false): Promise<string | null> {
-  if (!GOOGLE_CLIENT_ID) {
-    return null;
-  }
-
-  // If we're in a content script, use message passing
-  if (!hasIdentityAccess()) {
-    return await getTokenViaMessage();
-  }
-
+export async function completeYouTubeRedirect(url: string): Promise<YouTubeAuthResult> {
   try {
-    // Try to get token (interactive or non-interactive based on parameter)
-    const token = await new Promise<string | null>((resolve, reject) => {
-      const getToken = (allowRetry: boolean) => {
-        browser.identity.getAuthToken({ interactive }, (tok) => {
-          const errMsg = browser.runtime.lastError?.message || '';
-          if (errMsg) {
-            const normalized = errMsg.toLowerCase();
-            if (allowRetry && (normalized.includes('revoked') || normalized.includes('invalid grant'))) {
-              clearAllCachedTokens().then(() => getToken(false));
-              return;
-            }
-            if (interactive) {
-              reject(new Error(errMsg));
-            } else {
-              resolve(null);
-            }
-            return;
-          }
-          if (!tok) {
-            if (interactive) {
-              reject(new Error('No token received'));
-            } else {
-              resolve(null);
-            }
-            return;
-          }
-          resolve(tok);
-        });
-      };
-      getToken(true);
+    if (!GOOGLE_REDIRECT_URI) {
+      return { success: false, error: 'Google redirect URI is not configured' };
+    }
+
+    const parsed = new URL(url);
+    const code = parsed.searchParams.get('code');
+    const returnedState = parsed.searchParams.get('state');
+    const authError = parsed.searchParams.get('error');
+
+    if (authError) {
+      return { success: false, error: `Authorization denied: ${authError}` };
+    }
+
+    if (!code) {
+      return { success: false, error: 'No authorization code returned from Google' };
+    }
+
+    const { [STORAGE_KEYS.oauthState]: storedState, [STORAGE_KEYS.codeVerifier]: storedVerifier } =
+      await browser.storage.local.get([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]) as Record<string, string | undefined>;
+
+    if (!storedState || returnedState !== storedState) {
+      return { success: false, error: 'Security validation failed' };
+    }
+    if (!storedVerifier) {
+      return { success: false, error: 'PKCE verifier missing; please retry login' };
+    }
+
+    // Exchange code for tokens (public client with PKCE — no client_secret needed)
+    const tokenBody = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: GOOGLE_REDIRECT_URI,
+      client_id: GOOGLE_CLIENT_ID,
+      code_verifier: storedVerifier,
     });
 
-    return token;
+    const tokenResp = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenBody.toString(),
+      credentials: 'omit',
+    });
+
+    if (!tokenResp.ok) {
+      const errText = await tokenResp.text();
+      console.warn('[YouTube] Token exchange failed', tokenResp.status, errText);
+      return { success: false, error: 'Token exchange failed' };
+    }
+
+    const tokenData = await tokenResp.json() as GoogleTokenResponse;
+    await storeTokens(tokenData);
+
+    // Fetch and store user identity
+    const username = await getYouTubeUsername(tokenData.access_token);
+
+    // Clean up OAuth state
+    await browser.storage.local.remove([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
+
+    return {
+      success: true,
+      username: username || 'Unknown',
+    };
   } catch (error) {
-    console.error('Error getting YouTube access token:', error);
+    console.error('YouTube redirect completion error:', error);
+    return { success: false, error: error instanceof Error ? error.message : 'Could not complete YouTube login' };
+  }
+}
+
+/**
+ * Gets a valid access token, refreshing if necessary.
+ */
+export async function getYouTubeAccessToken(interactive: boolean = false): Promise<string | null> {
+  if (!GOOGLE_CLIENT_ID) return null;
+
+  const storage = await browser.storage.local.get([
+    STORAGE_KEYS.accessToken,
+    STORAGE_KEYS.refreshToken,
+    STORAGE_KEYS.tokenExpiry,
+  ]) as Record<string, string | number | undefined>;
+
+  const accessToken = typeof storage[STORAGE_KEYS.accessToken] === 'string' ? storage[STORAGE_KEYS.accessToken] as string : undefined;
+  const refreshToken = typeof storage[STORAGE_KEYS.refreshToken] === 'string' ? storage[STORAGE_KEYS.refreshToken] as string : undefined;
+  const expiry = typeof storage[STORAGE_KEYS.tokenExpiry] === 'number' ? storage[STORAGE_KEYS.tokenExpiry] as number : undefined;
+
+  // Return current token if still valid (with 60s buffer)
+  if (accessToken && expiry && Date.now() < expiry - 60_000) {
+    return accessToken;
+  }
+
+  // Try refreshing
+  if (refreshToken) {
+    const refreshed = await refreshAccessToken(refreshToken);
+    if (refreshed) return refreshed;
+  }
+
+  // If interactive, trigger a new auth flow
+  if (interactive) {
+    const result = await authenticateWithYouTube();
+    if (result.success) {
+      // Token will be stored after redirect completes; return null for now
+      return null;
+    }
+  }
+
+  return null;
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<string | null> {
+  try {
+    const body = new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      client_id: GOOGLE_CLIENT_ID,
+    });
+
+    const resp = await fetch(GOOGLE_TOKEN_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+      credentials: 'omit',
+    });
+
+    if (!resp.ok) {
+      console.warn('[YouTube] Token refresh failed', resp.status);
+      return null;
+    }
+
+    const data = await resp.json() as GoogleTokenResponse;
+    await storeTokens(data);
+    return data.access_token;
+  } catch (error) {
+    console.error('YouTube token refresh error:', error);
     return null;
   }
 }
@@ -256,40 +353,18 @@ async function getYouTubeUsername(accessToken: string): Promise<string | null> {
 }
 
 /**
- * Checks if user is currently authenticated
- * Checks both for a valid token and stored user info
- * 
- * NOTE: If called from a content script, this will use message passing to the background script.
+ * Checks if user is currently authenticated.
  */
 export async function isYouTubeAuthenticated(): Promise<boolean> {
-  // If we're in a content script, use message passing
-  if (!hasIdentityAccess()) {
-    try {
-      const response = await browser.runtime.sendMessage({ action: 'hayami_checkYouTubeAuth' });
-      return response?.authenticated === true;
-    } catch (error) {
-      console.error('Error checking YouTube auth via message:', error);
-      return false;
-    }
-  }
-
-  // First check if we have stored user info (indicates previous successful auth)
   const username = await getStoredYouTubeUsername();
-  if (username) {
-    // User has authenticated before - try to get token (non-interactive)
-    const token = await getYouTubeAccessToken(false);
-    if (token) {
-      return true;
-    }
-    // Token might be expired but user is still authenticated - return true
-    // Chrome will handle re-authentication when needed
-    return true;
-  }
+  if (!username) return false;
 
-  // Treat missing stored identity as logged out even if Chrome still holds a cached token.
-  // This prevents a brand-new install (with empty extension storage) from appearing logged in
-  // just because Chrome has a token cached from a previous session.
-  return false;
+  // Check if we have a token (possibly expired but refreshable)
+  const storage = await browser.storage.local.get([
+    STORAGE_KEYS.accessToken,
+    STORAGE_KEYS.refreshToken,
+  ]);
+  return !!(storage[STORAGE_KEYS.accessToken] || storage[STORAGE_KEYS.refreshToken]);
 }
 
 /**
@@ -314,40 +389,26 @@ export async function getStoredYouTubeProfilePic(): Promise<string | null> {
 
 /**
  * Logs out the user by revoking tokens and clearing storage
- * 
- * NOTE: This must be called from a background script or popup script
  */
 export async function logoutYouTube(): Promise<void> {
   try {
-    if (!hasIdentityAccess()) {
-      console.warn('logoutYouTube must be called from background or popup script');
-      return;
-    }
-
-    // Get the current token (try non-interactive first)
-    let token = await getYouTubeAccessToken(false);
-    
-    // If no token found, try to get any cached token by checking Chrome's identity cache
-    if (!token && hasIdentityAccess()) {
-      try {
-        // Try to get token interactively to see if there's a cached one
-        // But we'll catch errors since we're logging out
-        token = await getYouTubeAccessToken(true).catch(() => null);
-      } catch (e) {
-        // Ignore - we're logging out anyway
-      }
-    }
-    
+    const storage = await browser.storage.local.get([
+      STORAGE_KEYS.accessToken,
+      STORAGE_KEYS.refreshToken,
+    ]);
+    const token = storage[STORAGE_KEYS.accessToken] as string | undefined;
     if (token) {
       await revokeYouTubeToken(token);
     }
 
-    await resetYouTubeSession(token);
-
-    // Clear local storage
     await browser.storage.local.remove([
       STORAGE_KEYS.username,
       STORAGE_KEYS.profilePic,
+      STORAGE_KEYS.accessToken,
+      STORAGE_KEYS.refreshToken,
+      STORAGE_KEYS.tokenExpiry,
+      STORAGE_KEYS.oauthState,
+      STORAGE_KEYS.codeVerifier,
     ]);
   } catch (error) {
     console.error('Logout error:', error);

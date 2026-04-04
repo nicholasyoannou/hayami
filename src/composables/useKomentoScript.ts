@@ -7,6 +7,7 @@
 
 import { ref, reactive, computed } from 'vue';
 import { browser } from 'wxt/browser';
+import { sendMessageWithRetry } from '@/utils/runtime';
 import {
   komentoScriptAutoSyncItem,
   komentoScriptCachedPacksItem,
@@ -341,7 +342,7 @@ export function useKomentoScript(options: {
   async function loadKomentoPendingPermissions() {
     komentoPendingPermissionLoading.value = true;
     try {
-      const response = await browser.runtime.sendMessage({ action: 'hayami_komento_getPendingPermissions' }) as any;
+      const response = await sendMessageWithRetry({ action: 'hayami_komento_getPendingPermissions' }) as any;
       if (!response?.ok) {
         if (response?.error) console.warn('Failed to load pending Komento permissions', response.error);
         komentoPendingPermissionSources.value = [];
@@ -532,7 +533,7 @@ export function useKomentoScript(options: {
       }
       await saveKomentoSources(next);
       if (!isEditing) {
-        const response = await browser.runtime.sendMessage({ action: 'hayami_komento_syncNow' }) as any;
+        const response = await sendMessageWithRetry({ action: 'hayami_komento_syncNow' }) as any;
         if (!response?.ok) showError(response?.error || 'Source added, but sync failed');
         await loadKomentoSyncStatus();
         komentoExpandedSourceId.value = draft.id;
@@ -573,7 +574,7 @@ export function useKomentoScript(options: {
   async function runKomentoSyncNow() {
     komentoSyncing.value = true;
     try {
-      const response = await browser.runtime.sendMessage({ action: 'hayami_komento_syncNow' }) as any;
+      const response = await sendMessageWithRetry({ action: 'hayami_komento_syncNow' }) as any;
       if (!response?.ok) { showError(response?.error || 'KomentoScript sync failed'); return; }
       komentoSyncState.value = response.state || null;
       if (Array.isArray(response.errors) && response.errors.length) {

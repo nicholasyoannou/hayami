@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, nextTick, onMounted, onUnmounted, reactive } from 'vue';
 import { toast } from 'vue-sonner';
-import { getRuntimeUrl } from '@/utils/runtime';
+import { getRuntimeUrl, sendMessageWithRetry } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
@@ -306,7 +306,7 @@ async function startGuidedRedditLogin() {
 
   isStartingGuidedRedditLogin.value = true;
   try {
-    const res = await browser.runtime.sendMessage({
+    const res = await sendMessageWithRetry({
       action: 'hayami_openRedditLoginGuided',
       url: 'https://www.reddit.com/login',
     });
@@ -340,7 +340,7 @@ async function loadCurrentUsername() {
     }
 
     // Cookie-session mode (no configured client ID): trust background cookie check.
-    const cookieState = await browser.runtime.sendMessage({ action: 'hayami_checkRedditTokenCookie' });
+    const cookieState = await sendMessageWithRetry({ action: 'hayami_checkRedditTokenCookie' });
     const connected = !!cookieState?.loggedIn;
     redditAuthenticated.value = connected;
 
@@ -352,7 +352,7 @@ async function loadCurrentUsername() {
     let username = await getStoredUsername();
     if (!username) {
       try {
-        const profile = await browser.runtime.sendMessage({ action: 'hayami_getRedditCookieSessionProfile' });
+        const profile = await sendMessageWithRetry({ action: 'hayami_getRedditCookieSessionProfile' });
         const profileUsername = typeof profile?.username === 'string' ? profile.username.trim() : '';
         if (profile?.loggedIn && profileUsername) {
           username = profileUsername;

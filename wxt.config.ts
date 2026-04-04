@@ -1,5 +1,4 @@
 import { defineConfig } from 'wxt';
-import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES } from './src/config';
 import { hostPermissions } from './src/config';
 
 const SANDBOX_CSP = [
@@ -43,7 +42,6 @@ export default defineConfig({
     },
     description: 'Hayami aggregates comments sections together bringing anime discussions to you.',
     permissions: [
-      'identity',
       'storage',
       'cookies',
       'scripting',
@@ -71,10 +69,6 @@ export default defineConfig({
         },
         description: 'Open Hayami site mapper'
       }
-    },
-    oauth2: {
-      client_id: GOOGLE_CLIENT_ID,
-      scopes: [GOOGLE_SCOPES],
     },
     host_permissions: [
       ...hostPermissions
