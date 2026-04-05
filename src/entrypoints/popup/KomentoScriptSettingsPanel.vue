@@ -393,3 +393,9 @@ function getFilteredSourceTargetOptions(sourceId: string): KomentoSourceTargetOp
     </div>
   </div>
 </template>
+
+<style scoped>
+.settings-icon {
+  filter: brightness(0) invert(1);
+}
+</style>
