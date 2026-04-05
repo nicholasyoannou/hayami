@@ -2,6 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .hy-section-card {
+    @apply rounded-2xl bg-white/[0.04] ring-1 ring-white/5;
+  }
+
+  .hy-section-header {
+    @apply flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06];
+  }
+
+  .hy-row {
+    @apply flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] last:border-b-0;
+  }
+
+  .hy-row-stack {
+    @apply flex flex-col gap-2 px-4 py-3 border-b border-white/[0.06] last:border-b-0;
+  }
+
+  .hy-select {
+    @apply w-full min-w-0 rounded-lg border border-white/15 bg-transparent px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30;
+  }
+
+  .hy-icon-btn {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-50;
+  }
+
+  .hy-icon-btn-danger {
+    @apply inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-rose-500/10 text-rose-200 transition hover:bg-rose-500/25 hover:text-rose-100 disabled:opacity-50;
+  }
+}
+
 @layer base {
   :root {
     color-scheme: dark;
@@ -17,6 +47,19 @@
   #app {
     @apply flex items-start justify-center p-4;
     width: 460px;
+    min-height: 100vh;
+  }
+
+  html.hayami-fullsize,
+  body.hayami-fullsize {
+    width: 100% !important;
+    min-width: 460px;
+    min-height: 100vh;
+  }
+
+  #app.hayami-fullsize {
+    width: 100% !important;
+    min-width: 460px;
     min-height: 100vh;
   }
 }

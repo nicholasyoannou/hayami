@@ -38,6 +38,7 @@ export interface KomentoPlacement {
   mountXPath?: string;
   anchorXPath?: string;
   sidePadding?: number;
+  commentsBackgroundColor?: string;
   iconDisplayKind?: KomentoIconDisplayKind;
   iconDisplayAction?: KomentoIconDisplayAction;
   iconDisplayText?: string;
@@ -54,6 +55,7 @@ export interface KomentoPlacementOption {
   mountXPath?: string;
   anchorXPath?: string;
   sidePadding?: number;
+  commentsBackgroundColor?: string;
   iconDisplayKind?: KomentoIconDisplayKind;
   iconDisplayAction?: KomentoIconDisplayAction;
   iconDisplayText?: string;

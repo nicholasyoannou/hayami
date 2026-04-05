@@ -22,9 +22,14 @@ const props = defineProps<{
   modelValue: any;
   options: ReadonlyArray<OptionEntry>;
   disabled?: boolean;
+  // variant/padding kept for backward compat but no longer affect layout
   variant?: 'primary' | 'advanced';
   padding?: 'normal' | 'compact';
   formattedSliderValue?: string;
+  // If true, the field renders as its own standalone card (used when not
+  // placed inside a section card). Default is false — the field is a flat
+  // divider row that inherits the section card's surface.
+  standalone?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -32,27 +37,18 @@ const emit = defineEmits<{
   (e: 'save', value: any): void;
 }>();
 
-const bgClass = computed(() =>
-  props.variant === 'advanced' ? 'bg-black/15' : 'bg-white/5'
+const isStackedLayout = computed(
+  () => props.setting.type === 'select' || props.setting.type === 'apiKey',
 );
 
-const paddingClass = computed(() =>
-  props.padding === 'compact' ? 'px-3 py-3' : 'px-4 py-3'
-);
-
-const containerClass = computed(() =>
-  props.setting.type === 'select'
-    ? 'space-y-2'
-    : 'flex items-start justify-between gap-3'
-);
-
-const controlClass = computed(() =>
-  props.setting.type === 'apiKey'
-    ? 'min-w-0 flex-1'
-    : props.setting.type === 'select'
-      ? 'w-full'
-      : 'shrink-0'
-);
+const rowClass = computed(() => {
+  const base = isStackedLayout.value ? 'hy-row-stack' : 'hy-row';
+  const disabled = props.disabled ? 'opacity-50 pointer-events-none' : '';
+  const standalone = props.standalone
+    ? 'hy-section-card !border-b-0 ring-1 ring-white/5'
+    : '';
+  return [base, disabled, standalone].filter(Boolean).join(' ');
+});
 
 const tooltipWidth = 192;
 const tooltipVisible = ref(false);
@@ -84,30 +80,34 @@ function hideHelpTooltip() {
 </script>
 
 <template>
-  <div
-    class="rounded-xl"
-    :class="[bgClass, paddingClass, containerClass, disabled ? 'opacity-50 pointer-events-none' : '']"
-  >
-    <div v-if="setting.type !== 'apiKey'" class="flex items-center gap-2 min-w-0">
-      <p class="min-w-0 flex-1 text-sm text-white/85 leading-tight">{{ setting.label }}</p>
-      <div v-if="setting.description" class="relative inline-flex shrink-0">
-        <button
-          type="button"
-          class="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/25 text-[10px] font-bold text-white/70 transition hover:border-white/40 hover:text-white"
-          :aria-label="`Help: ${setting.label}`"
-          @mouseenter="(e) => showHelpTooltip(e, setting.description)"
-          @focus="(e) => showHelpTooltip(e, setting.description)"
-          @mouseleave="hideHelpTooltip"
-          @blur="hideHelpTooltip"
-        >
-          ?
-        </button>
-      </div>
-    </div>
-    <div :class="controlClass">
+  <div :class="rowClass">
+    <!-- Label area: on stacked layouts it sits above the control; on
+         horizontal layouts it shares the row with the control. The help
+         button is rendered inline so it hugs the end of the label text
+         instead of floating to the far right of the column. -->
+    <p
+      v-if="setting.type !== 'apiKey'"
+      class="min-w-0 flex-1 text-sm text-white/85 leading-tight"
+    >
+      <span class="align-middle">{{ setting.label }}</span>
+      <button
+        v-if="setting.description"
+        type="button"
+        class="ml-1.5 inline-flex h-4 w-4 shrink-0 translate-y-[-1px] items-center justify-center rounded-full border border-white/25 align-middle text-[10px] font-bold text-white/70 transition hover:border-white/40 hover:text-white"
+        :aria-label="`Help: ${setting.label}`"
+        @mouseenter="(e) => showHelpTooltip(e, setting.description)"
+        @focus="(e) => showHelpTooltip(e, setting.description)"
+        @mouseleave="hideHelpTooltip"
+        @blur="hideHelpTooltip"
+      >
+        ?
+      </button>
+    </p>
+
+    <div :class="isStackedLayout ? 'w-full' : 'shrink-0'">
       <template v-if="setting.type === 'select'">
         <select
-          class="w-full min-w-0 rounded-lg bg-white/10 px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
+          class="hy-select"
           :value="modelValue"
           :disabled="disabled"
           @change="(e) => emit('save', (e.target as HTMLSelectElement).value)"
@@ -141,7 +141,7 @@ function hideHelpTooltip() {
             v-for="option in options"
             :key="option.value"
             class="rounded-lg px-3 py-2"
-            :class="modelValue === option.value ? 'bg-white/15' : 'bg-white/5'"
+            :class="modelValue === option.value ? 'bg-white/15' : 'bg-white/[0.06]'"
             @click="emit('save', option.value)"
           >
             {{ option.label }}
@@ -173,6 +173,7 @@ function hideHelpTooltip() {
           :placeholder="setting.placeholder"
           :info-url="setting.infoUrl"
           :disabled="disabled"
+          :show-save-tick="true"
           @update:model-value="(v: string) => emit('update:modelValue', v)"
           @save="() => emit('save', modelValue || '')"
         />

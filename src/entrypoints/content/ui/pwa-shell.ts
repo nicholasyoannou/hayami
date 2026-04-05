@@ -74,7 +74,12 @@ function mountPopupFrame(ctx: ContentScriptContext): void {
   const iframe = document.createElement('iframe');
   const search = window.location.search || '';
   const hash = window.location.hash || '';
-  iframe.src = `${getRuntimeUrl('popup.html')}${search}${hash}`;
+  // Signal to the popup that it is being hosted inside the PWA shell iframe
+  // so it can enable the full-size / large layout even though it is embedded.
+  const mergedSearch = search
+    ? `${search}&hayamiFullsize=1`
+    : '?hayamiFullsize=1';
+  iframe.src = `${getRuntimeUrl('popup.html')}${mergedSearch}${hash}`;
   iframe.allow = 'clipboard-read; clipboard-write';
   iframe.style.width = '100%';
   iframe.style.height = '100%';

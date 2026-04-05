@@ -754,10 +754,12 @@ const feedbackButton = ref<HTMLButtonElement | null>(null);
 const headerImportCustomMappingsInput = ref<HTMLInputElement | null>(null);
 const showFeedbackFrame = ref(false);
 const isCompactLayout = ref(false);
+const isLargeLayout = ref(false);
 const feedbackFrameUrl = 'https://hayami.moe/appFeedb/feedbackiframe?source=hayami-extension';
 const feedbackAllowedOrigins = ['https://hayami.moe'];
 const hideScrollbarsClass = 'hayami-hide-scrollbars';
 const pwaScrollbarsClass = 'hayami-pwa-scrollbars';
+const fullSizeClass = 'hayami-fullsize';
 const isEmbeddedPopup = (() => {
   try {
     return window.self !== window.top;
@@ -788,6 +790,13 @@ function clearScrollbarModeClasses() {
   }
 }
 
+function applyFullSizeClasses(enabled: boolean) {
+  const roots = getScrollbarModeRoots();
+  for (const root of roots) {
+    root.classList.toggle(fullSizeClass, enabled);
+  }
+}
+
 // Reset popup scroll when changing between views so each screen starts at the top
 watch(currentView, async () => {
   await nextTick();
@@ -798,7 +807,24 @@ watch(currentView, async () => {
     target.scrollTop = 0;
   }
   if (currentView.value === 'settings') {
-    settingsScreen.value = 'menu';
+    if (isLargeLayout.value) {
+      // Two-pane layout: skip the menu screen and jump directly to the
+      // first category so the content pane is always populated.
+      settingsScreen.value = 'category';
+      selectedSettingsCategory.value = 'general';
+    } else {
+      settingsScreen.value = 'menu';
+    }
+  }
+});
+
+// When the viewport crosses the large-layout threshold while the user is in
+// the settings view, make sure we aren't left on the now-hidden menu screen.
+watch(isLargeLayout, (large) => {
+  if (currentView.value !== 'settings') return;
+  if (large && settingsScreen.value === 'menu') {
+    settingsScreen.value = 'category';
+    selectedSettingsCategory.value = 'general';
   }
 });
 
@@ -830,6 +856,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   clearScrollbarModeClasses();
+  applyFullSizeClasses(false);
   window.removeEventListener('message', handleFeedbackMessage);
   window.removeEventListener('keydown', handleFeedbackKeydown);
   window.removeEventListener('resize', updateLayoutMode);
@@ -838,6 +865,22 @@ onBeforeUnmount(() => {
 
 function updateLayoutMode() {
   isCompactLayout.value = window.innerWidth <= 520;
+  isLargeLayout.value = window.innerWidth >= 900;
+}
+
+function selectSettingsNavItem(item: SettingsNavItem) {
+  selectedSettingsCategory.value = item.id as SettingsNavItem['id'];
+  if (item.kind === 'providers') {
+    settingsScreen.value = 'providers';
+  } else if (item.kind === 'custom-sites') {
+    settingsScreen.value = 'custom-sites';
+  } else if (item.kind === 'komentoscript') {
+    settingsScreen.value = 'komentoscript';
+  } else if (item.kind === 'custom-sites-sync') {
+    settingsScreen.value = 'custom-sites-sync';
+  } else {
+    settingsScreen.value = 'category';
+  }
 }
 
 async function loadSetting(setting: SettingDefinition) {
@@ -1219,6 +1262,59 @@ async function saveSelectedCustomSitePathGlobs() {
   }
 }
 
+type CustomSiteRawFieldsDraft = {
+  mountSelector: string;
+  anchorSelector: string;
+  titleSelector: string;
+  titleRegex: string;
+  episodeSelector: string;
+  episodeRegex: string;
+  sidePadding: number;
+};
+
+const customSiteRawFieldsSaving = ref(false);
+
+async function saveSelectedCustomSiteRawFields(draft: CustomSiteRawFieldsDraft): Promise<void> {
+  const site = selectedCustomSite.value;
+  if (!site?.origin || customSiteRawFieldsSaving.value) return;
+
+  customSiteRawFieldsSaving.value = true;
+  try {
+    const map = (await customSiteMappingsItem.getValue()) || {};
+    const existing = map[site.origin] as CustomSiteMapping | undefined;
+    if (!existing) {
+      showError('This custom site no longer exists');
+      await refreshSelectedCustomSite();
+      return;
+    }
+
+    const sidePaddingNum = Number(draft.sidePadding);
+    const next: CustomSiteMapping = {
+      ...existing,
+      mountSelector: String(draft.mountSelector || '').trim(),
+      anchorSelector: String(draft.anchorSelector || '').trim(),
+      titleSelector: String(draft.titleSelector || '').trim(),
+      titleRegex: String(draft.titleRegex || '').trim(),
+      episodeSelector: String(draft.episodeSelector || '').trim(),
+      episodeRegex: String(draft.episodeRegex || '').trim(),
+      sidePadding: Number.isFinite(sidePaddingNum) ? sidePaddingNum : 0,
+    };
+
+    map[site.origin] = next;
+    await customSiteMappingsItem.setValue(map);
+    await loadCustomSiteMappings();
+
+    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || next;
+    selectedCustomSite.value = updated;
+    showSuccess('Mapping updated');
+  } catch (error) {
+    console.warn('Failed to save custom site raw fields', error);
+    showError('Could not save mapping');
+  } finally {
+    customSiteRawFieldsSaving.value = false;
+  }
+}
+
 function sanitizeImportedCustomSiteMapping(input: unknown): CustomSiteMapping | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const raw = input as Record<string, unknown>;
@@ -1574,6 +1670,19 @@ async function refreshSelectedCustomSite() {
 
 async function removeCustomSite(site: CustomSiteMapping) {
   removingSiteOrigin.value = site.origin;
+
+  // Optimistically drop the entry from the in-memory list so the row
+  // disappears immediately. Avoid routing through loadCustomSiteMappings()
+  // at the end — that function flips isLoadingCustomSites and causes the
+  // whole list to momentarily collapse into the "Loading..." placeholder.
+  const previousList = customSiteMappings.value;
+  customSiteMappings.value = previousList.filter((entry) => entry.origin !== site.origin);
+
+  if (selectedCustomSite.value?.origin === site.origin) {
+    selectedCustomSite.value = null;
+    settingsScreen.value = 'custom-sites';
+  }
+
   try {
     const map = (await customSiteMappingsItem.getValue()) || {};
     if (map[site.origin]) {
@@ -1593,15 +1702,11 @@ async function removeCustomSite(site: CustomSiteMapping) {
       });
     }
 
-    if (selectedCustomSite.value?.origin === site.origin) {
-      selectedCustomSite.value = null;
-      settingsScreen.value = 'custom-sites';
-    }
-
-    await loadCustomSiteMappings();
     showSuccess('Custom site removed');
   } catch (error) {
     console.warn('Failed to remove custom site', error);
+    // Roll the optimistic update back if persistence failed.
+    customSiteMappings.value = previousList;
     showError('Could not remove this site');
   } finally {
     removingSiteOrigin.value = null;
@@ -1755,12 +1860,32 @@ function closePopupWindow() {
 }
 
 const isBrowserActionPopup = ref(false);
+const isFullSize = ref(false);
+
+function isHostedInPwaShell(): boolean {
+  try {
+    if (typeof window === 'undefined') return false;
+    if (window.parent === window) return false;
+    const params = new URLSearchParams(window.location.search || '');
+    return params.get('hayamiFullsize') === '1';
+  } catch {
+    return false;
+  }
+}
 
 async function detectBrowserActionPopup() {
   try {
     if (typeof window === 'undefined') return;
     if (window.parent !== window) {
+      // Inside an iframe: by default this is not the browser-action popup
+      // and not full-size. The PWA shell at hayami.moe/pwa hosts popup.html
+      // inside an iframe that fills the viewport, though — when it does that
+      // it sets ?hayamiFullsize=1 on the iframe URL so we opt into the
+      // enlarged layout.
       isBrowserActionPopup.value = false;
+      const pwaHosted = isHostedInPwaShell();
+      isFullSize.value = pwaHosted;
+      applyFullSizeClasses(pwaHosted);
       return;
     }
     const tabs = (browser as any)?.tabs;
@@ -1768,11 +1893,18 @@ async function detectBrowserActionPopup() {
       const current = await tabs.getCurrent();
       // In browser-action popup, getCurrent resolves to undefined.
       isBrowserActionPopup.value = !current;
+      // Full-size layout when popup.html is hosted in its own tab / PWA window.
+      isFullSize.value = !!current && !isEmbeddedPopup;
+      applyFullSizeClasses(isFullSize.value);
       return;
     }
     isBrowserActionPopup.value = false;
+    isFullSize.value = false;
+    applyFullSizeClasses(false);
   } catch {
     isBrowserActionPopup.value = false;
+    isFullSize.value = false;
+    applyFullSizeClasses(false);
   }
 }
 
@@ -1799,7 +1931,10 @@ function triggerHeaderCustomMappingsImport() {
 }
 </script>
 <template>
-  <div class="flex w-full min-h-screen flex-col gap-4 rounded-3xl bg-[#1f2329] p-4 text-white overflow-hidden">
+  <div
+    class="flex w-full min-h-screen flex-col gap-4 bg-[#1f2329] p-4 text-white"
+    :class="isFullSize ? 'overflow-visible' : 'rounded-3xl overflow-hidden'"
+  >
       <header class="flex items-center justify-between">
         <div class="flex items-center gap-3">
           <img src="/icon-128.png" alt="Hayami" class="h-12 w-12 rounded-xl bg-white/5 p-1 shadow" />
@@ -1909,7 +2044,11 @@ function triggerHeaderCustomMappingsImport() {
 
       <template v-else>
         <transition name="fade" mode="out-in">
-          <section v-if="currentView === 'home'" key="home" class="space-y-6">
+          <section
+            v-if="currentView === 'home'"
+            key="home"
+            class="space-y-6"
+          >
             <KomentoPendingPermissionsCard
               :loading="komentoPendingPermissionLoading"
               :approving="komentoApprovingPermissions"
@@ -1957,8 +2096,39 @@ function triggerHeaderCustomMappingsImport() {
           </section>
 
           <section v-else-if="currentView === 'settings'" key="settings" class="space-y-4">
-            <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md text-white/90">
-              <template v-if="settingsScreen === 'menu'">
+            <div
+              :class="isLargeLayout
+                ? 'grid gap-6 text-white/90 [grid-template-columns:240px_minmax(0,1fr)]'
+                : 'rounded-2xl bg-[#1c2026] px-5 py-6 shadow-md text-white/90'"
+            >
+              <!-- Large-view sticky sidebar navigation -->
+              <aside v-if="isLargeLayout" class="sticky top-4 self-start">
+                <div class="hy-section-card overflow-hidden">
+                  <div class="px-4 py-3 border-b border-white/[0.06]">
+                    <div class="flex items-center gap-2 text-sm font-semibold text-white">
+                      <img :src="generalIcon" alt="Settings" class="h-5 w-5 settings-icon" />
+                      <span>Settings</span>
+                    </div>
+                  </div>
+                  <nav class="flex flex-col p-2">
+                    <button
+                      v-for="item in settingsNavItems"
+                      :key="item.id"
+                      class="group flex items-center gap-3 rounded-xl px-3 py-2.5 text-left transition"
+                      :class="selectedSettingsCategory === item.id
+                        ? 'bg-white/10 text-white ring-1 ring-white/10'
+                        : 'text-white/70 hover:bg-white/5 hover:text-white/90'"
+                      @click="selectSettingsNavItem(item)"
+                    >
+                      <img :src="item.icon" :alt="item.label" class="h-5 w-5 settings-icon shrink-0" />
+                      <span class="min-w-0 flex-1 truncate text-sm font-semibold">{{ item.label }}</span>
+                    </button>
+                  </nav>
+                </div>
+              </aside>
+
+              <div :class="isLargeLayout ? 'min-w-0' : ''">
+              <template v-if="settingsScreen === 'menu' && !isLargeLayout">
                 <div class="mb-4 px-1">
                   <div class="flex items-center gap-2.5 text-lg font-semibold text-white">
                     <img :src="generalIcon" alt="Settings" class="h-6 w-6 settings-icon" />
@@ -1987,7 +2157,7 @@ function triggerHeaderCustomMappingsImport() {
               </template>
 
               <template v-else-if="settingsScreen === 'category' && activeSettingsCategory">
-                <div class="mb-3 flex items-center justify-between">
+                <div v-if="!isLargeLayout" class="mb-3 flex items-center justify-between">
                   <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
                     <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
                     <span>Back</span>
@@ -1998,32 +2168,36 @@ function triggerHeaderCustomMappingsImport() {
                   </div>
                 </div>
 
-                <div class="space-y-3">
-                  <SettingField
-                    v-for="setting in activeCategoryPrimarySettings"
-                    :key="setting.key"
-                    :setting="setting"
-                    :model-value="settingValues[setting.key]"
-                    :options="getSettingOptions(setting)"
-                    :disabled="isSettingDisabled(setting)"
-                    variant="primary"
-                    padding="normal"
-                    :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
-                    @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
-                    @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
-                  />
+                <div v-if="isLargeLayout" class="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
+                  <img :src="activeSettingsCategory.icon" :alt="activeSettingsCategory.label" class="h-6 w-6 settings-icon" />
+                  <span>{{ activeSettingsCategory.label }}</span>
+                </div>
 
-                  <div
-                    v-if="activeSettingsCategory.id === 'general'"
-                    class="rounded-xl bg-white/5 px-4 py-3"
-                  >
-                    <div class="flex items-center justify-between gap-3">
-                      <div class="flex-1">
-                        <p class="text-sm text-white/80">Reset all manual mappings to defaults</p>
+                <div class="space-y-4">
+                  <div v-if="activeCategoryPrimarySettings.length" class="hy-section-card">
+                    <SettingField
+                      v-for="setting in activeCategoryPrimarySettings"
+                      :key="setting.key"
+                      :setting="setting"
+                      :model-value="settingValues[setting.key]"
+                      :options="getSettingOptions(setting)"
+                      :disabled="isSettingDisabled(setting)"
+                      variant="primary"
+                      padding="normal"
+                      :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
+                      @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
+                      @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
+                    />
+                  </div>
+
+                  <div v-if="activeSettingsCategory.id === 'general'" class="hy-section-card">
+                    <div class="hy-row">
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm text-white/85">Reset all manual mappings to defaults</p>
                         <p class="text-xs text-white/60">Clears all saved episode offset and wrong-anime mappings.</p>
                       </div>
                       <button
-                        class="rounded-lg bg-[#5a2f2f] px-3 py-2 text-sm font-semibold text-[#ffdcdc] hover:bg-[#733838]"
+                        class="shrink-0 rounded-lg bg-[#5a2f2f] px-3 py-2 text-sm font-semibold text-[#ffdcdc] hover:bg-[#733838]"
                         @click="resetAllManualMappingsToDefaults"
                       >
                         Reset
@@ -2033,17 +2207,18 @@ function triggerHeaderCustomMappingsImport() {
 
                   <div
                     v-if="activeSettingsCategory.id === 'image-previews' && activeCategoryAdvancedSettings.length"
-                    class="rounded-xl bg-white/5 px-4 py-3"
+                    class="hy-section-card"
                   >
                     <button
-                      class="flex w-full items-center justify-between text-left text-sm font-semibold text-white/85"
+                      class="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-semibold text-white/85"
+                      :class="imagePreviewAdvancedExpanded ? 'border-b border-white/[0.06]' : ''"
                       @click="imagePreviewAdvancedExpanded = !imagePreviewAdvancedExpanded"
                     >
                       <span>Advanced</span>
                       <span class="text-xs text-white/60">{{ imagePreviewAdvancedExpanded ? 'Hide' : 'Expand' }}</span>
                     </button>
 
-                    <div v-if="imagePreviewAdvancedExpanded" class="mt-3 space-y-3">
+                    <div v-if="imagePreviewAdvancedExpanded">
                       <SettingField
                         v-for="setting in activeCategoryAdvancedSettings"
                         :key="setting.key"
@@ -2068,6 +2243,7 @@ function triggerHeaderCustomMappingsImport() {
                     :back-icon="backIcon"
                     :custom-sites-icon="customSitesIcon"
                     :info-icon="infoIcon"
+                    :is-large-layout="isLargeLayout"
                     :is-loading-custom-sites="isLoadingCustomSites"
                     :sorted-custom-site-mappings="sortedCustomSiteMappings"
                     :removing-site-origin="removingSiteOrigin"
@@ -2090,6 +2266,7 @@ function triggerHeaderCustomMappingsImport() {
                 <KomentoScriptSettingsPanel
                   :back-icon="backIcon"
                   :settings-icon="settingsIcon"
+                  :is-large-layout="isLargeLayout"
                   :komento-sync-enabled="komentoSyncEnabled"
                   :komento-auto-sync="komentoAutoSync"
                   :komento-last-sync-text="komentoLastSyncText"
@@ -2138,6 +2315,7 @@ function triggerHeaderCustomMappingsImport() {
                 <CustomSitesSyncSettingsPanel
                   :back-icon="backIcon"
                   :settings-icon="customSitesIcon"
+                  :is-large-layout="isLargeLayout"
                   :sync-enabled="customSitesSyncEnabled"
                   :auto-sync="customSitesAutoSync"
                   :last-sync-text="customSitesLastSyncText"
@@ -2168,6 +2346,7 @@ function triggerHeaderCustomMappingsImport() {
                   :back-icon="backIcon"
                   :custom-sites-icon="customSitesIcon"
                   :info-icon="infoIcon"
+                  :is-large-layout="isLargeLayout"
                   :selected-custom-site="selectedCustomSite"
                   :custom-site-advanced-expanded="customSiteAdvancedExpanded"
                   :custom-site-include-path-globs-draft="customSiteIncludePathGlobsDraft"
@@ -2187,6 +2366,8 @@ function triggerHeaderCustomMappingsImport() {
                   :on-set-include-path-input="(value) => { customSiteIncludePathInput = value; }"
                   :on-set-exclude-path-input="(value) => { customSiteExcludePathInput = value; }"
                   :on-save-path-globs="saveSelectedCustomSitePathGlobs"
+                  :custom-site-raw-fields-saving="customSiteRawFieldsSaving"
+                  :on-save-raw-fields="saveSelectedCustomSiteRawFields"
                   :get-favicon-url="getFaviconUrl"
                   :format-origin="formatOrigin"
                   :format-placement-label="formatPlacementLabel"
@@ -2195,7 +2376,7 @@ function triggerHeaderCustomMappingsImport() {
 
 
               <template v-else>
-                <div class="mb-3 flex items-center justify-between">
+                <div v-if="!isLargeLayout" class="mb-3 flex items-center justify-between">
                   <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
                     <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
                     <span>Back</span>
@@ -2206,8 +2387,13 @@ function triggerHeaderCustomMappingsImport() {
                   </div>
                 </div>
 
-                <div class="space-y-3">
-                  <div class="flex items-center gap-3 px-1 py-1">
+                <div v-if="isLargeLayout" class="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
+                  <img :src="discussionPlatformsIcon" alt="Discussion platforms" class="h-6 w-6 settings-icon" />
+                  <span>Discussion platforms</span>
+                </div>
+
+                <div class="space-y-4">
+                  <div class="flex items-center gap-3 px-1">
                     <label class="text-sm text-white/70">Choose platform</label>
                     <select
                       class="w-44 min-w-0 rounded-lg border border-white/15 bg-transparent px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
@@ -2224,8 +2410,8 @@ function triggerHeaderCustomMappingsImport() {
                     </select>
                   </div>
 
-                  <div v-if="activeProviderSection" class="space-y-3 rounded-xl bg-white/5 px-3 py-3">
-                    <div class="flex items-center gap-3">
+                  <div v-if="activeProviderSection" class="hy-section-card">
+                    <div class="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
                       <img
                         v-if="activeProviderSection.icon"
                         :src="activeProviderSection.icon"
@@ -2235,7 +2421,7 @@ function triggerHeaderCustomMappingsImport() {
                       <div class="text-base font-semibold text-white/90">{{ activeProviderSection.label }}</div>
                     </div>
 
-                    <div v-if="activeProviderPrimarySettings.length || activeProviderAdvancedSettings.length" class="space-y-3">
+                    <template v-if="activeProviderPrimarySettings.length || activeProviderAdvancedSettings.length">
                       <SettingField
                         v-for="setting in activeProviderPrimarySettings"
                         :key="setting.key"
@@ -2249,19 +2435,19 @@ function triggerHeaderCustomMappingsImport() {
                         @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
                       />
 
-                      <div
+                      <template
                         v-if="activeProviderSection.id === 'reddit' && activeProviderAdvancedSettings.length"
-                        class="rounded-xl bg-white/5 px-3 py-3"
                       >
                         <button
-                          class="flex w-full items-center justify-between text-left text-sm font-semibold text-white/85"
+                          class="flex w-full items-center justify-between border-t border-white/[0.06] px-4 py-3 text-left text-sm font-semibold text-white/85"
+                          :class="providerAdvancedExpanded ? 'border-b border-white/[0.06]' : ''"
                           @click="providerAdvancedExpanded = !providerAdvancedExpanded"
                         >
                           <span>Advanced</span>
                           <span class="text-xs text-white/60">{{ providerAdvancedExpanded ? 'Hide' : 'Expand' }}</span>
                         </button>
 
-                        <div v-if="providerAdvancedExpanded" class="mt-3 space-y-3">
+                        <template v-if="providerAdvancedExpanded">
                           <SettingField
                             v-for="setting in activeProviderAdvancedSettings"
                             :key="setting.key"
@@ -2274,16 +2460,17 @@ function triggerHeaderCustomMappingsImport() {
                             @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
                             @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
                           />
-                        </div>
-                      </div>
-                    </div>
+                        </template>
+                      </template>
+                    </template>
 
-                    <div v-else class="text-sm text-white/60">No settings available for this platform.</div>
+                    <div v-else class="px-4 py-3 text-sm text-white/60">No settings available for this platform.</div>
                   </div>
 
-                  <div v-else class="rounded-xl bg-white/5 px-4 py-3 text-sm text-white/70">No discussion platforms available.</div>
+                  <div v-else class="hy-section-card px-4 py-3 text-sm text-white/70">No discussion platforms available.</div>
                 </div>
               </template>
+              </div>
             </div>
 
           </section>
@@ -2435,6 +2622,31 @@ function triggerHeaderCustomMappingsImport() {
   width: 460px;
   height: 100%;
   background: #1f2329;
+}
+
+/* Full-size mode: when popup.html is opened in its own tab / PWA window,
+   let it fill the viewport instead of staying locked at 460px. */
+:global(html.hayami-fullsize),
+:global(body.hayami-fullsize) {
+  width: 100%;
+  min-width: 460px;
+  height: auto;
+  min-height: 100vh;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+:global(#app.hayami-fullsize) {
+  width: 100%;
+  min-width: 460px;
+  height: auto;
+  min-height: 100vh;
+}
+
+:global(#app.hayami-fullsize) > div {
+  width: 100%;
+  max-width: 1240px;
+  margin-inline: auto;
 }
 
 :global(html.hayami-hide-scrollbars::-webkit-scrollbar),

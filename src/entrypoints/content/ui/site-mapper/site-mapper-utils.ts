@@ -296,6 +296,9 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
           titleSelector: titleExtract.selector || '',
           episodeSelector: episodeExtract.selector || '',
           sidePadding: Number.isFinite(placement?.sidePadding) ? Number(placement?.sidePadding) : 0,
+          commentsBackgroundColor: typeof placement?.commentsBackgroundColor === 'string' && placement.commentsBackgroundColor.trim()
+            ? placement.commentsBackgroundColor.trim()
+            : undefined,
           anchorXPath: placement?.anchorXPath || '',
           mountXPath: placement?.mountXPath || '',
           titleXPath: titleExtract.xPath || '',

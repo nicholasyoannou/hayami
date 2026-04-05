@@ -18,6 +18,7 @@ const PLACEMENT_SINGLE_KEYS = new Set([
   'mountXPath',
   'anchorXPath',
   'sidePadding',
+  'commentsBackgroundColor',
   'iconDisplayKind',
   'iconDisplayAction',
   'iconDisplayText',
@@ -30,6 +31,7 @@ const PLACEMENT_MODE_ENTRY_KEYS = new Set([
   'mountXPath',
   'anchorXPath',
   'sidePadding',
+  'commentsBackgroundColor',
   'iconDisplayKind',
   'iconDisplayAction',
   'iconDisplayText',
@@ -140,6 +142,9 @@ function validatePlacementObject(
     }
     if (config.sidePadding !== undefined && typeof config.sidePadding !== 'number') {
       pushIssue(issues, 'error', `${configPath}.sidePadding`, 'sidePadding must be a number when provided.');
+    }
+    if (config.commentsBackgroundColor !== undefined && typeof config.commentsBackgroundColor !== 'string') {
+      pushIssue(issues, 'error', `${configPath}.commentsBackgroundColor`, 'commentsBackgroundColor must be a string when provided.');
     }
     if (config.iconDisplayKind !== undefined && !ICON_DISPLAY_KIND_VALUES.has(String(config.iconDisplayKind))) {
       pushIssue(issues, 'error', `${configPath}.iconDisplayKind`, 'iconDisplayKind must be "text" or "icon" when provided.');
