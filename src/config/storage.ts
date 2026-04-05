@@ -176,6 +176,30 @@ export const seriesMappingItem = storage.defineItem<
   { fallback: {} }
 );
 
+// Up to 10 most-recently-touched manual overrides, mirrored into sync storage so
+// the user's latest tweaks follow them across devices. The full local mapping
+// blob still lives in `seriesMappingItem` (local) because its nested shape can
+// exceed the 8KB per-item sync limit; this flat array is a small, bounded
+// subset used for recent-history sync + the "Custom overrides" settings panel.
+export type ManualOverrideRecentEntry = {
+  siteKey: string;
+  platformKey: string;
+  seriesKey: string;
+  mapping: {
+    episodeOffset: number;
+    mapperAnimeName?: string;
+    aniwaveIsDub?: boolean;
+  };
+  updatedAt: string;
+};
+
+export const MANUAL_OVERRIDES_RECENT_LIMIT = 10;
+
+export const manualOverridesRecentItem = storage.defineItem<ManualOverrideRecentEntry[]>(
+  'sync:manual_overrides_recent',
+  { fallback: [] },
+);
+
 
 export type KomentoCachedPackEntry = {
   sourceId: string;

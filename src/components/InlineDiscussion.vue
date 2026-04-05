@@ -179,7 +179,7 @@ const {
   getManualMappingPlatform, refreshManualMappingState, resetCurrentMapping,
   confirmEpisodeSelection, selectManualResult, handleManualSearch, handleManualSearchNoDiscussion,
   applyAniwaveEpisodeToggleFromVariants, resolveManualEpisodeProvider, cleanSeriesForMapper,
-  getMapperResultDisplayName, normalizeMapperDisplayName, getAniwaveEpisodeVariants,
+  getMapperResultDisplayName, getMapperResultMeta, normalizeMapperDisplayName, getAniwaveEpisodeVariants,
   buildAniwaveOptionsFromVariants, getMapperEpisodeOptions,
   getAniListPreferredTitle, normalizeAniListMedia, searchAniListMedia, fetchAniListMediaById,
   normalizeMalMedia, searchMalMedia, fetchMalMediaById, buildMalEpisodeOptions, buildAnimeCommunityEpisodeOptions,
@@ -1554,13 +1554,25 @@ defineExpose({
         </div>
 
         <div v-else class="p-4 space-y-4">
-          <div class="text-sm text-[#ccc]">
-            Pick which episode this {{ manualEpisodeProviderLabel }} thread corresponds to. We'll remember the offset so future episodes auto-advance correctly.
-            <div class="mt-2 flex items-start justify-between text-xs text-[#8dd4ff] gap-2">
-              <span class="flex-1 break-words leading-snug">Anime: {{ manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown' }}</span>
-              <button class="ml-3 text-[#ffd166] hover:text-[#ffe8a1] whitespace-nowrap" @click="openWrongAnimeForm">Wrong anime?</button>
+          <!-- Series pill: shows current anime + inline "Change" button that opens the wrong-anime overlay -->
+          <div class="flex items-center gap-3 rounded-xl border border-[#262626] bg-[#0f0f0f] px-3 py-2.5">
+            <div class="min-w-0 flex-1">
+              <div class="text-[11px] uppercase tracking-wide text-[#7f8a99]">Series</div>
+              <div class="truncate text-sm font-semibold text-white" :title="manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown'">
+                {{ manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown' }}
+              </div>
             </div>
+            <button
+              class="shrink-0 rounded-lg border border-[#2f2f2f] bg-[#141414] px-3 py-1.5 text-xs font-semibold text-[#ffd166] hover:border-[#ffd166]/50 hover:text-[#ffe8a1]"
+              @click="openWrongAnimeForm"
+            >
+              Wrong anime?
+            </button>
           </div>
+
+          <p class="text-xs text-[#9aa5b4] leading-snug">
+            Pick which episode this {{ manualEpisodeProviderLabel }} thread corresponds to. We'll remember the offset so future episodes auto-advance.
+          </p>
 
           <div
             v-if="showAniwaveDubToggle"
@@ -1584,97 +1596,33 @@ defineExpose({
             </button>
           </div>
 
-          <div v-if="wrongAnimeOpen" class="rounded-lg border border-[#2f2f2f] bg-[#0f0f0f] p-3 text-xs text-white/80 space-y-2">
-            <div class="text-[#ccc]">{{ isAniListEpisodeManualMode ? 'Search AniList for the correct series.' : (isMalEpisodeManualMode ? 'Search MyAnimeList for the correct series.' : 'Search Hayami for the correct series.') }}</div>
-            <div class="flex gap-2">
-              <input
-                v-model="wrongAnimeQuery"
-                @keyup.enter="searchWrongAnime"
-                class="flex-1 bg-[#0b0b0b] border border-[#2f2f2f] rounded-lg px-3 py-2 text-xs text-white outline-none"
-                type="text"
-                placeholder="Type a series title"
-              />
-              <button
-                class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-xs whitespace-nowrap"
-                @click="searchWrongAnime"
-                :disabled="wrongAnimeLoading"
-              >
-                {{ wrongAnimeLoading ? 'Searching...' : ((isAniListEpisodeManualMode || isMalEpisodeManualMode) ? 'Search now' : 'Search') }}
-              </button>
-            </div>
-            <div v-if="isAniListEpisodeManualMode || isMalEpisodeManualMode" class="text-[11px] text-[#88a5c4]">Live search runs automatically while you type.</div>
-            <div v-if="wrongAnimeError" class="text-red-400">{{ wrongAnimeError }}</div>
-            <div v-else-if="wrongAnimeLoading" class="text-[#ccc]">Searching...</div>
-            <ul v-else-if="wrongAnimeResults.length" class="space-y-2 max-h-[180px] overflow-y-auto styled-scroll">
-              <li
-                v-for="(item, idx) in wrongAnimeResults"
-                :key="String(item?._id ?? item?.id ?? `${idx}-${getMapperResultDisplayName(item)}`)"
-                class="p-2 border border-[#262626] rounded-lg bg-[#0b0b0b] flex items-center justify-between gap-2"
-              >
-                <template v-if="isAniListEpisodeManualMode || isMalEpisodeManualMode">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <img
-                      v-if="item.coverImage"
-                      :src="item.coverImage"
-                      alt="Anime cover"
-                      class="w-8 h-10 object-cover rounded"
-                    />
-                    <div class="min-w-0">
-                      <div class="text-xs text-white/90 truncate">{{ item.title }}</div>
-                      <div class="text-[11px] text-[#9db2c8]">
-                        {{ item.episodes ?? (item.nextAiringEpisode ?? '?') }} eps
-                        <span v-if="item.seasonYear"> • {{ item.seasonYear }}</span>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-                <template v-else>
-                  <div class="text-xs text-white/90">{{ getMapperResultDisplayName(item) }}</div>
-                </template>
-                <button
-                  class="px-2 py-1 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded text-[11px] whitespace-nowrap"
-                  @click="selectWrongAnime(item)"
-                >
-                  Select
-                </button>
-              </li>
-            </ul>
-            <div v-else class="text-[#777]">No results yet. Run a search.</div>
-          </div>
-
           <div v-if="manualEpisodeLoading" class="text-sm text-[#ccc]">Loading episode list…</div>
           <div v-else-if="manualEpisodeError" class="text-sm text-red-400">{{ manualEpisodeError }}</div>
 
-          <ul
-            v-else
-            class="space-y-2 max-h-[320px] overflow-y-auto styled-scroll"
-          >
-            <li
-              v-for="opt in manualEpisodeOptions"
-              :key="opt.episode"
-              class="p-3 border border-[#262626] rounded-lg bg-[#0f0f0f] flex items-center justify-between gap-3"
+          <div v-else class="space-y-2">
+            <div class="flex items-center justify-between text-[11px] text-[#7f8a99]">
+              <span>{{ manualEpisodeOptions.length }} episodes available</span>
+              <span v-if="manualEpisodeSelected !== null" class="text-[#8dd4ff]">Selected: Episode {{ manualEpisodeSelected }}</span>
+            </div>
+            <div
+              class="grid gap-1.5 max-h-[280px] overflow-y-auto styled-scroll p-0.5"
+              :style="{ gridTemplateColumns: 'repeat(auto-fill, minmax(52px, 1fr))' }"
             >
-              <label class="flex items-center gap-3 text-sm text-white cursor-pointer w-full">
-                <input
-                  v-model="manualEpisodeSelected"
-                  class="accent-[#2f6feb]"
-                  type="radio"
-                  :value="opt.episode"
-                />
-                <span>Episode {{ opt.episode }}</span>
-                <span v-if="isAniwaveManualMode" class="text-[11px] text-[#9db2c8]">{{ opt.isDub ? 'Dub' : 'Sub' }}</span>
-              </label>
-              <a
-                v-if="opt.url"
-                class="text-xs text-[#8dd4ff] hover:underline"
-                :href="opt.url"
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                v-for="opt in manualEpisodeOptions"
+                :key="opt.episode"
+                type="button"
+                class="relative flex h-10 items-center justify-center rounded-md border text-sm font-semibold transition-colors"
+                :class="manualEpisodeSelected === opt.episode
+                  ? 'border-[#2f6feb] bg-[#2f6feb] text-white shadow-[0_0_0_1px_rgba(47,111,235,0.5)]'
+                  : 'border-[#262626] bg-[#0f0f0f] text-[#d0d0d0] hover:border-[#3a3a3a] hover:bg-[#151515]'"
+                :title="`Episode ${opt.episode}${isAniwaveManualMode ? (opt.isDub ? ' (Dub)' : ' (Sub)') : ''}`"
+                @click="manualEpisodeSelected = opt.episode"
               >
-                Open
-              </a>
-            </li>
-          </ul>
+                {{ opt.episode }}
+              </button>
+            </div>
+          </div>
 
           <div class="flex items-center justify-end gap-2">
             <button
@@ -1686,12 +1634,160 @@ defineExpose({
               {{ manualResetInProgress ? 'Resetting...' : 'Reset mapping' }}
             </button>
             <button
-              class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm"
+              class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm font-semibold disabled:opacity-50"
               @click="confirmEpisodeSelection"
               :disabled="manualEpisodeSelected === null || manualEpisodeLoading"
             >
               Save mapping
             </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Wrong Anime Search Modal (sibling overlay, higher z-index than manual search modal) -->
+    <div
+      v-if="manualSearchOpen && wrongAnimeOpen"
+      class="fixed inset-0 z-[10001] bg-black/75 flex items-center justify-center p-4"
+      @click.self="wrongAnimeOpen = false"
+    >
+      <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
+          <div>
+            <h3 class="text-base font-semibold text-white">Find the correct series</h3>
+            <p class="text-[11px] text-[#7f8a99] mt-0.5">
+              {{ isAniListEpisodeManualMode ? 'Searches AniList live as you type.' : (isMalEpisodeManualMode ? 'Searches MyAnimeList live as you type.' : 'Searches the Hayami database live as you type.') }}
+            </p>
+          </div>
+          <button
+            class="text-[#aaa] hover:text-white"
+            @click="wrongAnimeOpen = false"
+            aria-label="Close"
+          >✕</button>
+        </div>
+
+        <div class="p-4 space-y-3 overflow-y-auto styled-scroll">
+          <div class="relative">
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#7f8a99]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              v-model="wrongAnimeQuery"
+              autofocus
+              class="w-full bg-[#0b0b0b] border border-[#2f2f2f] rounded-lg pl-9 pr-3 py-2.5 text-sm text-white outline-none focus:border-[#2f6feb]"
+              type="text"
+              placeholder="Search by series title…"
+            />
+          </div>
+
+          <div v-if="wrongAnimeError" class="text-xs text-red-400">{{ wrongAnimeError }}</div>
+          <div v-else-if="wrongAnimeLoading" class="text-xs text-[#9aa5b4] flex items-center gap-2">
+            <span class="inline-block h-3 w-3 rounded-full border-2 border-[#2f6feb] border-t-transparent animate-spin"></span>
+            Searching…
+          </div>
+
+          <ul v-if="wrongAnimeResults.length" class="space-y-2">
+            <li
+              v-for="(item, idx) in wrongAnimeResults"
+              :key="String(item?._id ?? item?.id ?? `${idx}-${getMapperResultDisplayName(item)}`)"
+              class="group rounded-lg border border-[#262626] bg-[#0b0b0b] p-3 hover:border-[#2f6feb]/40 transition-colors cursor-pointer"
+              @click="selectWrongAnime(item)"
+            >
+              <template v-if="isAniListEpisodeManualMode || isMalEpisodeManualMode">
+                <div class="flex gap-3">
+                  <img
+                    v-if="item.coverImage"
+                    :src="item.coverImage"
+                    alt="Anime cover"
+                    class="h-16 w-12 shrink-0 rounded object-cover bg-[#141414]"
+                    referrerpolicy="no-referrer"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-semibold text-white line-clamp-2 leading-snug">{{ item.title }}</div>
+                    <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span v-if="item.episodes || item.nextAiringEpisode" class="rounded-full bg-[#1a2332] px-2 py-0.5 text-[#8dd4ff]">
+                        {{ item.episodes ?? item.nextAiringEpisode }} eps
+                      </span>
+                      <span v-if="item.seasonYear" class="rounded-full bg-[#1f1f1f] px-2 py-0.5 text-[#b8c2cf]">
+                        {{ item.seasonYear }}
+                      </span>
+                      <span v-if="item.status" class="rounded-full bg-[#1f1f1f] px-2 py-0.5 text-[#b8c2cf]">
+                        {{ item.status }}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    class="shrink-0 self-center rounded-lg bg-[#2f6feb] hover:bg-[#1f5fcc] px-3 py-1.5 text-xs font-semibold text-white"
+                    @click.stop="selectWrongAnime(item)"
+                  >
+                    Select
+                  </button>
+                </div>
+              </template>
+              <template v-else>
+                <div class="flex items-start gap-3">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-semibold text-white line-clamp-2 leading-snug">
+                      {{ getMapperResultMeta(item).primaryTitle }}
+                    </div>
+                    <div
+                      v-if="getMapperResultMeta(item).secondaryTitle"
+                      class="mt-0.5 truncate text-[11px] text-[#9aa5b4]"
+                      :title="getMapperResultMeta(item).secondaryTitle || ''"
+                    >
+                      {{ getMapperResultMeta(item).secondaryTitle }}
+                    </div>
+                    <div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span v-if="getMapperResultMeta(item).episodeCount" class="rounded-full bg-[#1a2332] px-2 py-0.5 text-[#8dd4ff]">
+                        {{ getMapperResultMeta(item).episodeCount }} eps
+                      </span>
+                      <span v-if="getMapperResultMeta(item).year" class="rounded-full bg-[#1f1f1f] px-2 py-0.5 text-[#b8c2cf]">
+                        {{ getMapperResultMeta(item).year }}
+                      </span>
+                      <a
+                        v-if="getMapperResultMeta(item).anilistId"
+                        :href="`https://anilist.co/anime/${getMapperResultMeta(item).anilistId}`"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="rounded-full bg-[#1a1f2e] px-2 py-0.5 text-[#8dd4ff] hover:bg-[#243049]"
+                        @click.stop
+                      >
+                        AniList
+                      </a>
+                      <a
+                        v-if="getMapperResultMeta(item).malId"
+                        :href="`https://myanimelist.net/anime/${getMapperResultMeta(item).malId}`"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="rounded-full bg-[#1a1f2e] px-2 py-0.5 text-[#8dd4ff] hover:bg-[#243049]"
+                        @click.stop
+                      >
+                        MAL
+                      </a>
+                    </div>
+                  </div>
+                  <button
+                    class="shrink-0 self-center rounded-lg bg-[#2f6feb] hover:bg-[#1f5fcc] px-3 py-1.5 text-xs font-semibold text-white"
+                    @click.stop="selectWrongAnime(item)"
+                  >
+                    Select
+                  </button>
+                </div>
+              </template>
+            </li>
+          </ul>
+          <div
+            v-else-if="!wrongAnimeLoading && !wrongAnimeError && wrongAnimeQuery.trim().length >= 2"
+            class="py-6 text-center text-xs text-[#7f8a99]"
+          >
+            No matches found.
+          </div>
+          <div
+            v-else-if="!wrongAnimeLoading && !wrongAnimeError && wrongAnimeQuery.trim().length < 2"
+            class="py-6 text-center text-xs text-[#7f8a99]"
+          >
+            Type at least 2 characters to search.
           </div>
         </div>
       </div>

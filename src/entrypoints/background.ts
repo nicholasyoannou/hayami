@@ -840,6 +840,27 @@ async function getRedditSessionProfile(): Promise<{ loggedIn: boolean; username?
 export default defineBackground(() => {
   console.log('Hayami - Background service started');
 
+  // Keep-alive port handler: content scripts open a long-lived port while
+  // they are actively rendering discussions so the MV3 service worker does
+  // not idle out between proxyFetch calls. Registered first — it's the
+  // lightest-weight listener and only holds the port ref.
+  try {
+    browser.runtime.onConnect.addListener((port) => {
+      if (!port || port.name !== 'hayami-keepalive') return;
+      const onMsg = () => {
+        // Receiving a message renews the SW lifetime window. No work needed.
+      };
+      try { port.onMessage.addListener(onMsg); } catch {}
+      try {
+        port.onDisconnect.addListener(() => {
+          try { port.onMessage.removeListener(onMsg); } catch {}
+        });
+      } catch {}
+    });
+  } catch (err) {
+    console.warn('[background] Failed to register keep-alive onConnect listener', err);
+  }
+
   // CRITICAL: Register the message listener FIRST, before any other initialization
   // that might throw and prevent it from being registered. On Firefox MV2, if anything
   // throws before this point, the popup/content scripts get "Could not establish connection".

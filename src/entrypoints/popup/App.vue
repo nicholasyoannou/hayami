@@ -53,6 +53,7 @@ import {
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
   seriesMappingItem,
+  MANUAL_OVERRIDES_RECENT_LIMIT,
   type ImgurFrontendOption,
   type ImgurOdsOption,
   type ImgurVideoCdnOption,
@@ -71,6 +72,7 @@ import generalIcon from '@/assets/settingsScreen/general.svg';
 import imagePreviewsIcon from '@/assets/settingsScreen/imagePreviews.svg';
 import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms.svg';
 import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
+import komentoScriptIcon from '@/assets/settingsScreen/komentoscript.svg';
 import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
 import SettingField from './SettingField.vue';
@@ -79,6 +81,13 @@ import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
 import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
 import CustomSitesSyncSettingsPanel from './CustomSitesSyncSettingsPanel.vue';
+import CustomOverridesSettingsPanel from './CustomOverridesSettingsPanel.vue';
+import {
+  loadAllManualOverrides,
+  deleteManualOverride,
+  clearAllSeriesMappings,
+  type ManualOverrideSummary,
+} from '@/entrypoints/content/storage/series-mapping';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
 import type { KomentoSourceRegistryEntry } from '@/komentoscript';
 import { useKomentoScript, type KomentoPendingPermissionSource, type KomentoSourceTargetOption } from '@/composables/useKomentoScript';
@@ -112,13 +121,13 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
 type SettingsNavItem = {
-  id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync';
+  id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
   label: string;
   description: string;
   icon: string;
-  kind: 'settings' | 'providers' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync';
+  kind: 'settings' | 'providers' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
 };
 type OptionEntry<T> = { value: T; label: string };
 
@@ -155,7 +164,7 @@ const providerIcons: Record<CommentProviderOption, string> = {
   mal: '/assets/topCommentMenu/malLogo.svg',
   youtube: '/assets/topCommentMenu/youtubeLogo.svg',
   aniwave: '/assets/topCommentMenu/aniwave.png',
-  animecommunity: '/assets/topCommentMenu/theAnimeCommunityTempLogo.png',
+  animecommunity: '/assets/topCommentMenu/theAnimeCommunityLogo.png',
 };
 
 const settingDefinitions: SettingDefinition[] = [
@@ -635,8 +644,15 @@ const settingsNavItems: SettingsNavItem[] = [
     id: 'komentoscript',
     label: 'KomentoScript',
     description: 'Import and sync custom rule packs and sources.',
-    icon: settingsIcon,
+    icon: komentoScriptIcon,
     kind: 'komentoscript',
+  },
+  {
+    id: 'custom-overrides',
+    label: 'Custom overrides',
+    description: 'Episode offsets and wrong-anime corrections you have saved.',
+    icon: settingsIcon,
+    kind: 'custom-overrides',
   },
   {
     id: 'image-previews',
@@ -737,6 +753,90 @@ const customSiteExcludePathInput = ref('');
 const customSitePathGlobsSaving = ref(false);
 const customSiteAdvancedExpanded = ref(false);
 const commentsBackgroundColorDraft = ref('');
+const manualOverrides = ref<ManualOverrideSummary[]>([]);
+const isLoadingManualOverrides = ref(false);
+const removingManualOverrideKey = ref<string | null>(null);
+
+function manualOverrideEntryKey(entry: ManualOverrideSummary): string {
+  return `${entry.siteKey}\u0000${entry.platformKey}\u0000${entry.seriesKey}`;
+}
+
+async function loadManualOverrides() {
+  isLoadingManualOverrides.value = true;
+  try {
+    manualOverrides.value = await loadAllManualOverrides();
+  } catch (error) {
+    console.error('Failed to load manual overrides', error);
+    manualOverrides.value = [];
+  } finally {
+    isLoadingManualOverrides.value = false;
+  }
+}
+
+async function removeManualOverride(entry: ManualOverrideSummary) {
+  const key = manualOverrideEntryKey(entry);
+  removingManualOverrideKey.value = key;
+  try {
+    const removed = await deleteManualOverride(entry.siteKey, entry.platformKey, entry.seriesKey);
+    if (removed) {
+      manualOverrides.value = manualOverrides.value.filter((item) => manualOverrideEntryKey(item) !== key);
+      showSuccess('Override removed');
+    }
+  } catch (error) {
+    console.error('Failed to remove manual override', error);
+    showError('Failed to remove override');
+  } finally {
+    removingManualOverrideKey.value = null;
+  }
+}
+
+async function resetAllManualOverrides() {
+  try {
+    await clearAllSeriesMappings();
+    manualOverrides.value = [];
+    showSuccess('All manual overrides cleared');
+  } catch (error) {
+    console.error('Failed to clear manual overrides', error);
+    showError('Failed to clear overrides');
+  }
+}
+
+function formatManualOverridePlatformLabel(platform: string): string {
+  const map: Record<string, string> = {
+    reddit: 'Reddit',
+    disqus: 'Disqus',
+    animecommunity: 'Anime Community',
+    aniwave: 'Aniwave',
+    anilist: 'AniList',
+    mal: 'MyAnimeList',
+    youtube: 'YouTube',
+  };
+  return map[platform] || platform;
+}
+
+function formatManualOverrideSiteLabel(site: string): string {
+  if (!site) return 'Unknown site';
+  if (site === 'global') return 'All sites';
+  return site;
+}
+
+function formatManualOverrideRelativeTime(iso?: string): string {
+  if (!iso) return '';
+  const ts = Date.parse(iso);
+  if (!Number.isFinite(ts)) return '';
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'just now';
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  const years = Math.floor(days / 365);
+  return `${years}y ago`;
+}
 // KomentoScript state and functions are managed by the useKomentoScript composable.
 // It is initialized after showSuccess/showError are defined (see below).
 // KomentoScript state, computed properties, and functions are provided by useKomentoScript composable (initialized below showSuccess/showError).
@@ -878,6 +978,9 @@ function selectSettingsNavItem(item: SettingsNavItem) {
     settingsScreen.value = 'komentoscript';
   } else if (item.kind === 'custom-sites-sync') {
     settingsScreen.value = 'custom-sites-sync';
+  } else if (item.kind === 'custom-overrides') {
+    settingsScreen.value = 'custom-overrides';
+    void loadManualOverrides();
   } else {
     settingsScreen.value = 'category';
   }
@@ -2144,7 +2247,7 @@ function triggerHeaderCustomMappingsImport() {
                     v-for="item in settingsNavItems"
                     :key="item.id"
                     class="group flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left text-base text-white/95 transition hover:bg-white/[0.06]"
-                    @click="selectedSettingsCategory = item.id; settingsScreen = item.kind === 'providers' ? 'providers' : item.kind === 'custom-sites' ? 'custom-sites' : item.kind === 'komentoscript' ? 'komentoscript' : item.kind === 'custom-sites-sync' ? 'custom-sites-sync' : 'category'"
+                    @click="selectSettingsNavItem(item)"
                   >
                     <img :src="item.icon" :alt="item.label" class="h-6 w-6 settings-icon shrink-0" />
                     <div class="min-w-0 flex-1">
@@ -2265,7 +2368,7 @@ function triggerHeaderCustomMappingsImport() {
               <template v-else-if="settingsScreen === 'komentoscript'">
                 <KomentoScriptSettingsPanel
                   :back-icon="backIcon"
-                  :settings-icon="settingsIcon"
+                  :settings-icon="komentoScriptIcon"
                   :is-large-layout="isLargeLayout"
                   :komento-sync-enabled="komentoSyncEnabled"
                   :komento-auto-sync="komentoAutoSync"
@@ -2338,6 +2441,25 @@ function triggerHeaderCustomMappingsImport() {
                   :on-edit-source="editCustomSitesSyncSource"
                   :on-remove-source="removeCustomSitesSyncSource"
                   :format-history-when="formatCustomSitesSyncHistoryWhen"
+                />
+              </template>
+
+              <template v-else-if="settingsScreen === 'custom-overrides'">
+                <CustomOverridesSettingsPanel
+                  :back-icon="backIcon"
+                  :settings-icon="settingsIcon"
+                  :is-large-layout="isLargeLayout"
+                  :is-loading="isLoadingManualOverrides"
+                  :overrides="manualOverrides"
+                  :removing-key="removingManualOverrideKey"
+                  :recent-limit="MANUAL_OVERRIDES_RECENT_LIMIT"
+                  :on-back="() => { settingsScreen = 'menu'; }"
+                  :on-refresh="loadManualOverrides"
+                  :on-remove-override="removeManualOverride"
+                  :on-reset-all="resetAllManualOverrides"
+                  :format-platform-label="formatManualOverridePlatformLabel"
+                  :format-site-label="formatManualOverrideSiteLabel"
+                  :format-relative-time="formatManualOverrideRelativeTime"
                 />
               </template>
 

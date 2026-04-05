@@ -8,6 +8,7 @@ import {
   fetchAnimeMapperDataBySeriesName,
   getSeriesMapping,
 } from '@/entrypoints/content/mapping';
+import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -342,6 +343,68 @@ export function useManualSearch(params: {
       out.push({ episode: ep, url: '' });
     }
     return out;
+  }
+
+  function getMapperResultMeta(result: any): {
+    primaryTitle: string;
+    secondaryTitle: string | null;
+    year: string | null;
+    episodeCount: number | null;
+    anilistId: number | null;
+    malId: number | null;
+  } {
+    const romaji = typeof result?.romaji_title === 'string' ? result.romaji_title.trim() : '';
+    const english = typeof result?.english_title === 'string' ? result.english_title.trim() : '';
+    const animeName = typeof result?.anime_name === 'string' ? result.anime_name.trim() : '';
+
+    // Prefer romaji as primary; english as secondary when different. Fall back
+    // to the parenthetical-style anime_name when fine-grained titles aren't available.
+    let primary = romaji || english || animeName || 'Unknown title';
+    let secondary: string | null = null;
+    if (romaji && english && romaji.toLowerCase() !== english.toLowerCase()) {
+      secondary = english;
+    } else if (!romaji && !english && animeName.includes('(') && animeName.endsWith(')')) {
+      // Split "Sousou no Frieren (Frieren: Beyond Journey's End)" into primary + secondary.
+      const openIdx = animeName.indexOf('(');
+      const left = animeName.slice(0, openIdx).trim();
+      const right = animeName.slice(openIdx + 1, -1).trim();
+      if (left && right) {
+        primary = left;
+        secondary = right;
+      }
+    }
+
+    let yearStr: string | null = null;
+    const yearRaw = result?.year;
+    if (yearRaw === 'movies') yearStr = 'Movie';
+    else if (typeof yearRaw === 'string' && yearRaw.trim()) yearStr = yearRaw.trim();
+    else if (typeof yearRaw === 'number' && Number.isFinite(yearRaw)) yearStr = String(yearRaw);
+
+    let episodeCount: number | null = null;
+    const eps = result?.episodes;
+    if (Array.isArray(eps)) {
+      const nums = new Set<number>();
+      for (const e of eps) {
+        const n = Number(e?.episode_number);
+        if (Number.isFinite(n)) nums.add(n);
+      }
+      if (nums.size > 0) episodeCount = nums.size;
+    } else if (eps && typeof eps === 'object') {
+      const keys = Object.keys(eps).filter((k) => Number.isFinite(Number(k)));
+      if (keys.length > 0) episodeCount = keys.length;
+    }
+
+    const anilistIdRaw = Number(result?.external_sites?.anilist_id);
+    const malIdRaw = Number(result?.external_sites?.mal_id);
+
+    return {
+      primaryTitle: primary,
+      secondaryTitle: secondary,
+      year: yearStr,
+      episodeCount,
+      anilistId: Number.isFinite(anilistIdRaw) && anilistIdRaw > 0 ? anilistIdRaw : null,
+      malId: Number.isFinite(malIdRaw) && malIdRaw > 0 ? malIdRaw : null,
+    };
   }
 
   function getMapperResultDisplayName(result: any): string {
@@ -823,7 +886,15 @@ export function useManualSearch(params: {
 
   function openWrongAnimeForm() {
     wrongAnimeOpen.value = true;
-    wrongAnimeQuery.value = '';
+    // Seed query with the current resolved/context title so the live search
+    // shows relevant results immediately instead of an empty panel.
+    const seed = (
+      manualEpisodeResolvedName.value
+      || manualEpisodeContext.value.animeName
+      || manualMappingLookupAnimeName.value
+      || ''
+    ).trim();
+    wrongAnimeQuery.value = seed;
     wrongAnimeResults.value = [];
     wrongAnimeError.value = null;
   }
@@ -1056,22 +1127,75 @@ export function useManualSearch(params: {
             ? inferredEpisode + (existingMapping?.episodeOffset ?? 0)
             : null;
 
-        let episodeMatched: any | null = null;
+        // Mirror the entry-picking logic in discussion-manager's tryMapperDirect so the
+        // name shown in the manual-search modal reflects the series Hayami actually mapped to
+        // (MAL id preference → matched_result index → remaining results, with season filter
+        // and desired-episode availability applied).
+        const targetMalId = (info?.malId ?? null) as number | null;
+        const targetSeason = extractSeasonNumber(preferredLookupName);
+        const normalizeMal = (val: unknown): number | null => {
+          if (typeof val === 'number') return val;
+          if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
+          return null;
+        };
+        const entryMal = (entry: any): number | null =>
+          normalizeMal(entry?.mal_id ?? entry?.malId ?? entry?.external_sites?.mal_id);
+        const matchedIdx = typeof (mapper as any)?.matched_result?.index === 'number' ? (mapper as any).matched_result.index : null;
+        const malPreferred = targetMalId
+          ? results
+              .map((c: any, i: number) => ({ i, mid: entryMal(c) }))
+              .filter((x) => x.mid === targetMalId)
+              .map((x) => x.i)
+          : [];
+        const pickOrder = [
+          ...malPreferred,
+          ...(matchedIdx !== null && matchedIdx >= 0 && matchedIdx < results.length ? [matchedIdx] : []),
+          ...results.map((_e: any, i: number) => i),
+        ].filter((v: number, i: number, arr: number[]) => arr.indexOf(v) === i);
+
+        const entryHasDesiredEpisode = (entry: any): boolean => {
+          if (desiredEpisode === null) return false;
+          const eps = entry?.episodes;
+          if (!eps || typeof eps !== 'object') return false;
+          const key = String(desiredEpisode);
+          return Object.prototype.hasOwnProperty.call(eps, key)
+            || Object.prototype.hasOwnProperty.call(eps, Number(key));
+        };
+
+        const passesFilters = (entry: any): boolean => {
+          if (!entry) return false;
+          if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) return false;
+          const entrySeason = extractSeasonNumber(entry?.title || entry?.anime_name || entry?.name || entry?.alt_title);
+          if (entrySeason && targetSeason && entrySeason !== targetSeason) return false;
+          if (entrySeason && !targetSeason && entrySeason > 1) return false;
+          return true;
+        };
+
+        let pickedEntry: any | null = null;
+        // First pass: require the desired episode to be available on the entry.
         if (desiredEpisode !== null) {
-          const desiredKey = String(desiredEpisode);
-          episodeMatched = results.find((res: any) => {
-            const eps = res?.episodes;
-            if (!eps || typeof eps !== 'object') return false;
-            return Object.prototype.hasOwnProperty.call(eps, desiredKey)
-              || Object.prototype.hasOwnProperty.call(eps, Number(desiredKey));
-          }) || null;
+          for (const idx of pickOrder) {
+            const entry = results[idx];
+            if (!passesFilters(entry)) continue;
+            if (entryHasDesiredEpisode(entry)) {
+              pickedEntry = entry;
+              break;
+            }
+          }
+        }
+        // Second pass: drop the episode requirement but keep filters.
+        if (!pickedEntry) {
+          for (const idx of pickOrder) {
+            const entry = results[idx];
+            if (passesFilters(entry)) {
+              pickedEntry = entry;
+              break;
+            }
+          }
         }
 
-        const matchedIdx = typeof (mapper as any)?.matched_result?.index === 'number' ? (mapper as any).matched_result.index : null;
-        const matchedResult = matchedIdx !== null && matchedIdx >= 0 && matchedIdx < results.length ? results[matchedIdx] : null;
         const resolvedAnimeName =
-          normalizeMapperDisplayName(getMapperResultDisplayName(episodeMatched))
-          || normalizeMapperDisplayName(getMapperResultDisplayName(matchedResult))
+          normalizeMapperDisplayName(getMapperResultDisplayName(pickedEntry))
           || normalizeMapperDisplayName(getMapperResultDisplayName(results[0]))
           || preferredLookupName;
 
@@ -1123,8 +1247,8 @@ export function useManualSearch(params: {
 
   // ── Watchers ─────────────────────────────────────────────────────────────
 
-  watch([wrongAnimeQuery, manualEpisodeProvider, wrongAnimeOpen], ([query, provider, isOpen]) => {
-    if ((provider !== 'animecommunity' && provider !== 'anilist' && provider !== 'mal') || !isOpen) {
+  watch([wrongAnimeQuery, manualEpisodeProvider, wrongAnimeOpen], ([query, _provider, isOpen]) => {
+    if (!isOpen) {
       if (wrongAnimeDebounceHandle) {
         clearTimeout(wrongAnimeDebounceHandle);
         wrongAnimeDebounceHandle = null;
@@ -1236,6 +1360,7 @@ export function useManualSearch(params: {
     buildMalEpisodeOptions,
     buildAnimeCommunityEpisodeOptions,
     getMapperResultDisplayName,
+    getMapperResultMeta,
     normalizeMapperDisplayName,
     getAniwaveEpisodeVariants,
     buildAniwaveOptionsFromVariants,

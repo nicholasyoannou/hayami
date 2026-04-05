@@ -9,6 +9,41 @@ type ProxyFetchResponse = {
 const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
 const devDebug = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.debug(...args); };
 
+// Historical note: this module previously used the callback form
+// `browser.runtime.sendMessage(payload, cb)`. That form is a Chrome-only
+// overload — on Firefox and any promise-based `browser` polyfill the
+// second argument is treated as `options`, so the callback never fires
+// and the caller waited out a full 30-second timeout before falling
+// back to direct fetch. That manifested as "really slow" Reddit loads
+// whenever the popup wasn't open (i.e. when the SW had idled out and the
+// message round-trip was already the slow path). The implementation
+// below uses the promise form that works on both Chrome (MV3) and
+// Firefox, with a much tighter timeout.
+const PROXY_FETCH_TIMEOUT_MS = 15000;
+
+async function sendProxyMessage(payload: any, timeoutMs = PROXY_FETCH_TIMEOUT_MS): Promise<any> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const messagePromise = (async () => {
+      try {
+        return await browser.runtime.sendMessage(payload);
+      } catch (err) {
+        return { __messagingError: true, message: err instanceof Error ? err.message : String(err) };
+      }
+    })();
+
+    const timeoutPromise = new Promise<any>((resolve) => {
+      timeoutId = setTimeout(() => {
+        resolve({ __messagingError: true, message: 'timeout' });
+      }, timeoutMs);
+    });
+
+    return await Promise.race([messagePromise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Perform fetch via the extension background to avoid CORS from content scripts.
  * If messaging fails, fall back to window.fetch.
@@ -24,30 +59,7 @@ export async function extensionFetchTransport(input: string, init?: RequestInit)
   try {
     const payload = { action: 'hayami_proxyFetch', url: input, init: safeInit };
     devDebug('[extensionFetch] attempting hayami_proxyFetch via runtime message', { url: input });
-    const res = await new Promise<any>((resolve) => {
-      let called = false;
-      try {
-        browser.runtime.sendMessage(payload, (r: any) => {
-          called = true;
-          const last = (browser.runtime as any).lastError;
-          if (last) {
-            console.warn('[extensionFetch] browser.runtime.lastError while sending proxyFetch:', last?.message || last);
-            resolve({ __messagingError: true, message: last?.message || String(last) });
-            return;
-          }
-          resolve(r);
-        });
-      } catch (e) {
-        console.warn('[extensionFetch] sendMessage threw:', e);
-        resolve({ __messagingError: true, message: String(e) });
-      }
-      setTimeout(() => {
-        if (!called) {
-          console.warn('[extensionFetch] proxyFetch message callback not called within 30s timeout');
-          resolve({ __messagingError: true, message: 'timeout' });
-        }
-      }, 30000);
-    });
+    const res = await sendProxyMessage(payload);
 
     if (res && typeof res.ok !== 'undefined') {
       devDebug('[extensionFetch] proxy ok', { url: input, status: res.status });
@@ -62,34 +74,9 @@ export async function extensionFetchTransport(input: string, init?: RequestInit)
 
     if (res && res.__messagingError) {
       console.warn('[extensionFetch] proxy messaging failed on first attempt', { url: input, message: res.message || res });
-      const retry = await new Promise<any>((resolve) => {
-        let called2 = false;
-        try {
-          browser.runtime.sendMessage(payload, (r2: any) => {
-            called2 = true;
-            const last2 = (browser.runtime as any).lastError;
-            if (last2) {
-              console.warn('[extensionFetch] retry browser.runtime.lastError:', last2?.message || last2);
-              resolve({ __messagingError: true, message: last2?.message || String(last2) });
-              return;
-            }
-            resolve(r2);
-          });
-        } catch (e) {
-          console.warn('[extensionFetch] retry sendMessage threw:', e);
-          resolve({ __messagingError: true, message: String(e) });
-        }
-        setTimeout(() => {
-          if (!called2) {
-            console.warn('[extensionFetch] proxyFetch retry callback not called within 30s timeout');
-            resolve({ __messagingError: true, message: 'timeout' });
-          }
-        }, 30000);
-      });
+      const retry = await sendProxyMessage(payload);
 
-      if (!(retry && typeof retry.ok !== 'undefined')) {
-        console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)', { url: input });
-      } else {
+      if (retry && typeof retry.ok !== 'undefined') {
         devDebug('[extensionFetch] proxy retry ok', { url: input, status: retry.status });
         return {
           ok: !!retry.ok,
@@ -99,6 +86,8 @@ export async function extensionFetchTransport(input: string, init?: RequestInit)
           text: async () => (typeof retry.body === 'string' ? retry.body : JSON.stringify(retry.body)),
         };
       }
+
+      console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)', { url: input });
     }
   } catch {
     // Fall through to direct fetch.
@@ -107,7 +96,6 @@ export async function extensionFetchTransport(input: string, init?: RequestInit)
   devDebug('[extensionFetch] falling back to direct fetch', { url: input });
   const resp = await fetch(input, init);
   devDebug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok, type: resp.type, redirected: resp.redirected });
-  devDebug('[extensionFetch] direct fetch response', { url: input, status: resp.status, ok: resp.ok });
   const ct = resp.headers.get('content-type') || '';
   const b = ct.includes('application/json') ? await resp.json() : await resp.text();
   return {
@@ -124,30 +112,23 @@ export async function extensionFetchTransport(input: string, init?: RequestInit)
  * extensions' messaging. Uses `hayami_cr_proxyFetch` action handled by background.
  */
 export async function crProxyFetchTransport(input: string, init?: RequestInit): Promise<ProxyFetchResponse> {
-  return new Promise<any>((resolve) => {
-    try {
-      browser.runtime.sendMessage({ action: 'hayami_cr_proxyFetch', url: input, init }, (res: any) => {
-        const last = (browser.runtime as any).lastError;
-        if (last) {
-          console.warn('[crProxyFetch] browser.runtime.lastError:', last?.message || last);
-          resolve({ ok: false, status: 0, headers: [], json: async () => null, text: async () => '' });
-          return;
-        }
-        if (!res) {
-          resolve({ ok: false, status: 0, headers: [], json: async () => null, text: async () => '' });
-          return;
-        }
-        resolve({
-          ok: !!res.ok,
-          status: Number(res.status) || 0,
-          headers: Array.isArray(res.headers) ? res.headers : [],
-          json: async () => res.body,
-          text: async () => (typeof res.body === 'string' ? res.body : JSON.stringify(res.body)),
-        });
-      });
-    } catch (e) {
-      console.warn('[crProxyFetch] sendMessage threw:', e);
-      resolve({ ok: false, status: 0, headers: [], json: async () => null, text: async () => '' });
-    }
-  });
+  const res = await sendProxyMessage({ action: 'hayami_cr_proxyFetch', url: input, init });
+
+  if (!res || typeof res.ok === 'undefined') {
+    return {
+      ok: false,
+      status: 0,
+      headers: [],
+      json: async () => null,
+      text: async () => '',
+    };
+  }
+
+  return {
+    ok: !!res.ok,
+    status: Number(res.status) || 0,
+    headers: Array.isArray(res.headers) ? res.headers : [],
+    json: async () => res.body,
+    text: async () => (typeof res.body === 'string' ? res.body : JSON.stringify(res.body)),
+  };
 }

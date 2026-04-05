@@ -1,4 +1,9 @@
-import { seriesMappingItem } from '@/config/storage';
+import {
+  seriesMappingItem,
+  manualOverridesRecentItem,
+  MANUAL_OVERRIDES_RECENT_LIMIT,
+  type ManualOverrideRecentEntry,
+} from '@/config/storage';
 import { resolveAdapter } from '../adapters/site-registry';
 
 export interface SeriesMapping {
@@ -6,6 +11,8 @@ export interface SeriesMapping {
   mapperAnimeName?: string;
   aniwaveIsDub?: boolean;
 }
+
+export type { ManualOverrideRecentEntry };
 
 export type SeriesMappingPlatform =
   | 'reddit'
@@ -151,6 +158,42 @@ export async function getSeriesMapping(series: string, platform?: SeriesMappingP
   return null;
 }
 
+async function upsertRecentOverride(entry: ManualOverrideRecentEntry): Promise<void> {
+  try {
+    const existing = (await manualOverridesRecentItem.getValue()) || [];
+    const filtered = existing.filter(
+      (item) =>
+        !(
+          item.siteKey === entry.siteKey &&
+          item.platformKey === entry.platformKey &&
+          item.seriesKey === entry.seriesKey
+        ),
+    );
+    const next = [entry, ...filtered].slice(0, MANUAL_OVERRIDES_RECENT_LIMIT);
+    await manualOverridesRecentItem.setValue(next);
+  } catch (error) {
+    console.warn('[series-mapping] Failed to update recent overrides sync entry', error);
+  }
+}
+
+async function removeRecentOverride(
+  siteKey: string,
+  platformKey: string,
+  seriesKey: string,
+): Promise<void> {
+  try {
+    const existing = (await manualOverridesRecentItem.getValue()) || [];
+    const next = existing.filter(
+      (item) => !(item.siteKey === siteKey && item.platformKey === platformKey && item.seriesKey === seriesKey),
+    );
+    if (next.length !== existing.length) {
+      await manualOverridesRecentItem.setValue(next);
+    }
+  } catch (error) {
+    console.warn('[series-mapping] Failed to remove recent override sync entry', error);
+  }
+}
+
 export async function saveSeriesMapping(
   series: string,
   mapping: SeriesMapping,
@@ -167,10 +210,19 @@ export async function saveSeriesMapping(
   const platformMappings = siteMappings[platformKey] || {};
   const normalized = normalizeKey(series);
   const existing = platformMappings[normalized] || platformMappings[series] || {};
-  platformMappings[normalized] = { ...existing, ...mapping };
+  const merged = { ...existing, ...mapping };
+  platformMappings[normalized] = merged;
   siteMappings[platformKey] = platformMappings;
   mappings[existingSiteKey] = siteMappings;
   await seriesMappingItem.setValue(mappings);
+
+  await upsertRecentOverride({
+    siteKey: existingSiteKey,
+    platformKey,
+    seriesKey: normalized,
+    mapping: merged,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function deleteSeriesMapping(
@@ -213,6 +265,10 @@ export async function deleteSeriesMapping(
 
   if (removed) {
     await seriesMappingItem.setValue(mappings);
+    const normalizedKey = normalizeKey(series);
+    for (const candidateSiteKey of siteKeys) {
+      await removeRecentOverride(candidateSiteKey, platformKey, normalizedKey);
+    }
   }
 
   return removed;
@@ -220,4 +276,112 @@ export async function deleteSeriesMapping(
 
 export async function clearAllSeriesMappings(): Promise<void> {
   await seriesMappingItem.setValue({});
+  try {
+    await manualOverridesRecentItem.setValue([]);
+  } catch (error) {
+    console.warn('[series-mapping] Failed to clear recent overrides sync list', error);
+  }
+}
+
+// ── Custom Overrides settings panel helpers ────────────────────────────
+
+export interface ManualOverrideSummary {
+  siteKey: string;
+  platformKey: string;
+  seriesKey: string;
+  mapping: SeriesMapping;
+  inSyncRecent: boolean;
+  updatedAt?: string;
+}
+
+/**
+ * Load every manual override currently in local storage, flattened into a
+ * single list. Entries that appear in the sync'd "recent 10" list are marked
+ * with `inSyncRecent: true` and carry their `updatedAt` timestamp.
+ */
+export async function loadAllManualOverrides(): Promise<ManualOverrideSummary[]> {
+  const [raw, recent] = await Promise.all([
+    seriesMappingItem.getValue(),
+    manualOverridesRecentItem.getValue(),
+  ]);
+
+  const allMappings = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {};
+  const recentList = Array.isArray(recent) ? recent : [];
+  const recentIndex = new Map<string, ManualOverrideRecentEntry>();
+  for (const entry of recentList) {
+    if (!entry?.siteKey || !entry?.platformKey || !entry?.seriesKey) continue;
+    recentIndex.set(`${entry.siteKey}\u0000${entry.platformKey}\u0000${entry.seriesKey}`, entry);
+  }
+
+  const summaries: ManualOverrideSummary[] = [];
+
+  for (const [siteKey, siteValue] of Object.entries(allMappings)) {
+    if (!siteValue || typeof siteValue !== 'object') continue;
+    const platformLevel = siteValue as Record<string, unknown>;
+
+    for (const [platformKey, platformValue] of Object.entries(platformLevel)) {
+      if (!platformValue || typeof platformValue !== 'object') continue;
+      const seriesLevel = platformValue as Record<string, unknown>;
+
+      for (const [seriesKey, mappingValue] of Object.entries(seriesLevel)) {
+        if (!isSeriesMapping(mappingValue)) continue;
+        const key = `${siteKey}\u0000${platformKey}\u0000${seriesKey}`;
+        const recentEntry = recentIndex.get(key);
+        summaries.push({
+          siteKey,
+          platformKey,
+          seriesKey,
+          mapping: mappingValue,
+          inSyncRecent: !!recentEntry,
+          updatedAt: recentEntry?.updatedAt,
+        });
+      }
+    }
+  }
+
+  // Stable sort: sync'd-recent entries first (by updatedAt desc), then
+  // everything else alphabetically by site/platform/series.
+  summaries.sort((a, b) => {
+    if (a.inSyncRecent !== b.inSyncRecent) return a.inSyncRecent ? -1 : 1;
+    if (a.inSyncRecent && b.inSyncRecent) {
+      const at = a.updatedAt || '';
+      const bt = b.updatedAt || '';
+      if (at !== bt) return at < bt ? 1 : -1;
+    }
+    if (a.siteKey !== b.siteKey) return a.siteKey.localeCompare(b.siteKey);
+    if (a.platformKey !== b.platformKey) return a.platformKey.localeCompare(b.platformKey);
+    return a.seriesKey.localeCompare(b.seriesKey);
+  });
+
+  return summaries;
+}
+
+/**
+ * Delete a specific manual override identified by site + platform + series key.
+ * Updates both the local nested mapping and the sync'd recent list.
+ */
+export async function deleteManualOverride(
+  siteKey: string,
+  platformKey: string,
+  seriesKey: string,
+): Promise<boolean> {
+  const raw = (await seriesMappingItem.getValue()) || {};
+  const mappings = raw as Record<string, Record<string, Record<string, SeriesMapping>>>;
+  const siteMappings = mappings[siteKey];
+  if (!siteMappings) return false;
+  const platformMappings = siteMappings[platformKey];
+  if (!platformMappings) return false;
+  if (!Object.prototype.hasOwnProperty.call(platformMappings, seriesKey)) return false;
+
+  delete platformMappings[seriesKey];
+  if (Object.keys(platformMappings).length === 0) {
+    delete siteMappings[platformKey];
+  }
+  if (Object.keys(siteMappings).length === 0) {
+    delete mappings[siteKey];
+  }
+
+  await seriesMappingItem.setValue(mappings);
+  await removeRecentOverride(siteKey, platformKey, seriesKey);
+  return true;
 }

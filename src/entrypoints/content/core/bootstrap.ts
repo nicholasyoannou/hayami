@@ -5,6 +5,7 @@ import { createApp, h } from 'vue';
 import { Toaster } from 'vue-sonner';
 import 'vue-sonner/style.css';
 import { debug } from '@/utils/debug';
+import { startBackgroundKeepAlive } from '@/utils/backgroundKeepAlive';
 import { wirePreviewHandlers } from '@/utils/previewHandlers';
 import { useWatchPageDetection } from '@/composables/useAnimeInfo';
 import { DEBOUNCE_DELAY_MS } from '../constants';
@@ -229,6 +230,17 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
     initState();
     setContentScriptContext(ctx);
+
+    // Keep the MV3 background service worker warm while discussions are
+    // being rendered on this tab. Without this, every provider fetch
+    // (Reddit, AniList, MAL, etc.) pays an SW cold-start cost whenever
+    // the popup isn't open, which compounds when multiple providers fire
+    // in parallel and makes comment loads feel really slow.
+    try {
+      startBackgroundKeepAlive();
+    } catch (err) {
+      console.warn('[Bootstrap] Failed to start background keep-alive', err);
+    }
 
     if (!previewHandlersWired) {
       wirePreviewHandlers(ctx);

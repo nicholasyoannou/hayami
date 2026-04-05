@@ -13,6 +13,35 @@ export interface AniListFetchResponse {
   text: () => Promise<string>;
 }
 
+// Using the promise form of sendMessage (works on both Chrome MV3 and
+// Firefox). The previous callback form was a Chrome-only overload; on
+// Firefox the second argument is treated as `options`, the callback
+// never fired, and AniList GraphQL requests hung until the surrounding
+// timeout expired whenever the popup wasn't open.
+const ANILIST_PROXY_TIMEOUT_MS = 15000;
+
+async function sendAnilistMessage(payload: any): Promise<any> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    const messagePromise = (async () => {
+      try {
+        return await browser.runtime.sendMessage(payload);
+      } catch (err) {
+        console.warn('[anilistTransport] sendMessage threw:', err);
+        return { __error: true };
+      }
+    })();
+
+    const timeoutPromise = new Promise<any>((resolve) => {
+      timeoutId = setTimeout(() => resolve({ __error: true, __timeout: true }), ANILIST_PROXY_TIMEOUT_MS);
+    });
+
+    return await Promise.race([messagePromise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 /**
  * Perform an AniList GraphQL POST via the extension background to avoid CORS.
  * AbortSignal is intentionally stripped — it cannot be serialized over the
@@ -23,25 +52,7 @@ export async function anilistProxyFetch(init: RequestInit): Promise<AniListFetch
   // AbortSignal cannot cross the message channel — strip it before sending
   const { signal: _signal, ...serializableInit } = init as any;
 
-  const res = await new Promise<any>((resolve) => {
-    try {
-      browser.runtime.sendMessage(
-        { action: 'hayami_proxyFetch', url: ANILIST_API_URL, init: serializableInit },
-        (r: any) => {
-          const last = (browser.runtime as any).lastError;
-          if (last) {
-            console.warn('[anilistTransport] sendMessage error:', last?.message || last);
-            resolve({ __error: true });
-            return;
-          }
-          resolve(r);
-        },
-      );
-    } catch (e) {
-      console.warn('[anilistTransport] sendMessage threw:', e);
-      resolve({ __error: true });
-    }
-  });
+  const res = await sendAnilistMessage({ action: 'hayami_proxyFetch', url: ANILIST_API_URL, init: serializableInit });
 
   if (!res || res.__error || typeof res.ok === 'undefined') {
     throw new Error('AniList proxy fetch failed — background unreachable');

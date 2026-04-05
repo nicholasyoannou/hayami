@@ -116,7 +116,8 @@ function triggerCustomMappingsImport() {
         <div
           v-for="site in props.sortedCustomSiteMappings"
           :key="site.origin"
-          class="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 last:border-b-0"
+          class="flex items-center gap-3 px-4 py-3"
+          :class="props.isLargeLayout ? '' : 'border-b border-white/[0.06] last:border-b-0'"
         >
           <img
             :src="props.getFaviconUrl(site.origin)"
