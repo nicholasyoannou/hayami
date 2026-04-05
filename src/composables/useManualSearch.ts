@@ -7,6 +7,7 @@ import {
   extractEpisodeTableFromRedditSelftext,
   fetchAnimeMapperDataBySeriesName,
   getSeriesMapping,
+  getLastResolvedHayamiName,
 } from '@/entrypoints/content/mapping';
 import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
@@ -1106,6 +1107,19 @@ export function useManualSearch(params: {
         if (hasSavedMapping) {
           return {
             resolvedAnimeName: preferredLookupName,
+            mappingAnimeName: preferredLookupName,
+            crEpisodeNum: inferredEpisode,
+          };
+        }
+
+        // Prefer the anime_name that the most recent mapper failover resolved for
+        // this base series. That query used CR metadata (series_name + season_title)
+        // and is authoritative — re-querying here with only series_name would miss
+        // season-specific picks (e.g., "Dr. Stone: Science Future" vs "Dr. STONE").
+        const cachedResolved = getLastResolvedHayamiName(baseAnimeName);
+        if (cachedResolved) {
+          return {
+            resolvedAnimeName: cachedResolved,
             mappingAnimeName: preferredLookupName,
             crEpisodeNum: inferredEpisode,
           };

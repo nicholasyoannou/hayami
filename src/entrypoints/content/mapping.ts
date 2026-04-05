@@ -79,6 +79,35 @@ export function resolveCurrentAdapter(location: Location = window.location) {
   return resolveAdapter(location);
 }
 
+// =============================================================================
+// LAST-RESOLVED HAYAMI NAME CACHE
+// Records the anime_name that tryMapperFailover most recently mapped a
+// (base anime name) to, so UI code (e.g. the manual-search "?" button) can
+// display the series Hayami actually picked without re-querying the API.
+// =============================================================================
+type LastResolvedHayamiRecord = {
+  baseKey: string;
+  resolvedName: string;
+};
+let lastResolvedHayami: LastResolvedHayamiRecord | null = null;
+
+function normalizeHayamiBaseKey(value: string | null | undefined): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+export function recordLastResolvedHayamiName(baseAnimeName: string | null | undefined, resolvedName: string | null | undefined): void {
+  const baseKey = normalizeHayamiBaseKey(baseAnimeName);
+  const resolved = String(resolvedName || '').trim();
+  if (!baseKey || !resolved) return;
+  lastResolvedHayami = { baseKey, resolvedName: resolved };
+}
+
+export function getLastResolvedHayamiName(baseAnimeName: string | null | undefined): string | null {
+  const baseKey = normalizeHayamiBaseKey(baseAnimeName);
+  if (!baseKey || !lastResolvedHayami) return null;
+  return lastResolvedHayami.baseKey === baseKey ? lastResolvedHayami.resolvedName : null;
+}
+
 // (Inline definitions removed — now in mapping/ submodules)
 
 // =============================================================================
@@ -1259,6 +1288,7 @@ export async function tryMapperFailover(
         }
       }
 
+      let pickedNonCrIdx: number | null = null;
       if (keyedCandidates.length) {
         keyedCandidates.sort((a, b) => {
           if (a.seriesScore !== b.seriesScore) return b.seriesScore - a.seriesScore;
@@ -1269,6 +1299,7 @@ export async function tryMapperFailover(
         });
         console.log('[Mapper Failover] Ranked lightweight keyed candidates:', keyedCandidates.slice(0, 3));
         mapperUrl = keyedCandidates[0].url;
+        pickedNonCrIdx = keyedCandidates[0].idx;
       }
 
       // Only use movie URL when no episodic mapping could be resolved.
@@ -1279,14 +1310,25 @@ export async function tryMapperFailover(
       // Do not call direct Disqus search from mapper failover.
       // Callers decide whether to fall back to native Disqus lookup.
 
+      const recordNonCrResolved = () => {
+        const pickedName = pickedNonCrIdx !== null ? results[pickedNonCrIdx]?.anime_name : null;
+        if (pickedName) {
+          recordLastResolvedHayamiName(animeInfo?.animeName, pickedName);
+        }
+      };
+
       if (platform === 'reddit' && mapperUrl && episodeFromInfo !== null) {
         const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeFromInfo, animeInfo?.animeName);
         if (corrected && corrected !== mapperUrl) {
+          recordNonCrResolved();
           return corrected;
         }
       }
 
-      if (mapperUrl) return mapperUrl;
+      if (mapperUrl) {
+        recordNonCrResolved();
+        return mapperUrl;
+      }
 
       console.log('[Mapper Failover] Lightweight mapper lookup found no episode match');
       return null;
@@ -1778,6 +1820,7 @@ export async function tryMapperFailover(
       // For movies, return the first (typically only) movie URL
       const movieUrl = matchedSeason.movies[0];
       console.log(`Found ${platform} thread via failover (movie):`, movieUrl);
+      recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
       return movieUrl;
     }
     
@@ -2082,6 +2125,7 @@ export async function tryMapperFailover(
     }
 
     console.log(`Found ${platform} thread via failover:`, mappedUrl);
+    recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
     return mappedUrl;
   } catch (error) {
     console.error('Error in mapper failover:', error);
