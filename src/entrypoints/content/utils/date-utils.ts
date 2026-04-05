@@ -1,20 +1,13 @@
 /**
  * Date parsing and matching utilities
  */
+import * as chrono from 'chrono-node';
 
 /**
  * Parse Crunchyroll release date text into a Date object
  */
 export function parseReleaseDateFromCrunchyroll(releaseDateText: string | Date | null | undefined): Date | null {
-  if (!releaseDateText) return null;
-  if (releaseDateText instanceof Date) return releaseDateText;
-  if (typeof releaseDateText !== 'string') return null;
-
-  const text = releaseDateText.replace(/\s+/g, ' ').trim();
-  let cleaned = text.replace(/^(released\s+on|aired\s+on|premieres?\s+on|available\s+on|release\s*date:?|air\s*date:?)/i, '').trim();
-  const parsed = Date.parse(cleaned);
-  if (!Number.isNaN(parsed)) return new Date(parsed);
-  return null;
+  return parseFlexibleDate(releaseDateText);
 }
 
 /**
@@ -42,6 +35,46 @@ export function isReleaseDateToday(releaseDate?: string | Date | null): boolean 
   return parsedDate.getFullYear() === now.getFullYear() &&
     parsedDate.getMonth() === now.getMonth() &&
     parsedDate.getDate() === now.getDate();
+}
+
+/**
+ * Parse a wide variety of human-readable date strings into a Date using
+ * chrono-node, which handles natural-language formats like
+ * "12th August 2025", "Aug 12, 2025", "2025-08-12", "yesterday", etc.
+ */
+export function parseFlexibleDate(input: string | Date | null | undefined): Date | null {
+  if (!input) return null;
+  if (input instanceof Date) return Number.isNaN(input.getTime()) ? null : input;
+  if (typeof input !== 'string') return null;
+
+  const text = input.replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+
+  // chrono-node handles ordinals, month names, numeric formats, and natural language.
+  try {
+    const parsed = chrono.parseDate(text);
+    return parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Format a Date as YYYY-MM-DD (for API query params).
+ */
+export function formatDateYMD(date: Date | null | undefined): string | null {
+  if (!date || Number.isNaN(date.getTime())) return null;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Convert a flexible date input into a normalized YYYY-MM-DD string.
+ */
+export function toEpisodeDateParam(input: string | Date | null | undefined): string | null {
+  return formatDateYMD(parseFlexibleDate(input));
 }
 
 /**

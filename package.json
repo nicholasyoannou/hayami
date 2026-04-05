@@ -25,6 +25,7 @@
     "@tiptap/markdown": "^3.17.1",
     "@tiptap/starter-kit": "^3.17.1",
     "@tiptap/vue-3": "^3.17.1",
+    "chrono-node": "^2.9.0",
     "css-ripple-effect": "^1.0.5",
     "pinia": "^3.0.4",
     "vue": "^3.5.26",

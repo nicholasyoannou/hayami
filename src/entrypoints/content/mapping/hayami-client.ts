@@ -5,6 +5,7 @@
  */
 
 import { fetchHayami } from '@/utils/hayamiApi';
+import { toEpisodeDateParam } from '../utils/date-utils';
 
 /**
  * Strips season suffixes from anime names to get the series title.
@@ -42,6 +43,7 @@ export async function fetchAnimeMapperDataBySeriesName(
     isThirdPartySite?: boolean;
     maxEpisodeCount?: number | null;
     preserveSeasonSuffix?: boolean;
+    episodeDate?: string | Date | null;
   },
 ): Promise<any | null> {
   try {
@@ -50,7 +52,7 @@ export async function fetchAnimeMapperDataBySeriesName(
       : stripSeasonSuffix(seriesName);
     const encodedSeries = encodeURIComponent(searchName);
     const platformParam = platform !== 'reddit' ? `&platform=${encodeURIComponent(platform)}` : '';
-    
+
     let idParams = '';
     if (options?.isThirdPartySite) {
       if (options?.malId) {
@@ -60,13 +62,19 @@ export async function fetchAnimeMapperDataBySeriesName(
         idParams += `&anilist_id=${options.anilistId}`;
       }
     }
-    
+
     let episodeCountParam = '';
     if (options?.maxEpisodeCount && options.maxEpisodeCount > 0) {
       episodeCountParam = `&max_episode_count=${options.maxEpisodeCount}`;
     }
-    
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}`;
+
+    let episodeDateParam = '';
+    const normalizedDate = toEpisodeDateParam(options?.episodeDate ?? null);
+    if (normalizedDate) {
+      episodeDateParam = `&episode_date=${encodeURIComponent(normalizedDate)}`;
+    }
+
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}${episodeDateParam}`;
     console.log('[Mapper] Querying mapper by series name:', { 
       url, 
       platform, 
@@ -94,12 +102,23 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
   seriesName: string,
   seasonTitle: string,
   platform: 'reddit' | 'disqus' = 'reddit',
+  options?: {
+    episodeDate?: string | Date | null;
+    // Accepted for forward-compat with caller sites (e.g., AniList provider) but
+    // currently unused by the season-title endpoint.
+    isThirdPartySite?: boolean;
+  },
 ): Promise<any | null> {
   try {
     const encodedSeries = encodeURIComponent(seriesName);
     const encodedSeason = encodeURIComponent(seasonTitle);
     const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}`;
+    let episodeDateParam = '';
+    const normalizedDate = toEpisodeDateParam(options?.episodeDate ?? null);
+    if (normalizedDate) {
+      episodeDateParam = `&episode_date=${encodeURIComponent(normalizedDate)}`;
+    }
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}${episodeDateParam}`;
     console.log('[Mapper Failover] Querying mapper service URL:', url);
     const response = await fetchHayami(url);
 

@@ -36,3 +36,4 @@ repomix-output.xml
 .env.submit
 KOMENTOSCRIPT.md
 /.claude
+komentoscript-pack.schema.json

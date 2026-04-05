@@ -1125,6 +1125,7 @@ export async function tryMapperFailover(
         ...(mapperOptions || {}),
         // Keep explicit season/part markers to avoid broad matches (e.g., S2 vs S2 Part 2).
         preserveSeasonSuffix: true,
+        episodeDate: animeInfo?.releaseDate ?? null,
       }) : null;
       if (!mapperResult || !Array.isArray((mapperResult as any).results) || !(mapperResult as any).results.length) {
         return null;
@@ -1406,10 +1407,19 @@ export async function tryMapperFailover(
     // (e.g., "Season 2" matches 48 random shows). The API also never provides matched_result
     // for disqus. Query with series_name only first for focused results; fall back to
     // series_name + season_title if the focused query returns nothing.
+    // Episode air date (from Crunchyroll metadata) or user-provided releaseDate,
+    // forwarded to the Hayami mapper as episode_date=YYYY-MM-DD to disambiguate seasons.
+    const episodeDateForMapper: string | Date | null =
+      (parsedAirDate && !Number.isNaN(parsedAirDate.getTime()) ? parsedAirDate : null) ||
+      (animeInfo?.releaseDate ?? null);
+
     let mapperResult: any = null;
     if (platform === 'disqus') {
       console.log('[Mapper Failover] Querying mapper service with series_name only (disqus)...');
-      mapperResult = await fetchAnimeMapperDataBySeriesName(seriesTitle, platform, { preserveSeasonSuffix: false });
+      mapperResult = await fetchAnimeMapperDataBySeriesName(seriesTitle, platform, {
+        preserveSeasonSuffix: false,
+        episodeDate: episodeDateForMapper,
+      });
       if (mapperResult && Array.isArray((mapperResult as any).results) && (mapperResult as any).results.length > 0) {
         console.log('[Mapper Failover] Using series-name-only results for disqus:', (mapperResult as any).results.length, 'results');
       } else {
@@ -1419,7 +1429,9 @@ export async function tryMapperFailover(
     }
     if (!mapperResult) {
       console.log('[Mapper Failover] Querying mapper service with series_name and season_title...');
-      mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform);
+      mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform, {
+        episodeDate: episodeDateForMapper,
+      });
     }
     console.log('[Mapper Failover] Mapper service response:', mapperResult);
     if (!mapperResult || !(mapperResult as any).results || !(mapperResult as any).results.length) {
@@ -1754,6 +1766,11 @@ export async function tryMapperFailover(
     }
 
     let matchedSeason = (mapperResult as any).results[matchedIndex];
+    // Record the mapped anime name early so the manual-search "?" UI can display
+    // the correct series even if episode lookup later fails (e.g., episode not in season).
+    try {
+      recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
+    } catch {}
     let forcedSeasonEpisode: number | null = null; // derived from slice matching
     let clampSeasonEpisode: number | null = null; // last-resort clamp for oversized CR numbering
 

@@ -313,13 +313,6 @@ async function submitRawEdit() {
       <div class="px-4 py-3">
         <div class="flex items-center gap-2">
           <input
-            type="color"
-            class="h-8 w-10 shrink-0 cursor-pointer rounded border border-white/15 bg-transparent p-0"
-            :value="/^#([0-9a-fA-F]{6})$/.test(props.commentsBackgroundColorDraft) ? props.commentsBackgroundColorDraft : '#000000'"
-            @input="props.onSetCommentsBackgroundColor(($event.target as HTMLInputElement).value)"
-            aria-label="Pick comments background color"
-          />
-          <input
             type="text"
             class="min-w-0 flex-1 rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/45 focus:outline focus:outline-2 focus:outline-white/30"
             placeholder="#1a1a1a, rgb(20,20,20), transparent, ..."

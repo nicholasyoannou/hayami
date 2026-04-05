@@ -777,22 +777,23 @@ const isReady = computed(() => !!editor.value);
   line-height: 0;
 }
 
-.editor-area :deep(.tiptap .spoiler) {
-  background: #21262d;
-  color: #79c0ff;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 0.95em;
-  cursor: pointer;
-}
-
-/* Reveal on hover (classic Reddit spoiler behavior) */
-.editor-area :deep(.tiptap .spoiler:hover),
-.editor-area :deep(.tiptap .spoiler:focus-visible) {
-  background: transparent;
-  color: inherit;
-  border: none;
+/*
+ * Spoiler mark — during editing we keep the text fully readable so the
+ * author can see what they're typing, but add a distinctive "spoiler chip"
+ * look (tinted background + dashed outline) so it's obvious the mark is
+ * applied. Actual reveal-on-hover behavior is handled in the rendered
+ * comment view, not the editor.
+ */
+.editor-area :deep(.spoiler),
+.editor-area :deep(span.spoiler),
+.editor-area :deep(.tiptap .spoiler),
+.editor-area :deep(.ProseMirror .spoiler) {
+  background-color: rgba(88, 166, 255, 0.18) !important;
+  color: #e6edf3 !important;
+  padding: 0 3px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.55);
+  cursor: text;
 }
 
 .editor-area :deep(.tiptap hr) {

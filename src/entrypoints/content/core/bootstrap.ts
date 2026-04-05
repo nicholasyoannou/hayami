@@ -156,6 +156,15 @@ export function ensureToaster(ctx: ContentScriptContext): void {
 
   const toastHost = document.createElement('div');
   toastHost.id = 'cr-comments-toaster';
+  // Ensure the toaster is reliably on top of site-mapper overlays, fullscreen
+  // players, and sites that raise their own z-indexes extremely high.
+  toastHost.style.position = 'fixed';
+  toastHost.style.top = '0';
+  toastHost.style.left = '0';
+  toastHost.style.width = '0';
+  toastHost.style.height = '0';
+  toastHost.style.zIndex = '2147483647';
+  toastHost.style.pointerEvents = 'none';
   document.body.appendChild(toastHost);
   const toastApp = createApp({ render: () => h(Toaster, { position: 'top-right', theme: 'dark', richColors: true }) });
   toastApp.mount(toastHost);

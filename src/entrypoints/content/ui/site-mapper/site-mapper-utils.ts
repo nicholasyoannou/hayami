@@ -19,7 +19,7 @@ import {
 } from '@/komentoscript';
 
 let customSiteMapping: CustomSiteMapping | null = null;
-let komentoExtractedAnimeInfo: { animeName: string; episodeName: string } | null = null;
+let komentoExtractedAnimeInfo: { animeName: string; episodeName: string; releaseDate?: string } | null = null;
 let mapperHotkeyAttached = false;
 let launchButton: HTMLButtonElement | null = null;
 let popupInteractionLockUntil = 0;
@@ -88,6 +88,45 @@ export function applySidePadding(target: HTMLElement | null | undefined): void {
   applyCommentsBackgroundColor(target);
 }
 
+/**
+ * Parse any CSS color string into an [r, g, b] tuple (0-255).
+ * Uses a throwaway DOM element so the browser normalises names, hex, rgb, hsl, etc.
+ * Returns null if the color is unparseable or fully transparent.
+ */
+function parseCssColorToRgb(input: string): [number, number, number] | null {
+  try {
+    const el = document.createElement('div');
+    el.style.color = '';
+    el.style.color = input;
+    if (!el.style.color) return null;
+    // computed style needs the element in the DOM
+    document.body.appendChild(el);
+    const computed = getComputedStyle(el).color;
+    el.remove();
+    const m = computed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/i);
+    if (!m) return null;
+    const alpha = m[4] !== undefined ? Number(m[4]) : 1;
+    if (!Number.isFinite(alpha) || alpha <= 0) return null;
+    return [Number(m[1]), Number(m[2]), Number(m[3])];
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pick a readable foreground color for a given background using WCAG relative luminance.
+ */
+function readableTextColor(bg: string): string {
+  const rgb = parseCssColorToRgb(bg);
+  if (!rgb) return '#dddddd';
+  const [r, g, b] = rgb.map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  }) as [number, number, number];
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return luminance > 0.5 ? '#111111' : '#f5f5f5';
+}
+
 export function applyCommentsBackgroundColor(target: HTMLElement | null | undefined): void {
   if (!target) return;
   const raw = customSiteMapping?.commentsBackgroundColor;
@@ -97,6 +136,11 @@ export function applyCommentsBackgroundColor(target: HTMLElement | null | undefi
   // Basic sanity check: allow #hex, rgb(a), hsl(a), and common color names.
   if (!/^(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-zA-Z]+)$/.test(trimmed)) return;
   try {
+    // Set CSS custom properties so the inline discussion's existing var-driven
+    // styles (background, text) pick up the override via cascade/inheritance.
+    target.style.setProperty('--ri-discussion-bg', trimmed);
+    target.style.setProperty('--ri-discussion-fg', readableTextColor(trimmed));
+    // Also paint the target itself so any naked wrapper matches the comments area.
     target.style.backgroundColor = trimmed;
   } catch {}
 }
@@ -270,10 +314,12 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
 
         const extractedAnimeName = resolveExtractValue(effective.target.extract?.animeTitle);
         const extractedEpisode = resolveExtractValue(effective.target.extract?.episodeNumber);
+        const extractedReleaseDate = resolveExtractValue(effective.target.extract?.episodeReleaseDate);
         if (extractedAnimeName && extractedEpisode) {
           komentoExtractedAnimeInfo = {
             animeName: extractedAnimeName,
             episodeName: extractedEpisode,
+            releaseDate: extractedReleaseDate || undefined,
           };
         }
 
@@ -369,7 +415,7 @@ export async function getCustomMountAnchor(retries = 6, delayMs = 250): Promise<
   return found || document.body;
 }
 
-export function getCustomAnimeInfo(): { animeName: string; episodeName: string } | null {
+export function getCustomAnimeInfo(): { animeName: string; episodeName: string; releaseDate?: string } | null {
   if (!customSiteMapping) return null;
   // Pipeline-extracted info has regex/number processing applied — always prefer it over raw element text.
   if (komentoExtractedAnimeInfo?.animeName && komentoExtractedAnimeInfo?.episodeName) {

@@ -20,6 +20,8 @@ import {
   displayModeItem,
   siteMapperAdvancedModeItem,
 } from '@/config/storage';
+import { setLastProcessedKey } from '../../state';
+import { getUiManager } from '../../core/ui-manager';
 
 export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void): void {
   if (isMapperHotkeyAttached()) return;
@@ -1646,6 +1648,12 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         setCustomSiteMapping(mapping);
         toast.success('Site mapping saved');
         overlay.remove();
+        // Hot-apply: any previous bootstrap attempt may have set lastProcessedKey
+        // to this episode (with an empty or stale mapping), which would cause
+        // queueHandleWatchPage to skip. Unmount any existing UI and clear the
+        // key so the re-run actually mounts the discussion panel.
+        try { getUiManager().unmount(); } catch {}
+        setLastProcessedKey(null);
         queueHandleWatchPage(ctx);
       } catch (e) {
         console.warn('Failed to save mapping', e);

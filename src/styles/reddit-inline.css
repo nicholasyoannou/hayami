@@ -5,9 +5,11 @@
 
 /* ==================== Main Container ==================== */
 #reddit-inline-discussion {
-  --ri-discussion-bg: #0f0f0f;
-  background: var(--ri-discussion-bg);
-  color: #ddd;
+  /* Use var(..., fallback) so ancestor overrides from custom-site mappings
+     (see applyCommentsBackgroundColor) cascade into this element. Defining
+     the variable locally here would shadow the ancestor value. */
+  background: var(--ri-discussion-bg, #0f0f0f);
+  color: var(--ri-discussion-fg, #dddddd);
   border-radius: 0 0 8px 8px;
   padding: 16px;
   margin-top: 0;
@@ -56,7 +58,7 @@
 
 #reddit-inline-discussion .ri-external-comments,
 #reddit-inline-discussion #disqus_thread {
-  background: var(--ri-discussion-bg);
+  background: var(--ri-discussion-bg, #0f0f0f);
 }
 
 #reddit-inline-discussion[data-no-discussion="true"] .ri-comments {
