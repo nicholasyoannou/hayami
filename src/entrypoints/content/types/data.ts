@@ -299,26 +299,73 @@ export interface ProviderContext {
 }
 // ==================== Mapper Types ====================
 
-export interface MapperResultItem {
-  mal_id?: number;
-  malId?: number;
-  episodes?: Record<number, string>;
-  [key: string]: unknown;
+/** A single anime entry returned by the Hayami mapper API. */
+export interface MapperResultEntry {
+  anime_name?: string;
+  year?: string | number; // numeric string like "2024", or "movies"
+  episodes?: Record<string, string>; // episode key → discussion URL
+  movies?: string[]; // movie discussion URLs
+  last_updated?: string;
+  external_sites?: {
+    mal_id?: number | string | null;
+    anilist_id?: number | string | null;
+  };
 }
 
-export interface MapperMatchedResult {
-  mal_id?: number;
-  malId?: number;
+/** Metadata about a single matched result (from matched_result / matched_results). */
+export interface MapperMatchedMeta {
   index?: number;
-  [key: string]: unknown;
+  anime_name?: string;
+  year?: string | number;
+  is_exact_match?: boolean;
+  has_episodes?: boolean;
+  episode_count?: number;
 }
 
-export interface MapperResult {
+/** Top-level response from the Hayami mapper API search endpoint. */
+export interface MapperResponse {
   count?: number;
-  matched_result?: MapperMatchedResult;
-  matched_results?: MapperMatchedResult[];
-  results?: MapperResultItem[];
-  [key: string]: unknown;
+  matched_result?: MapperMatchedMeta;
+  matched_results?: MapperMatchedMeta[];
+  results?: MapperResultEntry[];
+}
+
+// ==================== Crunchyroll Metadata Types ====================
+
+/** Episode metadata nested inside a Crunchyroll content API response object. */
+export interface CrunchyrollEpisodeMetadata {
+  series_title?: string;
+  season_title?: string;
+  series_id?: string;
+  episode_number?: number;
+  sequence_number?: number;
+  season_number?: number;
+  season_sequence_number?: number;
+  episode_air_date?: string;
+  upload_date?: string;
+  available_date?: string;
+}
+
+/** A single object in the Crunchyroll content API `data` array. */
+export interface CrunchyrollEpisodeDataItem {
+  episode_metadata?: CrunchyrollEpisodeMetadata;
+}
+
+/** Shape of the JSON body from the Crunchyroll content API. */
+export interface CrunchyrollContentResponse {
+  data?: CrunchyrollEpisodeDataItem[];
+}
+
+/** A single season entry from the Crunchyroll seasons API. */
+export interface CrunchyrollSeason {
+  season_number?: number;
+  season_sequence_number?: number;
+  number_of_episodes?: number;
+}
+
+/** Shape of the JSON body from the Crunchyroll seasons API. */
+export interface CrunchyrollSeasonsResponse {
+  data?: CrunchyrollSeason[];
 }
 
 // Re-export AnimeInfo for convenience

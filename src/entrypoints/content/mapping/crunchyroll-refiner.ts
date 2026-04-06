@@ -14,14 +14,15 @@ import {
   pickPreferredSameYear,
   findSliceEpisodeMatch,
 } from '../sites/shared';
+import type { MapperResultEntry, CrunchyrollEpisodeMetadata, CrunchyrollSeason } from '../types/data';
 
 const log = con.m('Mapper');
 
 export function refineMatchedIndexUsingCrunchyrollData(
-  results: any[] | undefined,
+  results: MapperResultEntry[] | undefined,
   matchedIndex: number,
-  episodeMetadata: any,
-  seasonsData: any[],
+  episodeMetadata: CrunchyrollEpisodeMetadata | undefined,
+  seasonsData: CrunchyrollSeason[],
   seriesTitle?: string,
 ): number {
   if (!Array.isArray(results) || results.length === 0) {
@@ -37,7 +38,7 @@ export function refineMatchedIndexUsingCrunchyrollData(
     isMovie: r?.year === 'movies',
     episodeCount: r?.episodes && typeof r.episodes === 'object' ? Object.keys(r.episodes).length : 0,
     hasEpisodes: r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0,
-    name: (results as any)[idx]?.anime_name,
+    name: results[idx]?.anime_name,
   }));
 
   const coversRequiredEpisode = (entry: { episodeCount: number }) => entry.episodeCount >= requiredEpisode;
@@ -78,7 +79,7 @@ export function refineMatchedIndexUsingCrunchyrollData(
   };
 
   const currentCandidate = cleanedResults.find((r) => r.idx === matchedIndex) || null;
-  const currentSeriesScore = scoreName((results as any)[matchedIndex]?.anime_name);
+  const currentSeriesScore = scoreName(results[matchedIndex]?.anime_name);
   const currentLooksReliable = Boolean(
     currentCandidate
     && currentCandidate.hasEpisodes
@@ -90,7 +91,7 @@ export function refineMatchedIndexUsingCrunchyrollData(
     const sameYear = cleanedResults.filter((r) => r.hasEpisodes && r.year === safeAirYear && coversRequiredEpisode(r));
     if (sameYear.length) {
       const sameYearBestSeriesScore = sameYear.reduce((best, entry) => {
-        const entryScore = scoreName((results as any)[entry.idx]?.anime_name);
+        const entryScore = scoreName(results[entry.idx]?.anime_name);
         return Math.max(best, entryScore);
       }, 0);
 
@@ -105,9 +106,9 @@ export function refineMatchedIndexUsingCrunchyrollData(
       }
 
       let bestBySeries = sameYear[0].idx;
-      let bestSeriesScore = scoreName((results as any)[bestBySeries]?.anime_name);
+      let bestSeriesScore = scoreName(results[bestBySeries]?.anime_name);
       for (const r of sameYear) {
-        const s = scoreName((results as any)[r.idx]?.anime_name);
+        const s = scoreName(results[r.idx]?.anime_name);
         if (s > bestSeriesScore) {
           bestSeriesScore = s;
           bestBySeries = r.idx;
@@ -117,7 +118,7 @@ export function refineMatchedIndexUsingCrunchyrollData(
       const chosenIdx = bestSeriesScore > 0
         ? bestBySeries
         : pickPreferredSameYear(
-            sameYear.map((r) => ({ idx: r.idx, name: (results as any)[r.idx]?.anime_name, episodeCount: r.episodeCount })),
+            sameYear.map((r) => ({ idx: r.idx, name: results[r.idx]?.anime_name, episodeCount: r.episodeCount })),
             seasonNum,
           );
 
@@ -150,7 +151,7 @@ export function refineMatchedIndexUsingCrunchyrollData(
 
     const target = ordered[seasonNum - 1];
     if (target) {
-      const targetSeriesScore = scoreName((results as any)[target.idx]?.anime_name);
+      const targetSeriesScore = scoreName(results[target.idx]?.anime_name);
       if (seriesTokens.size > 0 && targetSeriesScore <= 0 && currentSeriesScore > 0) {
         log.log(' Skipping season_number ordering override due weak series alignment:', {
           seasonNum,
@@ -243,7 +244,7 @@ export function refineMatchedIndexUsingCrunchyrollData(
       seasonNum,
       episodeWithinSeason ?? undefined,
       seasonsData,
-      ordered.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: (results as any)[o.idx]?.episodes?.hasOwnProperty?.('0') })),
+      ordered.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: results[o.idx]?.episodes?.hasOwnProperty?.('0') })),
     );
 
     if (sliceMatch) {

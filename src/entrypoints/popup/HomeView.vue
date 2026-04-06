@@ -29,6 +29,7 @@ defineProps<Props>();
 <template>
   <section class="space-y-6">
     <KomentoPendingPermissionsCard
+      v-if="komentoPendingPermissionLoading || hasKomentoPendingPermissions"
       :loading="komentoPendingPermissionLoading"
       :approving="komentoApprovingPermissions"
       :has-pending="hasKomentoPendingPermissions"

@@ -17,6 +17,15 @@ import { AnimeInfo } from './types';
 import { browser } from 'wxt/browser';
 import { malSyncEnabledItem } from '@/config/storage';
 import type { MalSyncPresence } from '@/utils/malSync';
+import type {
+  MapperResponse,
+  MapperResultEntry,
+  MapperMatchedMeta,
+  CrunchyrollEpisodeMetadata,
+  CrunchyrollContentResponse,
+  CrunchyrollSeason,
+  CrunchyrollSeasonsResponse,
+} from './types/data';
 
 const log = con.m('Mapper');
 import {
@@ -348,7 +357,7 @@ export async function tryMapperFailover(
       // If primary name yielded no results and MAL-Sync has a different title, retry with it
       let effectiveMapperResult = mapperResult;
       if (
-        (!effectiveMapperResult || !Array.isArray((effectiveMapperResult as any).results) || !(effectiveMapperResult as any).results.length)
+        (!effectiveMapperResult?.results?.length)
         && malSyncAnimeName
         && malSyncAnimeName.toLowerCase() !== (primaryAnimeName || '').toLowerCase()
       ) {
@@ -360,12 +369,12 @@ export async function tryMapperFailover(
         });
       }
 
-      if (!effectiveMapperResult || !Array.isArray((effectiveMapperResult as any).results) || !(effectiveMapperResult as any).results.length) {
+      if (!effectiveMapperResult?.results?.length) {
         return null;
       }
 
-      const results: any[] = (effectiveMapperResult as any).results;
-      const preferredIdx = typeof (effectiveMapperResult as any).matched_result?.index === 'number' ? (effectiveMapperResult as any).matched_result.index : 0;
+      const results = effectiveMapperResult.results;
+      const preferredIdx = typeof effectiveMapperResult.matched_result?.index === 'number' ? effectiveMapperResult.matched_result.index : 0;
       const order = Array.from(new Set([preferredIdx, ...results.map((_, i) => i)]));
       const desiredKeys = new Set<string | number>();
       // Use effective episode (which includes MAL-Sync fallback)
@@ -382,9 +391,9 @@ export async function tryMapperFailover(
       if (episodeForKeys !== null && episodeForKeys > 0 && results.length >= 1) {
         // Sort results by year to establish chronological order
         const orderedResults = results
-          .map((r, idx) => ({
+          .map((r: MapperResultEntry, idx: number) => ({
             idx,
-            year: r.year === 'movies' ? null : Number.parseInt(r.year, 10) || null,
+            year: r.year === 'movies' ? null : Number.parseInt(String(r.year), 10) || null,
             episodeCount: r.episodes && typeof r.episodes === 'object' ? Object.keys(r.episodes).length : 0,
             hasEpisodes: r.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0,
           }))
@@ -507,8 +516,8 @@ export async function tryMapperFailover(
                 keyedCandidates.push({
                   idx,
                   url: eps[key],
-                  year: res.year === 'movies' ? null : Number.parseInt(res.year, 10) || null,
-                  seriesScore: scoreSeriesCandidate(String(res?.anime_name || '')),
+                  year: res.year === 'movies' ? null : Number.parseInt(String(res.year), 10) || null,
+                  seriesScore: scoreSeriesCandidate(String(res.anime_name || '')),
                 });
               }
             }
@@ -573,32 +582,33 @@ export async function tryMapperFailover(
 
     log.log(' Fetching Crunchyroll episode metadata...');
     const crMetadataResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
-    if (!crMetadataResult.ok || !(crMetadataResult.data as any).data || !(crMetadataResult.data as any).data[0]) {
+    const crContent = crMetadataResult.data as CrunchyrollContentResponse | undefined;
+    if (!crMetadataResult.ok || !crContent?.data?.[0]) {
       log.log(' Could not fetch Crunchyroll episode metadata. Response:', crMetadataResult);
       return null;
     }
     log.log(' Successfully fetched Crunchyroll metadata');
 
-    const episodeData = (crMetadataResult.data as any).data[0];
-    const episodeMetadata = (episodeData as any).episode_metadata;
+    const episodeData = crContent.data[0];
+    const episodeMetadata = episodeData.episode_metadata;
 
     if (!episodeMetadata) {
       log.log('No episode_metadata in Crunchyroll response');
       return null;
     }
 
-    const seriesTitle = (episodeMetadata as any).series_title;
-    const seasonTitle = (episodeMetadata as any).season_title;
-    const seriesId = (episodeMetadata as any).series_id;
-    const crEpisodeNumber = (episodeMetadata as any).episode_number ?? (episodeMetadata as any).sequence_number;
-    const sequenceNumber = (episodeMetadata as any).sequence_number;
-    const seasonNumber = (episodeMetadata as any).season_number;
-    const seasonSequenceNumber = (episodeMetadata as any).season_sequence_number;
+    const seriesTitle = episodeMetadata.series_title;
+    const seasonTitle = episodeMetadata.season_title;
+    const seriesId = episodeMetadata.series_id;
+    const crEpisodeNumber = episodeMetadata.episode_number ?? episodeMetadata.sequence_number;
+    const sequenceNumber = episodeMetadata.sequence_number;
+    const seasonNumber = episodeMetadata.season_number;
+    const seasonSequenceNumber = episodeMetadata.season_sequence_number;
     const effectiveSeasonNumber = seasonSequenceNumber ?? seasonNumber;
     const rawAirDate =
-      (episodeMetadata as any).episode_air_date ||
-      (episodeMetadata as any).upload_date ||
-      (episodeMetadata as any).available_date;
+      episodeMetadata.episode_air_date ||
+      episodeMetadata.upload_date ||
+      episodeMetadata.available_date;
     const parsedAirDate = rawAirDate ? new Date(rawAirDate) : null;
     const isAirDateReliable =
       parsedAirDate instanceof Date &&
@@ -626,13 +636,14 @@ export async function tryMapperFailover(
       effectiveSeasonNumber,
     });
 
-    let seasonsData: any[] = [];
+    let seasonsData: CrunchyrollSeason[] = [];
     if (seriesId) {
       const accessToken = await getCrunchyrollAccessToken();
       if (accessToken.ok) {
         const seasonsResponse = await fetchCrunchyrollSeasons(seriesId, accessToken.data);
-        if (seasonsResponse.ok && (seasonsResponse.data as any).data && Array.isArray((seasonsResponse.data as any).data)) {
-          seasonsData = (seasonsResponse.data as any).data;
+        const seasonsContent = seasonsResponse.data as CrunchyrollSeasonsResponse | undefined;
+        if (seasonsResponse.ok && Array.isArray(seasonsContent?.data)) {
+          seasonsData = seasonsContent!.data!;
           log.log(' Fetched seasons data, found', seasonsData.length, 'seasons');
         }
       }
@@ -648,15 +659,15 @@ export async function tryMapperFailover(
       (parsedAirDate && !Number.isNaN(parsedAirDate.getTime()) ? parsedAirDate : null) ||
       (animeInfo?.releaseDate ?? null);
 
-    let mapperResult: any = null;
+    let mapperResult: MapperResponse | null = null;
     if (platform === 'disqus') {
       log.log(' Querying mapper service with series_name only (disqus)...');
       mapperResult = await fetchAnimeMapperDataBySeriesName(seriesTitle, platform, {
         preserveSeasonSuffix: false,
         episodeDate: episodeDateForMapper,
       });
-      if (mapperResult && Array.isArray((mapperResult as any).results) && (mapperResult as any).results.length > 0) {
-        log.log(' Using series-name-only results for disqus:', (mapperResult as any).results.length, 'results');
+      if (mapperResult?.results?.length) {
+        log.log(' Using series-name-only results for disqus:', mapperResult.results.length, 'results');
       } else {
         log.log(' No series-name-only results for disqus, trying with season_title...');
         mapperResult = null;
@@ -669,7 +680,7 @@ export async function tryMapperFailover(
       });
     }
     log.log(' Mapper service response:', mapperResult);
-    if (!mapperResult || !(mapperResult as any).results || !(mapperResult as any).results.length) {
+    if (!mapperResult?.results?.length) {
       // If Hayami mapper returned nothing, try MAL-Sync title as a last resort
       const crMalSyncPresence = await malSyncPromise;
       if (crMalSyncPresence?.title && crMalSyncPresence.title.toLowerCase() !== seriesTitle.toLowerCase()) {
@@ -679,15 +690,15 @@ export async function tryMapperFailover(
           episodeDate: episodeDateForMapper,
         });
       }
-      if (!mapperResult || !(mapperResult as any).results || !(mapperResult as any).results.length) {
+      if (!mapperResult?.results?.length) {
         log.log(' No results from mapper service. Full response:', mapperResult);
         return null;
       }
     }
 
     // Prefer provided matched_result, but re-score against season_title when possible.
-    const results: any[] = (mapperResult as any).results || [];
-    const matchedResult = (mapperResult as any).matched_result;
+    const results = mapperResult.results;
+    const matchedResult = mapperResult.matched_result;
     let matchedIndex = matchedResult?.index;
 
     const seasonScore = results.map((r, idx) => ({ idx, score: scoreSeasonTitleMatch(r?.anime_name, seasonTitle) }));
@@ -855,14 +866,14 @@ export async function tryMapperFailover(
 
     // If the mapper gave multiple exact matches (e.g., S2 vs S2 Part 2), prefer the one whose title "part" marker
     // aligns with the Crunchyroll season title. Use matched_results metadata to detect exact matches.
-    if (matchedResult?.is_exact_match && Array.isArray((mapperResult as any)?.matched_results)) {
+    if (matchedResult?.is_exact_match && Array.isArray(mapperResult.matched_results)) {
       const hasPart2 = (s: string | undefined) => !!s && /part\s*2|part\s*ii|cour\s*2/i.test(s);
       const crHasPart2 = hasPart2(seasonTitle);
       const mapperHasPart2 = hasPart2(matchedResult.anime_name);
 
-      const exactMatches = ((mapperResult as any).matched_results as any[])
-        .filter((m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0)
-        .map((m) => ({
+      const exactMatches = mapperResult.matched_results
+        .filter((m: MapperMatchedMeta) => m?.is_exact_match === true && m?.has_episodes && (m?.episode_count ?? 0) > 0)
+        .map((m: MapperMatchedMeta) => ({
           idx: m.index,
           year: parseMapperYear(m.year),
           name: m.anime_name,
@@ -909,8 +920,8 @@ export async function tryMapperFailover(
       }
 
       if (mapperHasPart2 && !crHasPart2) {
-        const alternatives = ((mapperResult as any).matched_results as any[]).filter(
-          (m) => m?.is_exact_match === true && m?.has_episodes && m?.episode_count > 0 && !hasPart2(m?.anime_name),
+        const alternatives = mapperResult.matched_results!.filter(
+          (m: MapperMatchedMeta) => m?.is_exact_match === true && m?.has_episodes && (m?.episode_count ?? 0) > 0 && !hasPart2(m?.anime_name),
         );
         if (alternatives.length > 0) {
           const alt = alternatives[0];
@@ -930,7 +941,7 @@ export async function tryMapperFailover(
     // If the mapper gave us an exact match, keep it; otherwise refine using CR metadata.
     if (!(matchedResult?.is_exact_match === true)) {
       const preRefinementIndex = matchedIndex;
-      matchedIndex = refineMatchedIndexUsingCrunchyrollData((mapperResult as any).results, matchedIndex, episodeMetadata, seasonsData, seriesTitle);
+      matchedIndex = refineMatchedIndexUsingCrunchyrollData(results, matchedIndex, episodeMetadata, seasonsData, seriesTitle);
 
       // Safety guard: if refinement overrode a series-aligned entry with a non-aligned one, revert.
       // This prevents e.g., a correct "OSHI NO KO" pick being replaced by "MF Ghost" based on air year.
@@ -952,22 +963,21 @@ export async function tryMapperFailover(
       }
     }
 
-    const initialMatchedResult = (mapperResult as any).results?.[matchedIndex];
+    const initialMatchedResult = results[matchedIndex];
 
     if (
       initialMatchedResult &&
-      ((initialMatchedResult as any).year === 'movies' ||
-        !(initialMatchedResult as any).episodes ||
-        typeof (initialMatchedResult as any).episodes !== 'object' ||
-        Object.keys((initialMatchedResult as any).episodes).length === 0)
+      (initialMatchedResult.year === 'movies' ||
+        !initialMatchedResult.episodes ||
+        typeof initialMatchedResult.episodes !== 'object' ||
+        Object.keys(initialMatchedResult.episodes).length === 0)
     ) {
       log.log(' Matched result is a movie or has no episodes, looking for TV series alternative...');
 
-      const matchedResultsMeta = (mapperResult as any).matched_results;
-      if (matchedResultsMeta && Array.isArray(matchedResultsMeta)) {
-        for (const altMatch of matchedResultsMeta) {
-          if (altMatch.index !== matchedIndex && altMatch.has_episodes && altMatch.episode_count > 0) {
-            const altResult = (mapperResult as any).results?.[altMatch.index];
+      if (Array.isArray(mapperResult.matched_results)) {
+        for (const altMatch of mapperResult.matched_results) {
+          if (altMatch.index !== matchedIndex && altMatch.has_episodes && (altMatch.episode_count ?? 0) > 0) {
+            const altResult = results[altMatch.index!];
             if (
               altResult &&
               altResult.episodes &&
@@ -976,7 +986,7 @@ export async function tryMapperFailover(
               altResult.year !== 'movies'
             ) {
               log.log(' Found TV series alternative from matched_results:', altMatch.anime_name, altMatch.year);
-              matchedIndex = altMatch.index;
+              matchedIndex = altMatch.index!;
               break;
             }
           }
@@ -984,13 +994,9 @@ export async function tryMapperFailover(
       }
 
       // When matched_result is missing or still points to a movie, fall back to any result with episodes.
-      if (
-        ((mapperResult as any).matched_result?.index === undefined || matchedIndex === (mapperResult as any).matched_result?.index) &&
-        (mapperResult as any).results &&
-        Array.isArray((mapperResult as any).results)
-      ) {
-        for (let i = 0; i < (mapperResult as any).results.length; i++) {
-          const result = (mapperResult as any).results[i];
+      if (mapperResult.matched_result?.index === undefined || matchedIndex === mapperResult.matched_result?.index) {
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i];
           if (
             result &&
             result.episodes &&
@@ -1006,12 +1012,12 @@ export async function tryMapperFailover(
       }
     }
 
-    if (matchedIndex === undefined || !(mapperResult as any).results || !(mapperResult as any).results[matchedIndex]) {
+    if (matchedIndex === undefined || !results[matchedIndex]) {
       log.log('Invalid matched_result index');
       return null;
     }
 
-    let matchedSeason = (mapperResult as any).results[matchedIndex];
+    let matchedSeason = results[matchedIndex];
     // Record the mapped anime name early so the manual-search "?" UI can display
     // the correct series even if episode lookup later fails (e.g., episode not in season).
     try {
@@ -1115,9 +1121,9 @@ export async function tryMapperFailover(
         hasZero: boolean;
       };
 
-      const ordered: OrderedSliceMeta[] = ((mapperResult as any).results || [])
-        .filter((r: any) => r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0 && r?.year !== 'movies')
-        .map((r: any, idx: number) => ({
+      const ordered: OrderedSliceMeta[] = results
+        .filter((r: MapperResultEntry) => r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0 && r?.year !== 'movies')
+        .map((r: MapperResultEntry, idx: number) => ({
           idx,
           episodeCount: Object.keys(r.episodes).length,
           name: r.anime_name,
@@ -1179,7 +1185,7 @@ export async function tryMapperFailover(
 
       if (sliceMatch && (!lockMatchedSeason || sliceMatch.idx === matchedIndex)) {
         matchedIndex = sliceMatch.idx;
-        matchedSeason = (mapperResult as any).results[matchedIndex];
+        matchedSeason = results[matchedIndex];
         forcedSeasonEpisode = sliceMatch.episode;
         log.log(' Using slice-derived season/episode mapping:', {
           matchedIndex,
@@ -1202,7 +1208,7 @@ export async function tryMapperFailover(
         });
       }
 
-      seasonEpisode = mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, (mapperResult as any).results, matchedIndex);
+      seasonEpisode = mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, results, matchedIndex);
       const overranCrSeason = currentCrSeasonEpisodes > 0 && (crEpisodeNumber ?? 0) > currentCrSeasonEpisodes;
       const overranMatchedSeason = crEpisodeNumber > Object.keys(matchedSeason?.episodes || {}).length;
       if (forcedSeasonEpisode !== null && seasonEpisode !== null && (overranCrSeason || overranMatchedSeason)) {
@@ -1227,17 +1233,17 @@ export async function tryMapperFailover(
         seasonEpisode = sequenceNumber;
       } else {
         const seasonNumForMapping = seasonNumber || effectiveSeasonNumber || 1;
-        seasonEpisode = mapEpisodeToSeasonEpisode(crEpisodeNumber, seasonNumForMapping, sequenceNumber, matchedSeason, (mapperResult as any).results);
+        seasonEpisode = mapEpisodeToSeasonEpisode(crEpisodeNumber, seasonNumForMapping, sequenceNumber, matchedSeason, results);
       }
     }
 
     const hasZero = Object.prototype.hasOwnProperty.call(matchedSeason.episodes, '0');
 
-    if (seasonEpisode === null && (episodeMetadata as any)?.episode_number === 0 && hasZero) {
+    if (seasonEpisode === null && episodeMetadata.episode_number === 0 && hasZero) {
       seasonEpisode = 0;
     }
 
-    if (seasonEpisode === null && (episodeMetadata as any)?.sequence_number === 0 && hasZero) {
+    if (seasonEpisode === null && episodeMetadata.sequence_number === 0 && hasZero) {
       seasonEpisode = 0;
     }
 
@@ -1298,21 +1304,21 @@ export async function tryMapperFailover(
       return null;
     };
 
-    const sameMapperIdentity = (left: any, right: any): boolean => {
+    const sameMapperIdentity = (left: MapperResultEntry | undefined, right: MapperResultEntry | undefined): boolean => {
       if (!left || !right) return false;
 
-      const leftMal = toNumberOrNull(left?.external_sites?.mal_id);
-      const rightMal = toNumberOrNull(right?.external_sites?.mal_id);
+      const leftMal = toNumberOrNull(left.external_sites?.mal_id);
+      const rightMal = toNumberOrNull(right.external_sites?.mal_id);
       if (leftMal !== null && rightMal !== null && leftMal !== rightMal) return false;
 
-      const leftAni = toNumberOrNull(left?.external_sites?.anilist_id);
-      const rightAni = toNumberOrNull(right?.external_sites?.anilist_id);
+      const leftAni = toNumberOrNull(left.external_sites?.anilist_id);
+      const rightAni = toNumberOrNull(right.external_sites?.anilist_id);
       if (leftAni !== null && rightAni !== null && leftAni !== rightAni) return false;
 
-      const leftName = normalizeForMatch(String(left?.anime_name || left?.title || left?.name || ''));
-      const rightName = normalizeForMatch(String(right?.anime_name || right?.title || right?.name || ''));
-      const leftYear = String(left?.year || '').trim();
-      const rightYear = String(right?.year || '').trim();
+      const leftName = normalizeForMatch(String(left.anime_name || ''));
+      const rightName = normalizeForMatch(String(right.anime_name || ''));
+      const leftYear = String(left.year || '').trim();
+      const rightYear = String(right.year || '').trim();
 
       if (leftMal !== null && rightMal !== null) return true;
       if (leftAni !== null && rightAni !== null) return true;
@@ -1320,12 +1326,12 @@ export async function tryMapperFailover(
       return !!leftName && leftName === rightName && leftYear === rightYear;
     };
 
-    const mapperCandidates = ((mapperResult as any).results || [])
-      .filter((entry: any) => entry?.episodes && typeof entry.episodes === 'object')
-      .filter((entry: any) => sameMapperIdentity(entry, matchedSeason));
+    const mapperCandidates = results
+      .filter((entry) => entry?.episodes && typeof entry.episodes === 'object')
+      .filter((entry) => sameMapperIdentity(entry, matchedSeason));
 
     const rankedCandidates = mapperCandidates.length > 1
-      ? [...mapperCandidates].sort((a: any, b: any) => {
+      ? [...mapperCandidates].sort((a, b) => {
           const at = Date.parse(String(a?.last_updated || ''));
           const bt = Date.parse(String(b?.last_updated || ''));
           if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return bt - at;
@@ -1341,8 +1347,8 @@ export async function tryMapperFailover(
       if (!candidateEpisodes || typeof candidateEpisodes !== 'object') continue;
 
       for (const k of keyCandidates) {
-        if (candidateEpisodes[k as any]) {
-          mappedUrl = candidateEpisodes[k as any];
+        if (candidateEpisodes[String(k)]) {
+          mappedUrl = candidateEpisodes[String(k)];
           seasonEpisode = typeof k === 'number' ? k : parseInt(String(k), 10);
           if (candidate !== matchedSeason) {
             log.log(' Resolved episode via duplicate-record fallback', {

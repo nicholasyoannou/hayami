@@ -7,6 +7,7 @@
 import { fetchHayami } from '@/utils/hayamiApi';
 import { toEpisodeDateParam } from '../utils/date-utils';
 import { con } from '@/utils/logger';
+import type { MapperResponse } from '../types/data';
 const log = con.m('HayamiClient');
 
 /**
@@ -47,7 +48,7 @@ export async function fetchAnimeMapperDataBySeriesName(
     preserveSeasonSuffix?: boolean;
     episodeDate?: string | Date | null;
   },
-): Promise<any | null> {
+): Promise<MapperResponse | null> {
   try {
     const searchName = options?.preserveSeasonSuffix
       ? String(seriesName || '').trim()
@@ -110,7 +111,7 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
     // currently unused by the season-title endpoint.
     isThirdPartySite?: boolean;
   },
-): Promise<any | null> {
+): Promise<MapperResponse | null> {
   try {
     const encodedSeries = encodeURIComponent(seriesName);
     const encodedSeason = encodeURIComponent(seasonTitle);

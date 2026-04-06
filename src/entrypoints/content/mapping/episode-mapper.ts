@@ -8,6 +8,7 @@
 
 import { con } from '@/utils/logger';
 import { normalizeForMatch, isSequelTitle, parseMapperYear } from '../sites/shared';
+import type { MapperResultEntry, CrunchyrollSeason } from '../types/data';
 
 const log = con.m('Mapper');
 
@@ -19,9 +20,9 @@ export function mapEpisodeWithSeasonsData(
   crEpisodeNumber: number | null,
   sequenceNumber: number | undefined,
   seasonNumber: number,
-  seasonsData: any[],
-  matchedSeason: any,
-  mapperResults: any[],
+  seasonsData: CrunchyrollSeason[],
+  matchedSeason: MapperResultEntry,
+  mapperResults: MapperResultEntry[],
   matchedIdx: number,
 ): number | null {
   if (!matchedSeason || !matchedSeason.episodes) {
@@ -128,9 +129,9 @@ export function mapEpisodeWithSeasonsData(
   });
 
   const orderedMapperForBaseline = (mapperResults || [])
-    .map((r: any, idx: number) => ({
+    .map((r: MapperResultEntry, idx: number) => ({
       idx,
-      year: r?.year === 'movies' ? 9999 : parseInt(r?.year || '0', 10),
+      year: r?.year === 'movies' ? 9999 : parseInt(String(r?.year || '0'), 10),
       name: r?.anime_name,
       hasEpisodes: r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0,
       episodeCount: r?.episodes ? Object.keys(r.episodes).length : 0,
@@ -480,8 +481,8 @@ export function mapEpisodeToSeasonEpisode(
   crEpisodeNumber: number,
   seasonNumber: number,
   sequenceNumber: number | undefined,
-  matchedSeason: any,
-  allSeasons: any[],
+  matchedSeason: MapperResultEntry,
+  allSeasons: MapperResultEntry[],
 ): number | null {
   if (!matchedSeason || (matchedSeason.year === 'movies' && Array.isArray(matchedSeason.movies))) {
     return null;
