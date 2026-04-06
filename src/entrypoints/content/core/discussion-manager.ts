@@ -980,12 +980,20 @@ function waitForDisqusLoad(callback: () => void): void {
 
   let checkCount = 0;
   const maxChecks = 20; // 20 * 100ms = 2 seconds max
+  let settled = false;
+
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    clearInterval(intervalId);
+    observer.disconnect();
+    callback();
+  };
 
   // Use MutationObserver to detect when Disqus content appears
   const observer = new MutationObserver(() => {
     if (checkDisqusLoaded()) {
-      observer.disconnect();
-      callback();
+      settle();
     }
   });
 
@@ -999,23 +1007,13 @@ function waitForDisqusLoad(callback: () => void): void {
   // Also do periodic checks in case MutationObserver misses something
   const intervalId = setInterval(() => {
     checkCount++;
-    if (checkDisqusLoaded()) {
-      clearInterval(intervalId);
-      observer.disconnect();
-      callback();
-    } else if (checkCount >= maxChecks) {
-      clearInterval(intervalId);
-      observer.disconnect();
-      callback(); // Call anyway to clear loading state
+    if (checkDisqusLoaded() || checkCount >= maxChecks) {
+      settle();
     }
   }, 100);
 
   // Fallback: clear after reasonable timeout (1.5 seconds)
-  setTimeout(() => {
-    clearInterval(intervalId);
-    observer.disconnect();
-    callback();
-  }, 1500);
+  setTimeout(settle, 1500);
 }
 
 function mountLoadingShell(): void {

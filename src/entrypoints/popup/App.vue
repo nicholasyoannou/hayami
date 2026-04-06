@@ -21,7 +21,6 @@ import {
 import {
   commentsProviderItem,
   displayModeItem,
-  customSiteMappingsItem,
   komentoScriptAutoSyncItem,
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
@@ -59,26 +58,21 @@ import {
   type ImgurFrontendOption,
   type ImgurOdsOption,
   type ImgurVideoCdnOption,
-  type KomentoCachedPackEntry,
-  type KomentoTargetSelectionsBySource,
-  type KomentoSyncHistoryEntry,
-  type KomentoSyncState,
 } from '@/config/storage';
 import { initializeImgurRegionDefaultsOnce } from '@/entrypoints/content/images/imgur';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';
-import accountIcon from '@/assets/accountIcon.svg';
-import accountsIcon from '@/assets/accountsIcon.svg';
 import generalIcon from '@/assets/settingsScreen/general.svg';
 import imagePreviewsIcon from '@/assets/settingsScreen/imagePreviews.svg';
 import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms.svg';
 import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
 import komentoScriptIcon from '@/assets/settingsScreen/komentoscript.svg';
 import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
-import ApiKeyInput from '@/components/ApiKeyInput.vue';
 import SettingField from './SettingField.vue';
-import KomentoPendingPermissionsCard from './KomentoPendingPermissionsCard.vue';
+import HomeView from './HomeView.vue';
+import ManageAccountsPanel from './ManageAccountsPanel.vue';
+import DiscussionPlatformsSettingsPanel from './DiscussionPlatformsSettingsPanel.vue';
 import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
 import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
@@ -90,10 +84,9 @@ import {
   clearAllSeriesMappings,
   type ManualOverrideSummary,
 } from '@/entrypoints/content/storage/series-mapping';
-import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
-import type { KomentoSourceRegistryEntry } from '@/komentoscript';
-import { useKomentoScript, type KomentoPendingPermissionSource, type KomentoSourceTargetOption } from '@/composables/useKomentoScript';
+import { useKomentoScript } from '@/composables/useKomentoScript';
 import { useCustomSitesSync } from '@/composables/useCustomSitesSync';
+import { useCustomSiteManagement } from '@/composables/useCustomSiteManagement';
 import { con } from '@/utils/logger';
 
 const log = con.m('Popup');
@@ -694,22 +687,6 @@ const settingsNavItems: SettingsNavItem[] = [
   },
 ];
 
-const providerSections = commentProviderOptions.map((provider) => ({
-  id: provider.value,
-  label: provider.label,
-  icon: providerIcons[provider.value],
-  settings: settingDefinitions.filter(
-    (setting) => setting.category === 'provider' && setting.providerId === provider.value,
-  ),
-}));
-
-const selectedProvider = ref<CommentProviderOption>(providerSections[0]?.id || commentProviderOptions[0].value);
-const activeProviderSection = computed(() => providerSections.find((provider) => provider.id === selectedProvider.value));
-
-watch(selectedProvider, () => {
-  providerAdvancedExpanded.value = false;
-});
-
 const settingValues = reactive<SettingValueMap>({
   displayMode: 'popup',
   linkOnlyMode: false,
@@ -750,11 +727,25 @@ const redditDisplayStatus = computed(() => {
   return redditUsesCookieMode.value ? 'Connected via browser session' : 'Connected';
 });
 
+const disqusDisplayStatus = computed(() => {
+  const account = getDisqusAccount();
+  return account?.isConnected ? (account.username || 'Connected') : 'Not connected';
+});
+
+const youtubeDisplayStatus = computed(() => {
+  const account = getYouTubeAccount();
+  return account?.isConnected ? `Google ${account.username || 'YouTube user'}` : 'Not linked';
+});
+
+const malDisplayStatus = computed(() => {
+  const account = getMALAccount();
+  return account?.isConnected ? 'MyAnimeList connected' : 'Not connected';
+});
+
 const activeSettingsCategory = computed(() =>
   settingsCategories.find((category) => category.id === selectedSettingsCategory.value),
 );
 const imagePreviewAdvancedExpanded = ref(false);
-const providerAdvancedExpanded = ref(false);
 const activeCategoryPrimarySettings = computed(() =>
   (activeSettingsCategory.value?.settings || []).filter((setting) => {
     if (!isSettingVisible(setting)) return false;
@@ -765,29 +756,9 @@ const activeCategoryPrimarySettings = computed(() =>
 const activeCategoryAdvancedSettings = computed(() =>
   (activeSettingsCategory.value?.settings || []).filter((setting) => isSettingVisible(setting) && Boolean(setting.advanced)),
 );
-const activeProviderPrimarySettings = computed(() =>
-  (activeProviderSection.value?.settings || []).filter((setting) => isSettingVisible(setting) && !setting.advanced),
-);
-const activeProviderAdvancedSettings = computed(() =>
-  (activeProviderSection.value?.settings || []).filter((setting) => isSettingVisible(setting) && Boolean(setting.advanced)),
-);
 
 const malSyncInstalled = ref(false);
 
-const customSiteMappings = ref<CustomSiteMapping[]>([]);
-const isLoadingCustomSites = ref(false);
-const removingSiteOrigin = ref<string | null>(null);
-const sortedCustomSiteMappings = computed(() =>
-  [...customSiteMappings.value].sort((a, b) => (a.origin || '').localeCompare(b.origin || '')),
-);
-const selectedCustomSite = ref<CustomSiteMapping | null>(null);
-const customSiteIncludePathGlobsDraft = ref<string[]>([]);
-const customSiteExcludePathGlobsDraft = ref<string[]>([]);
-const customSiteIncludePathInput = ref('');
-const customSiteExcludePathInput = ref('');
-const customSitePathGlobsSaving = ref(false);
-const customSiteAdvancedExpanded = ref(false);
-const commentsBackgroundColorDraft = ref('');
 const manualOverrides = ref<ManualOverrideSummary[]>([]);
 const isLoadingManualOverrides = ref(false);
 const removingManualOverrideKey = ref<string | null>(null);
@@ -872,9 +843,6 @@ function formatManualOverrideRelativeTime(iso?: string): string {
   const years = Math.floor(days / 365);
   return `${years}y ago`;
 }
-// KomentoScript state and functions are managed by the useKomentoScript composable.
-// It is initialized after showSuccess/showError are defined (see below).
-// KomentoScript state, computed properties, and functions are provided by useKomentoScript composable (initialized below showSuccess/showError).
 
 // Use shared account management
 const { refreshAllAccounts, getAccount, getAccountActions, anyAccountLoading } = useAccountManagement();
@@ -943,8 +911,6 @@ watch(currentView, async () => {
   }
   if (currentView.value === 'settings') {
     if (isLargeLayout.value) {
-      // Two-pane layout: skip the menu screen and jump directly to the
-      // first category so the content pane is always populated.
       settingsScreen.value = 'category';
       selectedSettingsCategory.value = 'general';
     } else {
@@ -953,8 +919,6 @@ watch(currentView, async () => {
   }
 });
 
-// When the viewport crosses the large-layout threshold while the user is in
-// the settings view, make sure we aren't left on the now-hidden menu screen.
 watch(isLargeLayout, (large) => {
   if (currentView.value !== 'settings') return;
   if (large && settingsScreen.value === 'menu') {
@@ -968,11 +932,8 @@ onMounted(async () => {
   updateLayoutMode();
   detectBrowserActionPopup();
 
-  // Load custom sites immediately so the settings panel can render this list without waiting
-  // for unrelated account/model/bootstrap calls.
-  const customSitesPromise = loadCustomSiteMappings();
+  const customSitesPromise = csm.loadCustomSiteMappings();
 
-  // Detect MAL-Sync installation (fire-and-forget, non-blocking)
   browser.runtime.sendMessage({ action: 'hayami_malsync_detect' }).then((resp: any) => {
     if (resp?.ok) malSyncInstalled.value = Boolean(resp.installed);
   }).catch(() => {});
@@ -1043,7 +1004,6 @@ async function loadAllSettings() {
   await Promise.all(settingDefinitions.map((setting) => loadSetting(setting)));
 }
 
-
 async function reloadSetting(key: SettingKey) {
   const target = settingDefinitions.find((setting) => setting.key === key);
   if (target) {
@@ -1067,7 +1027,7 @@ function showError(message: string) {
   errorTimer = window.setTimeout(() => (errorMessage.value = null), 2000);
 }
 
-// KomentoScript composable — initialized here because it depends on showSuccess/showError
+// KomentoScript composable
 const {
   komentoSyncEnabled, komentoAutoSync, komentoSources, komentoSyncState,
   komentoSyncHistory, komentoCachedPacks, komentoCachedPackCount, komentoSyncing,
@@ -1113,6 +1073,9 @@ const {
   runSyncNow: runCustomSitesSyncNow,
   formatHistoryWhen: formatCustomSitesSyncHistoryWhen,
 } = useCustomSitesSync({ showSuccess, showError });
+
+// Custom Site Management composable
+const csm = useCustomSiteManagement({ showSuccess, showError });
 
 async function handleSettingChange(setting: SettingDefinition, value: SettingValueMap[SettingKey]) {
   try {
@@ -1193,7 +1156,7 @@ function handleStorageChange(
   _areaName: string,
 ) {
   if (Object.keys(changes).some((key) => key.includes('custom_site_mappings'))) {
-    void loadCustomSiteMappings();
+    void csm.loadCustomSiteMappings();
   }
 
   if (Object.keys(changes).some((key) => key.includes('komentoscript_'))) {
@@ -1203,657 +1166,6 @@ function handleStorageChange(
 
   if (Object.keys(changes).some((key) => key.includes('custom_sites_sync_'))) {
     void loadCustomSitesSyncStatus();
-  }
-}
-
-function getFaviconUrl(origin: string) {
-  try {
-    const url = new URL(origin);
-    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.origin)}`;
-  } catch {
-    return 'https://www.google.com/s2/favicons?domain=';
-  }
-}
-
-function formatOrigin(origin: string) {
-  try {
-    const url = new URL(origin);
-    return url.host || origin;
-  } catch (error) {
-    log.warn('Failed to format origin', error);
-    return origin;
-  }
-}
-
-function formatPlacementLabel(placement?: DisplayPlacement) {
-  const labels: Record<DisplayPlacement, string> = {
-    below: 'Below element',
-    insert: 'Insert inline',
-    replace: 'Replace element',
-    popup: 'Popup only',
-    icon: 'Icon toggle',
-  };
-  return placement && labels[placement] ? labels[placement] : 'Custom mapping';
-}
-
-function normalizePathGlob(input: unknown): string | null {
-  const raw = String(input || '').trim();
-  if (!raw) return null;
-
-  let glob = raw.startsWith('/') ? raw : `/${raw}`;
-  glob = glob.length > 1 ? glob.replace(/\/+$/, '') : glob;
-  if (!glob) return null;
-
-  // If the user's input already contains a wildcard, it is an explicit pattern
-  // — trust it verbatim. This covers `/*`, `/watch*`, `/anime/*`, `/foo/*/bar`,
-  // `/ep-*-subbed`, etc. Only concrete pathnames (no `*`) get auto-scoped below.
-  if (glob.includes('*')) return glob;
-
-  const segments = glob.split('/').filter(Boolean);
-  if (segments.length === 0) return '/';
-
-  // Keep scope broad and user-friendly for dynamic watch pages, e.g. /w/slug -> /w/*.
-  return `/${segments[0]}/*`;
-}
-
-function normalizePathGlobList(input: unknown): string[] {
-  const source = Array.isArray(input) ? input : [];
-  const normalized = source
-    .map((item) => normalizePathGlob(item))
-    .filter((item): item is string => Boolean(item));
-
-  const unique = Array.from(new Set(normalized));
-  const wildcardPrefixes = unique
-    .filter((glob) => glob.endsWith('/*'))
-    .map((glob) => glob.slice(0, -2));
-
-  if (wildcardPrefixes.length === 0) return unique;
-
-  return unique.filter((glob) => {
-    for (const prefix of wildcardPrefixes) {
-      if (glob === `${prefix}/*`) return true;
-      if (glob.startsWith(`${prefix}/`)) return false;
-    }
-    return true;
-  });
-}
-
-function hydrateSelectedCustomSitePathGlobDrafts() {
-  customSiteIncludePathGlobsDraft.value = normalizePathGlobList(selectedCustomSite.value?.includePathGlobs);
-  customSiteExcludePathGlobsDraft.value = normalizePathGlobList(selectedCustomSite.value?.excludePathGlobs);
-  customSiteIncludePathInput.value = '';
-  customSiteExcludePathInput.value = '';
-  commentsBackgroundColorDraft.value = selectedCustomSite.value?.commentsBackgroundColor || '';
-}
-
-function isValidCssColor(value: string): boolean {
-  const trimmed = (value || '').trim();
-  if (!trimmed) return false;
-  return /^(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)|[a-zA-Z]+)$/.test(trimmed);
-}
-
-async function saveCommentsBackgroundColor() {
-  const site = selectedCustomSite.value;
-  if (!site?.origin) return;
-  const color = commentsBackgroundColorDraft.value.trim();
-  if (!color) {
-    showError('Enter a color or press Clear');
-    return;
-  }
-  if (!isValidCssColor(color)) {
-    showError('Invalid color value');
-    return;
-  }
-  try {
-    const map = (await customSiteMappingsItem.getValue()) || {};
-    const existing = map[site.origin] as CustomSiteMapping | undefined;
-    if (!existing) {
-      showError('This custom site no longer exists');
-      await refreshSelectedCustomSite();
-      return;
-    }
-    const next: CustomSiteMapping = { ...existing, commentsBackgroundColor: color };
-    map[site.origin] = next;
-    await customSiteMappingsItem.setValue(map);
-    await loadCustomSiteMappings();
-    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || next;
-    selectedCustomSite.value = updated;
-    commentsBackgroundColorDraft.value = updated.commentsBackgroundColor || '';
-    showSuccess('Comments background color saved');
-  } catch (error) {
-    log.warn('Failed to save comments background color', error);
-    showError('Could not save background color');
-  }
-}
-
-async function clearCommentsBackgroundColor() {
-  const site = selectedCustomSite.value;
-  if (!site?.origin) return;
-  try {
-    const map = (await customSiteMappingsItem.getValue()) || {};
-    const existing = map[site.origin] as CustomSiteMapping | undefined;
-    if (!existing) {
-      showError('This custom site no longer exists');
-      await refreshSelectedCustomSite();
-      return;
-    }
-    const { commentsBackgroundColor: _removed, ...rest } = existing as any;
-    map[site.origin] = rest as CustomSiteMapping;
-    await customSiteMappingsItem.setValue(map);
-    await loadCustomSiteMappings();
-    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || (rest as CustomSiteMapping);
-    selectedCustomSite.value = updated;
-    commentsBackgroundColorDraft.value = '';
-    showSuccess('Background color cleared');
-  } catch (error) {
-    log.warn('Failed to clear comments background color', error);
-    showError('Could not clear background color');
-  }
-}
-
-function addCustomSitePathGlob(kind: 'include' | 'exclude', rawInput?: string) {
-  const normalized = normalizePathGlob(rawInput ?? (kind === 'include' ? customSiteIncludePathInput.value : customSiteExcludePathInput.value));
-  if (!normalized) return;
-
-  const target = kind === 'include' ? customSiteIncludePathGlobsDraft : customSiteExcludePathGlobsDraft;
-  target.value = normalizePathGlobList([...target.value, normalized]);
-
-  if (kind === 'include') {
-    customSiteIncludePathInput.value = '';
-  } else {
-    customSiteExcludePathInput.value = '';
-  }
-}
-
-function removeCustomSitePathGlob(kind: 'include' | 'exclude', glob: string) {
-  const target = kind === 'include' ? customSiteIncludePathGlobsDraft : customSiteExcludePathGlobsDraft;
-  target.value = target.value.filter((item) => item !== glob);
-}
-
-async function saveSelectedCustomSitePathGlobs() {
-  const site = selectedCustomSite.value;
-  if (!site?.origin || customSitePathGlobsSaving.value) return;
-
-  customSitePathGlobsSaving.value = true;
-  try {
-    const map = (await customSiteMappingsItem.getValue()) || {};
-    const existing = map[site.origin] as CustomSiteMapping | undefined;
-    if (!existing) {
-      showError('This custom site no longer exists');
-      await refreshSelectedCustomSite();
-      return;
-    }
-
-    const next: CustomSiteMapping = {
-      ...existing,
-      includePathGlobs: normalizePathGlobList(customSiteIncludePathGlobsDraft.value),
-      excludePathGlobs: normalizePathGlobList(customSiteExcludePathGlobsDraft.value),
-    };
-
-    map[site.origin] = next;
-    await customSiteMappingsItem.setValue(map);
-    await loadCustomSiteMappings();
-
-    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || next;
-    selectedCustomSite.value = updated;
-    hydrateSelectedCustomSitePathGlobDrafts();
-    showSuccess('Custom website path globs saved');
-  } catch (error) {
-    log.warn('Failed to save custom site path globs', error);
-    showError('Could not save path globs');
-  } finally {
-    customSitePathGlobsSaving.value = false;
-  }
-}
-
-type CustomSiteRawFieldsDraft = {
-  mountSelector: string;
-  anchorSelector: string;
-  titleSelector: string;
-  titleRegex: string;
-  episodeSelector: string;
-  episodeRegex: string;
-  sidePadding: number;
-};
-
-const customSiteRawFieldsSaving = ref(false);
-
-async function saveSelectedCustomSiteRawFields(draft: CustomSiteRawFieldsDraft): Promise<void> {
-  const site = selectedCustomSite.value;
-  if (!site?.origin || customSiteRawFieldsSaving.value) return;
-
-  customSiteRawFieldsSaving.value = true;
-  try {
-    const map = (await customSiteMappingsItem.getValue()) || {};
-    const existing = map[site.origin] as CustomSiteMapping | undefined;
-    if (!existing) {
-      showError('This custom site no longer exists');
-      await refreshSelectedCustomSite();
-      return;
-    }
-
-    const sidePaddingNum = Number(draft.sidePadding);
-    const next: CustomSiteMapping = {
-      ...existing,
-      mountSelector: String(draft.mountSelector || '').trim(),
-      anchorSelector: String(draft.anchorSelector || '').trim(),
-      titleSelector: String(draft.titleSelector || '').trim(),
-      titleRegex: String(draft.titleRegex || '').trim(),
-      episodeSelector: String(draft.episodeSelector || '').trim(),
-      episodeRegex: String(draft.episodeRegex || '').trim(),
-      sidePadding: Number.isFinite(sidePaddingNum) ? sidePaddingNum : 0,
-    };
-
-    map[site.origin] = next;
-    await customSiteMappingsItem.setValue(map);
-    await loadCustomSiteMappings();
-
-    const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || next;
-    selectedCustomSite.value = updated;
-    showSuccess('Mapping updated');
-  } catch (error) {
-    log.warn('Failed to save custom site raw fields', error);
-    showError('Could not save mapping');
-  } finally {
-    customSiteRawFieldsSaving.value = false;
-  }
-}
-
-function sanitizeImportedCustomSiteMapping(input: unknown): CustomSiteMapping | null {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-  const raw = input as Record<string, unknown>;
-  const originRaw = String(raw.origin || '').trim();
-  if (!originRaw) return null;
-
-  let origin = '';
-  try {
-    const url = new URL(originRaw);
-    if (!/^https?:$/.test(url.protocol)) return null;
-    origin = url.origin;
-  } catch {
-    return null;
-  }
-
-  const display = String(raw.display || 'popup');
-  const allowedDisplays: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup', 'icon'];
-  const normalizedDisplay = (allowedDisplays.includes(display as DisplayPlacement)
-    ? display
-    : 'popup') as DisplayPlacement;
-
-  const sanitizeGlobs = (val: unknown): string[] => {
-    if (!Array.isArray(val)) return [];
-    return val
-      .map((item) => String(item || '').trim())
-      .filter((item) => item.length > 0);
-  };
-
-  return {
-    origin,
-    display: normalizedDisplay,
-    iconDisplayKind: raw.iconDisplayKind === 'icon' ? 'icon' : 'text',
-    iconDisplayAction: raw.iconDisplayAction === 'replace' ? 'replace' : 'popup',
-    iconDisplayText: String(raw.iconDisplayText || 'Hayami').trim() || 'Hayami',
-    includePathGlobs: sanitizeGlobs(raw.includePathGlobs),
-    excludePathGlobs: sanitizeGlobs(raw.excludePathGlobs),
-    anchorSelector: String(raw.anchorSelector || ''),
-    mountSelector: String(raw.mountSelector || ''),
-    titleSelector: String(raw.titleSelector || ''),
-    episodeSelector: String(raw.episodeSelector || ''),
-    sidePadding: Number.isFinite(Number(raw.sidePadding)) ? Number(raw.sidePadding) : 0,
-    anchorXPath: String(raw.anchorXPath || ''),
-    mountXPath: String(raw.mountXPath || ''),
-    titleXPath: String(raw.titleXPath || ''),
-    episodeXPath: String(raw.episodeXPath || ''),
-  };
-}
-
-function collectImportedCustomSiteMappings(payload: unknown): CustomSiteMapping[] {
-  const out: CustomSiteMapping[] = [];
-
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      const mapping = sanitizeImportedCustomSiteMapping(item);
-      if (mapping) out.push(mapping);
-    }
-    return out;
-  }
-
-  if (payload && typeof payload === 'object') {
-    const obj = payload as Record<string, unknown>;
-
-    const direct = sanitizeImportedCustomSiteMapping(obj);
-    if (direct) {
-      out.push(direct);
-      return out;
-    }
-
-    const wrappedCandidates = [obj.mapping, obj.mappings, obj.customSiteMappings, obj.custom_site_mappings];
-    for (const candidate of wrappedCandidates) {
-      if (Array.isArray(candidate)) {
-        for (const item of candidate) {
-          const mapping = sanitizeImportedCustomSiteMapping(item);
-          if (mapping) out.push(mapping);
-        }
-        if (out.length) return out;
-      }
-    }
-
-    const asMap = (obj.mappings && typeof obj.mappings === 'object' && !Array.isArray(obj.mappings))
-      ? obj.mappings as Record<string, unknown>
-      : (obj.custom_site_mappings && typeof obj.custom_site_mappings === 'object' && !Array.isArray(obj.custom_site_mappings))
-        ? obj.custom_site_mappings as Record<string, unknown>
-        : obj;
-
-    for (const value of Object.values(asMap)) {
-      const mapping = sanitizeImportedCustomSiteMapping(value);
-      if (mapping) out.push(mapping);
-    }
-  }
-
-  return out;
-}
-
-function buildCustomMappingExportFilename(site: CustomSiteMapping): string {
-  let host = 'site';
-  try {
-    host = new URL(site.origin).host.replace(/[^a-zA-Z0-9.-]/g, '_');
-  } catch {
-    host = String(site.origin || 'site').replace(/[^a-zA-Z0-9.-]/g, '_');
-  }
-  return `hayami-custom-mapping-${host}.json`;
-}
-
-async function exportAllCustomSiteMappings() {
-  try {
-    const all = [...customSiteMappings.value];
-    if (all.length === 0) {
-      showError('No custom site mappings to export');
-      return;
-    }
-    const payload = {
-      format: 'hayami.custom-site-mappings',
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      mappings: all,
-    };
-    const json = JSON.stringify(payload, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    anchor.download = `hayami-custom-mappings-${stamp}.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    showSuccess(`Exported ${all.length} mapping${all.length === 1 ? '' : 's'}`);
-  } catch (error) {
-    log.warn('Failed to export all custom site mappings', error);
-    showError('Could not export custom site mappings');
-  }
-}
-
-async function exportCustomSiteMapping(site: CustomSiteMapping) {
-  try {
-    const payload = {
-      format: 'hayami.custom-site-mapping',
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      mapping: site,
-    };
-    const json = JSON.stringify(payload, null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = buildCustomMappingExportFilename(site);
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-    showSuccess('Custom site mapping exported');
-  } catch (error) {
-    log.warn('Failed to export custom site mapping', error);
-    showError('Could not export this site mapping');
-  }
-}
-
-async function onImportCustomMappingsFileChange(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input?.files?.[0] || null;
-  if (!file) return;
-
-  try {
-    const text = await file.text();
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      showError('Import failed: invalid JSON file');
-      return;
-    }
-
-    const imported = collectImportedCustomSiteMappings(parsed);
-    if (imported.length === 0) {
-      showError('No valid custom site mappings found in file');
-      return;
-    }
-
-    const currentMap = (await customSiteMappingsItem.getValue()) || {};
-    let added = 0;
-    let updated = 0;
-    for (const mapping of imported) {
-      if (currentMap[mapping.origin]) {
-        updated += 1;
-      } else {
-        added += 1;
-      }
-      currentMap[mapping.origin] = mapping;
-    }
-
-    await customSiteMappingsItem.setValue(currentMap);
-    await loadCustomSiteMappings();
-    showSuccess(`Imported ${imported.length} mapping${imported.length === 1 ? '' : 's'} (${added} added, ${updated} updated)`);
-  } catch (error) {
-    log.warn('Failed to import custom site mappings', error);
-    showError('Could not import custom mappings');
-  } finally {
-    if (input) input.value = '';
-  }
-}
-
-function normalizeUrlToOrigin(input: string): string | null {
-  const trimmed = (input || '').trim();
-  if (!trimmed) return null;
-  try {
-    const url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
-    if (!/^https?:$/.test(url.protocol)) return null;
-    return url.origin;
-  } catch {
-    return null;
-  }
-}
-
-async function requestHostPermission(origin: string): Promise<boolean> {
-  const permissions = browser.permissions;
-  if (!permissions || !permissions.request || !permissions.contains) return true;
-
-  const originPattern = `${origin}/*`;
-  const alreadyGranted = await new Promise<boolean>((resolve) => {
-    try {
-      permissions.contains({ origins: [originPattern] }, (granted: boolean) => resolve(Boolean(granted)));
-    } catch {
-      resolve(false);
-    }
-  });
-  if (alreadyGranted) return true;
-
-  return new Promise((resolve) => {
-    try {
-      permissions.request({ origins: [originPattern] }, (granted: boolean) => resolve(Boolean(granted)));
-    } catch (error) {
-      log.warn('Permission request failed', error);
-      resolve(false);
-    }
-  });
-}
-
-async function waitForMapperTab(tabId: number): Promise<void> {
-  const attemptSend = async () => {
-    try {
-      await browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' });
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      browser.tabs.onUpdated.removeListener(listener);
-      reject(new Error('Timed out opening mapper'));
-    }, 15000);
-
-    const listener = (updatedTabId: number, info: any) => {
-      if (updatedTabId !== tabId || info.status !== 'complete') return;
-      void attemptSend().then((ok) => {
-        if (ok) {
-          window.clearTimeout(timeout);
-          browser.tabs.onUpdated.removeListener(listener);
-          resolve();
-        }
-      });
-    };
-
-    browser.tabs.onUpdated.addListener(listener);
-
-    void attemptSend().then((ok) => {
-      if (ok) {
-        window.clearTimeout(timeout);
-        browser.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    });
-  });
-}
-
-async function openSiteMapperForOrigin(rawValue: string) {
-  const origin = normalizeUrlToOrigin(rawValue);
-  if (!origin) {
-    showError('Enter a valid site URL');
-    return;
-  }
-  try {
-    const granted = await requestHostPermission(origin);
-    if (!granted) {
-      showError('Host permission is required for this site');
-      return;
-    }
-
-    const tab = await browser.tabs.create({ url: `${origin}/`, active: true });
-    if (!tab?.id) {
-      throw new Error('Failed to open configuration tab');
-    }
-
-    await waitForMapperTab(tab.id);
-  } catch (error) {
-    log.warn('Failed to open site mapper', error);
-    showError('Could not open the site mapper for this site');
-  }
-}
-
-async function loadCustomSiteMappings() {
-  isLoadingCustomSites.value = true;
-  try {
-    const map = (await customSiteMappingsItem.getValue()) || {};
-    const mappings = Object.values(map || {}) as CustomSiteMapping[];
-    customSiteMappings.value = mappings
-      .filter((entry) => Boolean(entry?.origin))
-      .map((entry) => ({
-        ...entry,
-        includePathGlobs: normalizePathGlobList(entry?.includePathGlobs),
-        excludePathGlobs: normalizePathGlobList(entry?.excludePathGlobs),
-      }));
-  } catch (error) {
-    log.warn('Failed to load custom site mappings', error);
-    showError('Failed to load custom websites');
-  } finally {
-    isLoadingCustomSites.value = false;
-  }
-}
-
-async function openCustomSiteDetail(site: CustomSiteMapping) {
-  try {
-    currentView.value = 'settings';
-    selectedSettingsCategory.value = 'custom-sites';
-    settingsScreen.value = 'custom-site-detail';
-    selectedCustomSite.value = site;
-    customSiteAdvancedExpanded.value = false;
-    hydrateSelectedCustomSitePathGlobDrafts();
-  } catch (error) {
-    log.warn('Failed to open custom site detail', error);
-    showError('Could not show site details');
-  }
-}
-
-function backToCustomSites() {
-  settingsScreen.value = 'custom-sites';
-  selectedCustomSite.value = null;
-}
-
-async function refreshSelectedCustomSite() {
-  await loadCustomSiteMappings();
-  if (!selectedCustomSite.value) return;
-  const updated = customSiteMappings.value.find((entry) => entry.origin === selectedCustomSite.value?.origin);
-  if (updated) {
-    selectedCustomSite.value = updated;
-    hydrateSelectedCustomSitePathGlobDrafts();
-  }
-}
-
-async function removeCustomSite(site: CustomSiteMapping) {
-  removingSiteOrigin.value = site.origin;
-
-  // Optimistically drop the entry from the in-memory list so the row
-  // disappears immediately. Avoid routing through loadCustomSiteMappings()
-  // at the end — that function flips isLoadingCustomSites and causes the
-  // whole list to momentarily collapse into the "Loading..." placeholder.
-  const previousList = customSiteMappings.value;
-  customSiteMappings.value = previousList.filter((entry) => entry.origin !== site.origin);
-
-  if (selectedCustomSite.value?.origin === site.origin) {
-    selectedCustomSite.value = null;
-    settingsScreen.value = 'custom-sites';
-  }
-
-  try {
-    const map = (await customSiteMappingsItem.getValue()) || {};
-    if (map[site.origin]) {
-      delete map[site.origin];
-      await customSiteMappingsItem.setValue(map);
-    }
-
-    const originPattern = `${site.origin}/*`;
-    const permissions = browser.permissions;
-    if (permissions?.remove) {
-      await new Promise<void>((resolve) => {
-        try {
-          permissions.remove({ origins: [originPattern] }, () => resolve());
-        } catch {
-          resolve();
-        }
-      });
-    }
-
-    showSuccess('Custom site removed');
-  } catch (error) {
-    log.warn('Failed to remove custom site', error);
-    // Roll the optimistic update back if persistence failed.
-    customSiteMappings.value = previousList;
-    showError('Could not remove this site');
-  } finally {
-    removingSiteOrigin.value = null;
   }
 }
 
@@ -1870,7 +1182,7 @@ async function applyInitialRouteParams() {
   const authAction = params.get('authAction');
 
   if (originParam && openMapper) {
-    await openSiteMapperForOrigin(originParam);
+    await csm.openSiteMapperForOrigin(originParam);
     return;
   }
 
@@ -1878,14 +1190,12 @@ async function applyInitialRouteParams() {
     currentView.value = 'settings';
     selectedSettingsCategory.value = 'custom-sites';
     settingsScreen.value = 'custom-site-detail';
-    await loadCustomSiteMappings();
-    const found = customSiteMappings.value.find((entry) => entry.origin === originParam);
+    await csm.loadCustomSiteMappings();
+    const found = csm.customSiteMappings.value.find((entry) => entry.origin === originParam);
     if (found) {
-      selectedCustomSite.value = found;
-      customSiteAdvancedExpanded.value = false;
-      hydrateSelectedCustomSitePathGlobDrafts();
+      csm.openCustomSiteDetail(found);
     } else {
-      selectedCustomSite.value = null;
+      csm.selectedCustomSite.value = null;
       settingsScreen.value = 'custom-sites';
     }
     return;
@@ -1955,48 +1265,39 @@ async function handleLogin() {
 }
 
 function handleLogout() {
-  const actions = getAccountActions('reddit');
-  return actions.disconnect();
+  return getAccountActions('reddit').disconnect();
 }
 
 function handleYouTubeLogin() {
-  const actions = getAccountActions('youtube');
-  return actions.connect();
+  return getAccountActions('youtube').connect();
 }
 
 function handleYouTubeLogout() {
-  const actions = getAccountActions('youtube');
-  return actions.disconnect();
+  return getAccountActions('youtube').disconnect();
 }
 
 function handleMALLogin() {
-  const actions = getAccountActions('mal');
-  return actions.connect();
+  return getAccountActions('mal').connect();
 }
 
 function handleMALLogout() {
-  const actions = getAccountActions('mal');
-  return actions.disconnect();
+  return getAccountActions('mal').disconnect();
 }
 
 function handleAniListLogin() {
-  const actions = getAccountActions('anilist');
-  return actions.connect();
+  return getAccountActions('anilist').connect();
 }
 
 function handleAniListLogout() {
-  const actions = getAccountActions('anilist');
-  return actions.disconnect();
+  return getAccountActions('anilist').disconnect();
 }
 
 function handleDisqusLogin() {
-  const actions = getAccountActions('disqus');
-  return actions.connect();
+  return getAccountActions('disqus').connect();
 }
 
 function handleDisqusLogout() {
-  const actions = getAccountActions('disqus');
-  return actions.disconnect();
+  return getAccountActions('disqus').disconnect();
 }
 
 function closePopupWindow() {
@@ -2021,11 +1322,6 @@ async function detectBrowserActionPopup() {
   try {
     if (typeof window === 'undefined') return;
     if (window.parent !== window) {
-      // Inside an iframe: by default this is not the browser-action popup
-      // and not full-size. The PWA shell at hayami.moe/pwa hosts popup.html
-      // inside an iframe that fills the viewport, though — when it does that
-      // it sets ?hayamiFullsize=1 on the iframe URL so we opt into the
-      // enlarged layout.
       isBrowserActionPopup.value = false;
       const pwaHosted = isHostedInPwaShell();
       isFullSize.value = pwaHosted;
@@ -2035,9 +1331,7 @@ async function detectBrowserActionPopup() {
     const tabs = (browser as any)?.tabs;
     if (tabs && typeof tabs.getCurrent === 'function') {
       const current = await tabs.getCurrent();
-      // In browser-action popup, getCurrent resolves to undefined.
       isBrowserActionPopup.value = !current;
-      // Full-size layout when popup.html is hosted in its own tab / PWA window.
       isFullSize.value = !!current && !isEmbeddedPopup;
       applyFullSizeClasses(isFullSize.value);
       return;
@@ -2070,8 +1364,27 @@ function triggerHeaderCustomMappingsImport() {
   currentView.value = 'settings';
   selectedSettingsCategory.value = 'custom-sites';
   settingsScreen.value = 'custom-sites';
-  selectedCustomSite.value = null;
+  csm.selectedCustomSite.value = null;
   headerImportCustomMappingsInput.value?.click();
+}
+
+function openCustomSiteDetailScreen(site: any) {
+  currentView.value = 'settings';
+  selectedSettingsCategory.value = 'custom-sites';
+  settingsScreen.value = 'custom-site-detail';
+  csm.openCustomSiteDetail(site);
+}
+
+function backToCustomSites() {
+  settingsScreen.value = 'custom-sites';
+  csm.closeCustomSiteDetail();
+}
+
+function handleRemoveCustomSite(site: any) {
+  csm.removeCustomSite(site);
+  if (csm.selectedCustomSite.value === null) {
+    settingsScreen.value = 'custom-sites';
+  }
 }
 </script>
 <template>
@@ -2090,7 +1403,7 @@ function triggerHeaderCustomMappingsImport() {
               type="file"
               accept="application/json,.json"
               class="hidden"
-              @change="onImportCustomMappingsFileChange"
+              @change="csm.onImportCustomMappingsFileChange"
             />
           <button ref="feedbackButton" @click="openFeedbackForm" class="p-1 hover:opacity-80 transition-transform duration-150 active:scale-95" aria-label="Send feedback">
             <img :src="feedbackIcon" alt="Feedback" class="h-6 w-6" />
@@ -2188,56 +1501,26 @@ function triggerHeaderCustomMappingsImport() {
 
       <template v-else>
         <transition name="fade" mode="out-in">
-          <section
+          <HomeView
             v-if="currentView === 'home'"
             key="home"
-            class="space-y-6"
-          >
-            <KomentoPendingPermissionsCard
-              :loading="komentoPendingPermissionLoading"
-              :approving="komentoApprovingPermissions"
-              :has-pending="hasKomentoPendingPermissions"
-              :pending-origins="komentoPendingOrigins"
-              :pending-permission-sources="komentoPendingPermissionSources"
-              :pending-preview="komentoPendingPreview"
-              :is-pending-source-expanded="isKomentoPendingSourceExpanded"
-              :toggle-pending-source-expanded="toggleKomentoPendingSourceExpanded"
-              :approve-all-pending-permissions="approveAllKomentoPendingPermissions"
-              :get-favicon-url="getFaviconUrl"
-              :format-origin="formatOrigin"
-            />
-
-            <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
-              <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
-                <img :src="accountIcon" alt="Connected accounts" class="h-6 w-6" />
-                <span>Connected accounts</span>
-              </div>
-              <div class="home-accounts-preview space-y-3 text-base text-white/90">
-                <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
-                  <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ redditDisplayStatus }}</div>
-                </div>
-                <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
-                  <img src="/assets/topCommentMenu/disqusLogo.svg" alt="Disqus" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ getDisqusAccount()?.isConnected ? (getDisqusAccount()?.username || 'Connected') : 'Not connected' }}</div>
-                </div>
-                <div class="flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
-                  <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ getYouTubeAccount()?.isConnected ? `Google ${getYouTubeAccount()?.username || 'YouTube user'}` : 'Not linked' }}</div>
-                </div>
-                <div class="home-accounts-fade flex items-center gap-3 rounded-2xl bg-white/5 px-3 py-2">
-                  <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-8 w-8 rounded-lg bg-white/5 p-1" />
-                  <div class="truncate">{{ getMALAccount()?.isConnected ? 'MyAnimeList connected' : 'Not connected' }}</div>
-                </div>
-              </div>
-              <div class="mt-6 space-y-2">
-                <button @click="currentView = 'manage'" class="w-full rounded-full bg-white/10 px-4 py-3 text-lg font-semibold text-white hover:bg-white/15">
-                  Manage or add accounts
-                </button>
-              </div>
-            </div>
-
-          </section>
+            :komento-pending-permission-loading="komentoPendingPermissionLoading"
+            :komento-approving-permissions="komentoApprovingPermissions"
+            :has-komento-pending-permissions="hasKomentoPendingPermissions"
+            :komento-pending-origins="komentoPendingOrigins"
+            :komento-pending-permission-sources="komentoPendingPermissionSources"
+            :komento-pending-preview="komentoPendingPreview"
+            :is-komento-pending-source-expanded="isKomentoPendingSourceExpanded"
+            :toggle-komento-pending-source-expanded="toggleKomentoPendingSourceExpanded"
+            :approve-all-komento-pending-permissions="approveAllKomentoPendingPermissions"
+            :get-favicon-url="csm.getFaviconUrl"
+            :format-origin="csm.formatOrigin"
+            :reddit-display-status="redditDisplayStatus"
+            :disqus-display-status="disqusDisplayStatus"
+            :youtube-display-status="youtubeDisplayStatus"
+            :mal-display-status="malDisplayStatus"
+            :on-manage-accounts="() => { currentView = 'manage' }"
+          />
 
           <section v-else-if="currentView === 'settings'" key="settings" class="space-y-4">
             <div
@@ -2388,19 +1671,19 @@ function triggerHeaderCustomMappingsImport() {
                     :custom-sites-icon="customSitesIcon"
                     :info-icon="infoIcon"
                     :is-large-layout="isLargeLayout"
-                    :is-loading-custom-sites="isLoadingCustomSites"
-                    :sorted-custom-site-mappings="sortedCustomSiteMappings"
-                    :removing-site-origin="removingSiteOrigin"
+                    :is-loading-custom-sites="csm.isLoadingCustomSites.value"
+                    :sorted-custom-site-mappings="csm.sortedCustomSiteMappings.value"
+                    :removing-site-origin="csm.removingSiteOrigin.value"
                     :on-back="() => { settingsScreen = 'menu'; }"
-                    :on-import-mappings-file-change="onImportCustomMappingsFileChange"
-                    :on-export-all-mappings="exportAllCustomSiteMappings"
-                    :on-load-custom-site-mappings="loadCustomSiteMappings"
-                    :on-open-custom-site-detail="openCustomSiteDetail"
+                    :on-import-mappings-file-change="csm.onImportCustomMappingsFileChange"
+                    :on-export-all-mappings="csm.exportAllCustomSiteMappings"
+                    :on-load-custom-site-mappings="csm.loadCustomSiteMappings"
+                    :on-open-custom-site-detail="openCustomSiteDetailScreen"
                     :on-open-sync-settings="() => { settingsScreen = 'custom-sites-sync'; }"
-                    :on-remove-custom-site="removeCustomSite"
-                    :get-favicon-url="getFaviconUrl"
-                    :format-origin="formatOrigin"
-                    :format-placement-label="formatPlacementLabel"
+                    :on-remove-custom-site="handleRemoveCustomSite"
+                    :get-favicon-url="csm.getFaviconUrl"
+                    :format-origin="csm.formatOrigin"
+                    :format-placement-label="csm.formatPlacementLabel"
                   />
 
                 </div>
@@ -2449,8 +1732,8 @@ function triggerHeaderCustomMappingsImport() {
                   :get-source-target-options="getKomentoSourceTargetOptions"
                   :is-source-target-enabled="isKomentoSourceTargetEnabled"
                   :format-history-when="formatKomentoHistoryWhen"
-                  :get-favicon-url="getFaviconUrl"
-                  :format-origin="formatOrigin"
+                  :get-favicon-url="csm.getFaviconUrl"
+                  :format-origin="csm.formatOrigin"
                   :is-pending-source-expanded="isKomentoPendingSourceExpanded"
                 />
               </template>
@@ -2504,222 +1787,82 @@ function triggerHeaderCustomMappingsImport() {
                 />
               </template>
 
-              <template v-else-if="settingsScreen === 'custom-site-detail' && selectedCustomSite">
+              <template v-else-if="settingsScreen === 'custom-site-detail' && csm.selectedCustomSite.value">
                 <CustomSiteDetailPanel
                   :back-icon="backIcon"
                   :custom-sites-icon="customSitesIcon"
                   :info-icon="infoIcon"
                   :is-large-layout="isLargeLayout"
-                  :selected-custom-site="selectedCustomSite"
-                  :custom-site-advanced-expanded="customSiteAdvancedExpanded"
-                  :custom-site-include-path-globs-draft="customSiteIncludePathGlobsDraft"
-                  :custom-site-exclude-path-globs-draft="customSiteExcludePathGlobsDraft"
-                  :custom-site-include-path-input="customSiteIncludePathInput"
-                  :custom-site-exclude-path-input="customSiteExcludePathInput"
-                  :custom-site-path-globs-saving="customSitePathGlobsSaving"
-                  :comments-background-color-draft="commentsBackgroundColorDraft"
+                  :selected-custom-site="csm.selectedCustomSite.value"
+                  :custom-site-advanced-expanded="csm.customSiteAdvancedExpanded.value"
+                  :custom-site-include-path-globs-draft="csm.customSiteIncludePathGlobsDraft.value"
+                  :custom-site-exclude-path-globs-draft="csm.customSiteExcludePathGlobsDraft.value"
+                  :custom-site-include-path-input="csm.customSiteIncludePathInput.value"
+                  :custom-site-exclude-path-input="csm.customSiteExcludePathInput.value"
+                  :custom-site-path-globs-saving="csm.customSitePathGlobsSaving.value"
+                  :comments-background-color-draft="csm.commentsBackgroundColorDraft.value"
                   :on-back="backToCustomSites"
-                  :on-export-mapping="exportCustomSiteMapping"
-                  :on-set-comments-background-color="(value) => { commentsBackgroundColorDraft = value; }"
-                  :on-save-comments-background-color="saveCommentsBackgroundColor"
-                  :on-clear-comments-background-color="clearCommentsBackgroundColor"
-                  :on-toggle-advanced="() => { customSiteAdvancedExpanded = !customSiteAdvancedExpanded; }"
-                  :on-add-path-glob="addCustomSitePathGlob"
-                  :on-remove-path-glob="removeCustomSitePathGlob"
-                  :on-set-include-path-input="(value) => { customSiteIncludePathInput = value; }"
-                  :on-set-exclude-path-input="(value) => { customSiteExcludePathInput = value; }"
-                  :on-save-path-globs="saveSelectedCustomSitePathGlobs"
-                  :custom-site-raw-fields-saving="customSiteRawFieldsSaving"
-                  :on-save-raw-fields="saveSelectedCustomSiteRawFields"
-                  :get-favicon-url="getFaviconUrl"
-                  :format-origin="formatOrigin"
-                  :format-placement-label="formatPlacementLabel"
+                  :on-export-mapping="csm.exportCustomSiteMapping"
+                  :on-set-comments-background-color="(value) => { csm.commentsBackgroundColorDraft.value = value; }"
+                  :on-save-comments-background-color="csm.saveCommentsBackgroundColor"
+                  :on-clear-comments-background-color="csm.clearCommentsBackgroundColor"
+                  :on-toggle-advanced="() => { csm.customSiteAdvancedExpanded.value = !csm.customSiteAdvancedExpanded.value; }"
+                  :on-add-path-glob="csm.addCustomSitePathGlob"
+                  :on-remove-path-glob="csm.removeCustomSitePathGlob"
+                  :on-set-include-path-input="(value) => { csm.customSiteIncludePathInput.value = value; }"
+                  :on-set-exclude-path-input="(value) => { csm.customSiteExcludePathInput.value = value; }"
+                  :on-save-path-globs="csm.saveSelectedCustomSitePathGlobs"
+                  :custom-site-raw-fields-saving="csm.customSiteRawFieldsSaving.value"
+                  :on-save-raw-fields="csm.saveSelectedCustomSiteRawFields"
+                  :get-favicon-url="csm.getFaviconUrl"
+                  :format-origin="csm.formatOrigin"
+                  :format-placement-label="csm.formatPlacementLabel"
                 />
               </template>
 
-
               <template v-else>
-                <div v-if="!isLargeLayout" class="mb-3 flex items-center justify-between">
-                  <button class="flex items-center gap-2 text-sm text-white/70 hover:text-white" @click="settingsScreen = 'menu'">
-                    <img :src="backIcon" alt="Back" class="h-4 w-4 settings-icon" />
-                    <span>Back</span>
-                  </button>
-                  <div class="flex items-center gap-2 text-lg font-semibold">
-                    <img :src="discussionPlatformsIcon" alt="Discussion platforms" class="h-6 w-6 settings-icon" />
-                    <span>Discussion platforms</span>
-                  </div>
-                </div>
-
-                <div v-if="isLargeLayout" class="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
-                  <img :src="discussionPlatformsIcon" alt="Discussion platforms" class="h-6 w-6 settings-icon" />
-                  <span>Discussion platforms</span>
-                </div>
-
-                <div class="space-y-4">
-                  <div class="flex items-center gap-3 px-1">
-                    <label class="text-sm text-white/70">Choose platform</label>
-                    <select
-                      class="w-44 min-w-0 rounded-lg border border-white/15 bg-transparent px-3 py-2 text-sm font-semibold text-white focus:outline focus:outline-2 focus:outline-white/30"
-                      v-model="selectedProvider"
-                    >
-                      <option
-                        v-for="provider in providerSections"
-                        :key="provider.id"
-                        :value="provider.id"
-                        class="bg-[#1f2329]"
-                      >
-                        {{ provider.label }}
-                      </option>
-                    </select>
-                  </div>
-
-                  <div v-if="activeProviderSection" class="hy-section-card">
-                    <div class="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06]">
-                      <img
-                        v-if="activeProviderSection.icon"
-                        :src="activeProviderSection.icon"
-                        :alt="activeProviderSection.label"
-                        class="h-7 w-7 rounded-lg bg-white/5 p-1"
-                      />
-                      <div class="text-base font-semibold text-white/90">{{ activeProviderSection.label }}</div>
-                    </div>
-
-                    <template v-if="activeProviderPrimarySettings.length || activeProviderAdvancedSettings.length">
-                      <SettingField
-                        v-for="setting in activeProviderPrimarySettings"
-                        :key="setting.key"
-                        :setting="setting"
-                        :model-value="settingValues[setting.key]"
-                        :options="getSettingOptions(setting)"
-                        variant="primary"
-                        padding="compact"
-                        :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
-                        @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
-                        @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
-                      />
-
-                      <template
-                        v-if="activeProviderSection.id === 'reddit' && activeProviderAdvancedSettings.length"
-                      >
-                        <button
-                          class="flex w-full items-center justify-between border-t border-white/[0.06] px-4 py-3 text-left text-sm font-semibold text-white/85"
-                          :class="providerAdvancedExpanded ? 'border-b border-white/[0.06]' : ''"
-                          @click="providerAdvancedExpanded = !providerAdvancedExpanded"
-                        >
-                          <span>Advanced</span>
-                          <span class="text-xs text-white/60">{{ providerAdvancedExpanded ? 'Hide' : 'Expand' }}</span>
-                        </button>
-
-                        <template v-if="providerAdvancedExpanded">
-                          <SettingField
-                            v-for="setting in activeProviderAdvancedSettings"
-                            :key="setting.key"
-                            :setting="setting"
-                            :model-value="settingValues[setting.key]"
-                            :options="getSettingOptions(setting)"
-                            variant="advanced"
-                            padding="compact"
-                            :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"
-                            @update:model-value="(v) => { (settingValues as any)[setting.key] = v }"
-                            @save="(v) => handleSettingChange(setting, v as SettingValueMap[SettingKey])"
-                          />
-                        </template>
-                      </template>
-                    </template>
-
-                    <div v-else class="px-4 py-3 text-sm text-white/60">No settings available for this platform.</div>
-                  </div>
-
-                  <div v-else class="hy-section-card px-4 py-3 text-sm text-white/70">No discussion platforms available.</div>
-                </div>
+                <DiscussionPlatformsSettingsPanel
+                  :back-icon="backIcon"
+                  :discussion-platforms-icon="discussionPlatformsIcon"
+                  :is-large-layout="isLargeLayout"
+                  :setting-definitions="settingDefinitions.filter((s) => s.category === 'provider')"
+                  :setting-values="settingValues"
+                  :provider-icons="providerIcons"
+                  :on-back="() => { settingsScreen = 'menu'; }"
+                  :on-setting-change="handleSettingChange"
+                  :on-setting-value-update="(key, v) => { (settingValues as any)[key] = v }"
+                  :format-slider-value="formatSliderValue"
+                  :get-setting-options="getSettingOptions"
+                />
               </template>
               </div>
             </div>
 
           </section>
 
-          <section v-else key="manage" class="space-y-4">
-            <div class="rounded-3xl bg-[#262b33] px-5 py-6 shadow-md">
-              <div class="mb-4 flex items-center gap-3 text-xl font-semibold">
-                <img :src="accountsIcon" alt="Manage accounts" class="h-6 w-6" />
-                <span>Manage accounts</span>
-              </div>
-
-              <div class="space-y-4 text-white/90">
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div class="flex items-center gap-3">
-                    <img src="/assets/topCommentMenu/reddit.svg" alt="Reddit" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
-                    <div>
-                      <p class="text-sm text-white/70">Reddit</p>
-                      <p class="text-base font-semibold">{{ redditDisplayStatus }}</p>
-                      <p v-if="redditUsesCookieMode && getRedditAccount()?.isConnected" class="text-xs text-white/70">Connected via browser session</p>
-                      <p v-else-if="!redditUsesCookieMode" class="text-xs text-white/70">{{ getRedditAccount()?.isConnected ? 'Connected via Reddit (software-app)' : 'Login with Reddit (software-app)' }}</p>
-                    </div>
-                  </div>
-                  <button
-                    class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20 disabled:opacity-50"
-                    :disabled="anyAccountLoading || (redditUsesCookieMode && !redditCanLogin)"
-                    @click="redditUsesCookieMode ? handleLogin() : (getRedditAccount()?.isConnected ? handleLogout() : handleLogin())"
-                  >
-                    {{ redditUsesCookieMode ? (redditCanLogin ? 'Login' : 'Connected') : (getRedditAccount()?.isConnected ? 'Logout' : 'Login') }}
-                  </button>
-                </div>
-
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div class="flex items-center gap-3">
-                    <img src="/assets/topCommentMenu/disqusLogo.svg" alt="Disqus" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
-                    <div>
-                      <p class="text-sm text-white/70">Disqus</p>
-                      <p class="text-base font-semibold">{{ getDisqusAccount()?.isConnected ? (getDisqusAccount()?.username || 'Connected') : 'Not connected' }}</p>
-                    </div>
-                  </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20 disabled:opacity-50" :disabled="anyAccountLoading" @click="getDisqusAccount()?.isConnected ? handleDisqusLogout() : handleDisqusLogin()">
-                    {{ getDisqusAccount()?.isConnected ? 'Logout' : 'Login' }}
-                  </button>
-                </div>
-
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div class="flex items-center gap-3">
-                    <img src="/assets/topCommentMenu/youtubeLogo.svg" alt="YouTube" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
-                    <div>
-                      <p class="text-sm text-white/70">YouTube</p>
-                      <p class="text-base font-semibold">{{ getYouTubeAccount()?.isConnected ? (getYouTubeAccount()?.username || 'Connected') : 'Not linked' }}</p>
-                    </div>
-                  </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="anyAccountLoading" @click="getYouTubeAccount()?.isConnected ? handleYouTubeLogout() : handleYouTubeLogin()">
-                    {{ getYouTubeAccount()?.isConnected ? 'Logout' : 'Connect' }}
-                  </button>
-                </div>
-
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div class="flex items-center gap-3">
-                    <img src="/assets/topCommentMenu/malLogo.svg" alt="MyAnimeList" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
-                    <div>
-                      <p class="text-sm text-white/70">MyAnimeList</p>
-                      <p class="text-base font-semibold">{{ getMALAccount()?.isConnected ? 'Connected' : 'Not linked' }}</p>
-                    </div>
-                  </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="anyAccountLoading" @click="getMALAccount()?.isConnected ? handleMALLogout() : handleMALLogin()">
-                    {{ getMALAccount()?.isConnected ? 'Logout' : 'Connect' }}
-                  </button>
-                </div>
-
-                <div class="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-                  <div class="flex items-center gap-3">
-                    <img src="/assets/topCommentMenu/anilistIcon.svg" alt="AniList" class="h-9 w-9 rounded-lg bg-white/5 p-1" />
-                    <div>
-                      <p class="text-sm text-white/70">AniList</p>
-                      <p class="text-base font-semibold">{{ getAniListAccount()?.isConnected ? 'Connected' : 'Not linked' }}</p>
-                    </div>
-                  </div>
-                  <button class="rounded-lg bg-white/15 px-3 py-2 text-sm font-semibold hover:bg-white/20" :disabled="anyAccountLoading" @click="getAniListAccount()?.isConnected ? handleAniListLogout() : handleAniListLogin()">
-                    {{ getAniListAccount()?.isConnected ? 'Logout' : 'Connect' }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-          </section>
+          <ManageAccountsPanel
+            v-else
+            key="manage"
+            :any-account-loading="anyAccountLoading"
+            :reddit-display-status="redditDisplayStatus"
+            :reddit-uses-cookie-mode="redditUsesCookieMode"
+            :reddit-can-login="redditCanLogin"
+            :reddit="getRedditAccount()"
+            :disqus="getDisqusAccount()"
+            :youtube="getYouTubeAccount()"
+            :mal="getMALAccount()"
+            :anilist="getAniListAccount()"
+            :on-reddit-login="handleLogin"
+            :on-reddit-logout="handleLogout"
+            :on-disqus-login="handleDisqusLogin"
+            :on-disqus-logout="handleDisqusLogout"
+            :on-youtube-login="handleYouTubeLogin"
+            :on-youtube-logout="handleYouTubeLogout"
+            :on-mal-login="handleMALLogin"
+            :on-mal-logout="handleMALLogout"
+            :on-anilist-login="handleAniListLogin"
+            :on-anilist-logout="handleAniListLogout"
+          />
         </transition>
 
         <div class="pt-1 text-center">
@@ -2905,12 +2048,5 @@ function triggerHeaderCustomMappingsImport() {
 
 .settings-icon {
   filter: brightness(0) invert(1);
-}
-
-/* Home screen account list: 4th item fades out to hint at more */
-.home-accounts-fade {
-  mask-image: linear-gradient(to bottom, white 10%, transparent 95%);
-  -webkit-mask-image: linear-gradient(to bottom, white 10%, transparent 95%);
-  pointer-events: none;
 }
 </style>
