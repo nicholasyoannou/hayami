@@ -1,3 +1,4 @@
+import { con } from '@/utils/logger';
 import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import {
   useImagePreview,
@@ -27,6 +28,8 @@ import {
   type ImgurVideoCdnOption,
 } from '@/config/storage';
 
+const log = con.m('Preview');
+
 let cachedImgchestApiKey: string | null | undefined;
 let embedImagesEnabled = true;
 let imgurFrontendProvider: ImgurFrontendOption = 'imgur';
@@ -36,7 +39,7 @@ async function refreshImgurImagePreferences(): Promise<void> {
   try {
     await initializeImgurRegionDefaultsOnce();
   } catch (error) {
-    console.warn('[preview] Failed to initialize Imgur region defaults', error);
+    log.warn('Failed to initialize Imgur region defaults', error);
   }
 
   try {
@@ -71,7 +74,7 @@ async function getImgurClientId(): Promise<string | null> {
     if (typeof raw === 'string' && raw.trim()) return raw.trim();
     return DEFAULT_IMGUR_CLIENT_ID;
   } catch (e) {
-    console.warn('[preview] Failed to read Imgur Client ID', e);
+    log.warn('Failed to read Imgur Client ID', e);
     return DEFAULT_IMGUR_CLIENT_ID;
   }
 }
@@ -89,10 +92,10 @@ async function fetchImgurAlbumViaExtension(albumId: string, clientId: string | n
         return j.data.images.map((it: any) => it.link).filter(Boolean);
       }
     } else {
-      console.warn('[preview] Imgur album via extensionFetch non-ok', { status: resp.status });
+      log.warn('Imgur album via extensionFetch non-ok', { status: resp.status });
     }
   } catch (e) {
-    console.warn('[preview] Imgur album via extensionFetch failed', e);
+    log.warn('Imgur album via extensionFetch failed', e);
   }
 
   return [];
@@ -104,7 +107,7 @@ async function getImgchestApiKey(): Promise<string | null> {
     cachedImgchestApiKey = typeof raw === 'string' && raw.trim() ? raw.trim() : null;
     return cachedImgchestApiKey;
   } catch (e) {
-    console.warn('[preview] Failed to read ImgChest API key', e);
+    log.warn('Failed to read ImgChest API key', e);
     cachedImgchestApiKey = null;
     return null;
   }
@@ -114,7 +117,7 @@ async function refreshEmbedImagesEnabled(preview: ReturnType<typeof useImagePrev
   try {
     embedImagesEnabled = Boolean(await embedImagesItem.getValue());
   } catch (e) {
-    console.warn('[preview] Failed to read embed images toggle', e);
+    log.warn('Failed to read embed images toggle', e);
     embedImagesEnabled = true;
   }
 
@@ -147,7 +150,7 @@ function extractImgchestImages(payload: any): string[] {
 async function fetchImgchestAlbumImages(albumId: string): Promise<string[]> {
   const key = await getImgchestApiKey();
   if (!key) {
-    console.warn('[preview] ImgChest API key not set; cannot resolve album');
+    log.warn('ImgChest API key not set; cannot resolve album');
     return [];
   }
 
@@ -161,14 +164,14 @@ async function fetchImgchestAlbumImages(albumId: string): Promise<string[]> {
     try {
       const resp = await extensionFetch(url, { headers } as any);
       if (!resp.ok) {
-        console.warn('[preview] ImgChest request failed', url, resp.status);
+        log.warn('ImgChest request failed', url, resp.status);
         continue;
       }
       const payload = await resp.json();
       const images = extractImgchestImages(payload);
       if (images.length > 0) return images;
     } catch (e) {
-      console.warn('[preview] ImgChest fetch error', e);
+      log.warn('ImgChest fetch error', e);
     }
   }
 
@@ -221,7 +224,7 @@ async function fetchPostimgImages(pageUrl: string): Promise<string[]> {
     } as any);
 
     if (!resp.ok) {
-      console.warn('[preview] Postimg request failed', pageUrl, resp.status);
+      log.warn('Postimg request failed', pageUrl, resp.status);
       return [];
     }
 
@@ -230,7 +233,7 @@ async function fetchPostimgImages(pageUrl: string): Promise<string[]> {
 
     return extractPostimgImageUrls(html);
   } catch (e) {
-    console.warn('[preview] Postimg fetch failed', e);
+    log.warn('Postimg fetch failed', e);
     return [];
   }
 }
@@ -350,33 +353,33 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     
     // Debug logging
     if (ds) {
-      console.debug('[preview] Album link detected:', href, 'data-ri-images:', ds, 'parsed:', multi);
+      log.debug('Album link detected:', href, 'data-ri-images:', ds, 'parsed:', multi);
     }
     
     // If no data-ri-images, check if it's a host link that needs fetching on-demand
     if (!multi) {
       const postimgMatch = parsePostimgUrl(href);
       if (postimgMatch) {
-        console.debug(`[preview] Fetching Postimg ${postimgMatch.kind} on-demand:`, postimgMatch.id);
+        log.debug(`Fetching Postimg ${postimgMatch.kind} on-demand:`, postimgMatch.id);
         try {
           ensurePreviewStarted(); // show spinner immediately
           const images = await fetchPostimgImages(href);
           if (images.length > 0) {
             multi = postimgMatch.kind === 'single' ? [images[0]] : images;
-            console.debug(`[preview] Postimg ${postimgMatch.kind} resolved to`, multi.length, 'images');
+            log.debug(`Postimg ${postimgMatch.kind} resolved to`, multi.length, 'images');
             a.setAttribute('data-ri-images', JSON.stringify(multi));
           } else {
-            console.warn(`[preview] Postimg ${postimgMatch.kind} returned no images`);
+            log.warn(`Postimg ${postimgMatch.kind} returned no images`);
           }
         } catch (e) {
-          console.warn(`[preview] Postimg ${postimgMatch.kind} fetch failed:`, e);
+          log.warn(`Postimg ${postimgMatch.kind} fetch failed:`, e);
         }
       }
       // Check for imgur album: imgur.com|imgur.io/a/<id>
       else {
         const albumMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.(?:com|io)\/a\/(\w+)/i);
         if (albumMatch) {
-        console.debug('[preview] Fetching album on-demand:', albumMatch[1]);
+        log.debug('Fetching album on-demand:', albumMatch[1]);
         try {
           const albumId = albumMatch[1];
           let images: string[] = [];
@@ -404,37 +407,37 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
               const clientId = await getImgurClientId();
               images = await fetchImgurAlbumViaExtension(albumId, clientId);
             } catch (e2) {
-              console.warn('[preview] Failed to fetch album:', e2);
+              log.warn('Failed to fetch album:', e2);
             }
           }
           
           if (images.length > 0) {
-            console.debug('[preview] Album resolved to', images.length, 'images');
+            log.debug('Album resolved to', images.length, 'images');
             multi = images;
             // Cache it for future hovers
             a.setAttribute('data-ri-images', JSON.stringify(images));
           }
         } catch (e) {
-          console.warn('[preview] Album fetch failed:', e);
+          log.warn('Album fetch failed:', e);
         }
         }
         // Check for direct imgur link: imgur.com|imgur.io/<id>
         else {
           const imgchestAlbumMatch = href.match(/^https?:\/\/(?:www\.)?imgchest\.com\/(?:a|p)\/([\w-]+)/i);
           if (imgchestAlbumMatch) {
-          console.debug('[preview] Fetching ImgChest album on-demand:', imgchestAlbumMatch[1]);
+          log.debug('Fetching ImgChest album on-demand:', imgchestAlbumMatch[1]);
           try {
             ensurePreviewStarted(); // show spinner immediately
             const images = await fetchImgchestAlbumImages(imgchestAlbumMatch[1]);
             if (images.length > 0) {
-              console.debug('[preview] ImgChest album resolved to', images.length, 'images');
+              log.debug('ImgChest album resolved to', images.length, 'images');
               multi = images;
               a.setAttribute('data-ri-images', JSON.stringify(images));
             } else {
-              console.warn('[preview] ImgChest album returned no images');
+              log.warn('ImgChest album returned no images');
             }
           } catch (e) {
-            console.warn('[preview] ImgChest album fetch failed:', e);
+            log.warn('ImgChest album fetch failed:', e);
           }
           } else {
             const directMatch = href.match(/^https?:\/\/(?:www\.)?imgur\.(?:com|io)\/(\w+)(?:\.\w+)?$/i);
@@ -442,7 +445,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
             const id = directMatch[1];
             // Skip if it's 'a' or 'gallery' (those are albums)
             if (id.toLowerCase() !== 'a' && id.toLowerCase() !== 'gallery') {
-              console.debug('[preview] Fetching imgur direct link on-demand:', id);
+              log.debug('Fetching imgur direct link on-demand:', id);
               try {
                 let resolved: string | null = null;
 
@@ -458,7 +461,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
                     if (j?.data?.link) resolved = j.data.link;
                   }
                 } catch (e2) {
-                  console.debug('[preview] Imgur API failed, trying alternatives:', e2);
+                  log.debug('Imgur API failed, trying alternatives:', e2);
                 }
 
                 // Fall back to trying common i.imgur extensions.
@@ -500,21 +503,21 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
                       }
                     }
                   } catch (e1) {
-                    console.debug('[preview] GB proxy failed:', e1);
+                    log.debug('GB proxy failed:', e1);
                   }
                 }
                 
                 if (resolved) {
-                  console.debug('[preview] Imgur direct link resolved to:', resolved);
+                  log.debug('Imgur direct link resolved to:', resolved);
                   // Set as single image in array format for consistency
                   multi = [resolved];
                   // Cache it for future hovers
                   a.setAttribute('data-ri-images', JSON.stringify(multi));
                 } else {
-                  console.warn('[preview] Failed to resolve imgur direct link:', id);
+                  log.warn('Failed to resolve imgur direct link:', id);
                 }
               } catch (e) {
-                console.warn('[preview] Imgur direct link fetch failed:', e);
+                log.warn('Imgur direct link fetch failed:', e);
               }
             }
             }
@@ -535,7 +538,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     }
 
     if (multi && Array.isArray(multi) && multi.length > 0) {
-      console.debug('[preview] Loading multi-image gallery with', multi.length, 'images');
+      log.debug('Loading multi-image gallery with', multi.length, 'images');
       preview.loadMultiImage(multi);
       preview.focusHost();
     } else {

@@ -4,6 +4,9 @@ import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, getSubredditModeratorSet, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
 import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem } from '@/config/storage';
 import { getCurrentUsername } from '@/utils/redditAuth';
+import { con } from '@/utils/logger';
+
+const log = con.m('RedditComments');
 
 const props = defineProps<{
   discussionId: string;
@@ -64,27 +67,27 @@ onMounted(async () => {
   try {
     textSizeIncrease.value = clampTextSizeIncrease(await redditCommentTextSizeIncreaseItem.getValue());
   } catch (error) {
-    console.warn('Failed to load comment text size increase:', error);
+    log.warn('Failed to load comment text size increase:', error);
   }
 
   try {
     const mode = await redditDeepReplyModeItem.getValue();
     deepReplyMode.value = mode === 'reddit' ? 'reddit' : 'popup';
   } catch (error) {
-    console.warn('Failed to load Reddit deep reply mode:', error);
+    log.warn('Failed to load Reddit deep reply mode:', error);
   }
 
   try {
     maxInlineDepth.value = clampMaxInlineDepth(await redditMaxInlineDepthItem.getValue());
   } catch (error) {
-    console.warn('Failed to load Reddit max inline depth:', error);
+    log.warn('Failed to load Reddit max inline depth:', error);
   }
 
   try {
     const layout = await redditCommentLayoutItem.getValue();
     commentLayout.value = layout === 'traditional' ? 'traditional' : 'threaded';
   } catch (error) {
-    console.warn('Failed to load Reddit comment layout:', error);
+    log.warn('Failed to load Reddit comment layout:', error);
   }
 
   try {
@@ -92,13 +95,13 @@ onMounted(async () => {
     const num = Math.floor(Number(raw));
     traditionalSpacing.value = Number.isFinite(num) ? Math.max(1, Math.min(5, num)) : 3;
   } catch (error) {
-    console.warn('Failed to load traditional spacing:', error);
+    log.warn('Failed to load traditional spacing:', error);
   }
 
   try {
     truncateLines.value = (await redditTruncateLinesItem.getValue()) !== false;
   } catch (error) {
-    console.warn('Failed to load truncate lines setting:', error);
+    log.warn('Failed to load truncate lines setting:', error);
   }
 });
 
@@ -277,7 +280,7 @@ async function ensureModeratorUsernames(seedComments?: RedditCommentData[]): Pro
     moderatorUsernames.value = await getSubredditModeratorSet(subreddit);
     moderatorLookupSubreddit.value = subreddit;
   } catch (e) {
-    console.warn('Failed to load subreddit moderators for badge fallback:', e);
+    log.warn('Failed to load subreddit moderators for badge fallback:', e);
   }
 }
 
@@ -315,7 +318,7 @@ async function loadComments(sort: RedditCommentSort = 'confidence') {
         const username = await getCurrentUsername();
         if (username) currentUser = username.toLowerCase();
       } catch (err) {
-        console.warn('Could not resolve username for own-comment tagging', err);
+        log.warn('Could not resolve username for own-comment tagging', err);
       }
     }
 
@@ -352,7 +355,7 @@ async function loadComments(sort: RedditCommentSort = 'confidence') {
     emit('commentsLoaded', comments.value.length);
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load comments';
-    console.error('Failed to load comments:', e);
+    log.error('Failed to load comments:', e);
   } finally {
     isLoading.value = false;
   }
@@ -387,7 +390,7 @@ function loadMoreComments() {
         renderedCount.value = Math.min(comments.value.length, renderedCount.value + added.length);
       }
     } catch (err) {
-      console.warn('Failed to load more root comments:', err);
+      log.warn('Failed to load more root comments:', err);
     }
   };
 
@@ -429,7 +432,7 @@ async function loadMoreForComment(commentId: string) {
 
   const target = find(comments.value);
   if (!target) {
-    console.warn('Comment not found for loadMoreForComment:', commentId);
+    log.warn('Comment not found for loadMoreForComment:', commentId);
     return;
   }
   if (!target.moreChildrenIds || target.moreChildrenIds.length === 0) {
@@ -468,7 +471,7 @@ async function loadMoreForComment(commentId: string) {
     // This ensures Vue detects changes to deeply nested comment structures
     comments.value = [...comments.value];
   } catch (err) {
-    console.warn('Failed to load more children for comment', commentId, err);
+    log.warn('Failed to load more children for comment', commentId, err);
   }
 }
 

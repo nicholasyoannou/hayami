@@ -18,6 +18,10 @@
  * are no-ops while a port is already live.
  */
 
+import { con } from '@/utils/logger';
+
+const log = con.m('KeepAlive');
+
 const PORT_NAME = 'hayami-keepalive';
 // Chrome force-disconnects ports at ~5 min; reconnect well before that.
 const RECONNECT_INTERVAL_MS = 4 * 60 * 1000;
@@ -49,7 +53,7 @@ function connect(): void {
   try {
     port = browser.runtime.connect({ name: PORT_NAME });
   } catch (err) {
-    console.warn('[hayami-keepalive] connect failed', err);
+    log.warn('connect failed', err);
     port = null;
     return;
   }

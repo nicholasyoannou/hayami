@@ -1,4 +1,5 @@
 import { ref, computed, onMounted } from 'vue';
+import { con } from '@/utils/logger';
 import {
   authenticateWithReddit,
   isAuthenticated,
@@ -34,6 +35,8 @@ export interface AccountActions {
   disconnect: () => Promise<void>;
   refresh: () => Promise<void>;
 }
+
+const log = con.m('Accounts');
 
 export function useAccountManagement() {
   const isLoading = ref(false);
@@ -208,7 +211,7 @@ export function useAccountManagement() {
         profilePic.value = null;
       }
     } catch (error) {
-      console.error('Error checking Reddit auth status:', error);
+      log.error('Error checking Reddit auth status:', error);
     } finally {
       if (account) account.isLoading = false;
     }
@@ -223,7 +226,7 @@ export function useAccountManagement() {
         youtubeProfilePic.value = await getStoredYouTubeProfilePic();
       }
     } catch (error) {
-      console.error('Error checking YouTube auth status:', error);
+      log.error('Error checking YouTube auth status:', error);
     }
   }
 
@@ -231,7 +234,7 @@ export function useAccountManagement() {
     try {
       isMALLoggedIn.value = await isMALAuthenticated();
     } catch (error) {
-      console.error('Error checking MAL auth status:', error);
+      log.error('Error checking MAL auth status:', error);
     }
   }
 
@@ -239,7 +242,7 @@ export function useAccountManagement() {
     try {
       isAniListLoggedIn.value = await isAniListAuthenticated();
     } catch (error) {
-      console.error('Error checking AniList auth status:', error);
+      log.error('Error checking AniList auth status:', error);
     }
   }
 
@@ -321,7 +324,7 @@ export function useAccountManagement() {
 
       return;
     } catch (error) {
-      console.error('Reddit login error:', error);
+      log.error('Reddit login error:', error);
       throw error;
     } finally {
       if (account) account.isLoading = false;
@@ -345,7 +348,7 @@ export function useAccountManagement() {
       profilePic.value = null;
       updateAccountStates();
     } catch (error) {
-      console.error('Reddit logout error:', error);
+      log.error('Reddit logout error:', error);
     } finally {
       if (account) account.isLoading = false;
     }
@@ -382,7 +385,7 @@ export function useAccountManagement() {
         return;
       }
     } catch (error) {
-      console.error('YouTube login error:', error);
+      log.error('YouTube login error:', error);
     }
     if (account) account.isLoading = false;
   }
@@ -399,7 +402,7 @@ export function useAccountManagement() {
       await checkYouTubeAuth(); // Refresh status
       updateAccountStates();
     } catch (error) {
-      console.error('YouTube logout error:', error);
+      log.error('YouTube logout error:', error);
       // Still clear local state even if logout fails
       isYouTubeLoggedIn.value = false;
       youtubeUsername.value = null;
@@ -439,7 +442,7 @@ export function useAccountManagement() {
         return;
       }
     } catch (error) {
-      console.error('MAL login error:', error);
+      log.error('MAL login error:', error);
     }
     if (account) account.isLoading = false;
   }
@@ -453,7 +456,7 @@ export function useAccountManagement() {
       isMALLoggedIn.value = false;
       updateAccountStates();
     } catch (error) {
-      console.error('MAL logout error:', error);
+      log.error('MAL logout error:', error);
     } finally {
       if (account) account.isLoading = false;
     }
@@ -488,7 +491,7 @@ export function useAccountManagement() {
         return;
       }
     } catch (error) {
-      console.error('AniList login error:', error);
+      log.error('AniList login error:', error);
     }
     if (account) account.isLoading = false;
   }
@@ -502,7 +505,7 @@ export function useAccountManagement() {
       isAniListLoggedIn.value = false;
       updateAccountStates();
     } catch (error) {
-      console.error('AniList logout error:', error);
+      log.error('AniList logout error:', error);
     } finally {
       if (account) account.isLoading = false;
     }
@@ -540,7 +543,7 @@ export function useAccountManagement() {
         }
       })();
     } catch (error) {
-      console.error('Disqus login error:', error);
+      log.error('Disqus login error:', error);
       throw error;
     } finally {
       if (account) account.isLoading = false;
@@ -606,7 +609,7 @@ export function useAccountManagement() {
       ]);
       updateAccountStates();
     } catch (error) {
-      console.error('Error refreshing accounts:', error);
+      log.error('Error refreshing accounts:', error);
     } finally {
       isLoading.value = false;
     }

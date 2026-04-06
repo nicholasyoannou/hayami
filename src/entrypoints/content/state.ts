@@ -6,6 +6,8 @@
 import type { App as VueApp } from 'vue';
 import type { AnimeInfo, DiscussionCache, CommentProvider } from './types/data';
 import { resetEnvCaches } from './env';
+import { con } from '@/utils/logger';
+const log = con.m('State');
 
 // Re-export types for convenience
 export type { DiscussionCache, CommentProvider };
@@ -173,7 +175,7 @@ export function teardownYouTubeInfiniteScroll(state: ContentState = getState()):
     try {
       state.youtubeCommentsCleanup();
     } catch (err) {
-      console.warn('[LoadingState] Error cleaning up YouTube infinite scroll:', err);
+      log.warn('Error cleaning up YouTube infinite scroll:', err);
     }
   }
   state.youtubeCommentsCleanup = null;
@@ -189,7 +191,7 @@ export function teardownRedditInfiniteScroll(state: ContentState = getState()): 
     try {
       state.redditCommentsCleanup();
     } catch (err) {
-      console.warn('[LoadingState] Error cleaning up Reddit infinite scroll:', err);
+      log.warn('Error cleaning up Reddit infinite scroll:', err);
     }
   }
   state.redditCommentsCleanup = null;
@@ -240,6 +242,6 @@ export function cleanupAllState(state: ContentState = getState()): void {
 try {
   if (import.meta.env.DEV && !(window as any).RI_DEBUG_MARKDOWN) {
     (window as any).RI_DEBUG_MARKDOWN = true;
-    console.info('[ri-markdown] Debug logging enabled');
+    log.info('Debug logging enabled');
   }
 } catch {}

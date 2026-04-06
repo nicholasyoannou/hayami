@@ -17,6 +17,8 @@ import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { safeClear } from '../utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
+import { con } from '@/utils/logger';
+const log = con.m('AniListProvider');
 
 export class AniListProvider extends BaseProvider {
   readonly name: CommentProvider = 'anilist';
@@ -52,7 +54,7 @@ export class AniListProvider extends BaseProvider {
             crSeriesTitle = epMeta?.series_title ?? null;
             crSeasonTitle = epMeta?.season_title ?? null;
           } catch (err) {
-            console.warn('[AniList] Crunchyroll metadata lookup failed', err);
+            log.warn('Crunchyroll metadata lookup failed', err);
           }
         }
 
@@ -73,7 +75,7 @@ export class AniListProvider extends BaseProvider {
             animeInfo.anilistId = fromMapper;
           }
         } catch (err) {
-          console.warn('[AniList] Mapper lookup failed; falling back to AniList search', err);
+          log.warn('Mapper lookup failed; falling back to AniList search', err);
         }
       }
 
@@ -86,7 +88,7 @@ export class AniListProvider extends BaseProvider {
       }
 
       if (!anilistId) {
-        console.warn('[AniList] Missing AniList ID, unable to fetch threads');
+        log.warn('Missing AniList ID, unable to fetch threads');
         toast.error('AniList ID missing', { description: 'Unable to fetch AniList post for this episode.' });
         const container = await this.getContainerWithRetry(
           getExternalCommentsContainer,
@@ -189,7 +191,7 @@ export class AniListProvider extends BaseProvider {
         );
         this.renderInlineError(container, 'AniList forums are unavailable right now. Please try again shortly.');
       } catch (renderErr) {
-        console.warn('[AniList] Failed to render inline error fallback', renderErr);
+        log.warn('Failed to render inline error fallback', renderErr);
       }
       handleProviderError(error, 'AniList', 'switchTo');
       clearLoadingState('AniList error');

@@ -12,10 +12,12 @@ import {
 } from './redditSubredditCache';
 import { getPostCommentsRuntime } from './redditCommentsRuntime';
 import { getMoreChildrenRuntime } from './redditMoreChildrenRuntime';
+import { con } from '@/utils/logger';
 
-const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
-const devDebug = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.debug(...args); };
-const devLog = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.log(...args); };
+const log = con.m('RedditApi');
+
+const devDebug = (...args: any[]) => { log.debug(...args); };
+const devLog = (...args: any[]) => { log.log(...args); };
 
 /**
  * Perform fetch via the extension background to avoid CORS from content scripts.
@@ -214,7 +216,7 @@ export async function searchAnimeDiscussion(
 
     return posts;
   } catch (error) {
-    console.error('Error searching anime discussion:', error);
+    log.error('Error searching anime discussion:', error);
     return [];
   }
 }
@@ -405,7 +407,7 @@ export async function isOldRedditAuthenticated(): Promise<boolean> {
     const { modhash } = await getModhash();
     return modhash !== null;
   } catch (error) {
-    console.error('Error checking old Reddit authentication:', error);
+    log.error('Error checking old Reddit authentication:', error);
     return false;
   }
 }
@@ -450,10 +452,10 @@ export async function getModhash(): Promise<{ modhash: string | null; voteHash: 
     const voteHash = voteHashMatch?.[1] || null;
     const username = userMatch?.[1] || null;
     if (!modhash) {
-      console.warn('[getModhash] Could not find modhash in HTML');
+      log.warn('Could not find modhash in HTML');
     }
     if (!voteHash) {
-      console.warn('[getModhash] Could not find vote_hash in HTML');
+      log.warn('Could not find vote_hash in HTML');
     }
     if (modhash) {
       modhashCache.modhash = modhash;
@@ -463,7 +465,7 @@ export async function getModhash(): Promise<{ modhash: string | null; voteHash: 
     }
     return { modhash, voteHash, username };
   } catch (error) {
-    console.error('Error fetching modhash from HTML:', error);
+    log.error('Error fetching modhash from HTML:', error);
     return { modhash: null, voteHash: null, username: null };
   }
 }
@@ -516,7 +518,7 @@ export async function submitCommentDirect(
 
     if (!resp.ok) {
       const responseText = await resp.text();
-      console.error('[submitCommentDirect] Request failed:', resp.status, responseText);
+      log.error('submitCommentDirect request failed:', resp.status, responseText);
       return { success: false, error: `Request failed: ${resp.status} ${responseText}` };
     }
 
@@ -559,7 +561,7 @@ export async function submitCommentDirect(
     // If we can't extract the ID but got a 200 response, still surface success so we can optimistically render
     return { success: true, commentId: undefined, username, error: 'Posted but could not parse comment id' };
   } catch (error) {
-    console.error('Error submitting comment directly:', error);
+    log.error('Error submitting comment directly:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -629,7 +631,7 @@ export async function submitComment(
     }
     return { success: false, error: directResult.error || 'Not authenticated' };
   } catch (error) {
-    console.error('Error submitting comment:', error);
+    log.error('Error submitting comment:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',
@@ -894,9 +896,7 @@ export function getRedditPostUrl(permalink: string): string {
 export function formatRedditDate(utcSeconds: number): string {
   const now = Math.floor(Date.now() / 1000); // Current time in seconds
   const diffSecs = now - utcSeconds;
-  
-  devLog('formatRedditDate:', { utcSeconds, now, diffSecs, date: new Date(utcSeconds * 1000).toISOString() });
-  
+
   if (diffSecs < 60) {
     return 'just now';
   }
@@ -968,7 +968,7 @@ export async function searchCustomPosts(query: string): Promise<RedditPost[]> {
       return [];
     }
   } catch (e) {
-    console.error('Error in custom search:', e);
+    log.error('Error in custom search:', e);
     return [];
   }
 }
@@ -1050,7 +1050,7 @@ export async function searchSeriesDiscussionsByDate(
           result = await resp.json();
         }
       } catch (e) {
-        console.warn('Error fetching unauthenticated search:', e);
+        log.warn('Error fetching unauthenticated search:', e);
       }
     }
 
@@ -1077,7 +1077,7 @@ export async function searchSeriesDiscussionsByDate(
 
     return posts;
   } catch (err) {
-    console.error('Error searching series by date:', err);
+    log.error('Error searching series by date:', err);
     return [];
   }
 }

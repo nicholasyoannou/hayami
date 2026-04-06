@@ -5,6 +5,9 @@
  */
 
 import { getMALAccessToken } from './malAuth';
+import { con } from '@/utils/logger';
+
+const log = con.m('MALForums');
 
 export type MalForumStatus = 'ok' | 'no_topic' | 'auth_required' | 'rate_limited' | 'error';
 
@@ -89,13 +92,13 @@ export async function fetchJikanForumTopics(malId: number, episode?: number): Pr
           status = proxied?.status ?? 0;
         }
       } catch (err) {
-        console.error('Jikan forum proxy fetch error:', err);
+        log.error('Jikan forum proxy fetch error:', err);
         return { status: 'error', error: 'Jikan forum fetch failed' };
       }
     }
 
     if (!data || !Array.isArray(data?.data)) {
-      console.warn('Jikan forum fetch returned no data; status:', status);
+      log.warn('Jikan forum fetch returned no data; status:', status);
       return { status: 'no_topic', topics: [] };
     }
 
@@ -111,12 +114,12 @@ export async function fetchJikanForumTopics(malId: number, episode?: number): Pr
     }));
 
     if (!topics.length) {
-      console.log('[MAL][Jikan] No topics returned', { malId, episode });
+      log.log('No topics returned', { malId, episode });
       return { status: 'no_topic', topics: [] };
     }
 
     const selectedTopic = pickEpisodeTopic(topics, episode);
-    console.log('[MAL][Jikan] Topics fetched', {
+    log.log('Topics fetched', {
       malId,
       episode,
       total: topics.length,
@@ -126,7 +129,7 @@ export async function fetchJikanForumTopics(malId: number, episode?: number): Pr
 
     return { status: selectedTopic ? 'ok' : 'no_topic', topics, selectedTopic: selectedTopic ?? null };
   } catch (err) {
-    console.error('Jikan forum fetch error:', err);
+    log.error('Jikan forum fetch error:', err);
     return { status: 'error', error: err instanceof Error ? err.message : 'Unknown error' };
   }
 }
@@ -197,7 +200,7 @@ async function fetchTextWithProxy(url: string): Promise<{ ok: boolean; status: n
       return { ok: proxied.ok, status: proxied.status ?? 0, body };
     }
   } catch (err) {
-    console.warn('[MAL][HTML] proxy fetch failed', err);
+    log.warn('HTML proxy fetch failed', err);
   }
 
   try {
@@ -315,7 +318,7 @@ async function fetchJsonWithProxy(url: string, token: string): Promise<{ ok: boo
       return { ok: proxied.ok, status: proxied.status ?? 0, body: proxied.body };
     }
   } catch (err) {
-    console.warn('MAL proxyFetch failed', err);
+    log.warn('proxyFetch failed', err);
   }
   // Fallback to direct fetch (may hit CORS if proxy is unavailable)
   try {
@@ -346,7 +349,7 @@ export async function searchMalAnimeId(animeName: string): Promise<number | null
 
     const resp = await fetchJsonWithProxy(url.toString(), token);
     if (!resp.ok) {
-      console.warn('MAL anime search failed:', resp.status);
+      log.warn('Anime search failed:', resp.status);
       return null;
     }
     const data = resp.body;
@@ -354,7 +357,7 @@ export async function searchMalAnimeId(animeName: string): Promise<number | null
     const id = first?.node?.id ?? first?.id;
     return typeof id === 'number' ? id : null;
   } catch (err) {
-    console.error('MAL anime search error:', err);
+    log.error('Anime search error:', err);
     return null;
   }
 }
@@ -389,7 +392,7 @@ export function pickEpisodeTopic(topics: MalForumTopic[] = [], episode?: number)
   }));
 
   if (ep !== null) {
-    console.log('[MAL][Picker] Selecting topic', {
+    log.log('Selecting topic', {
       requestedEpisode: ep,
       candidates: enriched.slice(0, 10).map((e) => ({ title: e.topic.title, episodes: e.episodes })),
     });
@@ -519,7 +522,7 @@ export async function fetchMalForumTopics(
       selectedTopic: selectedTopic ?? null,
     };
   } catch (error) {
-    console.error('MAL forum fetch error:', error);
+    log.error('Forum fetch error:', error);
     return { status: 'error', error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
@@ -548,7 +551,7 @@ export async function fetchMalTopicPosts(topicId: number | string, nextUrl?: str
       return { status: 'rate_limited', retryAfterSeconds: undefined };
     }
     if (!resp.ok) {
-      console.error('MAL topic fetch failed:', resp.status, resp.body);
+      log.error('Topic fetch failed:', resp.status, resp.body);
       return { status: 'error', error: `Topic fetch failed (${resp.status})` };
     }
 
@@ -574,7 +577,7 @@ export async function fetchMalTopicPosts(topicId: number | string, nextUrl?: str
 
     return { status: 'ok', posts, nextPageUrl };
   } catch (error) {
-    console.error('MAL topic fetch error:', error);
+    log.error('Topic fetch error:', error);
     return { status: 'error', error: error instanceof Error ? error.message : 'Unknown error' };
   }
 }
@@ -599,7 +602,7 @@ export async function fetchMalBoardTopics(boardId: number, limit: number = 20): 
       return { status: 'rate_limited', retryAfterSeconds: undefined };
     }
     if (!resp.ok) {
-      console.error('MAL board topics fetch failed:', resp.status, resp.body);
+      log.error('Board topics fetch failed:', resp.status, resp.body);
       return { status: 'error', error: `Board topics fetch failed (${resp.status})` };
     }
 
@@ -619,7 +622,7 @@ export async function fetchMalBoardTopics(boardId: number, limit: number = 20): 
 
     return { status: 'ok', topics };
   } catch (err) {
-    console.error('MAL board topics error:', err);
+    log.error('Board topics error:', err);
     return { status: 'error', error: err instanceof Error ? err.message : 'Unknown error' };
   }
 }

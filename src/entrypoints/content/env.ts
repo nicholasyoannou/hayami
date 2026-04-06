@@ -6,6 +6,9 @@
 
 import { useAnimeInfo, useWatchPageDetection } from '@/composables/useAnimeInfo';
 import { useDisplayMode } from '@/composables/useDisplayMode';
+import { con } from '@/utils/logger';
+
+const log = con.m('Env');
 
 export const animeInfoService = useAnimeInfo();
 export const displayModeService = useDisplayMode();
@@ -15,6 +18,6 @@ export function resetEnvCaches(): void {
   try {
     animeInfoService.clearCache();
   } catch (err) {
-    console.warn('[env] Failed to clear anime info cache', err);
+    log.warn('Failed to clear anime info cache', err);
   }
 }

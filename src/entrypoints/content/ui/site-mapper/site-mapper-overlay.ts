@@ -1,5 +1,8 @@
 // @ts-ignore Missing types for wxt in this context
 import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import { con } from '@/utils/logger';
+
+const log = con.m('SiteMapper');
 import type { CustomSiteMapping, DisplayPlacement, IconDisplayAction, IconDisplayKind } from './types';
 import { CUSTOM_SITE_MAPPINGS_KEY } from './types';
 import {
@@ -23,11 +26,11 @@ import {
 import { setLastProcessedKey } from '../../state';
 import { getUiManager } from '../../core/ui-manager';
 
-export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void): void {
+export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void, ensureFeatureInitialized?: () => void): void {
   if (isMapperHotkeyAttached()) return;
   setMapperHotkeyAttached(true);
 
-  const openOverlay = () => openSiteMapperOverlay(ctx, toast, queueHandleWatchPage);
+  const openOverlay = () => openSiteMapperOverlay(ctx, toast, queueHandleWatchPage, ensureFeatureInitialized);
 
   const onHotkey = (ev: KeyboardEvent) => {
     if (ev.defaultPrevented || ev.repeat) return;
@@ -70,7 +73,7 @@ export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, que
   browser.runtime.onMessage.addListener((msg, sender) => {
     // Accept same-extension messages. Some extension contexts may omit sender.id.
     if (sender?.id && sender.id !== browser.runtime.id) {
-      console.warn('[site-mapper] Rejected message from unauthorized sender:', sender.id);
+      log.warn('Rejected message from unauthorized sender:', sender.id);
       return;
     }
     
@@ -83,7 +86,7 @@ export function setupSiteMapperHotkey(ctx: ContentScriptContext, toast: any, que
   });
 }
 
-export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void): void {
+export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, queueHandleWatchPage: (ctx: ContentScriptContext) => void, ensureFeatureInitialized?: () => void): void {
   if (document.getElementById('hayami-site-mapper-overlay')) return;
 
   ensurePermissionForCurrentSite().then(async (granted) => {
@@ -1110,7 +1113,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
           }
         }
       } catch (err) {
-        console.warn('[site-mapper] selection read failed', err);
+        log.warn('Selection read failed', err);
       }
 
       if (startOffset < 0 || !selectedText.trim()) {
@@ -1263,7 +1266,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         updateResetButtonVisibility();
         toast.success('Overrides reset for this site');
       } catch (e) {
-        console.warn('[site-mapper] Failed to reset overrides', e);
+        log.warn('Failed to reset overrides', e);
         toast.error('Failed to reset overrides');
       }
     });
@@ -1654,9 +1657,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         // key so the re-run actually mounts the discussion panel.
         try { getUiManager().unmount(); } catch {}
         setLastProcessedKey(null);
+        // On unsupported sites the feature may not have been initialized yet
+        // (no watch URL, no prior mapping, no site match). Initialize now so
+        // that the content-script context, keep-alive, and other infrastructure
+        // are available when queueHandleWatchPage mounts the discussion UI.
+        if (ensureFeatureInitialized) ensureFeatureInitialized();
         queueHandleWatchPage(ctx);
       } catch (e) {
-        console.warn('Failed to save mapping', e);
+        log.warn('Failed to save mapping', e);
         toast.error('Failed to save mapping');
       }
     });

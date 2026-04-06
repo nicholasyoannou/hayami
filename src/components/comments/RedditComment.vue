@@ -5,6 +5,9 @@ import { markdownToHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
 import { toast } from 'vue-sonner';
+import { con } from '@/utils/logger';
+
+const log = con.m('RedditComment');
 
 const props = defineProps<{
   comment: RedditComment;
@@ -134,13 +137,13 @@ const remainingChildrenCount = computed(() => props.comment.moreCount || props.c
 // Watch for changes to moreChildrenIds to debug
 watch(() => props.comment.moreChildrenIds, (newIds, oldIds) => {
   if (newIds && newIds.length > 0) {
-    console.debug('[RedditComment] moreChildrenIds changed for comment', props.comment.id, ':', oldIds, '->', newIds);
+    log.debug('moreChildrenIds changed for comment', props.comment.id, ':', oldIds, '->', newIds);
   }
 }, { deep: true });
 
 // Watch hasMoreChildren computed
 watch(hasMoreChildren, (newVal) => {
-  console.debug('[RedditComment] hasMoreChildren changed for comment', props.comment.id, ':', newVal);
+  log.debug('hasMoreChildren changed for comment', props.comment.id, ':', newVal);
 });
 const loadingMoreChildren = ref(false);
 
@@ -213,15 +216,15 @@ const textContainerRef = ref<HTMLElement | null>(null);
 // Debug: log moreChildrenIds when component is created
 onMounted(() => {
   if (props.comment.moreChildrenIds && props.comment.moreChildrenIds.length > 0) {
-    console.debug('[RedditComment] Comment', props.comment.id, 'has moreChildrenIds:', props.comment.moreChildrenIds.length, props.comment.moreChildrenIds);
+    log.debug('Comment', props.comment.id, 'has moreChildrenIds:', props.comment.moreChildrenIds.length, props.comment.moreChildrenIds);
   }
   if (props.comment.moreCount && props.comment.moreCount > 0) {
-    console.debug('[RedditComment] Comment', props.comment.id, 'has moreCount:', props.comment.moreCount);
+    log.debug('Comment', props.comment.id, 'has moreCount:', props.comment.moreCount);
   }
   if (hasMoreChildren.value) {
-    console.debug('[RedditComment] Comment', props.comment.id, 'hasMoreChildren is TRUE');
+    log.debug('Comment', props.comment.id, 'hasMoreChildren is TRUE');
   } else {
-    console.debug('[RedditComment] Comment', props.comment.id, 'hasMoreChildren is FALSE', {
+    log.debug('Comment', props.comment.id, 'hasMoreChildren is FALSE', {
       moreChildrenIds: props.comment.moreChildrenIds,
       moreCount: props.comment.moreCount
     });
@@ -625,7 +628,7 @@ async function handleUpvote() {
     if (!res.success) {
       // Revert
       applyLocalVoteState(prevState, prevScore);
-      console.warn('Vote failed:', res.error);
+      log.warn('Vote failed:', res.error);
       if (String(res.error || '').includes('403')) {
         toast.error('Voting requires updated Reddit permissions. Please re-login.');
       }
@@ -661,7 +664,7 @@ async function handleDownvote() {
     if (!res.success) {
       // Revert
       applyLocalVoteState(prevState, prevScore);
-      console.warn('Vote failed:', res.error);
+      log.warn('Vote failed:', res.error);
       if (String(res.error || '').includes('403')) {
         toast.error('Voting requires updated Reddit permissions. Please re-login.');
       }

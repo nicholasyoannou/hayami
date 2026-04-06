@@ -4,6 +4,7 @@
 
 import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import type { AnimeInfo } from './types';
+import { con } from '@/utils/logger';
 import {
   getState,
   setLastAnimeInfo,
@@ -11,6 +12,8 @@ import {
   setActiveObserver,
   setDebounceTimer,
 } from './state';
+
+const log = con.m('WatchPage');
 
 // Forward declaration - will be set by main module
 let searchAndDisplayDiscussionFn: ((info: AnimeInfo) => Promise<void>) | null = null;
@@ -37,17 +40,17 @@ export function queueHandleWatchPage(ctx: ContentScriptContext): void {
  * Handles logic for watch pages - extracts and processes anime info
  */
 export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
-  console.log('On watch page, extracting anime info...');
+  log.log('On watch page, extracting anime info...');
 
   // Try to get anime info immediately
   const info = getAnimeInfo();
 
   if (info) {
-    console.log('Anime Info:', info);
+    log.log('Anime Info:', info);
     setLastAnimeInfo(info);
     const key = `${info.animeName}|${info.episodeName}`;
     if (key === getState().lastProcessedKey) {
-      console.log('Already processed this episode, skipping duplicate search');
+      log.log('Already processed this episode, skipping duplicate search');
       return;
     }
     setLastProcessedKey(key);
@@ -57,7 +60,7 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
     }
   } else {
     // If not found, wait for the content to load
-    console.log('Anime info not found yet, waiting for content to load...');
+    log.log('Anime info not found yet, waiting for content to load...');
     observeAnimeInfoOnce(ctx);
   }
 }
@@ -72,7 +75,7 @@ export function getAnimeInfo(): AnimeInfo | null {
     const mediaInfoContainer = document.querySelector('.erc-current-media-info');
 
     if (!mediaInfoContainer) {
-      console.warn('Media info container not found');
+      log.warn('Media info container not found');
       return null;
     }
 
@@ -89,7 +92,7 @@ export function getAnimeInfo(): AnimeInfo | null {
     const releaseDate = releaseDateElement?.textContent?.trim() || undefined;
 
     if (!animeName || !episodeName) {
-      console.warn('Could not find anime name or episode name');
+      log.warn('Could not find anime name or episode name');
       return null;
     }
 
@@ -99,7 +102,7 @@ export function getAnimeInfo(): AnimeInfo | null {
       releaseDate,
     };
   } catch (error) {
-    console.error('Error extracting anime info:', error);
+    log.error('Error extracting anime info:', error);
     return null;
   }
 }
@@ -119,7 +122,7 @@ export function observeAnimeInfoOnce(ctx: ContentScriptContext): void {
     const info = getAnimeInfo();
 
     if (info) {
-      console.log('Anime Info Found:', info);
+      log.log('Anime Info Found:', info);
       setLastAnimeInfo(info);
       const key = `${info.animeName}|${info.episodeName}`;
       if (key !== getState().lastProcessedKey) {
@@ -130,7 +133,7 @@ export function observeAnimeInfoOnce(ctx: ContentScriptContext): void {
           await searchAndDisplayDiscussionFn(info);
         }
       } else {
-        console.log('Observer: already processed, skipping');
+        log.log('Observer: already processed, skipping');
       }
 
       // Disconnect the observer once we've found the info
@@ -146,5 +149,5 @@ export function observeAnimeInfoOnce(ctx: ContentScriptContext): void {
   });
   setActiveObserver(observer);
 
-  console.log('Observer set up, waiting for anime info to load...');
+  log.log('Observer set up, waiting for anime info to load...');
 }

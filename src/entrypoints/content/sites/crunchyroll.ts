@@ -8,6 +8,8 @@ import {
 import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata } from '../adapters/types';
 import type { SiteProviderDefinition } from './provider-definition';
 import { buildLocationMatcher } from './provider-definition';
+import { con } from '@/utils/logger';
+const log = con.m('Crunchyroll');
 
 export const crunchyrollUrlMatchPatterns = [
   '*://*.crunchyroll.com/watch/*',
@@ -99,7 +101,7 @@ export async function detectCrunchyrollAnimeInfo() {
       releaseDate,
     };
   } catch (err) {
-    console.warn('[Detect][Crunchyroll] fallback detect failed', err);
+    log.warn('fallback detect failed', err);
     return null;
   }
 }

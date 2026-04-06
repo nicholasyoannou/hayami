@@ -6,6 +6,8 @@
 
 import { fetchHayami } from '@/utils/hayamiApi';
 import { toEpisodeDateParam } from '../utils/date-utils';
+import { con } from '@/utils/logger';
+const log = con.m('HayamiClient');
 
 /**
  * Strips season suffixes from anime names to get the series title.
@@ -22,7 +24,7 @@ function stripSeasonSuffix(animeName: string): string {
     .trim();
   
   if (stripped && stripped !== animeName) {
-    console.log('[Mapper] Stripped season suffix:', { original: animeName, stripped });
+    log.log('Stripped season suffix:', { original: animeName, stripped });
   }
   
   return stripped || animeName;
@@ -75,7 +77,7 @@ export async function fetchAnimeMapperDataBySeriesName(
     }
 
     const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}${episodeDateParam}`;
-    console.log('[Mapper] Querying mapper by series name:', { 
+    log.log('Querying mapper by series name:', { 
       url, 
       platform, 
       original: seriesName, 
@@ -87,13 +89,13 @@ export async function fetchAnimeMapperDataBySeriesName(
     });
     const response = await fetchHayami(url);
     if (!response.ok) {
-      console.log('[Mapper] Series-name mapper returned non-OK status:', response.status, response.statusText);
+      log.log('Series-name mapper returned non-OK status:', response.status, response.statusText);
       return null;
     }
     const data = await response.json();
     return data;
   } catch (error) {
-    console.error('[Mapper] Error fetching by series name:', error);
+    log.error('Error fetching by series name:', error);
     return null;
   }
 }
@@ -119,21 +121,21 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
       episodeDateParam = `&episode_date=${encodeURIComponent(normalizedDate)}`;
     }
     const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}${episodeDateParam}`;
-    console.log('[Mapper Failover] Querying mapper service URL:', url);
+    log.log('Querying mapper service URL:', url);
     const response = await fetchHayami(url);
 
     if (!response.ok) {
-      console.log('[Mapper Failover] Mapper service returned non-OK status:', response.status, response.statusText);
+      log.log('Mapper service returned non-OK status:', response.status, response.statusText);
       const text = await response.text();
-      console.log('[Mapper Failover] Response body:', text);
+      log.log('Response body:', text);
       return null;
     }
 
     const data = await response.json();
-    console.log('[Mapper Failover] Mapper service returned data:', data);
+    log.log('Mapper service returned data:', data);
     return data;
   } catch (error) {
-    console.error('[Mapper Failover] Error fetching from mapper service:', error);
+    log.error('Error fetching from mapper service:', error);
     return null;
   }
 }

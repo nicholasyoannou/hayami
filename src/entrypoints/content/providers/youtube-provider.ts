@@ -23,6 +23,8 @@ import { waitForElement, removeScripts, removeIframes, safeClear } from '../util
 import { teardownYouTubeInfiniteScroll } from '../state';
 import { toast } from 'vue-sonner';
 import { linkOnlyModeItem } from '@/config/storage';
+import { con } from '@/utils/logger';
+const log = con.m('YouTubeProvider');
 
 // Global state for YouTube (should be moved to state module)
 let currentYouTubeVideo: YouTubeVideo | null = null;
@@ -108,7 +110,7 @@ export class YouTubeProvider extends BaseProvider {
           }
         }
       } catch (e) {
-        console.log('Could not fetch season title from Crunchyroll metadata, using fallback:', e);
+        log.log('Could not fetch season title from Crunchyroll metadata, using fallback:', e);
         if (animeInfo.episodeName.includes('Season')) {
           const seasonMatch = animeInfo.episodeName.match(/Season\s*(\d+)/i);
           if (seasonMatch) {
@@ -181,7 +183,7 @@ export class YouTubeProvider extends BaseProvider {
         return;
       }
 
-      console.log('Found YouTube video:', video);
+      log.log('Found YouTube video:', video);
       setCurrentYouTubeVideo(video);
 
       // Cache the YouTube data

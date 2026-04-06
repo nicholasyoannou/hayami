@@ -7,6 +7,8 @@ import type { CommentProvider, ProviderContext } from '../types/data';
 import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { teardownRedditInfiniteScroll } from '../state';
 import { ASSETS, SELECTORS } from '../constants';
+import { con } from '@/utils/logger';
+const log = con.m('RedditProvider');
 
 export class RedditProvider extends BaseProvider {
   readonly name: CommentProvider = 'reddit';
@@ -20,10 +22,10 @@ export class RedditProvider extends BaseProvider {
     // Only clear loading if we have a resolved Reddit discussion
     // Otherwise, let the on-demand resolver clear it after fetching
     if (discussionCache.reddit?.id) {
-      console.log('[RedditProvider] Clearing loading with resolved Reddit discussion:', discussionCache.reddit.id);
+      log.log('Clearing loading with resolved Reddit discussion:', discussionCache.reddit.id);
       clearLoadingState('Reddit switchTo with resolved discussion');
     } else {
-      console.log('[RedditProvider] No Reddit discussion available, keeping loading state');
+      log.log('No Reddit discussion available, keeping loading state');
       // Don't clear loading - let the on-demand resolver handle it
     }
   }

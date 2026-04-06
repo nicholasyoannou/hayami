@@ -3,6 +3,8 @@
  */
 
 import { SELECTORS } from '../constants';
+import { con } from '@/utils/logger';
+const log = con.m('DOM');
 
 /**
  * Gets the external comments container from Vue component
@@ -21,7 +23,7 @@ export function getExternalCommentsContainer(
         }
       }
     } catch (e) {
-      console.warn('[getExternalCommentsContainer] Failed to get from Vue:', e);
+      log.warn('Failed to get from Vue:', e);
     }
   }
 

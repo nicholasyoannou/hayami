@@ -12,6 +12,9 @@
 import { browser } from 'wxt/browser';
 import { MAL_CLIENT_ID, MAL_REDIRECT_URI, MAL_SCOPES, MAL_TOKEN_PROXY_URL } from '@/config';
 import { fetchHayami } from '@/utils/hayamiApi';
+import { con } from '@/utils/logger';
+
+const log = con.m('MALAuth');
 
 const MAL_AUTH_ENDPOINT = 'https://myanimelist.net/v1/oauth2/authorize';
 // Token endpoint handled via proxy to keep the client secret off the extension bundle.
@@ -58,7 +61,7 @@ async function storeTokens(response: MalTokenResponse): Promise<void> {
 
 async function exchangeViaProxy(body: Record<string, string>): Promise<MalTokenResponse | null> {
   if (!MAL_TOKEN_PROXY_URL || MAL_TOKEN_PROXY_URL.includes('your-proxy.example.com')) {
-    console.warn('[MAL] Proxy URL not configured');
+    log.warn('Proxy URL not configured');
     return null;
   }
   const resp = await fetchHayami(MAL_TOKEN_PROXY_URL, {
@@ -71,7 +74,7 @@ async function exchangeViaProxy(body: Record<string, string>): Promise<MalTokenR
   });
   if (!resp.ok) {
     const text = await resp.text();
-    console.warn('[MAL] Proxy token exchange failed', resp.status, text);
+    log.warn('Proxy token exchange failed', resp.status, text);
     return null;
   }
   const json = await resp.json();
@@ -135,7 +138,7 @@ export async function authenticateWithMAL(options: MalAuthOptions = {}): Promise
       message: 'MAL login opened in a new tab. Complete it to finish connecting.',
     };
   } catch (error) {
-    console.error('MAL authentication error:', error);
+    log.error('Authentication error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Authentication failed. Please try again.' };
   }
 }
@@ -175,7 +178,7 @@ export async function completeMALRedirect(url: string): Promise<MalAuthResult> {
     await browser.storage.local.remove([STORAGE_KEYS.oauthState, STORAGE_KEYS.codeVerifier]);
     return { success: true };
   } catch (error) {
-    console.error('MAL redirect completion error:', error);
+    log.error('Redirect completion error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Could not complete MAL login' };
   }
 }
@@ -198,7 +201,7 @@ async function exchangeCodeForToken(
     await storeTokens(data);
     return { success: true };
   } catch (error) {
-    console.error('MAL token exchange error (proxy):', error);
+    log.error('Token exchange error (proxy):', error);
     return { success: false, error: 'Token exchange failed' };
   }
 }
@@ -215,7 +218,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
     await storeTokens(data);
     return data.access_token;
   } catch (error) {
-    console.error('MAL token refresh error (proxy):', error);
+    log.error('Token refresh error (proxy):', error);
     return null;
   }
 }

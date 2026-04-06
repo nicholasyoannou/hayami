@@ -2,6 +2,9 @@ import { getAccessToken } from './redditAuth';
 import { extensionFetchTransport } from './redditTransport';
 import { parseComments, parseLegacyContentMeta, resolveCommentDistinguished } from './redditCommentParsing';
 import type { RedditComment, RedditCommentSort } from './redditApi';
+import { con } from '@/utils/logger';
+
+const log = con.m('RedditMore');
 
 type GetMoreChildrenOptions = {
   sort?: RedditCommentSort;
@@ -172,7 +175,7 @@ export async function getMoreChildrenRuntime(
 
     return rootComments;
   } catch (e) {
-    console.error('Error loading more children:', e);
+    log.error('Error loading more children:', e);
     return [];
   }
 }

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
+import { con } from '@/utils/logger';
 import type { RedditPost } from './RedditSelectionPanel.vue';
+
+const log = con.m('Reddit');
 
 const props = defineProps<{
   onSearch?: (query: string) => Promise<RedditPost[]>;
@@ -36,7 +39,7 @@ watch(query, (newQuery) => {
       try {
         results.value = await props.onSearch(newQuery);
       } catch (e) {
-        console.error('[Reddit] Manual search error:', e);
+        log.error('Manual search error:', e);
         results.value = [];
       } finally {
         isLoading.value = false;

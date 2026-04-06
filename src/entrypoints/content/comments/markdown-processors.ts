@@ -4,6 +4,8 @@
 
 import { markdownToHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
+import { con } from '@/utils/logger';
+const log = con.m('Markdown');
 
 /**
  * Applies raw bullet list fallback if markdown pipeline fails to emit a list
@@ -54,7 +56,7 @@ export function applyRawBulletListFallback(original: string, host: HTMLElement, 
     host.innerHTML = headingHtml + listHtml;
     
     if (debugMatch) {
-      console.debug('[medaka-debug] applied raw-body bullet fallback');
+      log.debug('applied raw-body bullet fallback');
     }
   }
 }
@@ -138,7 +140,7 @@ export function applyDomParagraphListFallback(host: HTMLElement, debugMatch?: bo
       lead.parentElement?.insertBefore(ul, lead.nextSibling);
       
       if (debugMatch) {
-        console.debug('[medaka-debug] applied DOM paragraph->list fallback');
+        log.debug('applied DOM paragraph->list fallback');
       }
     }
   } catch (e) {

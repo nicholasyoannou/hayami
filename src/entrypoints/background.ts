@@ -1,3 +1,5 @@
+import { con, banner, initLoggerFromStorage } from '@/utils/logger';
+const bg = con.m('Background');
 import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
 import { exchangeCodeForToken as exchangeRedditCode } from '@/utils/redditAuth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth, completeYouTubeRedirect } from '@/utils/youtubeAuth';
@@ -14,7 +16,9 @@ import {
   komentoScriptSourceRegistryItem,
   komentoScriptTargetSelectionsItem,
   komentoScriptSyncStateItem,
+  malSyncEnabledItem,
 } from '@/config/storage';
+import { detectMalSync, queryMalSyncPresence } from '@/utils/malSync';
 import {
   KOMENTOSCRIPT_WEEKLY_ALARM,
   ensureKomentoSourceRegistryInitialized,
@@ -68,14 +72,14 @@ async function migrateLocalToSync(): Promise<void> {
           if (!(key in localData) || localData[key] === undefined || localData[key] === null
               || (typeof localData[key] === 'object' && Object.keys(localData[key]).length === 0)) {
             await browser.storage.local.set({ [key]: syncData[key] });
-            console.log(`[background] Recovered ${key} from sync back to local`);
+            bg.log(` Recovered ${key} from sync back to local`);
           }
           // Remove from sync regardless (it shouldn't be there)
           await browser.storage.sync.remove(key);
         }
       }
     } catch (err) {
-      console.warn('[background] Sync recovery check failed (non-fatal)', err);
+      bg.warn(' Sync recovery check failed (non-fatal)', err);
     }
 
     // --- Phase 2: Migrate small config items from local → sync ---
@@ -107,7 +111,7 @@ async function migrateLocalToSync(): Promise<void> {
 
       if (Object.keys(finalSync).length > 0) {
         await browser.storage.sync.set(finalSync);
-        console.log('[background] Migrated to sync storage:', Object.keys(finalSync));
+        bg.log('Migrated to sync storage:', Object.keys(finalSync));
       }
 
       // Remove migrated keys from local storage
@@ -118,9 +122,9 @@ async function migrateLocalToSync(): Promise<void> {
 
     // Mark migration as complete
     await browser.storage.local.set({ [SYNC_MIGRATION_KEY]: true });
-    console.log('[background] Sync storage migration complete');
+    bg.log('Sync storage migration complete');
   } catch (error) {
-    console.warn('[background] Sync storage migration failed (non-fatal)', error);
+    bg.warn(' Sync storage migration failed (non-fatal)', error);
     // Don't mark as complete so it retries next startup
   }
 }
@@ -407,14 +411,14 @@ async function handleProxyFetch(
       body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
     }
     const headers = Array.from(resp.headers.entries());
-    console.debug(`[background] ${label} response:`, { url, ok: resp.ok, status: resp.status, headers });
+    bg.debug(`${label} response:`, { url, ok: resp.ok, status: resp.status, headers });
     if (!resp.ok) {
       const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-      console.warn(`[background] ${label} non-OK response:`, { url, status: resp.status, body: bodyStr.slice(0,500) });
+      bg.warn(`${label} non-OK response:`, { url, status: resp.status, body: bodyStr.slice(0,500) });
     }
     sendResponse({ ok: resp.ok, status: resp.status, statusText: resp.statusText, headers, body });
   } catch (err) {
-    console.error(`[background] ${label} error:`, err);
+    bg.error(`${label} error:`, err);
     sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
   }
 }
@@ -597,7 +601,7 @@ async function unregisterContentScriptsForHost(host: string): Promise<void> {
       }
     }
   } catch (error) {
-    console.warn('[background] Failed to unregister content scripts for host', host, error);
+    bg.warn(' Failed to unregister content scripts for host', host, error);
   }
 }
 
@@ -691,12 +695,12 @@ async function requestSitePermission(url: string): Promise<boolean> {
           });
         });
       } catch (error) {
-        console.warn('requestSitePermission threw', error);
+        bg.warn('requestSitePermission threw', error);
         resolve(false);
       }
     });
   } catch (e) {
-    console.warn('requestSitePermission failed', e);
+    bg.warn('requestSitePermission failed', e);
     return false;
   }
 }
@@ -745,7 +749,7 @@ async function registerContextMenu(): Promise<void> {
       contexts: ['page'],
     });
   } catch (e) {
-    console.warn('Failed to create context menu', e);
+    bg.warn('Failed to create context menu', e);
   }
 }
 
@@ -782,7 +786,7 @@ async function hasRedditSessionCookie(): Promise<boolean> {
       return domain === 'reddit.com' || domain.endsWith('.reddit.com');
     });
   } catch (error) {
-    console.warn('[background] Failed to read Reddit cookies for auth check', error);
+    bg.warn(' Failed to read Reddit cookies for auth check', error);
     return false;
   }
 }
@@ -832,13 +836,15 @@ async function getRedditSessionProfile(): Promise<{ loggedIn: boolean; username?
     // If session cookie exists but profile lookup fails, keep loggedIn true.
     return { loggedIn: true };
   } catch (error) {
-    console.warn('[background] Failed to fetch Reddit session profile', error);
+    bg.warn(' Failed to fetch Reddit session profile', error);
     return { loggedIn: false };
   }
 }
 
 export default defineBackground(() => {
-  console.log('Hayami - Background service started');
+  initLoggerFromStorage();
+  const version = browser.runtime.getManifest()?.version ?? 'dev';
+  banner(version);
 
   // Keep-alive port handler: content scripts open a long-lived port while
   // they are actively rendering discussions so the MV3 service worker does
@@ -858,7 +864,7 @@ export default defineBackground(() => {
       } catch {}
     });
   } catch (err) {
-    console.warn('[background] Failed to register keep-alive onConnect listener', err);
+    bg.warn(' Failed to register keep-alive onConnect listener', err);
   }
 
   // CRITICAL: Register the message listener FIRST, before any other initialization
@@ -896,14 +902,14 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // SECURITY: Validate that messages come from this extension only
     if (sender.id !== browser.runtime.id) {
-      console.warn('[background] Rejected message from unauthorized sender:', sender.id);
+      bg.warn(' Rejected message from unauthorized sender:', sender.id);
       return false;
     }
     // Handle proxyFetch (needs sendResponse and return true)
     // Namespaced to avoid conflicts with other extensions
     if (message.action === 'hayami_proxyFetch') {
       const { url, init } = message;
-      console.debug('[background] hayami_proxyFetch requested:', url, { init });
+      bg.debug(' hayami_proxyFetch requested:', url, { init });
       handleProxyFetch(url, init, 'hayami_proxyFetch', sendResponse);
       return true; // keep message channel open for async response
     }
@@ -919,7 +925,7 @@ export default defineBackground(() => {
           await setPollBlockForTab(tabId, !!message.enable);
           sendResponse({ ok: true });
         } catch (error) {
-          console.warn('[background] Failed to toggle poll block', error);
+          bg.warn(' Failed to toggle poll block', error);
           sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
         }
       })();
@@ -1073,7 +1079,7 @@ export default defineBackground(() => {
 
           sendResponse({ loggedIn: true, username });
         } catch (error) {
-          console.warn('[background] Failed to check Disqus session', error);
+          bg.warn(' Failed to check Disqus session', error);
           sendResponse({ loggedIn: false });
         }
       })();
@@ -1382,7 +1388,7 @@ export default defineBackground(() => {
           const result = await authenticateWithReddit();
           sendResponse(result);
         } catch (error) {
-          console.error('Authentication error:', error);
+          bg.error('Authentication error:', error);
           sendResponse({ 
             success: false, 
             error: error instanceof Error ? error.message : 'Unknown error' 
@@ -1406,7 +1412,7 @@ export default defineBackground(() => {
           const token = await getYouTubeAccessToken(false);
           sendResponse({ token });
         } catch (error) {
-          console.error('Error getting YouTube token:', error);
+          bg.error('Error getting YouTube token:', error);
           sendResponse({ token: null, error: error instanceof Error ? error.message : 'Unknown error' });
         }
       })();
@@ -1419,7 +1425,7 @@ export default defineBackground(() => {
           const result = await authenticateWithYouTube();
           sendResponse(result);
         } catch (error) {
-          console.error('YouTube authentication error:', error);
+          bg.error('YouTube authentication error:', error);
           sendResponse({ 
             success: false, 
             error: error instanceof Error ? error.message : 'Unknown error' 
@@ -1435,7 +1441,7 @@ export default defineBackground(() => {
           const authenticated = await checkYouTubeAuth();
           sendResponse({ authenticated });
         } catch (error) {
-          console.error('Error checking YouTube auth:', error);
+          bg.error('Error checking YouTube auth:', error);
           sendResponse({ authenticated: false });
         }
       })();
@@ -1448,7 +1454,7 @@ export default defineBackground(() => {
           const result = await authenticateWithMAL();
           sendResponse(result);
         } catch (error) {
-          console.error('MAL authentication error:', error);
+          bg.error('MAL authentication error:', error);
           sendResponse({
             success: false,
             error: error instanceof Error ? error.message : 'Unknown error',
@@ -1464,7 +1470,7 @@ export default defineBackground(() => {
           const authenticated = await checkMALAuth();
           sendResponse({ authenticated });
         } catch (error) {
-          console.error('Error checking MAL auth:', error);
+          bg.error('Error checking MAL auth:', error);
           sendResponse({ authenticated: false });
         }
       })();
@@ -1477,7 +1483,7 @@ export default defineBackground(() => {
           const token = await getMALAccessToken(false);
           sendResponse({ token });
         } catch (error) {
-          console.error('Error getting MAL token:', error);
+          bg.error('Error getting MAL token:', error);
           sendResponse({ token: null, error: error instanceof Error ? error.message : 'Unknown error' });
         }
       })();
@@ -1516,7 +1522,7 @@ export default defineBackground(() => {
     if (message.action === 'hayami_cr_proxyFetch') {
       const { url } = message as any;
       const init = Object.assign({}, (message as any).init || {}, { credentials: 'omit' });
-      console.debug('[background] hayami_cr_proxyFetch requested:', url, { init });
+      bg.debug(' hayami_cr_proxyFetch requested:', url, { init });
       handleProxyFetch(url, init, 'hayami_cr_proxyFetch', sendResponse);
       return true; // keep message channel open for async response
     }
@@ -1619,6 +1625,58 @@ export default defineBackground(() => {
       return true;
     }
 
+    // ── MAL-Sync Integration ──────────────────────────────────────────
+
+    if (message.action === 'hayami_malsync_detect') {
+      (async () => {
+        try {
+          const installed = await detectMalSync();
+          sendResponse({ ok: true, installed });
+        } catch (error) {
+          sendResponse({ ok: false, installed: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_malsync_presence') {
+      (async () => {
+        try {
+          const enabled = await malSyncEnabledItem.getValue();
+          if (!enabled) {
+            sendResponse({ ok: false, error: 'malsync_disabled' });
+            return;
+          }
+
+          const tabId = typeof message.tabId === 'number'
+            ? message.tabId
+            : sender.tab?.id;
+          if (typeof tabId !== 'number') {
+            sendResponse({ ok: false, error: 'no_tab_id' });
+            return;
+          }
+
+          const presence = await queryMalSyncPresence(tabId);
+          sendResponse({ ok: true, presence });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_malsync_setEnabled') {
+      (async () => {
+        try {
+          await malSyncEnabledItem.setValue(Boolean(message.enabled));
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
     // Return false for unhandled messages (allows other listeners to process)
     return false;
   });
@@ -1637,7 +1695,7 @@ export default defineBackground(() => {
         await dnr.updateSessionRules({ removeRuleIds: [POLL_RULE_ID] });
       }
     } catch (error) {
-      console.warn('[background] Failed to clear stale Disqus poll block rule', error);
+      bg.warn(' Failed to clear stale Disqus poll block rule', error);
     }
   })();
 
@@ -1677,7 +1735,7 @@ export default defineBackground(() => {
   try {
     domainPermissionToggle();
   } catch (err) {
-    console.warn('[background] domainPermissionToggle failed (non-fatal)', err);
+    bg.warn(' domainPermissionToggle failed (non-fatal)', err);
   }
 
   void registerContextMenu();
@@ -1688,7 +1746,7 @@ export default defineBackground(() => {
       await openMapperForTab(tab.id, tab.url);
     });
   } catch (err) {
-    console.warn('[background] contextMenus.onClicked registration failed', err);
+    bg.warn(' contextMenus.onClicked registration failed', err);
   }
 
   try {
@@ -1699,26 +1757,26 @@ export default defineBackground(() => {
           if (!tab?.id || !tab.url) return;
           await openMapperForTab(tab.id, tab.url);
         } catch (e) {
-          console.warn('Site mapper command failed', e);
+          bg.warn('Site mapper command failed', e);
         }
         return;
       }
     });
   } catch (err) {
-    console.warn('[background] commands.onCommand registration failed', err);
+    bg.warn(' commands.onCommand registration failed', err);
   }
 
   // Listen for extension installation
   browser.runtime.onInstalled.addListener(async (details) => {
     // Open onboarding first, before any async sync work that might fail/hang.
     if (details.reason === 'install') {
-      console.log('Extension installed - opening onboarding');
+      bg.log('Extension installed - opening onboarding');
       try {
         await browser.tabs.create({
           url: browser.runtime.getURL('/onboarding.html'),
         });
       } catch (err) {
-        console.warn('Failed to open onboarding tab', err);
+        bg.warn('Failed to open onboarding tab', err);
       }
     }
     await registerContextMenu();

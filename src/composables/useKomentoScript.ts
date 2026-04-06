@@ -23,6 +23,8 @@ import {
   type KomentoSyncState,
 } from '@/config/storage';
 import { parseKomentoScriptPack, type KomentoScriptPack, type KomentoSourceRegistryEntry } from '@/komentoscript';
+import { con } from '@/utils/logger';
+const log = con.m('Komento');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -344,7 +346,7 @@ export function useKomentoScript(options: {
     try {
       const response = await sendMessageWithRetry({ action: 'hayami_komento_getPendingPermissions' }) as any;
       if (!response?.ok) {
-        if (response?.error) console.warn('Failed to load pending Komento permissions', response.error);
+        if (response?.error) log.warn('Failed to load pending Komento permissions', response.error);
         komentoPendingPermissionSources.value = [];
         komentoPendingOrigins.value = [];
         return;
@@ -352,7 +354,7 @@ export function useKomentoScript(options: {
       komentoPendingPermissionSources.value = Array.isArray(response.items) ? response.items : [];
       komentoPendingOrigins.value = Array.isArray(response.allPendingOrigins) ? response.allPendingOrigins : [];
     } catch (error) {
-      console.warn('Failed to load pending Komento permissions', error);
+      log.warn('Failed to load pending Komento permissions', error);
       komentoPendingPermissionSources.value = [];
       komentoPendingOrigins.value = [];
     } finally {
@@ -386,7 +388,7 @@ export function useKomentoScript(options: {
         showError('Site permissions were not approved.');
       }
     } catch (error) {
-      console.warn('Failed to request Komento permissions', error);
+      log.warn('Failed to request Komento permissions', error);
       showError('Could not request site permissions');
     } finally {
       komentoApprovingPermissions.value = false;
@@ -448,7 +450,7 @@ export function useKomentoScript(options: {
         showSuccess(`Imported ${importedCount} KomentoScript pack${importedCount === 1 ? '' : 's'} from file`);
       }
     } catch (error) {
-      console.warn('Failed to import KomentoScript file', error);
+      log.warn('Failed to import KomentoScript file', error);
       showError('Could not import KomentoScript file');
     } finally {
       if (input) input.value = '';
@@ -478,7 +480,7 @@ export function useKomentoScript(options: {
         : {};
       await loadKomentoPendingPermissions();
     } catch (error) {
-      console.warn('Failed to load KomentoScript sync status', error);
+      log.warn('Failed to load KomentoScript sync status', error);
     }
   }
 
@@ -495,7 +497,7 @@ export function useKomentoScript(options: {
         showSuccess(next ? 'Weekly KomentoScript sync enabled' : 'Weekly KomentoScript sync disabled');
       }
     } catch (error) {
-      console.warn('Failed to save KomentoScript setting', error);
+      log.warn('Failed to save KomentoScript setting', error);
       showError('Could not save KomentoScript setting');
       await loadKomentoSyncStatus();
     }
@@ -549,7 +551,7 @@ export function useKomentoScript(options: {
       }
       resetKomentoSourceDraft();
     } catch (error) {
-      console.warn('Failed to save KomentoScript source', error);
+      log.warn('Failed to save KomentoScript source', error);
       showError('Could not save KomentoScript source');
     }
   }
@@ -566,7 +568,7 @@ export function useKomentoScript(options: {
       if (komentoSourceEditingId.value === sourceId) resetKomentoSourceDraft();
       showSuccess('KomentoScript source removed');
     } catch (error) {
-      console.warn('Failed to remove KomentoScript source', error);
+      log.warn('Failed to remove KomentoScript source', error);
       showError('Could not remove KomentoScript source');
     }
   }
@@ -584,7 +586,7 @@ export function useKomentoScript(options: {
       }
       await loadKomentoSyncStatus();
     } catch (error) {
-      console.warn('Manual KomentoScript sync failed', error);
+      log.warn('Manual KomentoScript sync failed', error);
       showError('Could not run KomentoScript sync');
     } finally {
       komentoSyncing.value = false;

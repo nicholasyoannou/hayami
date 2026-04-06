@@ -53,6 +53,8 @@ import {
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
   seriesMappingItem,
+  malSyncEnabledItem,
+  verboseLoggingItem,
   MANUAL_OVERRIDES_RECENT_LIMIT,
   type ImgurFrontendOption,
   type ImgurOdsOption,
@@ -92,6 +94,9 @@ import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/
 import type { KomentoSourceRegistryEntry } from '@/komentoscript';
 import { useKomentoScript, type KomentoPendingPermissionSource, type KomentoSourceTargetOption } from '@/composables/useKomentoScript';
 import { useCustomSitesSync } from '@/composables/useCustomSitesSync';
+import { con } from '@/utils/logger';
+
+const log = con.m('Popup');
 
 type SettingValueMap = {
   displayMode: DisplayModeOption;
@@ -118,6 +123,8 @@ type SettingValueMap = {
   aniwaveAutoExpandDepth: number;
   aniwaveHideReplyContext: boolean;
   siteMapperAdvancedMode: boolean;
+  malSyncEnabled: boolean;
+  verboseLogging: boolean;
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
@@ -601,6 +608,30 @@ const settingDefinitions: SettingDefinition[] = [
     successMessage: (value) => (value ? "'Reply to' labels hidden" : "'Reply to' labels shown"),
     errorMessage: "Failed to update 'reply to' labels setting",
   },
+  {
+    key: 'malSyncEnabled',
+    type: 'toggle',
+    category: 'general',
+    label: 'MAL-Sync integration',
+    description: 'Use MAL-Sync\'s presence data to improve anime and episode detection. Requires MAL-Sync with Discord Rich Presence enabled.',
+    fallback: false,
+    load: async () => Boolean(await malSyncEnabledItem.getValue()),
+    save: (value) => malSyncEnabledItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'MAL-Sync integration enabled' : 'MAL-Sync integration disabled'),
+    errorMessage: 'Failed to update MAL-Sync setting',
+  },
+  {
+    key: 'verboseLogging',
+    type: 'toggle',
+    category: 'general',
+    label: 'Verbose logging',
+    description: 'Log detailed debug info to the browser console. You can also toggle this by running Hayami.debug() or Hayami.quiet() in the console.',
+    fallback: false,
+    load: async () => Boolean(await verboseLoggingItem.getValue()),
+    save: (value) => verboseLoggingItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Verbose logging enabled' : 'Verbose logging disabled'),
+    errorMessage: 'Failed to update verbose logging setting',
+  },
 ];
 
 const settingsCategories = [
@@ -704,6 +735,8 @@ const settingValues = reactive<SettingValueMap>({
   aniwaveAutoExpandDepth: 3,
   aniwaveHideReplyContext: false,
   siteMapperAdvancedMode: false,
+  malSyncEnabled: false,
+  verboseLogging: false,
 });
 
 const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));
@@ -739,6 +772,8 @@ const activeProviderAdvancedSettings = computed(() =>
   (activeProviderSection.value?.settings || []).filter((setting) => isSettingVisible(setting) && Boolean(setting.advanced)),
 );
 
+const malSyncInstalled = ref(false);
+
 const customSiteMappings = ref<CustomSiteMapping[]>([]);
 const isLoadingCustomSites = ref(false);
 const removingSiteOrigin = ref<string | null>(null);
@@ -766,7 +801,7 @@ async function loadManualOverrides() {
   try {
     manualOverrides.value = await loadAllManualOverrides();
   } catch (error) {
-    console.error('Failed to load manual overrides', error);
+    log.error('Failed to load manual overrides', error);
     manualOverrides.value = [];
   } finally {
     isLoadingManualOverrides.value = false;
@@ -783,7 +818,7 @@ async function removeManualOverride(entry: ManualOverrideSummary) {
       showSuccess('Override removed');
     }
   } catch (error) {
-    console.error('Failed to remove manual override', error);
+    log.error('Failed to remove manual override', error);
     showError('Failed to remove override');
   } finally {
     removingManualOverrideKey.value = null;
@@ -796,7 +831,7 @@ async function resetAllManualOverrides() {
     manualOverrides.value = [];
     showSuccess('All manual overrides cleared');
   } catch (error) {
-    console.error('Failed to clear manual overrides', error);
+    log.error('Failed to clear manual overrides', error);
     showError('Failed to clear overrides');
   }
 }
@@ -937,6 +972,11 @@ onMounted(async () => {
   // for unrelated account/model/bootstrap calls.
   const customSitesPromise = loadCustomSiteMappings();
 
+  // Detect MAL-Sync installation (fire-and-forget, non-blocking)
+  browser.runtime.sendMessage({ action: 'hayami_malsync_detect' }).then((resp: any) => {
+    if (resp?.ok) malSyncInstalled.value = Boolean(resp.installed);
+  }).catch(() => {});
+
   await Promise.allSettled([
     refreshAllAccounts(),
     initializeImgurRegionDefaultsOnce(),
@@ -994,7 +1034,7 @@ async function loadSetting(setting: SettingDefinition) {
       await setting.onAfterLoad((settingValues as Record<SettingKey, SettingValueMap[SettingKey]>)[setting.key]);
     }
   } catch (error) {
-    console.warn(`Failed to load ${setting.label}`, error);
+    log.warn(`Failed to load ${setting.label}`, error);
     (settingValues as Record<SettingKey, SettingValueMap[SettingKey]>)[setting.key] = setting.fallback;
   }
 }
@@ -1083,7 +1123,7 @@ async function handleSettingChange(setting: SettingDefinition, value: SettingVal
     }
     showSuccess(setting.successMessage(value as SettingValueMap[typeof setting.key]));
   } catch (error) {
-    console.error(`Failed to save ${setting.label}`, error);
+    log.error(`Failed to save ${setting.label}`, error);
     showError(setting.errorMessage || `Failed to save ${setting.label}`);
     await reloadSetting(setting.key);
   }
@@ -1094,7 +1134,7 @@ async function resetAllManualMappingsToDefaults() {
     await seriesMappingItem.setValue({});
     showSuccess('All manual mappings reset to defaults');
   } catch (error) {
-    console.error('Failed to reset manual mappings', error);
+    log.error('Failed to reset manual mappings', error);
     showError('Failed to reset manual mappings');
   }
 }
@@ -1144,6 +1184,7 @@ function isSettingVisible(setting: SettingDefinition) {
 }
 
 function isSettingDisabled(setting: SettingDefinition) {
+  if (setting.key === 'malSyncEnabled' && !malSyncInstalled.value) return true;
   return setting.category === 'image-previews' && setting.key !== 'embedImages' && !imagePreviewsEnabled.value;
 }
 
@@ -1179,7 +1220,7 @@ function formatOrigin(origin: string) {
     const url = new URL(origin);
     return url.host || origin;
   } catch (error) {
-    console.warn('Failed to format origin', error);
+    log.warn('Failed to format origin', error);
     return origin;
   }
 }
@@ -1280,7 +1321,7 @@ async function saveCommentsBackgroundColor() {
     commentsBackgroundColorDraft.value = updated.commentsBackgroundColor || '';
     showSuccess('Comments background color saved');
   } catch (error) {
-    console.warn('Failed to save comments background color', error);
+    log.warn('Failed to save comments background color', error);
     showError('Could not save background color');
   }
 }
@@ -1305,7 +1346,7 @@ async function clearCommentsBackgroundColor() {
     commentsBackgroundColorDraft.value = '';
     showSuccess('Background color cleared');
   } catch (error) {
-    console.warn('Failed to clear comments background color', error);
+    log.warn('Failed to clear comments background color', error);
     showError('Could not clear background color');
   }
 }
@@ -1358,7 +1399,7 @@ async function saveSelectedCustomSitePathGlobs() {
     hydrateSelectedCustomSitePathGlobDrafts();
     showSuccess('Custom website path globs saved');
   } catch (error) {
-    console.warn('Failed to save custom site path globs', error);
+    log.warn('Failed to save custom site path globs', error);
     showError('Could not save path globs');
   } finally {
     customSitePathGlobsSaving.value = false;
@@ -1411,7 +1452,7 @@ async function saveSelectedCustomSiteRawFields(draft: CustomSiteRawFieldsDraft):
     selectedCustomSite.value = updated;
     showSuccess('Mapping updated');
   } catch (error) {
-    console.warn('Failed to save custom site raw fields', error);
+    log.warn('Failed to save custom site raw fields', error);
     showError('Could not save mapping');
   } finally {
     customSiteRawFieldsSaving.value = false;
@@ -1548,7 +1589,7 @@ async function exportAllCustomSiteMappings() {
     URL.revokeObjectURL(url);
     showSuccess(`Exported ${all.length} mapping${all.length === 1 ? '' : 's'}`);
   } catch (error) {
-    console.warn('Failed to export all custom site mappings', error);
+    log.warn('Failed to export all custom site mappings', error);
     showError('Could not export custom site mappings');
   }
 }
@@ -1573,7 +1614,7 @@ async function exportCustomSiteMapping(site: CustomSiteMapping) {
     URL.revokeObjectURL(url);
     showSuccess('Custom site mapping exported');
   } catch (error) {
-    console.warn('Failed to export custom site mapping', error);
+    log.warn('Failed to export custom site mapping', error);
     showError('Could not export this site mapping');
   }
 }
@@ -1615,7 +1656,7 @@ async function onImportCustomMappingsFileChange(event: Event) {
     await loadCustomSiteMappings();
     showSuccess(`Imported ${imported.length} mapping${imported.length === 1 ? '' : 's'} (${added} added, ${updated} updated)`);
   } catch (error) {
-    console.warn('Failed to import custom site mappings', error);
+    log.warn('Failed to import custom site mappings', error);
     showError('Could not import custom mappings');
   } finally {
     if (input) input.value = '';
@@ -1652,7 +1693,7 @@ async function requestHostPermission(origin: string): Promise<boolean> {
     try {
       permissions.request({ origins: [originPattern] }, (granted: boolean) => resolve(Boolean(granted)));
     } catch (error) {
-      console.warn('Permission request failed', error);
+      log.warn('Permission request failed', error);
       resolve(false);
     }
   });
@@ -1717,7 +1758,7 @@ async function openSiteMapperForOrigin(rawValue: string) {
 
     await waitForMapperTab(tab.id);
   } catch (error) {
-    console.warn('Failed to open site mapper', error);
+    log.warn('Failed to open site mapper', error);
     showError('Could not open the site mapper for this site');
   }
 }
@@ -1735,7 +1776,7 @@ async function loadCustomSiteMappings() {
         excludePathGlobs: normalizePathGlobList(entry?.excludePathGlobs),
       }));
   } catch (error) {
-    console.warn('Failed to load custom site mappings', error);
+    log.warn('Failed to load custom site mappings', error);
     showError('Failed to load custom websites');
   } finally {
     isLoadingCustomSites.value = false;
@@ -1751,7 +1792,7 @@ async function openCustomSiteDetail(site: CustomSiteMapping) {
     customSiteAdvancedExpanded.value = false;
     hydrateSelectedCustomSitePathGlobDrafts();
   } catch (error) {
-    console.warn('Failed to open custom site detail', error);
+    log.warn('Failed to open custom site detail', error);
     showError('Could not show site details');
   }
 }
@@ -1807,7 +1848,7 @@ async function removeCustomSite(site: CustomSiteMapping) {
 
     showSuccess('Custom site removed');
   } catch (error) {
-    console.warn('Failed to remove custom site', error);
+    log.warn('Failed to remove custom site', error);
     // Roll the optimistic update back if persistence failed.
     customSiteMappings.value = previousList;
     showError('Could not remove this site');
@@ -2021,7 +2062,7 @@ async function openPopupInTab() {
     }
     window.close();
   } catch (error) {
-    console.warn('Failed to open popup in tab', error);
+    log.warn('Failed to open popup in tab', error);
   }
 }
 

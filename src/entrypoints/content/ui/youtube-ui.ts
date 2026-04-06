@@ -6,6 +6,8 @@ import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
 import { getComponentCss } from '../utils/style-injection';
 import { getContentScriptContext } from '../core/content-script-context';
+import { con } from '@/utils/logger';
+const log = con.m('YouTubeUI');
 
 // Track mounted Vue apps for cleanup within this helper
 const mountedVueApps = new WeakMap<HTMLElement, VueApp>();
@@ -30,7 +32,7 @@ export async function mountYouTubeCommentsUi(options: MountYouTubeCommentsOption
     try {
       currentYouTubeUi.remove();
     } catch (err) {
-      console.warn('Failed to remove previous YouTube UI:', err);
+      log.warn('Failed to remove previous YouTube UI:', err);
     }
     currentYouTubeUi = null;
   }
@@ -64,7 +66,7 @@ export async function mountYouTubeCommentsUi(options: MountYouTubeCommentsOption
       try {
         mountedApp?.unmount();
       } catch (err) {
-        console.warn('Failed to unmount YouTube comments app:', err);
+        log.warn('Failed to unmount YouTube comments app:', err);
       }
       if (hostRoot) {
         mountedVueApps.delete(hostRoot);
@@ -85,7 +87,7 @@ export async function renderYouTubeComments(
   order: 'relevance' | 'time' = 'relevance'
 ): Promise<void> {
   if (!commentsRoot) {
-    console.error('Comments root element is null');
+    log.error('Comments root element is null');
     throw new Error('Comments container not found');
   }
 
@@ -93,7 +95,7 @@ export async function renderYouTubeComments(
 
   const youtubeContentCtx = getContentScriptContext();
   if (!youtubeContentCtx) {
-    console.error('Content script context unavailable; cannot mount provider UI');
+    log.error('Content script context unavailable; cannot mount provider UI');
     commentsRoot.textContent = 'Unable to render comments (context unavailable).';
     return;
   }
@@ -109,7 +111,7 @@ export async function renderYouTubeComments(
       order,
     });
   } catch (error) {
-    console.error('Error rendering YouTube comments:', error);
+    log.error('Error rendering YouTube comments:', error);
     commentsRoot.textContent = 'Error loading YouTube comments.';
   }
 }

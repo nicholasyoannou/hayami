@@ -1,4 +1,7 @@
 import { crProxyFetch } from '@/utils/redditApi';
+import { con } from '@/utils/logger';
+
+const log = con.m('DisqusApi');
 
 let disqusPublicApiKeyCache: string | null | undefined;
 let disqusPublicApiKeyInFlight: Promise<string | null> | null = null;
@@ -198,7 +201,7 @@ async function fetchDisqusPublicApiKey(): Promise<string | null> {
       if (m && m[1]) return m[1];
     }
   } catch (e) {
-    console.warn('Failed to fetch Disqus public API key', e);
+    log.warn('Failed to fetch Disqus public API key', e);
   }
   return null;
 }
@@ -262,7 +265,7 @@ export async function listThreadsForForumSince(forum: string, sinceTs: number, a
 
     return allThreads;
   } catch (e) {
-    console.warn('Error listing Disqus threads', e);
+    log.warn('Error listing Disqus threads', e);
     return [];
   }
 }
@@ -353,7 +356,7 @@ export async function findThreadForAnime(animeInfo: { animeName: string; episode
 
     return null;
   } catch (e) {
-    console.warn('Error finding Disqus thread', e);
+    log.warn('Error finding Disqus thread', e);
     return null;
   }
 }
@@ -407,7 +410,7 @@ export async function findThreadByLink(
 
     const wantedCanonical = toCanonical(rawUrl);
     const wantedSlug = extractSlug(rawUrl);
-    console.log('[DisqusApi][findThreadByLink] search start', {
+    log.log('findThreadByLink: search start', {
       rawUrl,
       wantedCanonical,
       wantedSlug,
@@ -419,14 +422,14 @@ export async function findThreadByLink(
     if (!wantedCanonical && !wantedSlug) return null;
 
     const threads = await listThreadsForForumSince(forum, sinceTs, apiKey);
-    console.log('[DisqusApi][findThreadByLink] fetched threads', threads?.length || 0);
+    log.log('findThreadByLink: fetched threads', threads?.length || 0);
 
     if (Array.isArray(threads) && threads.length > 0) {
       for (const t of threads) {
         const candidateCanonical = toCanonical(String(t?.link || ''));
         if (candidateCanonical && wantedCanonical && candidateCanonical === wantedCanonical) {
           if (!isThreadLikelyForAnime(animeInfo, t)) {
-            console.log('[DisqusApi][findThreadByLink] rejecting canonical match due title mismatch', {
+            log.log('findThreadByLink: rejecting canonical match due title mismatch', {
               matchedCanonical: candidateCanonical,
               id: t?.id,
               title: t?.title,
@@ -435,7 +438,7 @@ export async function findThreadByLink(
             });
             continue;
           }
-          console.log('[DisqusApi][findThreadByLink] canonical match', {
+          log.log('findThreadByLink: canonical match', {
             matchedCanonical: candidateCanonical,
             id: t?.id,
             title: t?.title,
@@ -451,7 +454,7 @@ export async function findThreadByLink(
         const candidateSlug = String(t?.slug || '').toLowerCase() || extractSlug(String(t?.link || ''));
         if (candidateSlug && wantedSlug && candidateSlug === wantedSlug) {
           if (!isThreadLikelyForAnime(animeInfo, t)) {
-            console.log('[DisqusApi][findThreadByLink] rejecting slug match due title mismatch', {
+            log.log('findThreadByLink: rejecting slug match due title mismatch', {
               matchedSlug: candidateSlug,
               id: t?.id,
               title: t?.title,
@@ -460,7 +463,7 @@ export async function findThreadByLink(
             });
             continue;
           }
-          console.log('[DisqusApi][findThreadByLink] slug match', {
+          log.log('findThreadByLink: slug match', {
             matchedSlug: candidateSlug,
             id: t?.id,
             title: t?.title,
@@ -473,7 +476,7 @@ export async function findThreadByLink(
       }
     }
 
-    console.log('[DisqusApi][findThreadByLink] no match', {
+    log.log('findThreadByLink: no match', {
       wantedCanonical,
       wantedSlug,
       sampleCandidates: (Array.isArray(threads) ? threads.slice(0, 5) : []).map((t) => ({
@@ -497,7 +500,7 @@ export async function findThreadByLink(
       for (const linkCandidate of linkCandidates) {
         const slugCandidate = extractSlug(linkCandidate) || wantedSlug;
         if (!slugCandidate) {
-          console.log('[DisqusApi][findThreadByLink] skipping details lookup without slug', {
+          log.log('findThreadByLink: skipping details lookup without slug', {
             linkCandidate,
           });
           continue;
@@ -506,7 +509,7 @@ export async function findThreadByLink(
         const detailsUrl = `https://disqus.com/api/3.0/threads/details?thread=${encodeURIComponent(`slug:${slugCandidate}`)}&forum=${encodeURIComponent(forum)}&attach=topics&related=forum&api_key=${encodeURIComponent(apiKey)}`;
         const detailsRes = await crProxyFetch(detailsUrl, { credentials: 'include' } as any);
         if (!detailsRes || !detailsRes.ok) {
-          console.log('[DisqusApi][findThreadByLink] details lookup response not ok', {
+          log.log('findThreadByLink: details lookup response not ok', {
             linkCandidate,
             slugCandidate,
             status: detailsRes?.status,
@@ -518,7 +521,7 @@ export async function findThreadByLink(
         const detailsThread = detailsJson?.response;
         if (detailsThread) {
           if (!isThreadLikelyForAnime(animeInfo, detailsThread)) {
-            console.log('[DisqusApi][findThreadByLink] rejecting details match due title mismatch', {
+            log.log('findThreadByLink: rejecting details match due title mismatch', {
               linkCandidate,
               id: detailsThread?.id,
               title: detailsThread?.title,
@@ -527,7 +530,7 @@ export async function findThreadByLink(
             });
             continue;
           }
-          console.log('[DisqusApi][findThreadByLink] details lookup match', {
+          log.log('findThreadByLink: details lookup match', {
             linkCandidate,
             slugCandidate,
             id: detailsThread?.id,
@@ -539,14 +542,14 @@ export async function findThreadByLink(
           return detailsThread;
         }
 
-        console.log('[DisqusApi][findThreadByLink] details lookup empty response', {
+        log.log('findThreadByLink: details lookup empty response', {
           linkCandidate,
           slugCandidate,
           code: detailsJson?.code,
         });
       }
     } catch (detailsError) {
-      console.warn('[DisqusApi][findThreadByLink] details lookup failed', detailsError);
+      log.warn('findThreadByLink: details lookup failed', detailsError);
     }
 
     // Final fallback: fetch the discussion HTML page and extract its title.
@@ -560,7 +563,7 @@ export async function findThreadByLink(
       for (const linkCandidate of linkCandidates) {
         const pageRes = await crProxyFetch(linkCandidate, { credentials: 'include' } as any);
         if (!pageRes || !pageRes.ok) {
-          console.log('[DisqusApi][findThreadByLink] html fallback response not ok', {
+          log.log('findThreadByLink: html fallback response not ok', {
             linkCandidate,
             status: pageRes?.status,
           });
@@ -580,14 +583,14 @@ export async function findThreadByLink(
             forum,
           };
           if (!isThreadLikelyForAnime(animeInfo, synthetic)) {
-            console.log('[DisqusApi][findThreadByLink] rejecting html fallback title due mismatch', {
+            log.log('findThreadByLink: rejecting html fallback title due mismatch', {
               linkCandidate,
               extractedTitle,
               animeName: animeInfo?.animeName,
             });
             continue;
           }
-          console.log('[DisqusApi][findThreadByLink] html fallback title extracted', {
+          log.log('findThreadByLink: html fallback title extracted', {
             linkCandidate,
             extractedTitle,
             id: synthetic.id,
@@ -595,17 +598,17 @@ export async function findThreadByLink(
           return synthetic;
         }
 
-        console.log('[DisqusApi][findThreadByLink] html fallback no title extracted', {
+        log.log('findThreadByLink: html fallback no title extracted', {
           linkCandidate,
         });
       }
     } catch (htmlFallbackError) {
-      console.warn('[DisqusApi][findThreadByLink] html fallback failed', htmlFallbackError);
+      log.warn('findThreadByLink: html fallback failed', htmlFallbackError);
     }
 
     return null;
   } catch (e) {
-    console.warn('Error finding Disqus thread by link', e);
+    log.warn('Error finding Disqus thread by link', e);
     return null;
   }
 }
@@ -651,7 +654,7 @@ export async function searchThreadsForAnime(
 
     return unique;
   } catch (e) {
-    console.warn('Error searching Disqus threads', e);
+    log.warn('Error searching Disqus threads', e);
     return [];
   }
 }

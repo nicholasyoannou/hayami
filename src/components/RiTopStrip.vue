@@ -8,68 +8,68 @@
       <!-- Provider Logo Button -->
       <div
         ref="logoButton"
-        class="hayami-ripple flex items-center gap-[8px] px-[24px] h-[45px] bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden"
+        class="hayami-ripple flex items-center gap-[8px] px-[24px] h-[45px] bg-[#0f0f0f] rounded-tl-2xl rounded-r-none rounded-bl-none relative z-10 overflow-hidden ri-nav-logo"
         style="display: inline-flex; flex: 0 0 auto; width: max-content;"
         :class="{ 'cursor-pointer': !isLoading, 'cursor-not-allowed opacity-60': isLoading }"
         @click.stop="!isLoading && toggleMenu()"
       >
-        <img 
+        <img
           v-if="currentProvider === 'reddit'"
-          class="w-[24px] h-[20px] opacity-80" 
-          :src="redditLogoUrl" 
-          alt="reddit logo" 
+          class="w-[24px] h-[20px] opacity-80"
+          :src="redditLogoUrl"
+          alt="reddit logo"
         />
-        <img 
+        <img
           v-else-if="currentProvider === 'disqus'"
-          class="h-[16px] opacity-80" 
-          :src="disqusLogoUrl" 
-          alt="disqus logo" 
+          class="h-[16px] opacity-80"
+          :src="disqusLogoUrl"
+          alt="disqus logo"
         />
-        <img 
+        <img
           v-else-if="currentProvider === 'youtube'"
-          class="h-[20px] opacity-80" 
-          :src="youtubeLogoUrl" 
-          alt="youtube logo" 
+          class="h-[20px] opacity-80"
+          :src="youtubeLogoUrl"
+          alt="youtube logo"
         />
-        <img 
+        <img
           v-else-if="currentProvider === 'mal'"
-          class="h-[20px] opacity-80" 
-          :src="malLogoUrl" 
-          alt="MAL logo" 
+          class="h-[20px] opacity-80"
+          :src="malLogoUrl"
+          alt="MAL logo"
         />
-        <img 
+        <img
           v-else-if="currentProvider === 'anilist'"
-          class="h-[20px] opacity-80" 
-          :src="anilistLogoUrl" 
-          alt="anilist logo" 
+          class="h-[20px] opacity-80"
+          :src="anilistLogoUrl"
+          alt="anilist logo"
         />
-        <img 
+        <img
           v-else-if="currentProvider === 'aniwave'"
-          class="h-[20px] opacity-80" 
-          :src="aniwaveLogoUrl" 
-          alt="aniwave logo" 
+          class="h-[20px] opacity-80"
+          :src="aniwaveLogoUrl"
+          alt="aniwave logo"
         />
-        <img 
+        <img
           v-else-if="currentProvider === 'animecommunity'"
-          class="h-[20px] opacity-80" 
-          :src="animeCommunityLogoUrl" 
-          alt="The Anime Community logo" 
+          class="h-[20px] opacity-80"
+          :src="animeCommunityLogoUrl"
+          alt="The Anime Community logo"
         />
-        <img 
+        <img
           v-if="currentProvider === 'reddit'"
-          class="h-[20px] opacity-80" 
-          :src="redditTextUrl" 
-          alt="reddit" 
+          class="h-[20px] opacity-80"
+          :src="redditTextUrl"
+          alt="reddit"
         />
       </div>
-      
-      <div 
+
+      <div
         v-if="currentProvider === 'reddit'"
-        class="flex items-center gap-[8px] px-[16px] h-[45px] border border-[#3a3a3a] bg-[#151515] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-opacity duration-300 relative"
+        class="flex items-center gap-[8px] px-[16px] h-[45px] border border-[#3a3a3a] bg-[#151515] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-opacity duration-300 relative ri-nav-subreddit-chip"
         :class="{ 'opacity-0 pointer-events-none z-0': menuOpen }"
         :style="{ zIndex: menuOpen ? 0 : 'auto' }"
       >
-        <span 
+        <span
           class="flex items-center justify-center w-[32px] h-[32px] rounded-full border border-[#2f2f2f] overflow-hidden"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
         >
@@ -103,8 +103,8 @@
       <button
         v-for="item in menuItems"
         :key="item.id"
-        class="hayami-ripple flex items-center h-[36px] bg-[#151515] border border-[#3a3a3a] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden"
-        :class="{ 
+        class="hayami-ripple flex items-center h-[36px] bg-[#151515] border border-[#3a3a3a] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden ri-nav-menu-btn"
+        :class="{
           'bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] transform -translate-y-1 z-10': currentProvider === item.id,
           'opacity-50 cursor-not-allowed': isLoading,
           'hover:bg-[#1a1a1a]': !isLoading,
@@ -114,11 +114,11 @@
         :disabled="isLoading"
         @click.stop="!isLoading && handleMenuClick(item.id)"
       >
-        <img 
+        <img
           v-if="item.id === 'reddit'"
-          class="w-[24px] h-[20px] opacity-60" 
-          :src="redditLogoUrl" 
-          alt="reddit logo" 
+          class="w-[24px] h-[20px] opacity-60"
+          :src="redditLogoUrl"
+          alt="reddit logo"
         />
         <span v-else class="inline-flex items-center justify-center">
           <img
@@ -130,23 +130,23 @@
             @error="recalculateMenuWidthSoon"
           />
         </span>
-        <img 
+        <img
           v-if="item.id === 'reddit'"
-          class="h-[16px] opacity-60" 
-          :src="redditTextUrl" 
-          alt="reddit" 
+          class="h-[16px] opacity-60"
+          :src="redditTextUrl"
+          alt="reddit"
         />
       </button>
       </div>
     </div>
 
-    <div 
+    <div
       v-if="showTabs"
       class="flex min-w-0 overflow-visible transition-opacity duration-300 relative"
       :class="[
         showOnlyActiveTab
           ? 'flex-none w-auto bg-transparent border-b-0'
-          : 'flex-1 bg-[#191919] border-b border-[#2f2f2f]',
+          : 'flex-1 bg-[#191919] border-b border-[#2f2f2f] ri-nav-tabs',
         menuOpen ? 'opacity-0 pointer-events-none' : ''
       ]"
       ref="tabsContainer"
@@ -155,17 +155,17 @@
         v-for="tab in tabItems"
         :key="tab.id"
         :class="[
-          'relative border-r border-[#2c2c2c] last:border-r-0 transition-all duration-200',
+          'relative border-r border-[#2c2c2c] last:border-r-0 transition-all duration-200 ri-nav-tab',
           tab.active
-            ? 'flex-shrink-0 bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] z-[2] max-w-[400px]'
-            : 'flex-1 min-w-0 bg-[#1b1b1b] hover:bg-[#222] group',
+            ? 'flex-shrink-0 bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] z-[2] max-w-[400px] ri-nav-tab-active'
+            : 'flex-1 min-w-0 bg-[#1b1b1b] hover:bg-[#222] group ri-nav-tab-inactive',
         ]"
       >
         <div
           v-if="tab.active"
           class="flex items-center gap-[10px] px-[12px] py-[8px] min-h-[44px] relative"
         >
-          <div class="w-[28px] h-[28px] rounded-xl bg-[#353535] p-[6px] flex items-center justify-center flex-shrink-0">
+          <div class="w-[28px] h-[28px] rounded-xl bg-[#353535] p-[6px] flex items-center justify-center flex-shrink-0 ri-nav-tab-icon-wrapper">
           <img
               class="w-full h-full object-contain"
             :src="discussionIconUrl"
@@ -173,8 +173,8 @@
           />
           </div>
           <div class="flex flex-col gap-[2px] min-w-0">
-            <span class="text-[14px] font-semibold text-[#f5f5f5] truncate leading-tight">{{ tab.title }}</span>
-            <span v-if="tab.subtitle" class="text-[10px] uppercase tracking-wide text-[#adadad] truncate">
+            <span class="text-[14px] font-semibold text-[#f5f5f5] truncate leading-tight ri-nav-tab-title">{{ tab.title }}</span>
+            <span v-if="tab.subtitle" class="text-[10px] uppercase tracking-wide text-[#adadad] truncate ri-nav-tab-subtitle">
               {{ tab.subtitle }}
               </span>
           </div>
@@ -183,8 +183,8 @@
           v-else
           class="relative px-[10px] py-[4px] min-h-[28px] flex items-center w-full"
         >
-          <span class="text-[11px] font-medium truncate text-[#d1d1d1] w-full text-left">{{ tab.title }}</span>
-          
+          <span class="text-[11px] font-medium truncate text-[#d1d1d1] w-full text-left ri-nav-tab-inactive-text">{{ tab.title }}</span>
+
           <!-- Hover popout tooltip -->
           <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
             <div class="bg-[#2a2a2a] border border-[#3f3f3f] rounded-lg shadow-xl px-[16px] py-[12px] min-w-[200px]">
@@ -224,7 +224,7 @@
         </div>
         <div
           v-if="tab.active"
-          class="pointer-events-none absolute bottom-[-1px] left-[1px] right-[1px] h-[3px] rounded-full bg-[#f5f5f5]"
+          class="pointer-events-none absolute bottom-[-1px] left-[1px] right-[1px] h-[3px] rounded-full bg-[#f5f5f5] ri-nav-tab-indicator"
         />
       </div>
     </div>
@@ -235,6 +235,9 @@
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { getSubredditAboutCached } from '@/utils/redditApi';
+import { con } from '@/utils/logger';
+
+const log = con.m('TopStrip');
 // Ripple effect styles are defined in the <style scoped> block below
 // instead of importing 'css-ripple-effect' globally, which would leak
 // an unscoped ripple class into the host page and break site menus.
@@ -364,7 +367,7 @@ function calculateMenuWidth() {
     const contentWidth = Math.max(measuredContentWidth, fallbackScrollWidth);
     menuWidth.value = contentWidth;
   } catch (error) {
-    console.warn('Error calculating menu width:', error);
+    log.warn('Error calculating menu width:', error);
     logoWidth.value = 200;
     menuWidth.value = 0;
   }
@@ -393,11 +396,11 @@ function toggleMenu() {
 
 function handleMenuClick(provider: Provider) {
   if (props.isLoading) return; // Don't allow clicking while loading
-  console.log('Menu item clicked:', provider);
+  log.log('Menu item clicked:', provider);
   currentProvider.value = provider;
   menuOpen.value = false;
   emit('providerChange', provider);
-  console.log('Emitted providerChange event:', provider);
+  log.log('Emitted providerChange event:', provider);
 }
 
 const recalculateMenuWidthSoon = () => {
@@ -460,15 +463,15 @@ async function fetchSubredditAvatar(name?: string | null) {
   isAvatarHydrating.value = true;
   try {
     const data = await getSubredditAboutCached(sub);
-    console.log('[RiTopStrip] avatar fetch raw data (cached)', { sub, hasData: !!data });
+    log.log('avatar fetch raw data (cached)', { sub, hasData: !!data });
     if (!data) {
-      console.warn('[RiTopStrip] avatar fetch returned no data', { sub });
+      log.warn('avatar fetch returned no data', { sub });
       return;
     }
     const iconImg = sanitizeIcon(data?.data?.icon_img);
     const communityIcon = sanitizeIcon(data?.data?.community_icon);
     const resolved = iconImg || communityIcon;
-    console.log('[RiTopStrip] avatar fetch result', { sub, iconImg, communityIcon, resolved, primaryColor: data?.data?.primary_color, keyColor: data?.data?.key_color });
+    log.log('avatar fetch result', { sub, iconImg, communityIcon, resolved, primaryColor: data?.data?.primary_color, keyColor: data?.data?.key_color });
     if (resolved) {
       avatarSrc.value = resolved;
     }
@@ -477,7 +480,7 @@ async function fetchSubredditAvatar(name?: string | null) {
       fetchedPrimaryColor.value = fetchedPrimaryColor.value || primaryColor;
     }
   } catch (e) {
-    console.warn('Failed to fetch subreddit avatar', e);
+    log.warn('Failed to fetch subreddit avatar', e);
   } finally {
     isAvatarHydrating.value = false;
   }
@@ -486,7 +489,7 @@ async function fetchSubredditAvatar(name?: string | null) {
 const handleAvatarError = () => {
   // Fallback to default subreddit icon if the provided URL fails
   if (avatarSrc.value !== defaultSubredditIconUrl) {
-    console.warn('[RiTopStrip] avatar load error, falling back', { current: avatarSrc.value });
+    log.warn('avatar load error, falling back', { current: avatarSrc.value });
     avatarSrc.value = defaultSubredditIconUrl;
   }
 };
@@ -518,7 +521,7 @@ watch(
       !hasRealAvatar &&
       state.name
     ) {
-      console.log('[RiTopStrip] triggering avatar hydration', state);
+      log.log('triggering avatar hydration', state);
       void fetchSubredditAvatar(state.name);
     }
   },

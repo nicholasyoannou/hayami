@@ -35,7 +35,7 @@ withDefaults(defineProps<{
 
 <style scoped>
 .skeleton-shimmer {
-  background: linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);
+  background: linear-gradient(90deg, var(--ri-surface-1, #2c2c2c) 25%, var(--ri-surface-2, #1a1a1a) 50%, var(--ri-surface-1, #2c2c2c) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: 4px;

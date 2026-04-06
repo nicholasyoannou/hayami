@@ -1,4 +1,5 @@
 import { ref, computed, watch, onScopeDispose } from 'vue';
+import { con } from '@/utils/logger';
 import { anilistProxyFetch } from '@/utils/anilistTransport';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
@@ -36,6 +37,8 @@ export interface MalSearchMedia {
 }
 
 // ── Composable ───────────────────────────────────────────────────────────────
+
+const log = con.m('ManualSearch');
 
 export function useManualSearch(params: {
   discussionTitle: Ref<string>;
@@ -594,7 +597,7 @@ export function useManualSearch(params: {
         manualAniwaveIsDub.value = mapping?.aniwaveIsDub === true;
       }
     } catch (error) {
-      console.warn('[ManualMapping] Failed to read existing mapping', error);
+      log.warn('Failed to read existing mapping', error);
       manualMappingExists.value = false;
       manualAniwaveIsDub.value = false;
     }
@@ -612,7 +615,7 @@ export function useManualSearch(params: {
       manualMappingExists.value = false;
       manualSearchOpen.value = false;
     } catch (error) {
-      console.warn('[ManualMapping] Failed to dispatch reset event', error);
+      log.warn('Failed to dispatch reset event', error);
     } finally {
       manualResetInProgress.value = false;
     }
@@ -1024,7 +1027,7 @@ export function useManualSearch(params: {
         },
       }));
     } catch (e) {
-      console.warn('[EpisodeSelect] Failed to dispatch override', e);
+      log.warn('Failed to dispatch override', e);
     } finally {
       manualSearchOpen.value = false;
     }
@@ -1038,7 +1041,7 @@ export function useManualSearch(params: {
         detail: { permalink },
       }));
     } catch (e) {
-      console.warn('[ManualSearch] Failed to dispatch selection', e);
+      log.warn('Failed to dispatch selection', e);
     } finally {
       manualSearchOpen.value = false;
     }
@@ -1219,7 +1222,7 @@ export function useManualSearch(params: {
           crEpisodeNum: inferredEpisode,
         };
       } catch (error) {
-        console.warn('[ManualSearch] Failed to resolve Hayami anime title for manual override', error);
+        log.warn('Failed to resolve Hayami anime title for manual override', error);
         return {
           mappingAnimeName: baseAnimeName,
           crEpisodeNum: inferredEpisode,

@@ -1,5 +1,8 @@
 import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
 import type { ImgurOdsOption, ImgurVideoCdnOption } from '@/config/storage';
+import { con } from '@/utils/logger';
+
+const log = con.m('ImagePreview');
 import { applyFlyimgUrl, applyImgurOdsUrl, applyImgurVideoCdnUrl } from '@/entrypoints/content/images/imgur';
 
 let currentImgurOdsProvider: ImgurOdsOption = 'imgur';
@@ -230,7 +233,7 @@ export function useImagePreview() {
       pre.src = src;
       galleryPreloadedImages.push(pre);
     });
-    console.debug(`[ri-img] Prefetched ${galleryPreloadedImages.length} album images via ${reason}`);
+    log.debug(`Prefetched ${galleryPreloadedImages.length} album images via ${reason}`);
   }
 
   function hidePreview(): void {

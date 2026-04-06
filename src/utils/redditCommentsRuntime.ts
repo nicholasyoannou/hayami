@@ -2,9 +2,11 @@ import { getAccessToken, getStoredUsername, makeRedditRequest } from './redditAu
 import { extensionFetchTransport } from './redditTransport';
 import { parseComments } from './redditCommentParsing';
 import type { RedditCommentSort, RedditCommentsResult } from './redditApi';
+import { con } from '@/utils/logger';
 
-const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
-const devLog = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.log(...args); };
+const log = con.m('RedditComments');
+
+const devLog = (...args: any[]) => { log.log(...args); };
 
 async function extensionFetch(input: string, init?: RequestInit): Promise<{ ok: boolean; status: number; headers: [string, string][]; json: () => Promise<any>; text: () => Promise<string> }> {
   return extensionFetchTransport(input, init);
@@ -75,9 +77,9 @@ export async function getPostCommentsRuntime(postId: string, sort: RedditComment
         if (oauthResp.status === 401 || oauthResp.status === 403 || oauthResp.status === 429) {
           authError = await resolveAuthError(oauthResp.status);
         }
-        console.warn('[getPostComments] oauth-cookie fetch non-ok', { status: oauthResp.status, oauthUrl });
+        log.warn('oauth-cookie fetch non-ok', { status: oauthResp.status, oauthUrl });
       } catch (e) {
-        console.warn('[getPostComments] oauth-cookie fetch threw', e);
+        log.warn('oauth-cookie fetch threw', e);
       }
       return null;
     };
@@ -108,16 +110,16 @@ export async function getPostCommentsRuntime(postId: string, sort: RedditComment
             if (resp.status === 401 || resp.status === 403 || resp.status === 429) {
               authError = await resolveAuthError(resp.status);
             }
-            console.warn('[getPostComments] public fetch non-ok', { status: resp.status, url });
+            log.warn('public fetch non-ok', { status: resp.status, url });
           }
         } catch (e) {
-          console.warn('[getPostComments] public fetch threw', e);
+          log.warn('public fetch threw', e);
         }
       }
     }
 
     if (!result || result.length < 2) {
-      console.warn('[getPostComments] result missing or too short', { hasResult: !!result, length: result?.length, postId });
+      log.warn('result missing or too short', { hasResult: !!result, length: result?.length, postId });
       return emptyResult();
     }
 
@@ -128,7 +130,7 @@ export async function getPostCommentsRuntime(postId: string, sort: RedditComment
     const postAuthor = typeof postListing?.author === 'string' ? postListing.author : undefined;
     const linkFullname = (postData?.data?.children?.[0]?.data?.name as string | undefined) || (postId.startsWith('t3_') ? postId : `t3_${postId}`);
     if (!commentsData || !commentsData.data || !commentsData.data.children) {
-      console.warn('[getPostComments] commentsData missing children', { postId, linkFullname });
+      log.warn('commentsData missing children', { postId, linkFullname });
       return { comments: [], rootMoreChildrenIds: [], linkFullname, postTitle, postAuthor };
     }
 
@@ -142,7 +144,7 @@ export async function getPostCommentsRuntime(postId: string, sort: RedditComment
     const comments = parseComments(children);
     return { comments, rootMoreChildrenIds, linkFullname, postTitle, postAuthor };
   } catch (error) {
-    console.error('Error fetching post comments:', error);
+    log.error('Error fetching post comments:', error);
     return {
       comments: [],
       rootMoreChildrenIds: [],

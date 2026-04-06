@@ -8,6 +8,8 @@
 import { toast } from 'vue-sonner';
 
 import type { RedditCommentSort } from '@/utils/redditApi';
+import { con } from '@/utils/logger';
+const log = con.m('DiscussionManager');
 
 
 
@@ -56,7 +58,6 @@ import {
 
 // DOM & utility helpers
 import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageWrapper } from '../utils/dom-helpers';
-import { debug } from '@/utils/debug';
 import { findExactDateMatch } from '../utils/date-utils';
 import { resolveAdapter } from '../mapping';
 
@@ -217,7 +218,7 @@ async function getPreferredProvider(): Promise<CommentProvider> {
     preferredProvider = normalized;
     return normalized;
   } catch (error) {
-    console.warn('Failed to load preferred provider, defaulting to reddit', error);
+    log.warn('Failed to load preferred provider, defaulting to reddit', error);
     preferredProvider = 'reddit';
     return 'reddit';
   }
@@ -272,7 +273,7 @@ function getExternalCommentsContainer(): HTMLElement | null {
       mountLoadingShell();
     }
   } catch (e) {
-    console.warn('[getExternalCommentsContainer] recovery failed', e);
+    log.warn('getExternalCommentsContainer recovery failed', e);
   }
 
   return getExternalContainerUtil(state().inlineDiscussionApp);
@@ -373,7 +374,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     const cache = currentState.discussionCache;
 
     if (searchAlreadyRunning && !allowConcurrent) {
-      console.log('Search already in progress, skipping');
+      log.log('Search already in progress, skipping');
       return;
     }
 
@@ -508,7 +509,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
           return;
         } catch (e) {
-          console.warn('Disqus lookup failed, falling back to Reddit', e);
+          log.warn('Disqus lookup failed, falling back to Reddit', e);
         }
       }
     } catch (e) {
@@ -531,22 +532,22 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     const { isAuthenticated } = await import('@/utils/redditAuth');
     const authenticated = await isAuthenticated();
     if (!authenticated) {
-      console.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
+      log.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
       // do not show auth prompt here; allow unauthenticated browsing
     }
 
     // NEW FAILOVER: Try mapper service with series_name and season_title from Crunchyroll API
-    console.log('[Search] Attempting new mapper failover...');
+    log.log('Attempting new mapper failover...');
     const failoverRedditUrl = await tryMapperFailover(animeInfoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
     if (failoverRedditUrl) {
-      console.log('[Search] Failover succeeded, found Reddit URL:', failoverRedditUrl);
+      log.log('Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
       if (postData) {
         await displayDiscussionDependingOnMode(postData);
         return;
       }
     } else {
-      console.log('[Search] Failover did not find a match, continuing to original mapper method...');
+      log.log('Failover did not find a match, continuing to original mapper method...');
     }
 
     // Before showing selection/no discussion, check r-anime-wiki-mapper service (original method)
@@ -592,7 +593,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         }
         const url = entry?.episodes?.[epNum];
         if (url) {
-          console.log('[Mapper] Using mapped episode URL', { idx, epNum, url });
+          log.log('Using mapped episode URL', { idx, epNum, url });
           const postData = await fetchRedditPostFromUrl(url);
           if (postData) {
             await displayDiscussionDependingOnMode(postData);
@@ -609,9 +610,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
 
       const mapperSeason = extractSeasonNumber(animeData?.title || animeData?.anime_name || animeData?.name || animeData?.alt_title);
       if (targetMalId && entryMal(animeData) && entryMal(animeData) !== targetMalId) {
-        console.log('[Mapper] Skipping single-result mismatch by MAL id', { targetMalId, mapperMal: entryMal(animeData) });
+        log.log('Skipping single-result mismatch by MAL id', { targetMalId, mapperMal: entryMal(animeData) });
       } else if ((mapperSeason && targetSeason && mapperSeason !== targetSeason) || (mapperSeason && !targetSeason && mapperSeason > 1)) {
-        console.log('[Mapper] Skipping single-result mismatch by season', { targetSeason, mapperSeason });
+        log.log('Skipping single-result mismatch by season', { targetSeason, mapperSeason });
       } else {
 
         // Handle both episodes (dictionary) and movies (array)
@@ -625,7 +626,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         }
 
         if (redditUrl) {
-          console.log('Found exact match in mapper service:', redditUrl);
+          log.log('Found exact match in mapper service:', redditUrl);
 
           // Extract post ID from Reddit URL and fetch post data
           const postData = await fetchRedditPostFromUrl(redditUrl);
@@ -648,24 +649,24 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     
     if (exactDateMatch) {
       // Auto-select the post that matches the exact release date
-      console.log('Auto-selected post matching exact release date:', exactDateMatch.title);
+      log.log('Auto-selected post matching exact release date:', exactDateMatch.title);
       await displayDiscussionDependingOnMode(exactDateMatch);
       return;
     }
 
     const episodeFromInfo = mappedEpisodeNum;
-    console.log('[Episode Detection] Extracted episode number from animeInfo:', { episodeName: animeInfo.episodeName, episodeFromInfo, offset: episodeOffset });
+    log.log('Extracted episode number from animeInfo:', { episodeName: animeInfo.episodeName, episodeFromInfo, offset: episodeOffset });
     if (typeof episodeFromInfo === 'number') {
       const epMatches = results.filter((r) => parseEpisodeFromTitle(r.title) === episodeFromInfo);
       if (epMatches.length === 1) {
-        console.log('Auto-selected post by episode match:', epMatches[0].title);
+        log.log('Auto-selected post by episode match:', epMatches[0].title);
         await displayDiscussionDependingOnMode(epMatches[0]);
         return;
       }
       if (epMatches.length > 1) {
         const autoLovepon = epMatches.find((r) => (r.author || '').toLowerCase() === 'autolovepon');
         if (autoLovepon) {
-          console.log('Auto-selected AutoLovepon post by episode match:', autoLovepon.title);
+          log.log('Auto-selected AutoLovepon post by episode match:', autoLovepon.title);
           await displayDiscussionDependingOnMode(autoLovepon);
           return;
         }
@@ -675,7 +676,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     if (results.length === 1) {
       // Auto-pick the only candidate
       const discussion = results[0];
-      console.log('Auto-selected discussion:', discussion.title);
+      log.log('Auto-selected discussion:', discussion.title);
       await displayDiscussionDependingOnMode(discussion);
       return;
     }
@@ -683,12 +684,12 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     // Multiple candidates: show selection UI (respects inline no-comments mode fallback)
     await showSelectionUI(animeInfo, results, mappedEpisodeNum ?? (rawEpisodeNum ?? undefined));
   } catch (error) {
-    console.error('Error searching for discussion:', error);
+    log.error('Error searching for discussion:', error);
     try {
       const epStr = extractEpisodeNumberText(animeInfo?.episodeName || '') || '?';
       await showNoDiscussionMessage(animeInfo?.animeName || 'this series', String(epStr || '?'));
     } catch (fallbackErr) {
-      console.warn('Failed to show no-discussion fallback after error', fallbackErr);
+      log.warn('Failed to show no-discussion fallback after error', fallbackErr);
     }
   } finally {
     if (!searchAlreadyRunning) {
@@ -757,7 +758,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
         applySidePadding(anchor);
         anchor.appendChild(host);
       }
-    }).catch((e) => console.warn('Failed to move inline no-comments panel to custom anchor', e));
+    }).catch((e) => log.warn('Failed to move inline no-comments panel to custom anchor', e));
   }
 
   // Ensure the top menu is enabled (clear loading state) if the InlineDiscussion app exists
@@ -768,7 +769,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
       exposed.clearLoading();
     }
   } catch (e) {
-    console.warn('[NoComments] Failed to clear loading on inline app', e);
+    log.warn('Failed to clear loading on inline app', e);
   }
 }
 
@@ -811,7 +812,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
         exposed.clearLoading();
       }
     } catch (e) {
-      console.warn(`[Popup] Failed to clear loading state (${context})`, e);
+      log.warn(`Failed to clear loading state (${context})`, e);
     } finally {
       discussionStore.clearLoading();
     }
@@ -864,7 +865,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
               cache.reddit = { ...postData };
 
               const key = Date.now();
-              console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
+              log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
               const manager = getUiManager();
               manager.updateProps('popup', {
                 discussion: postData,
@@ -882,7 +883,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
           // Full Reddit search pipeline (mapper + searches) when we didn't have a cached discussion
           await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
         } catch (e) {
-          console.warn('[Popup] Failed to resolve Reddit discussion on-demand', e);
+          log.warn('Failed to resolve Reddit discussion on-demand', e);
         } finally {
           if (activeProvider === 'reddit') {
             discussionStore.clearLoading();
@@ -896,7 +897,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
     try {
       providerChangeCallback(activeProvider);
     } catch (e) {
-      console.warn('[Popup] Failed to run initial provider switch', e);
+      log.warn('Failed to run initial provider switch', e);
     }
   }
 
@@ -925,7 +926,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
     try {
       providerChangeCallback(activeProvider);
     } catch (e) {
-      console.warn('[Popup] Initial provider switch failed', e);
+      log.warn('Initial provider switch failed', e);
     }
   }
 
@@ -1064,7 +1065,7 @@ function mountLoadingShell(): void {
       });
     }
   } catch (e) {
-    console.warn('mountLoadingShell failed:', e);
+    log.warn('mountLoadingShell failed:', e);
   }
 }
 
@@ -1080,14 +1081,14 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
       const { hydrateDisqusThreadTitle } = await getDisqusRuntimeModule();
       finalThread = await hydrateDisqusThreadTitle(animeInfo, finalThread);
       if (finalThread && (finalThread.title || finalThread.clean_title)) {
-        console.log('[Disqus] Hydrated cached thread title before render', {
+        log.log('Hydrated cached thread title before render', {
           title: finalThread?.title,
           clean_title: finalThread?.clean_title,
           link: finalThread?.link,
         });
       }
     } catch (e) {
-      console.warn('[Disqus] Failed to hydrate Disqus thread by link before caching', e);
+      log.warn('Failed to hydrate Disqus thread by link before caching', e);
     }
   }
 
@@ -1126,13 +1127,13 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
       if (attempts < maxAttempts) {
         setTimeout(retry, retryDelayMs);
       } else {
-        console.log('[Disqus] Vue instance not ready yet; thread remains cached for deferred popup render');
+        log.log('Vue instance not ready yet; thread remains cached for deferred popup render');
       }
     };
     setTimeout(retry, retryDelayMs);
     return;
   } catch (e) {
-    console.warn('[Disqus] Failed to switch provider via Vue exposed handle:', e);
+    log.warn('Failed to switch provider via Vue exposed handle:', e);
   }
 }
 
@@ -1140,10 +1141,10 @@ async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'd
   try {
     const event = new CustomEvent('ri-disqus-search-requested', { detail: { animeInfo } });
     window.dispatchEvent(event);
-    console.log('[DisqusSearch] Routed manual Disqus search to Vue event');
+    log.log('Routed manual Disqus search to Vue event');
     return 'dismissed';
   } catch (e) {
-    console.warn('[DisqusSearch] Failed to dispatch Vue event', e);
+    log.warn('Failed to dispatch Vue event', e);
     return 'fallback';
   }
 }
@@ -1225,7 +1226,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     try {
       storedRedditSort = normalizeSort(await redditDefaultSortItem.getValue());
     } catch (error) {
-      console.warn('Failed to load Reddit default sort, using confidence:', error);
+      log.warn('Failed to load Reddit default sort, using confidence:', error);
     }
     
     // Cache the discussion data (not comments)
@@ -1252,7 +1253,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     
     const contentContext = getContentScriptContext();
     if (!contentContext) {
-      console.warn('displayInlineDiscussion: content script context not available');
+      log.warn('displayInlineDiscussion: content script context not available');
       await displayDiscussion(discussion);
       return;
     }
@@ -1287,16 +1288,16 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     const inlineDiscussionStore = useDiscussionStore();
     let resolvingReddit = false;
     const providerChangeCallback = (provider: CommentProvider) => {
-      console.log('=== [ProviderChangeCallback] START ===');
+      log.log('=== ProviderChangeCallback START ===');
       activeProvider = provider;
       activeUiProvider = provider;
 
       // Keep inline props in sync with user-selected provider to avoid UI drift.
       manager.updateProps('inline', { provider });
 
-      console.log('Provider change callback received:', provider);
-      console.log('lastAnimeInfo:', currentState.lastAnimeInfo);
-      console.log(`Provider change started: ${provider}`);
+      log.log('Provider change callback received:', provider);
+      log.log('lastAnimeInfo:', currentState.lastAnimeInfo);
+      log.log(`Provider change started: ${provider}`);
 
       const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
       if (exposed?.handleProviderChange) {
@@ -1330,7 +1331,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
                 cache.reddit = { ...postData };
 
                 const key = Date.now();
-                console.log('[Inline] Updating props with resolved Reddit post and redditCommentsKey:', key);
+                log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
                 const manager = getUiManager();
                 manager.updateProps('inline', {
                   discussion: postData,
@@ -1349,7 +1350,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
             await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
           } catch (e) {
-            console.warn('[Inline] Failed to resolve Reddit discussion on-demand', e);
+            log.warn('Failed to resolve Reddit discussion on-demand', e);
           } finally {
             resolvingReddit = false;
             // Only clear loading if the user is still on Reddit
@@ -1360,7 +1361,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         })();
       } else if (provider === 'reddit' && cache.reddit?.id) {
         // Already have a Reddit discussion, just ensure loading is cleared
-        console.log('[Inline] Reddit already cached, clearing loading');
+        log.log('Reddit already cached, clearing loading');
         inlineDiscussionStore.clearLoading();
       }
     };
@@ -1396,13 +1397,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       try {
         providerChangeCallback(activeProvider);
       } catch (e) {
-        console.warn('[Inline] Initial provider switch failed', e);
+        log.warn('Initial provider switch failed', e);
       }
     }
 
     // Use Vue rendering path (legacy DOM rendering removed)
     if (activeProvider === 'reddit') {
-      console.log('[Vue] Using Vue-based Reddit comment rendering');
+      log.log('Using Vue-based Reddit comment rendering');
     }
     // Set up cleanup for the mounted app
     // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
@@ -1418,7 +1419,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     // The local renderComments() function and all its usages have been removed.
     // ========================================================
   } catch (e) {
-    console.error('Inline display error:', e);
+    log.error('Inline display error:', e);
     // Fallback to popup
     await displayDiscussion(discussion);
   }
@@ -1438,9 +1439,9 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
       detail: { animeInfo, crEpisodeNum },
     });
     window.dispatchEvent(event);
-    console.log('[ManualSearch] Routed manual search to Vue event');
+    log.log('Routed manual search to Vue event');
   } catch (e) {
-    console.warn('[ManualSearch] Failed to dispatch manual search event, using Vue component fallback', e);
+    log.warn('Failed to dispatch manual search event, using Vue component fallback', e);
     getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
       onClose: close,
       onSearch: async (query: string) => {

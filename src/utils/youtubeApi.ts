@@ -6,6 +6,9 @@
 
 import { getYouTubeAccessToken } from './youtubeAuth';
 import { fetchHayami } from '@/utils/hayamiApi';
+import { con } from '@/utils/logger';
+
+const log = con.m('YouTubeApi');
 
 export interface YouTubeComment {
   id: string;
@@ -98,8 +101,8 @@ export async function getVideoComments(
     }
 
     const apiUrl = `https://www.googleapis.com/youtube/v3/commentThreads?${params.toString()}`;
-    console.log('YouTube API request URL:', apiUrl);
-    console.log('Requesting comments for videoId:', videoId);
+    log.log('YouTube API request URL:', apiUrl);
+    log.log('Requesting comments for videoId:', videoId);
     
     const response = await fetch(apiUrl, {
       headers: {
@@ -111,13 +114,13 @@ export async function getVideoComments(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('YouTube API error:', response.status, errorText);
+      log.error('YouTube API error:', response.status, errorText);
       throw new Error(`YouTube API request failed: ${response.status}`);
     }
 
     const data = await response.json();
-    console.log('YouTube API response data:', data);
-    console.log('Number of comment threads:', data.items?.length || 0);
+    log.log('YouTube API response data:', data);
+    log.log('Number of comment threads:', data.items?.length || 0);
     const threads: YouTubeCommentThread[] = data.items || [];
 
     // Parse comments from threads
@@ -161,7 +164,7 @@ export async function getVideoComments(
       pageInfo: data.pageInfo,
     };
   } catch (error) {
-    console.error('Error fetching YouTube comments:', error);
+    log.error('Error fetching YouTube comments:', error);
     return { comments: [] };
   }
 }
@@ -199,7 +202,7 @@ export async function getCommentReplies(
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('YouTube API error:', response.status, errorText);
+      log.error('YouTube API error:', response.status, errorText);
       return [];
     }
 
@@ -219,7 +222,7 @@ export async function getCommentReplies(
       parentId: item.snippet.parentId,
     }));
   } catch (error) {
-    console.error('Error fetching YouTube comment replies:', error);
+    log.error('Error fetching YouTube comment replies:', error);
     return [];
   }
 }
@@ -247,7 +250,7 @@ export async function searchYouTubePlaylist(
     );
 
     if (!response.ok) {
-      console.error('YouTube playlist search failed:', response.status);
+      log.error('YouTube playlist search failed:', response.status);
       return null;
     }
 
@@ -282,7 +285,7 @@ export async function searchYouTubePlaylist(
 
     return null;
   } catch (error) {
-    console.error('Error searching YouTube playlist:', error);
+    log.error('Error searching YouTube playlist:', error);
     return null;
   }
 }

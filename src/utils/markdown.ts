@@ -3,6 +3,9 @@
 import * as Snudown from '@/lib/snudown';
 
 import { escapeHtml } from './html-utils';
+import { con } from '@/utils/logger';
+
+const log = con.m('Markdown');
 
 export function markdownToHtml(text: string): string {
   const DEBUG = ((): boolean => {
@@ -15,8 +18,8 @@ export function markdownToHtml(text: string): string {
   })();
 
   if (DEBUG) {
-    try { console.groupCollapsed('[ri-markdown] render start', { length: (text||'').length }); } catch {}
-    try { console.debug('[ri-markdown] original', text); } catch {}
+    try { log.debug('render start', { length: (text||'').length }); } catch {}
+    try { log.debug('original', text); } catch {}
   }
   
   // Normalize + unescape common entities Reddit leaves in body
@@ -48,7 +51,7 @@ export function markdownToHtml(text: string): string {
   // Use snudown-js to convert Reddit markdown to HTML
   let html = Snudown.markdown(src);
   
-  if (DEBUG) { try { console.debug('[ri-markdown] after snudown-js', html); } catch {} }
+  if (DEBUG) { try { log.debug('after snudown-js', html); } catch {} }
   
   // Post-process spoilers: Ensure all spoiler spans have md-spoiler-text class
   // Snudown-js should output spoilers correctly, we just need to ensure they have the right class
@@ -122,8 +125,7 @@ export function markdownToHtml(text: string): string {
     (_m: string, label: string, body: string) => `<span class="ri-spoiler-ref" title="${escapeHtml(body)}">${escapeHtml(label)}</span>`);
 
   if (DEBUG) {
-    try { console.debug('[ri-markdown] final html', html); } catch {}
-    try { console.groupEnd(); } catch {}
+    try { log.debug('final html', html); } catch {}
   }
 
   return html;

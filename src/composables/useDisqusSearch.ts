@@ -5,6 +5,9 @@
 
 import { ref, computed } from 'vue';
 import { searchThreadsForAnime } from '@/utils/disqusApi';
+import { con } from '@/utils/logger';
+
+const log = con.m('DisqusSearch');
 
 export function useDisqusSearch() {
   const disqusSearchOpen = ref(false);
@@ -61,7 +64,7 @@ export function useDisqusSearch() {
     try {
       window.dispatchEvent(new CustomEvent('ri-disqus-thread-selected', { detail: { thread } }));
     } catch (e) {
-      console.warn('[DisqusSearch] Failed to dispatch selection', e);
+      log.warn('Failed to dispatch selection', e);
     } finally {
       disqusSearchOpen.value = false;
     }

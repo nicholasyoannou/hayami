@@ -356,3 +356,17 @@ export const customSitesSyncHistoryItem = storage.defineItem<CustomSitesSyncHist
   'local:custom_sites_sync_history',
   { fallback: [] }
 );
+
+// ── MAL-Sync Integration ──────────────────────────────────────────────
+
+// ── Verbose Logging ──────────────────────────────────────────────────
+
+export const verboseLoggingItem = storage.defineItem<boolean>(
+  'local:verbose_logging',
+  { fallback: false }
+);
+
+export const malSyncEnabledItem = storage.defineItem<boolean>(
+  'sync:malsync_enabled',
+  { fallback: false }
+);

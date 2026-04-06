@@ -1,4 +1,5 @@
-import { debug } from '@/utils/debug';
+import { con } from '@/utils/logger';
+const log = con.m('RedditRuntime');
 import { extensionFetch, getSubredditAboutCached } from '@/utils/redditApi';
 import { getStoredUsername, isAuthenticated, makeRedditRequest } from '@/utils/redditAuth';
 
@@ -26,7 +27,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
     }
 
     if (!postId) {
-      console.log('Could not extract post ID from URL:', redditUrl);
+      log.log('Could not extract post ID from URL:', redditUrl);
       return null;
     }
 
@@ -38,7 +39,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
         if (infoResponse && infoResponse.data && infoResponse.data.children && infoResponse.data.children.length > 0) {
           const postData = infoResponse.data.children[0].data;
           const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-          console.log('[fetchRedditPostFromUrl] Post fullname from API:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
+          log.log('Post fullname from API:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
           return {
             id: postData.id,
             title: postData.title,
@@ -63,7 +64,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
           const postData = commentsResponse[0]?.data?.children?.[0]?.data;
           if (postData) {
             const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-            debug.log('[fetchRedditPostFromUrl] Post fullname from OAuth comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
+            log.log('Post fullname from OAuth comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
             return {
               id: postData.id,
               title: postData.title,
@@ -83,7 +84,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
           }
         }
       } catch (e) {
-        console.log('Error fetching post info via OAuth endpoints:', e);
+        log.log('Error fetching post info via OAuth endpoints:', e);
       }
 
       return {
@@ -106,7 +107,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
         const postData = result?.data?.children?.[0]?.data;
         if (postData) {
           const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-          debug.log('[fetchRedditPostFromUrl] Post fullname from info endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
+          log.log('Post fullname from info endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
           return {
             id: postData.id,
             title: postData.title,
@@ -126,7 +127,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
         }
       }
     } catch (e) {
-      console.log('Error fetching post info via info endpoint:', e);
+      log.log('Error fetching post info via info endpoint:', e);
     }
 
     const storedOAuthUsername = await getStoredUsername();
@@ -153,7 +154,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
           if (postListing?.data?.children?.[0]?.data) {
             const postData = postListing.data.children[0].data;
             const fullname = postData.name || (postData.id?.startsWith('t3_') ? postData.id : `t3_${postData.id}`);
-            debug.log('[fetchRedditPostFromUrl] Post fullname from comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
+            log.log('Post fullname from comments endpoint:', fullname, 'postData.name:', postData.name, 'postData.id:', postData.id);
             return {
               id: postData.id,
               title: postData.title,
@@ -174,7 +175,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
         }
       }
     } catch (e) {
-      console.log('Error fetching post info via comments endpoint:', e);
+      log.log('Error fetching post info via comments endpoint:', e);
     }
 
     return {
@@ -188,7 +189,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
       url: redditUrl,
     };
   } catch (error) {
-    console.error('Error fetching Reddit post from URL:', error);
+    log.error('Error fetching Reddit post from URL:', error);
     return null;
   }
 }
@@ -206,7 +207,7 @@ export async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: 
       };
     }
   } catch (e) {
-    console.log('Error fetching subreddit info:', e);
+    log.log('Error fetching subreddit info:', e);
   }
   return { iconUrl: null, primaryColor: null };
 }

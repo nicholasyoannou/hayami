@@ -5,6 +5,8 @@ import {
   type ManualOverrideRecentEntry,
 } from '@/config/storage';
 import { resolveAdapter } from '../adapters/site-registry';
+import { con } from '@/utils/logger';
+const log = con.m('SeriesMapping');
 
 export interface SeriesMapping {
   episodeOffset: number;
@@ -172,7 +174,7 @@ async function upsertRecentOverride(entry: ManualOverrideRecentEntry): Promise<v
     const next = [entry, ...filtered].slice(0, MANUAL_OVERRIDES_RECENT_LIMIT);
     await manualOverridesRecentItem.setValue(next);
   } catch (error) {
-    console.warn('[series-mapping] Failed to update recent overrides sync entry', error);
+    log.warn('Failed to update recent overrides sync entry', error);
   }
 }
 
@@ -190,7 +192,7 @@ async function removeRecentOverride(
       await manualOverridesRecentItem.setValue(next);
     }
   } catch (error) {
-    console.warn('[series-mapping] Failed to remove recent override sync entry', error);
+    log.warn('Failed to remove recent override sync entry', error);
   }
 }
 
@@ -279,7 +281,7 @@ export async function clearAllSeriesMappings(): Promise<void> {
   try {
     await manualOverridesRecentItem.setValue([]);
   } catch (error) {
-    console.warn('[series-mapping] Failed to clear recent overrides sync list', error);
+    log.warn('Failed to clear recent overrides sync list', error);
   }
 }
 

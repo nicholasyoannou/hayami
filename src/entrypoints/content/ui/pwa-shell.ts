@@ -5,6 +5,8 @@ import { completeAniListImplicitGrant } from '@/utils/anilistAuth';
 import { completeMALRedirect } from '@/utils/malAuth';
 import { completeRedditRedirectCallback } from '@/utils/redditAuth';
 import { completeYouTubeRedirect } from '@/utils/youtubeAuth';
+import { con } from '@/utils/logger';
+const log = con.m('PWAShell');
 
 function resetPageChrome(): void {
   document.documentElement.style.height = '100%';
@@ -284,32 +286,32 @@ async function handleYouTubeRedirect(ctx: ContentScriptContext): Promise<void> {
 
 export async function mountPwaShell(ctx: ContentScriptContext): Promise<void> {
   const path = window.location.pathname || '';
-  console.log('[PWA Shell] Checking path:', path);
+  log.log('Checking path:', path);
 
   if (path.startsWith('/pwa/link/anilist')) {
-    console.log('[PWA Shell] Handling AniList redirect');
+    log.log('Handling AniList redirect');
     await handleAniListRedirect(ctx);
     return;
   }
 
   if (path.startsWith('/pwa/link/reddit')) {
-    console.log('[PWA Shell] Handling Reddit redirect');
+    log.log('Handling Reddit redirect');
     await handleRedditRedirect(ctx);
     return;
   }
 
   if (path.startsWith('/pwa/link/mal')) {
-    console.log('[PWA Shell] Handling MAL redirect');
+    log.log('Handling MAL redirect');
     await handleMALRedirect(ctx);
     return;
   }
 
   if (path.startsWith('/pwa/link/youtube')) {
-    console.log('[PWA Shell] Handling YouTube redirect');
+    log.log('Handling YouTube redirect');
     await handleYouTubeRedirect(ctx);
     return;
   }
 
-  console.log('[PWA Shell] Mounting popup frame');
+  log.log('Mounting popup frame');
   mountPopupFrame(ctx);
 }

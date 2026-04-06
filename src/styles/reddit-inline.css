@@ -26,7 +26,7 @@
 }
 
 #reddit-inline-discussion img {
-  margin: 0;            /* no !important — avatar margin overrides via !important */
+  margin: 0; /* no !important — avatar margin overrides via !important */
   vertical-align: baseline;
   max-width: none;
   border: none;
@@ -68,10 +68,10 @@
 #reddit-inline-discussion .ri-inline-no-discussion {
   margin: 12px 0 16px;
   padding: 12px 14px;
-  background: #131313;
-  border: 1px solid #262626;
+  background: var(--ri-surface-1, #131313);
+  border: 1px solid var(--ri-border-1, #262626);
   border-radius: 8px;
-  color: #e0e0e0;
+  color: var(--ri-discussion-fg, #e0e0e0);
 }
 
 #reddit-inline-discussion .ri-inline-no-discussion__lead {
@@ -82,12 +82,12 @@
 #reddit-inline-discussion .ri-inline-no-discussion__title {
   margin: 0 0 8px;
   font-weight: 700;
-  color: #fff;
+  color: var(--ri-discussion-fg, #fff);
 }
 
 #reddit-inline-discussion .ri-inline-no-discussion__hint {
   margin: 0;
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   font-size: 13px;
 }
 
@@ -95,12 +95,14 @@
   margin-top: 12px;
   padding: 8px 12px;
   border: 1px solid #ff4500;
-  background: #1a0f0a;
-  color: #ffb199;
+  background: var(--ri-surface-1, #1a0f0a);
+  color: var(--ri-discussion-fg, #ffb199);
   border-radius: 6px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 #reddit-inline-discussion .ri-inline-no-discussion__cta:hover {
@@ -116,10 +118,10 @@
   align-items: flex-start;
   gap: 8px;
   padding: 16px;
-  border: 1px solid #3a4559;
+  border: 1px solid var(--ri-border-1, #3a4559);
   border-radius: 10px;
-  background: #101620;
-  color: #d8e6ff;
+  background: var(--ri-surface-1, #101620);
+  color: var(--ri-discussion-fg, #d8e6ff);
 }
 
 #reddit-inline-discussion .ri-auth-title,
@@ -133,16 +135,16 @@
 .ri-auth-description {
   margin: 0;
   font-size: 13px;
-  color: #a9bad6;
+  color: var(--ri-subtle-fg, #a9bad6);
 }
 
 #reddit-inline-discussion .ri-auth-button,
 .ri-auth-button {
   margin-top: 4px;
   appearance: none;
-  border: 1px solid #5b78a5;
-  background: #1d2c44;
-  color: #e6f0ff;
+  border: 1px solid var(--ri-border-1, #5b78a5);
+  background: var(--ri-surface-2, #1d2c44);
+  color: var(--ri-discussion-fg, #e6f0ff);
   font-size: 13px;
   font-weight: 600;
   border-radius: 8px;
@@ -152,8 +154,8 @@
 
 #reddit-inline-discussion .ri-auth-button:hover:not(:disabled),
 .ri-auth-button:hover:not(:disabled) {
-  background: #263958;
-  border-color: #7d9bcb;
+  background: var(--ri-surface-1, #263958);
+  border-color: var(--ri-border-1, #7d9bcb);
 }
 
 #reddit-inline-discussion .ri-auth-button:disabled,
@@ -165,9 +167,9 @@
 #reddit-inline-discussion .ri-mal-wrong-anime,
 .ri-mal-wrong-anime {
   appearance: none;
-  border: 1px solid #4f6078;
-  background: #141b28;
-  color: #c7dbff;
+  border: 1px solid var(--ri-border-1, #4f6078);
+  background: var(--ri-surface-1, #141b28);
+  color: var(--ri-discussion-fg, #c7dbff);
   font-size: 12px;
   border-radius: 999px;
   padding: 4px 10px;
@@ -176,8 +178,8 @@
 
 #reddit-inline-discussion .ri-mal-wrong-anime:hover,
 .ri-mal-wrong-anime:hover {
-  background: #1b2739;
-  border-color: #6482a8;
+  background: var(--ri-surface-2, #1b2739);
+  border-color: var(--ri-border-1, #6482a8);
 }
 
 /* Remove top margin when Disqus is active (no top strip) */
@@ -188,7 +190,15 @@
 
 #reddit-inline-discussion,
 #reddit-inline-discussion * {
-  font-family: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family:
+    "Noto Sans",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
 /* ==================== Toolbar ==================== */
@@ -199,29 +209,29 @@
   align-items: center;
   margin: 0 -16px 10px -16px;
   padding: 16px 16px 0 16px;
-  border-top: 1px solid #2f2f2f;
+  border-top: 1px solid var(--ri-border-1, #2f2f2f);
 }
 
 #reddit-inline-discussion .ri-sort {
   font-size: 12px;
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 #reddit-inline-discussion .ri-sort-select {
-  background: #161616;
-  border: 1px solid #2c2c2c;
-  color: #ddd;
+  background: var(--ri-surface-1, #161616);
+  border: 1px solid var(--ri-border-1, #2c2c2c);
+  color: var(--ri-discussion-fg, #ddd);
   padding: 6px 10px;
   border-radius: 6px;
 }
 
 #reddit-inline-discussion .ri-search-input {
-  background: #161616;
-  border: 1px solid #2c2c2c;
-  color: #fff;
+  background: var(--ri-surface-1, #161616);
+  border: 1px solid var(--ri-border-1, #2c2c2c);
+  color: var(--ri-discussion-fg, #fff);
   padding: 6px 10px;
   border-radius: 6px;
   min-width: 180px;
@@ -230,13 +240,13 @@
 }
 
 #reddit-inline-discussion .ri-search-input::placeholder {
-  color: #888;
+  color: var(--ri-subtle-fg, #888);
 }
 
 #reddit-inline-discussion .ri-search-input:focus {
   outline: none;
   border-color: #ff4500;
-  background: #1a1a1a;
+  background: var(--ri-surface-2, #1a1a1a);
 }
 
 /* ==================== Header ==================== */
@@ -258,7 +268,7 @@
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #fff;
+  color: var(--ri-discussion-fg, #fff);
   line-height: 1.4;
   flex: 1;
 }
@@ -281,17 +291,17 @@
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   flex-wrap: wrap;
 }
 
 #reddit-inline-discussion .ri-author {
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   font-size: 14px;
 }
 
 #reddit-inline-discussion .ri-separator {
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
 }
 
 #reddit-inline-discussion .ri-post-actions {
@@ -307,10 +317,10 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px !important;
-  background: #161616;
-  border: 1px solid #2c2c2c;
+  background: var(--ri-surface-1, #161616);
+  border: 1px solid var(--ri-border-1, #2c2c2c);
   border-radius: 20px;
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
@@ -327,8 +337,8 @@
 
 #reddit-inline-discussion .ri-vote-bubble:hover:not(:disabled),
 #reddit-inline-discussion .ri-action-bubble:hover:not(:disabled) {
-  background: #1f1f1f;
-  border-color: #3a3a3a;
+  background: var(--ri-surface-2, #1f1f1f);
+  border-color: var(--ri-border-1, #3a3a3a);
 }
 
 #reddit-inline-discussion .ri-vote-bubble:disabled,
@@ -378,30 +388,34 @@
   object-fit: contain;
   transition: filter 0.15s ease;
   cursor: pointer;
-  filter: brightness(0) saturate(100%) invert(100%);
+  filter: var(--ri-icon-filter, brightness(0) saturate(100%) invert(100%));
   opacity: 0.7;
 }
 
 #reddit-inline-discussion .ri-vote-bubble.ri-upvoted .ri-upvote-icon {
-  filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%) hue-rotate(359deg) brightness(102%) contrast(101%);
+  filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%)
+    hue-rotate(359deg) brightness(102%) contrast(101%);
   opacity: 1;
 }
 
 #reddit-inline-discussion .ri-vote-bubble.ri-downvoted .ri-downvote-icon {
-  filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(0.9) contrast(1.2);
+  filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%)
+    hue-rotate(200deg) brightness(0.9) contrast(1.2);
   opacity: 1;
 }
 
 /* Vue component vote colors - for comments */
 .ri-vote-bubble.ri-upvoted .ri-vote-icon[alt="upvote"],
 .ri-vote-bubble.ri-upvoted .ri-upvote .ri-vote-icon {
-  filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%) hue-rotate(359deg) brightness(102%) contrast(101%) !important;
+  filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%)
+    hue-rotate(359deg) brightness(102%) contrast(101%) !important;
   opacity: 1 !important;
 }
 
 .ri-vote-bubble.ri-downvoted .ri-vote-icon[alt="downvote"],
 .ri-vote-bubble.ri-downvoted .ri-downvote .ri-vote-icon {
-  filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%) hue-rotate(200deg) brightness(0.9) contrast(1.2) !important;
+  filter: brightness(0) saturate(100%) invert(50%) sepia(100%) saturate(2000%)
+    hue-rotate(200deg) brightness(0.9) contrast(1.2) !important;
   opacity: 1 !important;
 }
 
@@ -409,7 +423,7 @@
   min-width: 2ch;
   text-align: center;
   font-weight: 600;
-  color: #fff;
+  color: var(--ri-discussion-fg, #fff);
   line-height: 1;
   margin: 0;
   padding: 0;
@@ -422,7 +436,7 @@
   display: inline-block !important;
   flex-shrink: 0 !important;
   object-fit: contain;
-  filter: brightness(0) saturate(100%) invert(100%);
+  filter: var(--ri-icon-filter, brightness(0) saturate(100%) invert(100%));
   opacity: 0.7;
 }
 
@@ -451,20 +465,20 @@
 
 #reddit-inline-discussion .ri-no-comments-content p {
   margin: 8px 0;
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   font-size: 14px;
 }
 
 #reddit-inline-discussion .ri-no-comments-content .anime-title {
   font-size: 16px;
   font-weight: 600;
-  color: #fff;
+  color: var(--ri-discussion-fg, #fff);
   margin: 12px 0;
 }
 
 #reddit-inline-discussion .ri-no-comments-content .hint {
   font-size: 12px;
-  color: #888;
+  color: var(--ri-subtle-fg, #888);
   margin-top: 16px;
 }
 
@@ -486,12 +500,12 @@
 
 /* ==================== Archived Notice ==================== */
 #reddit-inline-discussion .ri-archived-notice {
-  background: #2a1f1f;
-  border: 1px solid #663333;
+  background: var(--ri-surface-1, #2a1f1f);
+  border: 1px solid var(--ri-border-1, #663333);
   border-radius: 6px;
   padding: 12px;
   margin: 12px 0;
-  color: #ffaa88;
+  color: var(--ri-discussion-fg, #ffaa88);
 }
 
 #reddit-inline-discussion .ri-archived-notice strong {
@@ -503,7 +517,7 @@
 #reddit-inline-discussion .ri-archived-notice p {
   margin: 0;
   font-size: 12px;
-  color: #ccaa99;
+  color: var(--ri-subtle-fg, #ccaa99);
 }
 
 /* ==================== Comment Structure ==================== */
@@ -534,14 +548,14 @@
   bottom: auto;
   left: 9px;
   width: 2px;
-  background: #343536;
+  background: var(--ri-border-1, #343536);
   z-index: 1;
   pointer-events: none;
 }
 
 .ri-comment.depth-0.line-hover::before,
 .ri-comment.depth-0.line-hover::after {
-  background: #818384;
+  background: var(--ri-subtle-fg, #818384);
 }
 
 .ri-comment.depth-0:last-child::after {
@@ -551,11 +565,13 @@
 /* When a top-level comment itself is collapsed, show a single gradient line with avatar swap */
 .ri-comment.depth-0.collapsed::before,
 .ri-comment.depth-0.ri-collapsed::before {
-  top: 38px;           /* start at original trunk top */
-  bottom: -15px;       /* shorter extension toward the next avatar */
-  height: auto;        /* allow the top/bottom anchors to define length */
-  background: #343536; /* solid line; remove fade */
-  transition: background 0.15s ease, opacity 0.15s ease;
+  top: 38px; /* start at original trunk top */
+  bottom: -15px; /* shorter extension toward the next avatar */
+  height: auto; /* allow the top/bottom anchors to define length */
+  background: var(--ri-border-1, #343536); /* solid line; remove fade */
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
 }
 
 /* But if it's the last top-level comment, don't overshoot past the list */
@@ -592,7 +608,7 @@
   top: 66px; /* icon bottom (48px + 18px) with padding */
   bottom: -8px;
   width: 2px;
-  background: #343536;
+  background: var(--ri-border-1, #343536);
   z-index: 1;
   pointer-events: none;
 }
@@ -614,7 +630,9 @@
   background: transparent;
   box-sizing: border-box;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 .ri-comment.depth-0 .ri-trunk-icon::after {
   content: "";
@@ -623,14 +641,16 @@
   background: rgb(242, 244, 245);
   border-radius: 1px;
 }
-.ri-comment.depth-0 .ri-trunk-icon:hover { 
-  background: #2a2a2c; /* match reply hover */
+.ri-comment.depth-0 .ri-trunk-icon:hover {
+  background: var(--ri-surface-2, #2a2a2c); /* match reply hover */
 }
-.ri-comment.depth-0 .ri-trunk-icon:active { 
-  background: #3a3a3c;
+.ri-comment.depth-0 .ri-trunk-icon:active {
+  background: var(--ri-surface-1, #3a3a3c);
 }
 .ri-comment.depth-0.collapsed .ri-trunk-icon,
-.ri-comment.depth-0.ri-collapsed .ri-trunk-icon { display: none; }
+.ri-comment.depth-0.ri-collapsed .ri-trunk-icon {
+  display: none;
+}
 
 /* But if it's the last top-level comment, don't overshoot past the list */
 .ri-comment.depth-0.collapsed:last-child::before {
@@ -669,20 +689,27 @@
   top: 66px; /* match old DOM placement */
   bottom: -8px;
   width: 2px;
-  background: #343536;
+  background: var(--ri-border-1, #343536);
   z-index: 1;
   pointer-events: none;
 }
 
 /* Use the collapsed ::before gradient defined above; make it subtle by default */
 .ri-comment.depth-0.collapsed::before,
-.ri-comment.depth-0.ri-collapsed::before { opacity: 1; }
+.ri-comment.depth-0.ri-collapsed::before {
+  opacity: 1;
+}
 /* Do not render the lower segment while collapsed */
 .ri-comment.depth-0.collapsed::after,
-.ri-comment.depth-0.ri-collapsed::after { display: none; }
+.ri-comment.depth-0.ri-collapsed::after {
+  display: none;
+}
 /* On hover over the line area, brighten to guide re-open */
 .ri-comment.depth-0.collapsed.line-hover::before,
-.ri-comment.depth-0.ri-collapsed.line-hover::before { opacity: 1; background: #343536; }
+.ri-comment.depth-0.ri-collapsed.line-hover::before {
+  opacity: 1;
+  background: var(--ri-border-1, #343536);
+}
 
 /* ==================== Gutter & Collapse Button ==================== */
 .ri-gutter {
@@ -695,7 +722,10 @@
 }
 
 /* Reduce left gutter for top-level once toggle is hidden */
-.ri-comment.depth-0 > .ri-gutter { width: 0; margin-right: 0; }
+.ri-comment.depth-0 > .ri-gutter {
+  width: 0;
+  margin-right: 0;
+}
 
 /* For nested comments, keep gutter width */
 .ri-comment:not(.depth-0) > .ri-gutter {
@@ -703,12 +733,14 @@
 }
 
 /* Collapse button positioned over the vertical line */
-.ri-toggle { display: none !important; }
+.ri-toggle {
+  display: none !important;
+}
 
 /* Vertical line - visible from collapse button down through comment, changes color on hover with pointer */
 .ri-threadline {
   width: 2px;
-  background: #343536;
+  background: var(--ri-border-1, #343536);
   position: absolute;
   top: 5px;
   bottom: -8px;
@@ -718,7 +750,7 @@
 }
 
 .ri-threadline:hover {
-  background: #818384;
+  background: var(--ri-subtle-fg, #818384);
 }
 
 .ri-spine-hit {
@@ -756,7 +788,7 @@
   width: 26px !important;
   height: 26px !important;
   border-radius: 50% !important;
-  background: #2c2c2c;
+  background: var(--ri-surface-2, #2c2c2c);
   display: block !important;
   flex: 0 0 26px !important;
   min-width: 26px !important;
@@ -790,7 +822,8 @@
 
 /* When collapsed, avatar shows expand.svg - style it to match icon color */
 .ri-comment.depth-0.collapsed > .ri-avatar {
-  filter: brightness(0) saturate(100%) invert(96%) sepia(1%) saturate(3179%) hue-rotate(175deg) brightness(99%) contrast(93%);
+  filter: brightness(0) saturate(100%) invert(96%) sepia(1%) saturate(3179%)
+    hue-rotate(175deg) brightness(99%) contrast(93%);
   /* This filter converts any color to rgb(242, 244, 245) */
 }
 /* Collapsed placeholder circle (replaces avatar image) */
@@ -800,14 +833,14 @@
   margin-left: -4px; /* align to trunk like top-level avatar */
   border-radius: 50%;
   border: none;
-  background: #8b8c90; /* solid grey fill like old DOM */
+  background: var(--ri-subtle-fg, #8b8c90); /* solid grey fill like old DOM */
   object-fit: contain;
   filter: none;
 }
 
 /* Placeholder circle when no avatar is available */
 .ri-avatar-placeholder {
-  background: #2c2c2c; /* same as .ri-avatar background */
+  background: var(--ri-surface-1, #2c2c2c); /* same as .ri-avatar background */
   /* No image, just the empty circle */
 }
 
@@ -822,7 +855,7 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  color: #818384;
+  color: var(--ri-subtle-fg, #818384);
   margin-bottom: 4px;
 }
 
@@ -832,9 +865,9 @@
   gap: 4px;
   padding: 2px 6px;
   border-radius: 12px;
-  background: #1f2528;
-  border: 1px solid #2e3a3f;
-  color: rgb(184, 197, 201);
+  background: var(--ri-surface-2, #1f2528);
+  border: 1px solid var(--ri-border-1, #2e3a3f);
+  color: var(--ri-subtle-fg, rgb(184, 197, 201));
   font-size: 11px;
   font-weight: 700;
 }
@@ -855,26 +888,28 @@
   width: 14px;
   height: 14px;
   display: inline-block;
-  background: rgb(184, 197, 201);
+  background: var(--ri-subtle-fg, rgb(184, 197, 201));
   -webkit-mask: var(--ri-stickied-icon) center/14px 14px no-repeat;
   mask: var(--ri-stickied-icon) center/14px 14px no-repeat;
 }
 
-.ri-stickied-label { line-height: 1; }
+.ri-stickied-label {
+  line-height: 1;
+}
 
 .ri-edited {
   position: relative;
-  color: #818384;
+  color: var(--ri-subtle-fg, #818384);
 }
 
 .ri-edited::before {
-  content: '\2022';
+  content: "\2022";
   margin: 0 4px 0 0;
-  color: #6f6f6f;
+  color: var(--ri-subtle-fg, #6f6f6f);
 }
 
 .ri-username {
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-weight: 400;
   font-size: 12px;
 }
@@ -883,9 +918,9 @@
   display: inline-flex;
   align-items: center;
   gap: 0; /* no gaps between icons/text */
-  background: #343536;
+  background: var(--ri-surface-2, #343536);
   color: inherit; /* allow inline color to control contrast */
-  border: 1px solid #343536;
+  border: 1px solid var(--ri-border-1, #343536);
   border-radius: 2px;
   padding: 0px 4px;
   font-size: 10px;
@@ -900,9 +935,9 @@
   vertical-align: middle;
   min-height: 16px;
   padding: 0px 4px;
-  background: #343536;
+  background: var(--ri-surface-2, #343536);
   color: inherit; /* let inline style set readable color */
-  /* border: 1px solid #343536; */
+  /* border: 1px solid var(--ri-border-1, #343536); */
   border-radius: 2px;
   font-size: 10px;
   line-height: 16px;
@@ -927,7 +962,7 @@
 }
 
 .ri-timestamp {
-  color: #818384;
+  color: var(--ri-subtle-fg, #818384);
   font-size: 12px;
 }
 
@@ -935,7 +970,7 @@
 .ri-text {
   line-height: calc(21px + var(--ri-comment-text-size-increase, 0px));
   font-size: calc(14px + var(--ri-comment-text-size-increase, 0px));
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   margin-top: 2px;
   padding-right: 12px; /* prevent text from running too close to the right edge */
 }
@@ -944,10 +979,10 @@
 #reddit-inline-discussion .ri-load-more {
   margin: 6px 0 2px 12px;
   padding: 6px 10px;
-  background: #1f1f1f;
-  border: 1px solid #333;
+  background: var(--ri-surface-2, #1f1f1f);
+  border: 1px solid var(--ri-border-1, #333);
   border-radius: 6px;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-size: 12px;
   font-weight: 600;
   text-align: left;
@@ -956,7 +991,10 @@
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 .ri-load-more-icon {
@@ -964,13 +1002,14 @@
   height: 14px;
   display: inline-block;
   background: var(--ri-load-more-icon) center / contain no-repeat;
-  filter: brightness(0) saturate(100%) invert(78%) sepia(6%) saturate(0%) hue-rotate(225deg) brightness(94%) contrast(87%);
+  filter: brightness(0) saturate(100%) invert(78%) sepia(6%) saturate(0%)
+    hue-rotate(225deg) brightness(94%) contrast(87%);
 }
 
 #reddit-inline-discussion .ri-load-more:hover:not(:disabled) {
-  background: #2a2a2a;
-  border-color: #4a4a4a;
-  color: #fff;
+  background: var(--ri-surface-2, #2a2a2a);
+  border-color: var(--ri-border-1, #4a4a4a);
+  color: var(--ri-discussion-fg, #fff);
 }
 
 #reddit-inline-discussion .ri-load-more:disabled {
@@ -993,8 +1032,8 @@
 .ri-deep-view-card {
   width: min(980px, 96vw);
   max-height: min(80vh, 880px);
-  background: #101010;
-  border: 1px solid #2a2a2a;
+  background: var(--ri-discussion-bg, #101010);
+  border: 1px solid var(--ri-border-1, #2a2a2a);
   border-radius: 12px;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
   display: flex;
@@ -1006,23 +1045,23 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid #262626;
-  background: #0c0c0c;
+  border-bottom: 1px solid var(--ri-border-1, #262626);
+  background: var(--ri-surface-1, #0c0c0c);
   border-radius: 12px 12px 0 0;
 }
 
 .ri-deep-view-title {
   font-size: 13px;
   font-weight: 600;
-  color: #bdbdbd;
+  color: var(--ri-subtle-fg, #bdbdbd);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .ri-deep-view-back {
-  background: #1c1c1c;
-  border: 1px solid #333;
-  color: #f5f5f5;
+  background: var(--ri-surface-2, #1c1c1c);
+  border: 1px solid var(--ri-border-1, #333);
+  color: var(--ri-discussion-fg, #f5f5f5);
   font-size: 12px;
   font-weight: 600;
   padding: 6px 10px;
@@ -1031,15 +1070,15 @@
 }
 
 .ri-deep-view-back:hover {
-  background: #242424;
-  border-color: #444;
+  background: var(--ri-surface-1, #242424);
+  border-color: var(--ri-border-1, #444);
 }
 
 .ri-deep-view-body {
   padding: 16px;
   overflow: auto;
   scrollbar-width: thin;
-  scrollbar-color: #3a3a3a #141414;
+  scrollbar-color: var(--ri-surface-2, #3a3a3a) var(--ri-surface-1, #141414);
 }
 
 .ri-deep-view-body::-webkit-scrollbar {
@@ -1047,12 +1086,12 @@
 }
 
 .ri-deep-view-body::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
+  background: var(--ri-surface-2, #3a3a3a);
   border-radius: 8px;
 }
 
 .ri-deep-view-body::-webkit-scrollbar-track {
-  background: #141414;
+  background: var(--ri-surface-1, #141414);
 }
 
 /* Flair emoji images - small inline icons */
@@ -1089,33 +1128,33 @@
 }
 
 .ri-text code {
-  background: #272729;
-  border: 1px solid #343536;
+  background: var(--ri-surface-1, #272729);
+  border: 1px solid var(--ri-border-1, #343536);
   border-radius: 2px;
   padding: 2px 5px;
   font-family: "IBM Plex Mono", "Courier New", Courier, monospace;
   font-size: 12px;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
 }
 
 .ri-text h1 {
   font-size: 20px;
   margin: 10px 0 8px;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-weight: 400;
 }
 
 .ri-text h2 {
   font-size: 18px;
   margin: 10px 0 8px;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-weight: 400;
 }
 
 .ri-text h3 {
   font-size: 16px;
   margin: 8px 0 6px;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-weight: 400;
 }
 
@@ -1124,28 +1163,28 @@
 .ri-text h6 {
   font-size: 14px;
   margin: 6px 0 4px;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-weight: 400;
 }
 
 .ri-text blockquote {
-  border-left: 3px solid #343536;
+  border-left: 3px solid var(--ri-border-1, #343536);
   margin: 6px 0;
   padding: 4px 8px;
-  color: #818384;
+  color: var(--ri-subtle-fg, #818384);
   background: transparent;
 }
 
 .ri-text hr {
   border: none;
-  border-top: 1px solid #343536;
+  border-top: 1px solid var(--ri-border-1, #343536);
   margin: 12px 0;
   background: transparent;
 }
 
 .ri-text small {
   font-size: 0.85em;
-  color: #818384;
+  color: var(--ri-subtle-fg, #818384);
   line-height: 1.4;
 }
 
@@ -1161,7 +1200,7 @@
 }
 
 #reddit-inline-discussion a {
-  transition: color .2s ease;
+  transition: color 0.2s ease;
   transition-behavior: normal;
   transition-duration: 0.2s;
   transition-timing-function: ease;
@@ -1179,12 +1218,12 @@
 
 #reddit-inline-discussion .ri-text a:hover,
 .ri-comment .ri-text a:hover {
-  color: #ffffff;
+  color: var(--ri-discussion-fg, #ffffff);
 }
 
 #reddit-inline-discussion .ri-text a:visited:hover,
 .ri-comment .ri-text a:visited:hover {
-  color: #ffffff;
+  color: var(--ri-discussion-fg, #ffffff);
 }
 
 /* Proper list styling inside comment text
@@ -1199,12 +1238,12 @@
   margin: 6px 0;
 }
 .ri-text ul > li::before {
-  content: '•';
+  content: "•";
   position: absolute;
   left: -16px;
   top: 0;
   line-height: 1.4;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-size: 18px;
 }
 
@@ -1221,12 +1260,12 @@
   counter-increment: ri-ol-counter;
 }
 .ri-text ol > li::before {
-  content: counter(ri-ol-counter) '. ';
+  content: counter(ri-ol-counter) ". ";
   position: absolute;
   left: -36px;
   top: 0;
   line-height: 1.4;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-size: 15px;
   font-weight: 700; /* bold numbers */
 }
@@ -1237,7 +1276,7 @@
   gap: 8px;
   margin-top: 6px;
   font-size: 12px;
-  color: #818384;
+  color: var(--ri-subtle-fg, #818384);
   align-items: center;
   flex-wrap: wrap;
 }
@@ -1253,10 +1292,12 @@
   gap: 6px;
   border-radius: 20px;
   cursor: pointer;
-  color: rgb(139,162,173); /* outline/base color */
+  color: var(--ri-subtle-fg, rgb(139, 162, 173)); /* outline/base color */
   font-size: 12px;
   font-weight: 700;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 /* Inline SVG icon styling */
@@ -1280,54 +1321,77 @@
 }
 
 /* Default show outline, hide filled */
-#reddit-inline-discussion .ri-vote-btn .ri-icon .filled { display: none; }
-#reddit-inline-discussion .ri-vote-btn .ri-icon .outline { display: inline; }
+#reddit-inline-discussion .ri-vote-btn .ri-icon .filled {
+  display: none;
+}
+#reddit-inline-discussion .ri-vote-btn .ri-icon .outline {
+  display: inline;
+}
 
 /* Active states: swap to filled */
 #reddit-inline-discussion .ri-vote-btn[data-state="upvoted"] .ri-icon .filled,
-#reddit-inline-discussion .ri-vote-btn[data-state="downvoted"] .ri-icon .filled { display: inline; }
+#reddit-inline-discussion
+  .ri-vote-btn[data-state="downvoted"]
+  .ri-icon
+  .filled {
+  display: inline;
+}
 #reddit-inline-discussion .ri-vote-btn[data-state="upvoted"] .ri-icon .outline,
-#reddit-inline-discussion .ri-vote-btn[data-state="downvoted"] .ri-icon .outline { display: none; }
+#reddit-inline-discussion
+  .ri-vote-btn[data-state="downvoted"]
+  .ri-icon
+  .outline {
+  display: none;
+}
 
 /* Active state: no persistent background */
 #reddit-inline-discussion .ri-vote-btn[data-state="upvoted"],
-#reddit-inline-discussion .ri-vote-btn[data-state="downvoted"] { background: transparent; }
+#reddit-inline-discussion .ri-vote-btn[data-state="downvoted"] {
+  background: transparent;
+}
 
 #reddit-inline-discussion .ri-actions .ri-vote-btn:hover:not(:disabled),
 #reddit-inline-discussion .ri-actions .ri-action-btn:hover:not(:disabled) {
-  background: #2a2a2c;
-  color: rgb(217,57,0); /* hover color */
+  background: var(--ri-surface-2, #2a2a2c);
+  color: rgb(217, 57, 0); /* hover color */
 }
 
-#reddit-inline-discussion .ri-actions .ri-action-btn.ri-reply:hover:not(:disabled) {
-  color: rgb(139,162,173);
+#reddit-inline-discussion
+  .ri-actions
+  .ri-action-btn.ri-reply:hover:not(:disabled) {
+  color: rgb(139, 162, 173);
 }
-
 
 /* Downvote hover state */
-#reddit-inline-discussion .ri-actions .ri-vote-btn.ri-downvote:hover:not(:disabled) {
-  color: #6A5CFF; /* downvote hover color */
+#reddit-inline-discussion
+  .ri-actions
+  .ri-vote-btn.ri-downvote:hover:not(:disabled) {
+  color: #6a5cff; /* downvote hover color */
 }
 
 /* Share: keep hover circle but don't light the icon/text until copied */
-#reddit-inline-discussion .ri-actions .ri-action-btn.ri-share-btn:hover:not(:disabled) {
-  color: rgb(139,162,173);
+#reddit-inline-discussion
+  .ri-actions
+  .ri-action-btn.ri-share-btn:hover:not(:disabled) {
+  color: rgb(139, 162, 173);
 }
 
 /* Ensure copied state wins even while hovered */
 #reddit-inline-discussion .ri-actions .ri-action-btn.ri-share-btn.ri-copied,
-#reddit-inline-discussion .ri-actions .ri-action-btn.ri-share-btn.ri-copied:hover {
+#reddit-inline-discussion
+  .ri-actions
+  .ri-action-btn.ri-share-btn.ri-copied:hover {
   color: #ff4500;
 }
 
 #reddit-inline-discussion .ri-actions .ri-vote-btn[data-state="upvoted"] {
   background: transparent;
-  color: rgb(217,57,0); /* upvote active color */
+  color: rgb(217, 57, 0); /* upvote active color */
 }
 
 #reddit-inline-discussion .ri-actions .ri-vote-btn[data-state="downvoted"] {
   background: transparent;
-  color: #6A5CFF; /* downvote active color */
+  color: #6a5cff; /* downvote active color */
 }
 
 /* Image hover preview tooltip */
@@ -1335,21 +1399,23 @@
   position: absolute;
   top: 0;
   left: 0;
-  background: #111;
-  border: 1px solid #2c2c2c;
+  background: var(--ri-surface-1, #111);
+  border: 1px solid var(--ri-border-1, #2c2c2c);
   border-radius: 8px;
   /* reduce horizontal padding so images don't get extra right/left gap */
   padding: 6px 4px;
   /* Make width calculations include padding so JS-set width equals visible image width */
   box-sizing: border-box;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
   z-index: 2147483606;
   display: none;
   /* Tighter viewport caps so previews don't overwhelm the page */
   max-width: 40vw;
   max-height: 50vh;
   /* Add a small transition for smoother reveal */
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease;
   overflow: hidden;
 }
 .ri-img-tooltip img {
@@ -1361,7 +1427,9 @@
   /* start slightly faded; JS will animate to full opacity on load */
   opacity: 0;
   transform: scale(0.98);
-  transition: opacity 160ms ease, transform 160ms ease;
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 .ri-img-tooltip:not(.loading) img {
   opacity: 1;
@@ -1381,7 +1449,7 @@
   gap: 8px;
   padding: 8px 12px;
   justify-content: center;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
   position: absolute;
   bottom: 8px;
   left: 50%;
@@ -1393,23 +1461,23 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: rgba(255,255,255,0.4);
+  background: rgba(255, 255, 255, 0.4);
   cursor: pointer;
   transition: all 0.2s;
 }
 .ri-img-dot-more {
   width: 6px;
   height: 6px;
-  background: rgba(255,255,255,0.2);
+  background: rgba(255, 255, 255, 0.2);
   cursor: default;
   pointer-events: none;
 }
 .ri-img-dot:hover {
-  background: rgba(255,255,255,0.6);
+  background: rgba(255, 255, 255, 0.6);
   transform: scale(1.2);
 }
 .ri-img-dot.active {
-  background: rgba(255,255,255,1);
+  background: rgba(255, 255, 255, 1);
   transform: scale(1.3);
 }
 
@@ -1426,15 +1494,18 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  border: 2px solid rgba(255,255,255,0.12);
-  border-top-color: rgba(255,255,255,0.95);
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  border-top-color: rgba(255, 255, 255, 0.95);
   animation: ri-spin 1s linear infinite;
 }
 
 /* Themed scrollbars for popup body and inner content */
-.hayami-panel, .hayami-body, .ri-inline, .ri-text {
+.hayami-panel,
+.hayami-body,
+.ri-inline,
+.ri-text {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.18) rgba(255,255,255,0.06);
+  scrollbar-color: rgba(255, 255, 255, 0.18) rgba(255, 255, 255, 0.06);
 }
 
 .hayami-panel::-webkit-scrollbar,
@@ -1449,7 +1520,7 @@
 .hayami-body::-webkit-scrollbar-track,
 .ri-inline::-webkit-scrollbar-track,
 .ri-text::-webkit-scrollbar-track {
-  background: rgba(255,255,255,0.04);
+  background: rgba(255, 255, 255, 0.04);
   border-radius: 8px;
 }
 
@@ -1457,25 +1528,37 @@
 .hayami-body::-webkit-scrollbar-thumb,
 .ri-inline::-webkit-scrollbar-thumb,
 .ri-text::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0.12));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.22),
+    rgba(255, 255, 255, 0.12)
+  );
   border-radius: 8px;
-  border: 2px solid rgba(15,18,28,0.9);
+  border: 2px solid rgba(15, 18, 28, 0.9);
 }
 
 .hayami-panel::-webkit-scrollbar-thumb:hover,
 .hayami-body::-webkit-scrollbar-thumb:hover,
 .ri-inline::-webkit-scrollbar-thumb:hover,
 .ri-text::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, rgba(255,255,255,0.3), rgba(255,255,255,0.18));
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.3),
+    rgba(255, 255, 255, 0.18)
+  );
 }
 
 .hayami-panel::-webkit-scrollbar-corner,
 .hayami-body::-webkit-scrollbar-corner,
 .ri-inline::-webkit-scrollbar-corner,
 .ri-text::-webkit-scrollbar-corner {
-  background: rgba(255,255,255,0.04);
+  background: rgba(255, 255, 255, 0.04);
 }
-@keyframes ri-spin { to { transform: rotate(360deg); } }
+@keyframes ri-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* ==================== Full-Screen Image Gallery Modal ==================== */
 .ri-fullscreen-modal {
@@ -1484,7 +1567,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0,0,0,0.95);
+  background: rgba(0, 0, 0, 0.95);
   z-index: 999999;
   display: flex;
   flex-direction: column;
@@ -1494,15 +1577,19 @@
 }
 
 @keyframes riFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 .ri-fullscreen-close {
   position: absolute;
   top: 20px;
   right: 20px;
-  background: rgba(0,0,0,0.65);
+  background: rgba(0, 0, 0, 0.65);
   border: none;
   color: #fff;
   font-size: 28px;
@@ -1516,13 +1603,15 @@
   z-index: 1000001;
   line-height: 1;
   font-weight: 700;
-  transition: background 0.12s ease, transform 0.12s ease;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+  transition:
+    background 0.12s ease,
+    transform 0.12s ease;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
   outline: none;
 }
 
 .ri-fullscreen-close:hover {
-  background: rgba(0,0,0,0.8);
+  background: rgba(0, 0, 0, 0.8);
   transform: scale(1.05);
 }
 
@@ -1543,7 +1632,7 @@
   object-fit: contain;
   margin-bottom: 40px;
   border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .ri-fullscreen-counter {
@@ -1551,7 +1640,7 @@
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(0,0,0,0.7);
+  background: rgba(0, 0, 0, 0.7);
   color: #fff;
   padding: 8px 16px;
   border-radius: 20px;
@@ -1564,8 +1653,8 @@
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  border: 3px solid rgba(255,255,255,0.2);
-  border-top-color: rgba(255,255,255,0.95);
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.95);
   animation: ri-spin 1s linear infinite;
   position: absolute;
   top: 50%;
@@ -1580,7 +1669,9 @@
   pointer-events: none;
 }
 
-#reddit-inline-discussion .ri-actions .ri-action-btn span { line-height: 1; }
+#reddit-inline-discussion .ri-actions .ri-action-btn span {
+  line-height: 1;
+}
 
 .ri-votes {
   display: flex;
@@ -1591,7 +1682,7 @@
 .ri-votes button {
   background: none;
   border: none;
-  color: rgb(139,162,173);
+  color: rgb(139, 162, 173);
   cursor: pointer;
   font-size: 14px;
   padding: 0;
@@ -1599,7 +1690,7 @@
 }
 
 .ri-votes button:hover {
-  color: rgb(217,57,0);
+  color: rgb(217, 57, 0);
 }
 
 .ri-votes button:disabled,
@@ -1610,20 +1701,20 @@
 }
 
 .ri-score {
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   font-size: 12px;
   font-weight: 700;
 }
 
 .ri-action {
   cursor: pointer;
-  color: #818384;
+  color: var(--ri-subtle-fg, #818384);
   font-size: 12px;
   font-weight: 700;
 }
 
 .ri-action:hover {
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
 }
 
 .ri-action.ri-award-disabled,
@@ -1645,7 +1736,8 @@
 }
 
 .ri-action-bubble.ri-copied .ri-action-icon {
-  filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%) hue-rotate(359deg) brightness(102%) contrast(101%) !important;
+  filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%)
+    hue-rotate(359deg) brightness(102%) contrast(101%) !important;
 }
 
 /* ==================== Awards Badge ==================== */
@@ -1680,7 +1772,7 @@
   bottom: var(--thread-line-bottom, 0);
   left: -7px; /* keep sum margin-left + offset = 11 */
   width: 2px;
-  background: #343536;
+  background: var(--ri-border-1, #343536);
   pointer-events: none;
   transition: none;
   /* Ensure solid line - no dashes */
@@ -1690,7 +1782,7 @@
 }
 
 .ri-children.spine-hover::before {
-  background: #818384;
+  background: var(--ri-subtle-fg, #818384);
 }
 
 /* Curved connector from parent spine to child's gutter/threadline - connects where threadline starts */
@@ -1701,8 +1793,8 @@
   left: -7px; /* start at parent spine */
   width: 19px; /* extended width for longer curve */
   height: 12px; /* height for the curve */
-  border-bottom: 2px solid #343536; /* curved connector */
-  border-left: 2px solid #343536;
+  border-bottom: 2px solid var(--ri-border-1, #343536); /* curved connector */
+  border-left: 2px solid var(--ri-border-1, #343536);
   border-bottom-left-radius: 6px; /* restore curve */
   pointer-events: none;
   transition: none;
@@ -1710,7 +1802,7 @@
 
 /* Hover effects on curves when hovering over the spine */
 .ri-children.spine-hover > .ri-comment::after {
-  border-color: #818384;
+  border-color: var(--ri-subtle-fg, #818384);
 }
 
 /* ==================== Collapse States ==================== */
@@ -1735,10 +1827,18 @@
 }
 
 @keyframes riNewCommentFlash {
-  0% { background: rgba(255,69,0,0.25); }
-  40% { background: rgba(255,69,0,0.18); }
-  70% { background: rgba(255,69,0,0.08); }
-  100% { background: transparent; }
+  0% {
+    background: rgba(255, 69, 0, 0.25);
+  }
+  40% {
+    background: rgba(255, 69, 0, 0.18);
+  }
+  70% {
+    background: rgba(255, 69, 0, 0.08);
+  }
+  100% {
+    background: transparent;
+  }
 }
 
 .ri-comment.collapsed:hover,
@@ -1753,7 +1853,7 @@
 }
 
 .ri-children.children-collapsed::before {
-  background: #343536; /* keep consistent spine color */
+  background: var(--ri-border-1, #343536); /* keep consistent spine color */
 }
 
 .ri-children.children-collapsed::after {
@@ -1768,13 +1868,15 @@
 /* ==================== Spoilers & More Replies ==================== */
 .ri-spoiler,
 .md-spoiler-text {
-  background: #333;
+  background: var(--ri-spoiler-bg, #333);
   color: transparent;
   border-radius: 3px;
   padding: 0 4px;
   cursor: pointer;
   user-select: none;
-  transition: color 0.3s ease, background 0.3s ease;
+  transition:
+    color 0.3s ease,
+    background 0.3s ease;
   white-space: pre-wrap; /* Preserve whitespace including leading/trailing spaces */
   display: inline; /* Keep inline to preserve text flow */
 }
@@ -1797,7 +1899,7 @@
 }
 
 .md-spoiler-text:hover {
-  background: #444;
+  background: var(--ri-spoiler-bg-hover, #444);
 }
 
 .md-spoiler-text.revealed:hover {
@@ -1807,34 +1909,40 @@
 /* Labeled spoiler (old reddit [label](/s "text"))
    We render as: <span class="ri-spoiler-group"><span class="ri-spoiler-label">label</span><span class="ri-spoiler">text</span></span>
    Show label normally; hide the actual spoiler until revealed. */
-.ri-spoiler-group { display: inline-flex; gap: 6px; align-items: baseline; }
+.ri-spoiler-group {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+}
 .ri-spoiler-group .ri-spoiler-label {
-  background: #333;
-  color: #fff;
+  background: var(--ri-spoiler-bg, #333);
+  color: var(--ri-discussion-fg, #fff);
   border-radius: 3px;
   padding: 0 6px;
 }
-.ri-spoiler-group .ri-spoiler { padding: 0 6px; }
+.ri-spoiler-group .ri-spoiler {
+  padding: 0 6px;
+}
 
 .ri-more {
-  color: #777;
+  color: var(--ri-subtle-fg, #777);
   cursor: pointer;
 }
 
 .ri-more:hover {
-  color: #bbb;
+  color: var(--ri-discussion-fg, #bbb);
 }
 
 .ri-more-replies {
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   font-size: 12px;
   margin-top: 6px;
 }
 
 /* ==================== Loading Skeletons ==================== */
 #ri-loading-skeleton {
-  background: #0f0f0f;
-  color: #ddd;
+  background: var(--ri-discussion-bg, #0f0f0f);
+  color: var(--ri-discussion-fg, #ddd);
   border-radius: 8px;
   padding: 16px;
   margin-top: 16px;
@@ -1842,7 +1950,15 @@
 
 #ri-loading-skeleton,
 #ri-loading-skeleton * {
-  font-family: "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family:
+    "Noto Sans",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    Helvetica,
+    Arial,
+    sans-serif;
 }
 
 .ri-skel {
@@ -1855,7 +1971,7 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #2a2a2a;
+  background: var(--ri-surface-1, #2a2a2a);
   animation: sk 1.2s ease-in-out infinite;
 }
 
@@ -1868,7 +1984,12 @@
 
 .ri-skel .sk-line {
   height: 10px;
-  background: linear-gradient(90deg, #1a1a1a, #2a2a2a, #1a1a1a);
+  background: linear-gradient(
+    90deg,
+    var(--ri-surface-1, #1a1a1a),
+    var(--ri-surface-2, #2a2a2a),
+    var(--ri-surface-1, #1a1a1a)
+  );
   background-size: 200% 100%;
   animation: sk 1.2s ease-in-out infinite;
   border-radius: 6px;
@@ -1910,7 +2031,9 @@
   bottom: 20px;
   right: 20px;
   z-index: 10000;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+    sans-serif;
   animation: slideIn 0.3s ease-out;
 }
 
@@ -2126,8 +2249,8 @@
 
 /* ==================== Reply Box ==================== */
 .ri-reply-box {
-  background: #1a1a1b;
-  border: 1px solid #343536;
+  background: var(--ri-surface-1, #1a1a1b);
+  border: 1px solid var(--ri-border-1, #343536);
   border-radius: 8px;
   margin: 8px 0;
   overflow: hidden;
@@ -2136,10 +2259,10 @@
 .ri-reply-textarea {
   width: 100%;
   min-height: 120px;
-  background: #0f0f0f;
-  border: 1px solid #2c2c2c;
+  background: var(--ri-discussion-bg, #0f0f0f);
+  border: 1px solid var(--ri-border-1, #2c2c2c);
   border-radius: 4px;
-  color: #ddd;
+  color: var(--ri-discussion-fg, #ddd);
   padding: 8px;
   font-family: inherit;
   resize: vertical;
@@ -2186,7 +2309,7 @@
 
 .ri-reply-cancel {
   background: transparent;
-  color: #d7dadc;
+  color: var(--ri-discussion-fg, #d7dadc);
   border: none;
   padding: 8px 24px;
   border-radius: 24px;
@@ -2197,39 +2320,39 @@
 }
 
 .ri-reply-cancel:hover {
-  background: #272729;
+  background: var(--ri-surface-2, #272729);
 }
 
 /* EasyMDE overrides for dark theme */
 .ri-reply-box .EasyMDEContainer {
-  background: #0f0f0f;
+  background: var(--ri-discussion-bg, #0f0f0f);
 }
 
 .ri-reply-box .CodeMirror {
-  background: #0f0f0f;
-  color: #ddd;
-  border: 1px solid #2c2c2c;
+  background: var(--ri-discussion-bg, #0f0f0f);
+  color: var(--ri-discussion-fg, #ddd);
+  border: 1px solid var(--ri-border-1, #2c2c2c);
   border-radius: 4px;
 }
 
 .ri-reply-box .CodeMirror-cursor {
-  border-left-color: #ddd;
+  border-left-color: var(--ri-discussion-fg, #ddd);
 }
 
 .ri-reply-box .editor-toolbar {
-  background: #161616;
-  border: 1px solid #2c2c2c;
+  background: var(--ri-surface-1, #161616);
+  border: 1px solid var(--ri-border-1, #2c2c2c);
   border-bottom: none;
   border-radius: 4px 4px 0 0;
 }
 
 .ri-reply-box .editor-toolbar button {
-  color: #ddd !important;
+  color: var(--ri-discussion-fg, #ddd) !important;
 }
 
 .ri-reply-box .editor-toolbar button:hover {
-  background: #2c2c2c;
-  border-color: #3a3a3a;
+  background: var(--ri-surface-2, #2c2c2c);
+  border-color: var(--ri-border-1, #3a3a3a);
 }
 
 .ri-reply-box .editor-toolbar.disabled-for-preview button:not(.no-disable) {
@@ -2237,8 +2360,8 @@
 }
 
 .ri-reply-box .editor-preview {
-  background: #0f0f0f;
-  color: #ddd;
+  background: var(--ri-discussion-bg, #0f0f0f);
+  color: var(--ri-discussion-fg, #ddd);
 }
 
 /* TipTap fallback styles for inline reply editor.
@@ -2247,10 +2370,10 @@
 #reddit-inline-discussion .ri-reply-editor.editor-container {
   display: flex;
   flex-direction: column;
-  background: #0f0f0f;
+  background: var(--ri-discussion-bg, #0f0f0f);
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid #FFFFFF33;
+  border: 1px solid var(--ri-border-1, #ffffff33);
 }
 
 #reddit-inline-discussion .ri-reply-editor.editor-container .toolbar {
@@ -2258,13 +2381,13 @@
   align-items: center;
   gap: 2px;
   padding: 6px 12px;
-  background: #0f0f0f;
+  background: var(--ri-discussion-bg, #0f0f0f);
 }
 
 #reddit-inline-discussion .ri-reply-editor.editor-container .icon-btn {
   background: none;
   border: none;
-  color: #c9d1d9;
+  color: var(--ri-discussion-fg, #c9d1d9);
   padding: 6px;
   border-radius: 6px;
   cursor: pointer;
@@ -2273,11 +2396,15 @@
   align-items: center;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .icon-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.06);
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .icon-btn:hover:not(:disabled) {
+  background: var(--ri-surface-1, rgba(255, 255, 255, 0.06));
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .icon-btn.is-active {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .icon-btn.is-active {
   color: #58a6ff;
   background: rgba(88, 166, 255, 0.12);
 }
@@ -2290,7 +2417,7 @@
 #reddit-inline-discussion .ri-reply-editor.editor-container .divider {
   width: 1px;
   height: 20px;
-  background: #30363d;
+  background: var(--ri-border-1, #30363d);
   margin: 0 6px;
 }
 
@@ -2301,106 +2428,259 @@
 #reddit-inline-discussion .ri-reply-editor.editor-container .editor-area {
   min-height: 60px;
   padding: 0 10px;
-  background: #0f0f0f;
-  color: #c9d1d9;
+  background: var(--ri-discussion-bg, #0f0f0f);
+  color: var(--ri-discussion-fg, #c9d1d9);
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap {
   font-size: 14px;
   line-height: 1.6;
-  color: #c9d1d9;
+  color: var(--ri-discussion-fg, #c9d1d9);
   word-wrap: break-word;
   overflow-wrap: break-word;
   padding: 4px 0 4px 8px;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap p.is-editor-empty:first-child::before {
-  color: #8b949e;
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  p.is-editor-empty:first-child::before {
+  color: var(--ri-subtle-fg, #8b949e);
   content: attr(data-placeholder);
   float: left;
   height: 0;
   pointer-events: none;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap p {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  p {
   margin: 0 0 12px;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap pre {
-  background: #161b22;
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  pre {
+  background: var(--ri-surface-1, #161b22);
   padding: 12px;
   border-radius: 6px;
   overflow-x: auto;
-  color: #c9d1d9;
+  color: var(--ri-discussion-fg, #c9d1d9);
   margin: 12px 0;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap blockquote {
-  border-left: 3px solid #30363d;
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  blockquote {
+  border-left: 3px solid var(--ri-border-1, #30363d);
   padding-left: 12px;
   margin: 12px 0;
-  color: #8b949e;
+  color: var(--ri-subtle-fg, #8b949e);
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap code {
-  background: #21262d;
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  code {
+  background: var(--ri-surface-2, #21262d);
   padding: 2px 6px;
   border-radius: 4px;
   color: #79c0ff;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ul,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ol {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  ul,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  ol {
   margin: 8px 0 8px 20px;
   padding: 0;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ul > li {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  ul
+  > li {
   list-style-type: disc;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ol > li {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  ol
+  > li {
   list-style-type: decimal;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ul > li::marker,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap ol > li::marker {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  ul
+  > li::marker,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  ol
+  > li::marker {
   color: #c9d1d9;
   font-size: 1.1em;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap h1 { font-size: 2em; margin: 0.67em 0; font-weight: 700; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap h2 { font-size: 1.5em; margin: 0.75em 0; font-weight: 700; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap h3 { font-size: 1.17em; margin: 1em 0; font-weight: 700; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap strong,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap b { font-weight: 700; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap em,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap i { font-style: italic; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap s,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap del,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .strike { text-decoration: line-through; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap a { color: #58a6ff; text-decoration: underline; cursor: pointer; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap a:hover { color: #79c0ff; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap sup,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .superscript { vertical-align: super; font-size: 0.8em; line-height: 0; }
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .spoiler {
-  background: #21262d;
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  h1 {
+  font-size: 2em;
+  margin: 0.67em 0;
+  font-weight: 700;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  h2 {
+  font-size: 1.5em;
+  margin: 0.75em 0;
+  font-weight: 700;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  h3 {
+  font-size: 1.17em;
+  margin: 1em 0;
+  font-weight: 700;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  strong,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  b {
+  font-weight: 700;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  em,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  i {
+  font-style: italic;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  s,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  del,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  .strike {
+  text-decoration: line-through;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  a {
+  color: #58a6ff;
+  text-decoration: underline;
+  cursor: pointer;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  a:hover {
   color: #79c0ff;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  sup,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  .superscript {
+  vertical-align: super;
+  font-size: 0.8em;
+  line-height: 0;
+}
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  .spoiler {
+  background: var(--ri-spoiler-bg, #21262d);
+  color: var(--ri-discussion-fg, #79c0ff);
   padding: 2px 6px;
   border-radius: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   font-size: 0.95em;
   cursor: pointer;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .spoiler:hover,
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap .spoiler:focus-visible {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  .spoiler:hover,
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  .spoiler:focus-visible {
   background: transparent;
   color: inherit;
   border: none;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area .tiptap hr {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .editor-area
+  .tiptap
+  hr {
   border: none;
   border-top: 1px solid #30363d;
   margin: 16px 0;
@@ -2411,7 +2691,7 @@
   justify-content: flex-end;
   gap: 12px;
   padding: 12px 16px;
-  background: #0f0f0f;
+  background: var(--ri-discussion-bg, #0f0f0f);
 }
 
 #reddit-inline-discussion .ri-reply-editor.editor-container .action-btn {
@@ -2425,44 +2705,62 @@
 
 #reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.cancel {
   background: transparent;
-  border: 1px solid #30363d;
-  color: #c9d1d9;
+  border: 1px solid var(--ri-border-1, #30363d);
+  color: var(--ri-discussion-fg, #c9d1d9);
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.cancel:hover:not(:disabled) {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .action-btn.cancel:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.06);
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.comment {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .action-btn.comment {
   background: #388bfd;
   border: none;
   color: #fff;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn.comment:hover:not(:disabled) {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .action-btn.comment:hover:not(:disabled) {
   background: #1f6feb;
 }
 
-#reddit-inline-discussion .ri-reply-editor.editor-container .action-btn:disabled {
+#reddit-inline-discussion
+  .ri-reply-editor.editor-container
+  .action-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
 /* Aniwave thread styling */
 .aniwave-thread-root {
-  font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+  font-family:
+    "Roboto",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif !important;
 }
 
 .aniwave-thread-root * {
-  font-family: 'Roboto', 'Segoe UI', system-ui, -apple-system, sans-serif !important;
+  font-family:
+    "Roboto",
+    "Segoe UI",
+    system-ui,
+    -apple-system,
+    sans-serif !important;
 }
 
 .aniwave-thread {
-  background: #0d0d0d;
-  border: 1px solid #1c1c1c;
+  background: var(--ri-discussion-bg, #0d0d0d);
+  border: 1px solid var(--ri-border-1, #1c1c1c);
   border-radius: 12px;
   padding: 14px;
-  color: #e5e7eb;
+  color: var(--ri-discussion-fg, #e5e7eb);
 }
 
 .aniwave-header {
@@ -2476,11 +2774,11 @@
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--ri-discussion-fg, #ffffff);
 }
 
 .aniwave-meta {
-  color: #9ca3af;
+  color: var(--ri-subtle-fg, #9ca3af);
   font-size: 12px;
   display: flex;
   align-items: center;
@@ -2522,7 +2820,8 @@
   height: 16px;
   display: block;
   object-fit: contain;
-  filter: brightness(0) saturate(100%) invert(89%) sepia(6%) saturate(254%) hue-rotate(175deg) brightness(91%) contrast(87%);
+  filter: brightness(0) saturate(100%) invert(89%) sepia(6%) saturate(254%)
+    hue-rotate(175deg) brightness(91%) contrast(87%);
 }
 
 .aniwave-meta-tooltip {
@@ -2531,15 +2830,17 @@
   top: calc(100% + 8px);
   transform: translate(-50%, -4px);
   padding: 8px 10px;
-  background: #0f172a;
-  border: 1px solid #1f2937;
+  background: var(--ri-surface-1, #0f172a);
+  border: 1px solid var(--ri-border-1, #1f2937);
   border-radius: 8px;
-  color: #e5e7eb;
+  color: var(--ri-discussion-fg, #e5e7eb);
   font-size: 12px;
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.12s ease, transform 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
   z-index: 10;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
@@ -2554,9 +2855,9 @@
 .aniwave-empty {
   padding: 12px;
   border-radius: 8px;
-  background: #0f0f0f;
-  border: 1px solid #1c1c1c;
-  color: #e5e7eb;
+  background: var(--ri-surface-1, #0f0f0f);
+  border: 1px solid var(--ri-border-1, #1c1c1c);
+  color: var(--ri-discussion-fg, #e5e7eb);
 }
 
 .aniwave-comment {
@@ -2569,7 +2870,14 @@
   --aniwave-indent-base: 24px;
   --aniwave-indent-step: 60px;
   --aniwave-indent-max: 320px;
-  padding: 12px 44px 12px min(var(--aniwave-indent-max), calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step)));
+  padding: 12px 44px 12px
+    min(
+      var(--aniwave-indent-max),
+      calc(
+        var(--aniwave-indent-base) + var(--aniwave-depth) *
+          var(--aniwave-indent-step)
+      )
+    );
   margin-bottom: 10px;
   position: relative;
   box-shadow: none;
@@ -2584,7 +2892,7 @@
   height: 48px;
   border-radius: 10px;
   object-fit: cover;
-  background: #0b0f16;
+  background: var(--ri-surface-2, #0b0f16);
 }
 
 .aniwave-avatar.--placeholder {
@@ -2662,14 +2970,14 @@
 }
 
 .aniwave-edited {
-  color: #9ca3af;
+  color: var(--ri-subtle-fg, #9ca3af);
   font-size: 12px;
   font-weight: 500;
   text-transform: lowercase;
 }
 
 .aniwave-message {
-  color: #e5e7eb;
+  color: var(--ri-discussion-fg, #e5e7eb);
   font-size: 15px;
   line-height: 1.5;
   word-break: break-word;
@@ -2685,7 +2993,7 @@
   gap: 8px;
   margin-top: 12px;
   font-size: 12px;
-  color: #cbd5e1;
+  color: var(--ri-subtle-fg, #cbd5e1);
 }
 
 .aniwave-score-group {
@@ -2710,15 +3018,14 @@
   width: 16px;
   height: 16px;
   object-fit: contain;
-  filter: brightness(0) saturate(100%) invert(100%);
+  filter: var(--ri-icon-filter, brightness(0) saturate(100%) invert(100%));
   opacity: 0.6;
 }
 
 .aniwave-score-value {
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--ri-subtle-fg, rgba(255, 255, 255, 0.6));
   font-weight: 500;
 }
-
 
 .aniwave-load-more-row {
   display: flex;
@@ -2773,7 +3080,7 @@
 .aniwave-skeleton-line {
   height: 10px;
   width: 100%;
-  background: linear-gradient(90deg, #101010, #151515, #101010);
+  background: linear-gradient(90deg, var(--ri-surface-1, #101010), var(--ri-surface-2, #151515), var(--ri-surface-1, #101010));
   background-size: 200% 100%;
   border-radius: 6px;
   animation: aniwave-skeleton-pulse 1.3s ease-in-out infinite;
@@ -2802,7 +3109,7 @@
   margin-left: 0;
   background: none;
   border: none;
-  color: rgba(255, 255, 255, 0.85) !important;
+  color: var(--ri-discussion-fg, rgba(255, 255, 255, 0.85)) !important;
   font-size: 30px;
   line-height: 1;
   cursor: pointer;
@@ -2824,7 +3131,14 @@
 }
 
 .aniwave-comment.is-collapsed {
-  padding: 10px 44px 10px min(var(--aniwave-indent-max), calc(var(--aniwave-indent-base) + var(--aniwave-depth) * var(--aniwave-indent-step)));
+  padding: 10px 44px 10px
+    min(
+      var(--aniwave-indent-max),
+      calc(
+        var(--aniwave-indent-base) + var(--aniwave-depth) *
+          var(--aniwave-indent-step)
+      )
+    );
 }
 
 .aniwave-comment.is-collapsed .aniwave-message,
@@ -2847,23 +3161,26 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: #1e1e1e;
-  color: #f5f5f5;
-  border: 1px solid #2a2a2a;
+  background: var(--ri-surface-1, #1e1e1e);
+  color: var(--ri-discussion-fg, #f5f5f5);
+  border: 1px solid var(--ri-border-1, #2a2a2a);
   border-radius: 8px;
   padding: 10px 14px;
   cursor: pointer;
   font-weight: 600;
   font-size: 12px;
   line-height: 1.2;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 
 #reddit-inline-discussion .aniwave-load-replies:hover:not(:disabled),
 .aniwave-load-replies:hover:not(:disabled) {
-  background: #262626;
-  border-color: #333;
-  color: #ffffff;
+  background: var(--ri-surface-2, #262626);
+  border-color: var(--ri-border-1, #333);
+  color: var(--ri-discussion-fg, #ffffff);
 }
 
 #reddit-inline-discussion .aniwave-load-replies:disabled,
@@ -2950,7 +3267,9 @@
   border-radius: 50%;
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional > .ri-avatar-collapsed-placeholder {
+#reddit-inline-discussion
+  .ri-comment.ri-traditional
+  > .ri-avatar-collapsed-placeholder {
   width: var(--trad-avatar);
   height: var(--trad-avatar);
   border-radius: 50%;
@@ -2971,19 +3290,20 @@
 #reddit-inline-discussion .ri-comment.ri-traditional .ri-username {
   font-weight: 600;
   font-size: 0.8125rem;
-  color: #e5e5e5;
+  color: var(--ri-discussion-fg, #e5e5e5);
 }
 
 #reddit-inline-discussion .ri-comment.ri-traditional .ri-text {
   font-size: 0.875rem;
   line-height: 1.43;
-  color: #d1d1d6;
+  color: var(--ri-discussion-fg, #d1d1d6);
   margin-top: 0.25rem;
 }
 
 /* --- Vertical connector line from parent avatar down to children --- */
 /* Re-enable ::after only when this comment has visible children */
-#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-body > .ri-trad-children)::after {
+#reddit-inline-discussion
+  .ri-comment.ri-traditional:has(> .ri-body > .ri-trad-children)::after {
   content: "" !important;
   display: block !important;
   position: absolute;
@@ -3013,17 +3333,25 @@
 }
 
 /* Hover: brighten vertical line when hit area is hovered */
-#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover)::after {
+#reddit-inline-discussion
+  .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover)::after {
   background: var(--trad-line-hover);
 }
 
 /* Hover: brighten direct-child elbow connectors when line is hovered */
-#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover) > .ri-body > .ri-trad-children > .ri-comment.ri-traditional::before {
+#reddit-inline-discussion
+  .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover)
+  > .ri-body
+  > .ri-trad-children
+  > .ri-comment.ri-traditional::before {
   border-color: var(--trad-line-hover);
 }
 
 /* --- Children container: break out of body to align with avatar column --- */
-#reddit-inline-discussion .ri-comment.ri-traditional > .ri-body > .ri-trad-children {
+#reddit-inline-discussion
+  .ri-comment.ri-traditional
+  > .ri-body
+  > .ri-trad-children {
   margin-left: calc(-1 * (var(--trad-avatar) + 0.5rem));
   padding-left: calc(var(--trad-avatar) / 2 + var(--trad-content-offset));
   width: calc(100% + var(--trad-avatar) + 0.5rem);
@@ -3035,13 +3363,17 @@
 
 /* --- Tree connector: curved elbow on each child comment --- */
 /* Re-enable ::before for children inside trad-children */
-#reddit-inline-discussion .ri-trad-children > .ri-comment.ri-traditional::before {
+#reddit-inline-discussion
+  .ri-trad-children
+  > .ri-comment.ri-traditional::before {
   content: "" !important;
   display: block !important;
   position: absolute;
   left: calc(-1 * var(--trad-content-offset) - 1px);
   top: 0;
-  height: calc(var(--trad-avatar) / 2 + 0.125rem + var(--trad-spacing, 3) * 0.25rem);
+  height: calc(
+    var(--trad-avatar) / 2 + 0.125rem + var(--trad-spacing, 3) * 0.25rem
+  );
   width: var(--trad-content-offset);
   border-left: 2px solid var(--trad-line-color);
   border-bottom: 2px solid var(--trad-line-color);
@@ -3063,7 +3395,9 @@
 #reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-text,
 #reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-actions,
 #reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-children,
-#reddit-inline-discussion .ri-comment.ri-traditional.ri-collapsed .ri-trad-reply-toggle {
+#reddit-inline-discussion
+  .ri-comment.ri-traditional.ri-collapsed
+  .ri-trad-reply-toggle {
   display: none;
 }
 
@@ -3078,8 +3412,8 @@
   gap: 0.375rem;
   margin-top: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background: #262626;
-  color: #aaa;
+  background: var(--ri-surface-2, #262626);
+  color: var(--ri-subtle-fg, #aaa);
   font-size: 0.8125rem;
   font-weight: 500;
   border: none;
@@ -3088,8 +3422,10 @@
   transition: background 0.15s;
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-trad-reply-toggle:hover {
-  background: #3a3a3a;
+#reddit-inline-discussion
+  .ri-comment.ri-traditional
+  .ri-trad-reply-toggle:hover {
+  background: var(--ri-surface-1, #3a3a3a);
 }
 
 /* --- Load more: YouTube-style dark pill button --- */
@@ -3100,7 +3436,7 @@
   margin: 0.5rem 0 0.25rem;
   padding: 0.5rem 0.75rem;
   background: transparent;
-  color: #aaa;
+  color: var(--ri-subtle-fg, #aaa);
   font-size: 0.8125rem;
   font-weight: 500;
   border: none;
@@ -3110,9 +3446,11 @@
   position: relative; /* for elbow pseudo-element */
 }
 
-#reddit-inline-discussion .ri-comment.ri-traditional .ri-load-more:hover:not(:disabled) {
-  background: #3a3a3a;
-  color: #ccc;
+#reddit-inline-discussion
+  .ri-comment.ri-traditional
+  .ri-load-more:hover:not(:disabled) {
+  background: var(--ri-surface-2, #3a3a3a);
+  color: var(--ri-discussion-fg, #ccc);
 }
 
 /* --- Elbow connector on load-more buttons (YouTube-style curve) --- */
@@ -3135,7 +3473,11 @@
 }
 
 /* Hover: brighten load-more elbow when parent line is hovered */
-#reddit-inline-discussion .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover) > .ri-body > .ri-trad-children > .ri-load-more::before {
+#reddit-inline-discussion
+  .ri-comment.ri-traditional:has(> .ri-trad-line-hit:hover)
+  > .ri-body
+  > .ri-trad-children
+  > .ri-load-more::before {
   border-color: var(--trad-line-hover);
 }
 
@@ -3144,3 +3486,89 @@
    --thread-line-bottom via getBoundingClientRect when the .truncate-lines
    ancestor class is present.  The variables are consumed directly by the base
    ::after / ::before / .ri-trad-line-hit rules above (fallback: 0 = full length). */
+
+/* ==================== Nav Strip Theme Overrides ==================== */
+/* Override RiTopStrip's hardcoded Tailwind bg/text/border colors using
+   the CSS custom properties set by applyCommentsBackgroundColor().
+   The #ri-inline-vue-host ID selector gives enough specificity to win
+   over Tailwind's single-class rules without needing !important. */
+
+#ri-inline-vue-host .ri-nav-logo {
+  background-color: var(--ri-surface-2, #0f0f0f) !important;
+}
+
+#ri-inline-vue-host .ri-nav-subreddit-chip {
+  background: var(--ri-surface-1, #151515) !important;
+  border-color: var(--ri-border-1, #3a3a3a) !important;
+  color: var(--ri-discussion-fg, #f0f0f0) !important;
+}
+
+#ri-inline-vue-host .ri-nav-menu-btn {
+  background: var(--ri-surface-2, #151515) !important;
+  border-color: var(--ri-border-1, #3a3a3a) !important;
+  color: var(--ri-discussion-fg, #f0f0f0) !important;
+}
+#ri-inline-vue-host .ri-nav-menu-btn:hover:not(:disabled) {
+  background: var(--ri-surface-2, #1a1a1a) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tabs {
+  background: var(--ri-surface-1, #191919) !important;
+  border-color: var(--ri-border-1, #2f2f2f) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab {
+  border-color: var(--ri-border-1, #2c2c2c) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab-active {
+  background: var(--ri-surface-2, #323232) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab-inactive {
+  background: var(--ri-surface-1, #1b1b1b) !important;
+}
+#ri-inline-vue-host .ri-nav-tab-inactive:hover {
+  background: var(--ri-surface-2, #222222) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab-icon-wrapper {
+  background: var(--ri-surface-2, #353535) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab-title {
+  color: var(--ri-discussion-fg, #f5f5f5) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab-subtitle {
+  color: var(--ri-subtle-fg, #adadad) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab-inactive-text {
+  color: var(--ri-discussion-fg, #d1d1d1) !important;
+}
+
+#ri-inline-vue-host .ri-nav-tab-indicator {
+  background: var(--ri-discussion-fg, #f5f5f5) !important;
+}
+
+/* Darken nav logos on light backgrounds so they remain visible */
+#ri-inline-vue-host .ri-nav-logo img,
+#ri-inline-vue-host .ri-nav-menu-btn img,
+#ri-inline-vue-host .ri-nav-subreddit-chip img {
+  filter: var(--ri-nav-logo-filter, none);
+}
+
+/* Subreddit chip inner avatar ring border */
+#ri-inline-vue-host .ri-nav-subreddit-chip > span {
+  border-color: var(--ri-border-1, #2f2f2f) !important;
+}
+
+/* Load-more icon filter follows the icon colour variable */
+.ri-load-more-icon {
+  filter: var(
+    --ri-icon-filter,
+    brightness(0) saturate(100%) invert(78%) sepia(6%) saturate(0%)
+      hue-rotate(225deg) brightness(94%) contrast(87%)
+  ) !important;
+}

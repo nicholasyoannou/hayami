@@ -7,6 +7,9 @@ import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/conte
 import YouTubeComment from './YouTubeComment.vue';
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl } from '@/utils/runtime';
+import { con } from '@/utils/logger';
+
+const log = con.m('YouTubeComments');
 
 const props = defineProps<{
   videoId: string;
@@ -59,7 +62,7 @@ async function loadComments(order: 'relevance' | 'time' = 'relevance') {
     emit('commentsLoaded', comments.value.length);
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load comments';
-    console.error('Failed to load YouTube comments:', e);
+    log.error('Failed to load comments:', e);
     toast.error('Failed to load YouTube comments');
   } finally {
     isLoading.value = false;
@@ -94,7 +97,7 @@ async function loadMoreComments() {
       
       hasMore.value = renderedCount.value < comments.value.length || !!nextPageToken.value;
     } catch (err) {
-      console.error('Error fetching additional YouTube comments:', err);
+      log.error('Error fetching additional comments:', err);
       toast.error('Failed to load more comments');
       nextPageToken.value = undefined;
       hasMore.value = renderedCount.value < comments.value.length;

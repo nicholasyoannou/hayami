@@ -1,9 +1,13 @@
 /**
  * Episode URL parsing utilities
- * 
+ *
  * Pure functions for extracting episode IDs and numbers from URLs.
  * No API calls or external dependencies beyond browser APIs.
  */
+
+import { con } from '@/utils/logger';
+
+const log = con.m('EpisodeDetection');
 
 /**
  * Extract episode ID from Crunchyroll watch URL
@@ -21,7 +25,7 @@ export function extractEpisodeIdFromUrl(): string | null {
     const match = url.match(/\/watch\/([A-Z0-9]+)/i);
     return match ? match[1] : null;
   } catch (error) {
-    console.error('Error extracting episode ID from URL:', error);
+    log.error('Error extracting episode ID from URL:', error);
     return null;
   }
 }
@@ -79,7 +83,7 @@ export function extractEpisodeNumberFromUrlHints(locationLike: Location = window
 
     return null;
   } catch (error) {
-    console.error('[Episode Detection] Error extracting episode number from URL hints:', error);
+    log.error('Error extracting episode number from URL hints:', error);
     return null;
   }
 }

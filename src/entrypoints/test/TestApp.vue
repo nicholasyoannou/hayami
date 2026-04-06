@@ -20,6 +20,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
+import { con } from '@/utils/logger';
+
+const log = con.m('Test');
 
 const testDiscussion = ref({
   id: '18da1zl',
@@ -33,7 +36,7 @@ const testDiscussion = ref({
 });
 
 onMounted(() => {
-  console.log('Test page mounted with Reddit discussion:', testDiscussion.value);
+  log.log('Test page mounted with Reddit discussion:', testDiscussion.value);
 });
 </script>
 

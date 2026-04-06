@@ -3,6 +3,8 @@
  */
 
 import { toast } from 'vue-sonner';
+import { con } from '@/utils/logger';
+const log = con.m('ErrorHandler');
 
 export interface ErrorContext {
   operation: string;
@@ -21,7 +23,7 @@ export function handleError(
   const errorMessage = error instanceof Error ? error.message : String(error);
   const errorStack = error instanceof Error ? error.stack : undefined;
 
-  console.error(`[${context.operation}] Error:`, {
+  log.error(`${context.operation} Error:`, {
     message: errorMessage,
     stack: errorStack,
     provider: context.provider,

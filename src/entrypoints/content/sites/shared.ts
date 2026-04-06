@@ -1,3 +1,5 @@
+import { con } from '@/utils/logger';
+const log = con.m('SiteShared');
 export interface MapperSeasonSlice {
   start: number;
   end: number;
@@ -18,7 +20,7 @@ export function parseEpisodeFromTitle(title: unknown): number | null {
   if (/^\d{1,4}$/u.test(trimmed)) {
     const numeric = Number.parseInt(trimmed, 10);
     if (Number.isFinite(numeric)) {
-      console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: numeric });
+      log.log('parseEpisodeFromTitle:', { title, extracted: numeric });
       return numeric;
     }
   }
@@ -28,7 +30,7 @@ export function parseEpisodeFromTitle(title: unknown): number | null {
   if (dubSubMatch?.[1]) {
     const dubSubEpisode = Number.parseInt(dubSubMatch[1], 10);
     if (Number.isFinite(dubSubEpisode)) {
-      console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: dubSubEpisode });
+      log.log('parseEpisodeFromTitle:', { title, extracted: dubSubEpisode });
       return dubSubEpisode;
     }
   }
@@ -38,7 +40,7 @@ export function parseEpisodeFromTitle(title: unknown): number | null {
   if (leadingNumericMatch?.[1]) {
     const leadingNumeric = Number.parseInt(leadingNumericMatch[1], 10);
     if (Number.isFinite(leadingNumeric)) {
-      console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: leadingNumeric });
+      log.log('parseEpisodeFromTitle:', { title, extracted: leadingNumeric });
       return leadingNumeric;
     }
   }
@@ -57,7 +59,7 @@ export function parseEpisodeFromTitle(title: unknown): number | null {
       break;
     }
   }
-  console.log('[Episode Detection] parseEpisodeFromTitle:', { title, extracted: result });
+  log.log('parseEpisodeFromTitle:', { title, extracted: result });
   return result;
 }
 
@@ -210,7 +212,7 @@ export function findSliceEpisodeMatch(
   } else {
     (globalThis as any).__lastMapperLogs = debugCapture;
   }
-  console.log('[Mapper Debug] findSliceEpisodeMatch called', {
+  log.log('findSliceEpisodeMatch called', {
     seasonNum,
     episodeWithinSeason,
     orderedMapper: orderedMapper.map((o) => ({ idx: o.idx, episodeCount: o.episodeCount, hasZero: !!o.hasZero })),
@@ -275,7 +277,7 @@ export function findSliceEpisodeMatch(
       resolvedEpisode: episode,
     };
     debugCapture.iterations.push(iterationLog);
-    console.log('[Mapper Debug] slice iteration', iterationLog);
+    log.log('slice iteration', iterationLog);
 
     if (episode !== null) {
       const matchLog = {
@@ -289,7 +291,7 @@ export function findSliceEpisodeMatch(
         resolvedEpisode: episode,
       };
       debugCapture.match = matchLog;
-      console.log('[Mapper Debug] slice match found', matchLog);
+      log.log('slice match found', matchLog);
       return { idx: entry.idx, episode };
     }
 
@@ -326,7 +328,7 @@ export function findSliceEpisodeMatch(
       fallbackEpisode = Math.min(lastLen, remainingAfterFirst);
     }
 
-    console.log('[Mapper Debug] slice overrun; falling back within slice', {
+    log.log('slice overrun; falling back within slice', {
       seasonNum,
       episodeWithinSeason,
       slice,
@@ -342,6 +344,6 @@ export function findSliceEpisodeMatch(
     return { idx: fallbackTarget.idx, episode: fallbackEpisode };
   }
 
-  console.log('[Mapper Debug] slice match not found', { seasonNum, episodeWithinSeason, slice, cumulativeFinal: cumulative });
+  log.log('slice match not found', { seasonNum, episodeWithinSeason, slice, cumulativeFinal: cumulative });
   return null;
 }

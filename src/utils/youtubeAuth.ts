@@ -15,10 +15,13 @@
 import { browser } from 'wxt/browser';
 import { GOOGLE_CLIENT_ID, GOOGLE_SCOPES, GOOGLE_REDIRECT_URI, GOOGLE_TOKEN_PROXY_URL } from '@/config';
 import { fetchHayami } from '@/utils/hayamiApi';
+import { con } from '@/utils/logger';
+
+const log = con.m('YouTubeAuth');
 
 // Validate configuration (non-blocking warning)
 if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.length === 0) {
-  console.warn('Google client ID is not configured. YouTube features will not work.');
+  log.warn('Google client ID is not configured. YouTube features will not work.');
 }
 
 // Storage keys
@@ -102,7 +105,7 @@ function buildGoogleTokenError(status: number, rawBody: string): string {
 
 async function exchangeYouTubeTokenViaProxy(body: Record<string, string>): Promise<GoogleTokenResponse | null> {
   if (!GOOGLE_TOKEN_PROXY_URL || GOOGLE_TOKEN_PROXY_URL.includes('your-proxy.example.com')) {
-    console.warn('[YouTube] Token proxy URL not configured');
+    log.warn('Token proxy URL not configured');
     return null;
   }
 
@@ -117,7 +120,7 @@ async function exchangeYouTubeTokenViaProxy(body: Record<string, string>): Promi
 
   if (!resp.ok) {
     const text = await resp.text();
-    console.warn('[YouTube] Proxy token exchange failed', resp.status, text);
+    log.warn('Proxy token exchange failed', resp.status, text);
     throw new Error(buildGoogleTokenError(resp.status, text));
   }
 
@@ -146,7 +149,7 @@ async function revokeYouTubeToken(token: string | null): Promise<void> {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
   } catch (err) {
-    console.warn('Failed to revoke YouTube token', err);
+    log.warn('Failed to revoke YouTube token', err);
   }
 }
 
@@ -214,7 +217,7 @@ export async function authenticateWithYouTube(options: YouTubeAuthOptions = {}):
       message: 'YouTube login opened. Complete it to finish connecting.',
     };
   } catch (error) {
-    console.error('YouTube authentication error:', error);
+    log.error('Authentication error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Authentication failed. Please try again.',
@@ -282,7 +285,7 @@ export async function completeYouTubeRedirect(url: string): Promise<YouTubeAuthR
       username: username || 'Unknown',
     };
   } catch (error) {
-    console.error('YouTube redirect completion error:', error);
+    log.error('Redirect completion error:', error);
     return { success: false, error: error instanceof Error ? error.message : 'Could not complete YouTube login' };
   }
 }
@@ -342,7 +345,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
     await storeTokens(data);
     return data.access_token;
   } catch (error) {
-    console.error('YouTube token refresh error:', error);
+    log.error('Token refresh error:', error);
     return null;
   }
 }
@@ -361,7 +364,7 @@ async function getYouTubeUsername(accessToken: string): Promise<string | null> {
     });
 
     if (!response.ok) {
-      console.error('Failed to fetch YouTube username:', response.status);
+      log.error('Failed to fetch YouTube username:', response.status);
       return null;
     }
 
@@ -383,7 +386,7 @@ async function getYouTubeUsername(accessToken: string): Promise<string | null> {
 
     return username;
   } catch (error) {
-    console.error('Error fetching YouTube username:', error);
+    log.error('Error fetching YouTube username:', error);
     return null;
   }
 }
@@ -447,6 +450,6 @@ export async function logoutYouTube(): Promise<void> {
       STORAGE_KEYS.codeVerifier,
     ]);
   } catch (error) {
-    console.error('Logout error:', error);
+    log.error('Logout error:', error);
   }
 }

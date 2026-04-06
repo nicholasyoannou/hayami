@@ -4,7 +4,9 @@ import { toast } from 'vue-sonner';
 import { createApp, h } from 'vue';
 import { Toaster } from 'vue-sonner';
 import 'vue-sonner/style.css';
-import { debug } from '@/utils/debug';
+import { con, banner, installGlobalHelpers, initLoggerFromStorage } from '@/utils/logger';
+
+const log = con.m('Bootstrap');
 import { startBackgroundKeepAlive } from '@/utils/backgroundKeepAlive';
 import { wirePreviewHandlers } from '@/utils/previewHandlers';
 import { useWatchPageDetection } from '@/composables/useAnimeInfo';
@@ -38,7 +40,7 @@ import { getUiManager } from './ui-manager';
 
 let siteMapperHotkeySetupPromise: Promise<void> | null = null;
 
-async function setupSiteMapperHotkeyLazy(ctx: ContentScriptContext): Promise<void> {
+async function setupSiteMapperHotkeyLazy(ctx: ContentScriptContext, ensureInit?: () => void): Promise<void> {
   if (siteMapperHotkeySetupPromise) {
     await siteMapperHotkeySetupPromise;
     return;
@@ -46,7 +48,7 @@ async function setupSiteMapperHotkeyLazy(ctx: ContentScriptContext): Promise<voi
 
   siteMapperHotkeySetupPromise = import('../ui/site-mapper/site-mapper-overlay')
     .then((module) => {
-      module.setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage);
+      module.setupSiteMapperHotkey(ctx, toast, queueHandleWatchPage, ensureInit);
     })
     .catch((error) => {
       siteMapperHotkeySetupPromise = null;
@@ -105,7 +107,7 @@ export function queueHandleWatchPage(ctx: ContentScriptContext): void {
  * Handles logic for watch pages - extracts and processes anime info
  */
 export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> {
-  debug.log('On watch page, extracting anime info...');
+  con.log('On watch page, extracting anime info...');
 
   // Re-run the KomentoScript pipeline now that the SPA has had time to update the DOM
   // (the earlier loadCustomMappingForOrigin call at URL-change time may have run before
@@ -119,11 +121,11 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
   }
 
   if (info) {
-    console.log('Anime Info:', info);
+    log.log('Anime Info:', info);
     setLastAnimeInfo(info);
     const key = `${info.animeName}|${info.episodeName}`;
     if (key === getState().lastProcessedKey) {
-      console.log('Already processed this episode, skipping duplicate search');
+      log.log('Already processed this episode, skipping duplicate search');
       return;
     }
     setLastProcessedKey(key);
@@ -131,7 +133,7 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
     await searchAndDisplayDiscussion(info);
   } else {
     // If not found, wait for the content to load
-    console.log('Anime info not found yet, waiting for content to load...');
+    log.log('Anime info not found yet, waiting for content to load...');
     observeAnimeInfoOnce(ctx, searchAndDisplayDiscussion, async () => {
       let detected = getCustomAnimeInfo();
       if (detected) return detected;
@@ -166,6 +168,28 @@ export function ensureToaster(ctx: ContentScriptContext): void {
   toastHost.style.zIndex = '2147483647';
   toastHost.style.pointerEvents = 'none';
   document.body.appendChild(toastHost);
+
+  // Reset host-site styles that leak into Sonner's <ol>/<li> toast container.
+  const resetStyle = document.createElement('style');
+  resetStyle.textContent = `
+    #cr-comments-toaster ol,
+    #cr-comments-toaster li {
+      list-style: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      counter-reset: none !important;
+      counter-increment: none !important;
+    }
+    #cr-comments-toaster ol::before,
+    #cr-comments-toaster li::before,
+    #cr-comments-toaster ol::after,
+    #cr-comments-toaster li::after {
+      content: none !important;
+      display: none !important;
+    }
+  `;
+  toastHost.appendChild(resetStyle);
+
   const toastApp = createApp({ render: () => h(Toaster, { position: 'top-right', theme: 'dark', richColors: true }) });
   toastApp.mount(toastHost);
 
@@ -178,7 +202,7 @@ function resetUiAndState(shouldInit: boolean): void {
   try {
     getUiManager().unmount();
   } catch (e) {
-    console.warn('[Bootstrap] Failed to unmount UI manager', e);
+    log.warn('Failed to unmount UI manager', e);
   }
 
   destroyState();
@@ -219,16 +243,16 @@ function softResetForWatchNavigation(): void {
  */
 export async function bootstrapContent(ctx: ContentScriptContext): Promise<void> {
   if (!isTopFrameWindow()) {
-    debug.log('Hayami: Skipping main bootstrap in subframe');
     return;
   }
 
+  // Hydrate verbose-logging flag from extension storage, then show banner
+  await initLoggerFromStorage();
+  const version = browser.runtime.getManifest()?.version ?? 'dev';
+  banner(version);
+  installGlobalHelpers();
+
   ensureToaster(ctx);
-  try {
-    await setupSiteMapperHotkeyLazy(ctx);
-  } catch (error) {
-    console.warn('[Bootstrap] Failed to initialize site mapper hotkey', error);
-  }
 
   let featureInitialized = false;
   let previewHandlersWired = false;
@@ -248,7 +272,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     try {
       startBackgroundKeepAlive();
     } catch (err) {
-      console.warn('[Bootstrap] Failed to start background keep-alive', err);
+      log.warn('Failed to start background keep-alive', err);
     }
 
     if (!previewHandlersWired) {
@@ -263,8 +287,14 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     }
 
     featureInitialized = true;
-    debug.log('Hayami extension loaded');
+    con.log('Hayami extension loaded');
   };
+
+  try {
+    await setupSiteMapperHotkeyLazy(ctx, ensureFeatureInitialized);
+  } catch (error) {
+    log.warn('Failed to initialize site mapper hotkey', error);
+  }
 
   const deactivateFeature = () => {
     if (!featureInitialized) return;
@@ -281,7 +311,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   const customMapping = await loadCustomMappingForOrigin();
 
   if (!hasWatchUrl && !customMapping && !hasSiteMatch) {
-    debug.log('Hayami: Site not supported yet, waiting for SPA navigation');
+    con.log('Hayami: Site not supported yet, waiting for SPA navigation');
   } else {
     ensureFeatureInitialized();
   }
@@ -300,7 +330,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         await displayDiscussionDependingOnMode(postData);
       }
     } catch (e) {
-      console.warn('[ManualSearch] Failed to handle manual search result', e);
+      log.warn('Failed to handle manual search result', e);
     }
   });
 
@@ -353,7 +383,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         });
       }
     } catch (e) {
-      console.warn('[EpisodeSelect] Failed to apply episode override', e);
+      log.warn('Failed to apply episode override', e);
       toast.error('Failed to apply episode selection');
     }
   });
@@ -394,14 +424,14 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         }
       }
     } catch (e) {
-      console.warn('[EpisodeSelect] Failed to reset mapping', e);
+      log.warn('Failed to reset mapping', e);
       toast.error('Failed to reset mapping');
     }
   });
 
   ctx.addEventListener(window, 'wxt:locationchange', async (event: { newUrl: URL }) => {
     const newUrl = event.newUrl?.href;
-    debug.log('URL changed to:', newUrl);
+    con.log('URL changed to:', newUrl);
     const onWatchPage = isWatchPage(newUrl);
 
     const customMapping = await loadCustomMappingForOrigin();

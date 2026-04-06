@@ -12,7 +12,10 @@
  * match anime series and episodes across platforms.
  */
 
+import { con } from '@/utils/logger';
 import { AnimeInfo } from './types';
+
+const log = con.m('Mapper');
 import {
   parseEpisodeFromTitle,
   parseMapperYear,
@@ -31,6 +34,8 @@ import {
 } from './net/crunchyroll-client';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { resolveAdapter } from './adapters/site-registry';
+import { malSyncEnabledItem } from '@/config/storage';
+import type { MalSyncPresence } from '@/utils/malSync';
 
 export { SERIES_MAPPING_KEY } from './mapping-keys';
 export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from './storage/series-mapping';
@@ -108,6 +113,27 @@ export function getLastResolvedHayamiName(baseAnimeName: string | null | undefin
   return lastResolvedHayami.baseKey === baseKey ? lastResolvedHayami.resolvedName : null;
 }
 
+// =============================================================================
+// MAL-SYNC PRESENCE HELPER
+// Queries the background script for MAL-Sync presence data on the current tab.
+// =============================================================================
+async function fetchMalSyncPresenceViaBackground(): Promise<MalSyncPresence | null> {
+  try {
+    const enabled = await malSyncEnabledItem.getValue();
+    if (!enabled) return null;
+
+    const response = await browser.runtime.sendMessage({
+      action: 'hayami_malsync_presence',
+    });
+    if (response?.ok && response.presence) {
+      return response.presence as MalSyncPresence;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // (Inline definitions removed — now in mapping/ submodules)
 
 // =============================================================================
@@ -152,7 +178,7 @@ function refineMatchedIndexUsingCrunchyrollData(
     if (earliest) {
       preferredSeasonOneIdx = earliest.idx;
       if (!hasSeasonsData) {
-        console.log('[Mapper Failover] Refined matched index using earliest season for season_number=1 (no CR seasons data):', { from: matchedIndex, to: earliest.idx, year: earliest.year });
+        log.log(' Refined matched index using earliest season for season_number=1 (no CR seasons data):', { from: matchedIndex, to: earliest.idx, year: earliest.year });
         return earliest.idx;
       }
     }
@@ -194,7 +220,7 @@ function refineMatchedIndexUsingCrunchyrollData(
       }, 0);
 
       if (currentLooksReliable && sameYearBestSeriesScore < currentSeriesScore) {
-        console.log('[Mapper Failover] Keeping current matched index despite air-year candidates due stronger series alignment:', {
+        log.log(' Keeping current matched index despite air-year candidates due stronger series alignment:', {
           matchedIndex,
           airYear: safeAirYear,
           currentSeriesScore,
@@ -222,7 +248,7 @@ function refineMatchedIndexUsingCrunchyrollData(
           );
 
       if (chosenIdx !== null) {
-        console.log('[Mapper Failover] Refined matched index using air date year (preferred within year):', { airYear: safeAirYear, from: matchedIndex, to: chosenIdx });
+        log.log(' Refined matched index using air date year (preferred within year):', { airYear: safeAirYear, from: matchedIndex, to: chosenIdx });
         return chosenIdx;
       }
     }
@@ -231,7 +257,7 @@ function refineMatchedIndexUsingCrunchyrollData(
       .filter((r) => r.hasEpisodes && r.year !== null && r.year <= safeAirYear && coversRequiredEpisode(r))
       .sort((a, b) => (b.year ?? -9999) - (a.year ?? -9999))[0];
     if (newestAtOrBefore) {
-      console.log('[Mapper Failover] Refined matched index using nearest past year:', { airYear: safeAirYear, from: matchedIndex, to: newestAtOrBefore.idx, year: newestAtOrBefore.year });
+      log.log(' Refined matched index using nearest past year:', { airYear: safeAirYear, from: matchedIndex, to: newestAtOrBefore.idx, year: newestAtOrBefore.year });
       return newestAtOrBefore.idx;
     }
 
@@ -252,7 +278,7 @@ function refineMatchedIndexUsingCrunchyrollData(
     if (target) {
       const targetSeriesScore = scoreName((results as any)[target.idx]?.anime_name);
       if (seriesTokens.size > 0 && targetSeriesScore <= 0 && currentSeriesScore > 0) {
-        console.log('[Mapper Failover] Skipping season_number ordering override due weak series alignment:', {
+        log.log(' Skipping season_number ordering override due weak series alignment:', {
           seasonNum,
           from: matchedIndex,
           candidate: target.idx,
@@ -260,7 +286,7 @@ function refineMatchedIndexUsingCrunchyrollData(
           targetSeriesScore,
         });
       } else if (currentLooksReliable && targetSeriesScore < currentSeriesScore) {
-        console.log('[Mapper Failover] Keeping current matched index over season_number ordering due stronger series alignment:', {
+        log.log(' Keeping current matched index over season_number ordering due stronger series alignment:', {
           seasonNum,
           from: matchedIndex,
           candidate: target.idx,
@@ -268,7 +294,7 @@ function refineMatchedIndexUsingCrunchyrollData(
           targetSeriesScore,
         });
       } else {
-        console.log('[Mapper Failover] Refined matched index using season_number ordering:', {
+        log.log(' Refined matched index using season_number ordering:', {
           seasonNum,
           from: matchedIndex,
           to: target.idx,
@@ -299,7 +325,7 @@ function refineMatchedIndexUsingCrunchyrollData(
       const start = cumulative + 1;
       const end = cumulative + len;
       if (absoluteEpisodePosition >= start && absoluteEpisodePosition <= end) {
-        console.log('[Mapper Failover] Refined matched index using ordinal across mapper timeline (no CR seasons):', {
+        log.log(' Refined matched index using ordinal across mapper timeline (no CR seasons):', {
           from: matchedIndex,
           to: entry.idx,
           absoluteEpisodePosition,
@@ -322,7 +348,7 @@ function refineMatchedIndexUsingCrunchyrollData(
       const start = cumulative + 1;
       const end = cumulative + entry.episodeCount;
       if (absoluteEpisodePosition >= start && absoluteEpisodePosition <= end) {
-        console.log('[Mapper Failover] Refined matched index using continuous numbering:', {
+        log.log(' Refined matched index using continuous numbering:', {
           from: matchedIndex,
           to: entry.idx,
           absoluteEpisodePosition,
@@ -348,7 +374,7 @@ function refineMatchedIndexUsingCrunchyrollData(
     );
 
     if (sliceMatch) {
-      console.log('[Mapper Failover] Refined matched index using CR season slice by episode number:', {
+      log.log(' Refined matched index using CR season slice by episode number:', {
         seasonNum,
         episodeWithinSeason,
         from: matchedIndex,
@@ -358,7 +384,7 @@ function refineMatchedIndexUsingCrunchyrollData(
       matchedIndex = sliceMatch.idx;
       return matchedIndex;
     } else {
-      console.log('[Mapper Debug] No slice match', {
+      log.log(' No slice match', {
         seasonNum,
         episodeWithinSeason,
         matchedIndex,
@@ -368,7 +394,7 @@ function refineMatchedIndexUsingCrunchyrollData(
   }
 
   if (preferredSeasonOneIdx !== null) {
-    console.log('[Mapper Failover] Falling back to preferred season 1 mapper index:', { from: matchedIndex, to: preferredSeasonOneIdx });
+    log.log(' Falling back to preferred season 1 mapper index:', { from: matchedIndex, to: preferredSeasonOneIdx });
     return preferredSeasonOneIdx;
   }
 
@@ -404,14 +430,14 @@ function mapEpisodeWithSeasonsData(
     matchedSeason?.episodes &&
     Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(effectiveEpisodeNumber))
   ) {
-    console.log('[Mapper Failover] Single-season direct hit; using matched season episode key', {
+    log.log(' Single-season direct hit; using matched season episode key', {
       effectiveEpisodeNumber,
     });
     return effectiveEpisodeNumber;
   }
 
   if ((effectiveEpisodeNumber === 0 || sequenceNumber === 0) && Object.prototype.hasOwnProperty.call(matchedSeason.episodes, '0')) {
-    console.log('[Mapper Failover] Detected zero-index special; mapping to episode 0');
+    log.log(' Detected zero-index special; mapping to episode 0');
     return 0;
   }
 
@@ -444,7 +470,7 @@ function mapEpisodeWithSeasonsData(
 
   if (sequenceNumber !== undefined && sequenceNumber !== null && !isSequenceNumberContinuous) {
     if (sequenceNumber >= 1 && sequenceNumber <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Using sequence_number directly (season-specific):', sequenceNumber);
+      log.log(' Using sequence_number directly (season-specific):', sequenceNumber);
       return sequenceNumber;
     }
   }
@@ -614,7 +640,7 @@ function mapEpisodeWithSeasonsData(
     }
   }
 
-  console.log('[Mapper Failover] Episode mapping analysis:', {
+  log.log(' Episode mapping analysis:', {
     crEpisodeNumber,
     sequenceNumber,
     seasonNumber,
@@ -630,7 +656,7 @@ function mapEpisodeWithSeasonsData(
   // Prefer mapper-derived baseline when available (same-franchise cumulative episodes) before relying on CR counts.
   const mapperBaseline = totalPreviousMapperEpisodes >= 1 ? totalPreviousMapperEpisodes : fallbackPreviousMapperEpisodes;
 
-  console.log('[Mapper Debug] Mapper baseline candidates', {
+  log.log(' Mapper baseline candidates', {
     totalPreviousMapperEpisodes,
     fallbackPreviousMapperEpisodes,
     mapperBaseline,
@@ -659,7 +685,7 @@ function mapEpisodeWithSeasonsData(
           matchedSeason = targetSeason;
           matchedIdx = entry.idx;
           mapperEpisodeCount = Object.keys(targetSeason.episodes).length;
-          console.log('[Mapper Failover] Collapsed CR season: remapped season via ordinal timeline', {
+          log.log(' Collapsed CR season: remapped season via ordinal timeline', {
             episodeNumberToUse,
             start,
             end,
@@ -679,7 +705,7 @@ function mapEpisodeWithSeasonsData(
     const seasonEpisode = episodeNumberToUse - baseline;
 
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Adjusted using mapper baseline before CR counts:', {
+      log.log(' Adjusted using mapper baseline before CR counts:', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
         totalPreviousMapperEpisodes,
@@ -701,7 +727,7 @@ function mapEpisodeWithSeasonsData(
      const seasonEpisode = episodeNumberToUse - baseline;
 
      if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-       console.log('[Mapper Failover] Adjusted using fallback mapper baseline:', {
+       log.log(' Adjusted using fallback mapper baseline:', {
          episodeNumberToUse,
          totalPreviousCrEpisodes,
          totalPreviousMapperEpisodes,
@@ -725,7 +751,7 @@ function mapEpisodeWithSeasonsData(
     const seasonEpisode = episodeNumberToUse - adjustedPrevious;
 
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Adjusted continuous numbering using CR/global baseline:', {
+      log.log(' Adjusted continuous numbering using CR/global baseline:', {
         episodeNumberToUse,
         crEpisodeNumber,
         sequenceNumber,
@@ -752,7 +778,7 @@ function mapEpisodeWithSeasonsData(
     const seasonEpisode = episodeNumberToUse - adjustedPrevious;
 
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Adjusted continuous numbering with capped previous total:', {
+      log.log(' Adjusted continuous numbering with capped previous total:', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
         adjustedPrevious,
@@ -770,7 +796,7 @@ function mapEpisodeWithSeasonsData(
     const seasonEpisode = episodeNumberToUse - inferredPrevious;
 
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Inferred previous episodes from CR season length for continuous numbering:', {
+      log.log(' Inferred previous episodes from CR season length for continuous numbering:', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
         currentCrSeasonEpisodes,
@@ -790,7 +816,7 @@ function mapEpisodeWithSeasonsData(
     const seasonEpisode = episodeNumberToUse - adjustedPrevious;
 
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Overshoot guard: trimmed previous total into cour span', {
+      log.log(' Overshoot guard: trimmed previous total into cour span', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
         mapperEpisodeCount,
@@ -804,7 +830,7 @@ function mapEpisodeWithSeasonsData(
   if (isSequenceNumberContinuous) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Determined CONTINUOUS numbering (from sequenceNumber):', {
+      log.log(' Determined CONTINUOUS numbering (from sequenceNumber):', {
         sequenceNumber: episodeNumberToUse,
         totalPreviousCrEpisodes,
         seasonEpisode,
@@ -817,7 +843,7 @@ function mapEpisodeWithSeasonsData(
   if (isDefinitelyContinuous || (couldBeContinuous && !couldBePerSeason)) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Determined CONTINUOUS numbering:', {
+      log.log(' Determined CONTINUOUS numbering:', {
         crEpisodeNumber: episodeNumberToUse,
         totalPreviousCrEpisodes,
         seasonEpisode,
@@ -829,7 +855,7 @@ function mapEpisodeWithSeasonsData(
 
   if (couldBePerSeason && episodeNumberToUse >= 1 && episodeNumberToUse <= mapperEpisodeCount) {
     if (episodeNumberToUse <= currentCrSeasonEpisodes || currentCrSeasonEpisodes === 0) {
-      console.log('[Mapper Failover] Determined PER-SEASON numbering:', {
+      log.log(' Determined PER-SEASON numbering:', {
         crEpisodeNumber: episodeNumberToUse,
         currentCrSeasonEpisodes,
         mapperEpisodeCount,
@@ -842,13 +868,13 @@ function mapEpisodeWithSeasonsData(
   if (episodeNumberToUse > totalPreviousCrEpisodes) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
     if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
-      console.log('[Mapper Failover] Fallback to CONTINUOUS numbering:', seasonEpisode);
+      log.log(' Fallback to CONTINUOUS numbering:', seasonEpisode);
       return seasonEpisode;
     }
   }
 
   if (sequenceNumber === totalPreviousCrEpisodes && seasonNumber > 1) {
-    console.log('[Mapper Failover] Last resort: sequenceNumber equals previous total, trying episode 1');
+    log.log(' Last resort: sequenceNumber equals previous total, trying episode 1');
     if (mapperEpisodeCount >= 1) {
       return 1;
     }
@@ -860,7 +886,7 @@ function mapEpisodeWithSeasonsData(
     crEpisodeNumber <= mapperEpisodeCount &&
     crEpisodeNumber <= currentCrSeasonEpisodes
   ) {
-    console.log('[Mapper Failover] Last resort: using crEpisodeNumber as per-season:', crEpisodeNumber);
+    log.log(' Last resort: using crEpisodeNumber as per-season:', crEpisodeNumber);
     return crEpisodeNumber;
   }
 
@@ -871,12 +897,12 @@ function mapEpisodeWithSeasonsData(
 
   for (const candidate of directKeyCandidates) {
     if (Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(candidate))) {
-      console.log('[Mapper Failover] Direct key hit in mapper episodes despite count mismatch:', candidate);
+      log.log(' Direct key hit in mapper episodes despite count mismatch:', candidate);
       return candidate;
     }
   }
 
-  console.log('[Mapper Failover] Could not determine episode mapping');
+  log.log(' Could not determine episode mapping');
   return null;
 }
 
@@ -959,13 +985,18 @@ export async function tryMapperFailover(
   episodeOverride?: number | null,
 ): Promise<string | null> {
   try {
-    console.log('[Mapper Failover] Starting failover process', { platform });
-    console.log('[Episode Detection] Mapper failover inputs:', {
+    log.log(' Starting failover process', { platform });
+    log.log(' Mapper failover inputs:', {
       animeName: animeInfo?.animeName,
       episodeName: animeInfo?.episodeName,
       releaseDate: animeInfo?.releaseDate,
       episodeOverride,
     });
+
+    // Start MAL-Sync presence query in parallel (non-blocking).
+    // The result supplements Hayami's own detection with MAL-Sync's
+    // title/episode data when available.
+    const malSyncPromise = fetchMalSyncPresenceViaBackground();
 
     // If we are not on a Crunchyroll watch URL, skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.
@@ -981,7 +1012,7 @@ export async function tryMapperFailover(
       const explicitEpisodeFromInfo = parseEpisodeFromTitle(animeInfo?.episodeName)
         ?? parseLooseNumeric(animeInfo?.episodeName);
       if (explicitEpisodeFromInfo !== null) {
-        console.log('[Episode Detection] extractEpisodeFromInfo explicit match:', {
+        log.log(' extractEpisodeFromInfo explicit match:', {
           episodeName: animeInfo?.episodeName,
           explicitEpisodeFromInfo,
         });
@@ -1050,7 +1081,7 @@ export async function tryMapperFailover(
           bestCount = count;
         }
       }
-      console.log('[Episode Detection] extractEpisodeFromInfo result:', {
+      log.log(' extractEpisodeFromInfo result:', {
         episodeScopedCandidates,
         genericCandidates,
         hits,
@@ -1068,16 +1099,16 @@ export async function tryMapperFailover(
     const episodeId = shouldUseCrunchyrollMetadata ? extractEpisodeIdFromUrl() : null;
     if (!episodeId) {
       if (!shouldUseCrunchyrollMetadata) {
-        console.log('[Mapper Failover] Non-Crunchyroll watch context detected; skipping Crunchyroll metadata path', {
+        log.log(' Non-Crunchyroll watch context detected; skipping Crunchyroll metadata path', {
           host: window.location.hostname,
           path: window.location.pathname,
         });
       }
-      console.log('[Mapper Failover] Could not extract episode ID from URL:', window.location.href);
+      log.log(' Could not extract episode ID from URL:', window.location.href);
       const episodeFromUrlHints = extractEpisodeNumberFromUrlHints();
       const extractedEpisode = extractEpisodeFromInfo();
       const episodeFromInfo = overrideEpisode ?? episodeFromUrlHints ?? extractedEpisode;
-      console.log('[Episode Detection] Episode extracted from info for mapping:', {
+      log.log(' Episode extracted from info for mapping:', {
         episodeFromUrlHints,
         extractedEpisode,
         overrideEpisode,
@@ -1099,7 +1130,7 @@ export async function tryMapperFailover(
       }
       
       if (isThirdPartySite && animeInfo?.animeName) {
-        console.log('[Mapper Failover] Third-party site detected, resolving anime IDs for better mapping');
+        log.log(' Third-party site detected, resolving anime IDs for better mapping');
         const animeIds = await getCachedAnimeIds(animeInfo.animeName);
         if (animeIds) {
           mapperOptions = {
@@ -1107,7 +1138,7 @@ export async function tryMapperFailover(
             anilistId: animeIds.anilistId,
             isThirdPartySite: true,
           };
-          console.log('[Mapper Failover] Resolved anime IDs:', animeIds);
+          log.log(' Resolved anime IDs:', animeIds);
         }
       }
       
@@ -1117,34 +1148,74 @@ export async function tryMapperFailover(
         if (tableData?.maxEpisode) {
           if (!mapperOptions) mapperOptions = {};
           mapperOptions.maxEpisodeCount = tableData.maxEpisode;
-          console.log('[Mapper Failover] Extracted episode count from Reddit selftext:', tableData.maxEpisode);
+          log.log(' Extracted episode count from Reddit selftext:', tableData.maxEpisode);
         }
       }
       
-      const mapperResult = animeInfo?.animeName ? await fetchAnimeMapperDataBySeriesName(animeInfo.animeName, platform, {
+      // ── MAL-Sync presence supplement ─────────────────────────────────
+      // Use MAL-Sync's title/episode to supplement or improve the mapper query.
+      const malSyncPresence = await malSyncPromise;
+      let malSyncAnimeName: string | null = null;
+      let malSyncEpisode: number | null = null;
+      if (malSyncPresence) {
+        log.log(' MAL-Sync presence data:', malSyncPresence);
+        malSyncAnimeName = malSyncPresence.title || null;
+        malSyncEpisode = malSyncPresence.episode ?? null;
+
+        // If Hayami couldn't extract an episode number but MAL-Sync has one, use it
+        if (episodeFromInfo === null && malSyncEpisode !== null) {
+          log.log(' Using MAL-Sync episode as fallback:', malSyncEpisode);
+        }
+      }
+
+      // Determine the best anime name for the mapper query:
+      // Prefer the original detected name, but if the mapper returns no results,
+      // we'll retry with the MAL-Sync title below.
+      const primaryAnimeName = animeInfo?.animeName || null;
+      const effectiveEpisode = episodeFromInfo ?? malSyncEpisode;
+
+      const mapperResult = primaryAnimeName ? await fetchAnimeMapperDataBySeriesName(primaryAnimeName, platform, {
         ...(mapperOptions || {}),
         // Keep explicit season/part markers to avoid broad matches (e.g., S2 vs S2 Part 2).
         preserveSeasonSuffix: true,
         episodeDate: animeInfo?.releaseDate ?? null,
       }) : null;
-      if (!mapperResult || !Array.isArray((mapperResult as any).results) || !(mapperResult as any).results.length) {
+
+      // If primary name yielded no results and MAL-Sync has a different title, retry with it
+      let effectiveMapperResult = mapperResult;
+      if (
+        (!effectiveMapperResult || !Array.isArray((effectiveMapperResult as any).results) || !(effectiveMapperResult as any).results.length)
+        && malSyncAnimeName
+        && malSyncAnimeName.toLowerCase() !== (primaryAnimeName || '').toLowerCase()
+      ) {
+        log.log(' Primary name yielded no results; retrying with MAL-Sync title:', malSyncAnimeName);
+        effectiveMapperResult = await fetchAnimeMapperDataBySeriesName(malSyncAnimeName, platform, {
+          ...(mapperOptions || {}),
+          preserveSeasonSuffix: true,
+          episodeDate: animeInfo?.releaseDate ?? null,
+        });
+      }
+
+      if (!effectiveMapperResult || !Array.isArray((effectiveMapperResult as any).results) || !(effectiveMapperResult as any).results.length) {
         return null;
       }
 
-      const results: any[] = (mapperResult as any).results;
-      const preferredIdx = typeof (mapperResult as any).matched_result?.index === 'number' ? (mapperResult as any).matched_result.index : 0;
+      const results: any[] = (effectiveMapperResult as any).results;
+      const preferredIdx = typeof (effectiveMapperResult as any).matched_result?.index === 'number' ? (effectiveMapperResult as any).matched_result.index : 0;
       const order = Array.from(new Set([preferredIdx, ...results.map((_, i) => i)]));
       const desiredKeys = new Set<string | number>();
-      if (episodeFromInfo !== null) {
-        desiredKeys.add(String(episodeFromInfo));
-        desiredKeys.add(episodeFromInfo);
-        if (episodeFromInfo < 10) desiredKeys.add(`0${episodeFromInfo}`);
+      // Use effective episode (which includes MAL-Sync fallback)
+      const episodeForKeys = effectiveEpisode;
+      if (episodeForKeys !== null) {
+        desiredKeys.add(String(episodeForKeys));
+        desiredKeys.add(episodeForKeys);
+        if (episodeForKeys < 10) desiredKeys.add(`0${episodeForKeys}`);
       }
-      console.log('[Episode Detection] Desired mapper keys:', Array.from(desiredKeys));
+      log.log(' Desired mapper keys:', Array.from(desiredKeys));
 
       // For non-Crunchyroll sites, attempt to convert continuous episode numbering to season-based
       // (e.g., episode 16 → Season 2, Episode 3 if Season 1 had 13 episodes)
-      if (episodeFromInfo !== null && episodeFromInfo > 0 && results.length >= 1) {
+      if (episodeForKeys !== null && episodeForKeys > 0 && results.length >= 1) {
         // Sort results by year to establish chronological order
         const orderedResults = results
           .map((r, idx) => ({
@@ -1168,7 +1239,7 @@ export async function tryMapperFailover(
 
         // Check if episode number exceeds available episodes (continuous numbering indicator)
         const totalEpisodes = orderedResults.reduce((sum, r) => sum + r.episodeCount, 0);
-        const needsConversion = !hasDirectEpisodeMatch && (episodeFromInfo > totalEpisodes || orderedResults.length > 1);
+        const needsConversion = !hasDirectEpisodeMatch && (episodeForKeys > totalEpisodes || orderedResults.length > 1);
 
         if (needsConversion) {
           // Try to find which season the continuous episode number falls into
@@ -1176,11 +1247,11 @@ export async function tryMapperFailover(
           for (const entry of orderedResults) {
             const start = cumulative + 1;
             const end = cumulative + entry.episodeCount;
-            
-            if (episodeFromInfo >= start && episodeFromInfo <= end) {
-              const seasonEpisode = episodeFromInfo - cumulative;
-              console.log('[Episode Detection] Converted continuous episode to season-based:', {
-                continuous: episodeFromInfo,
+
+            if (episodeForKeys >= start && episodeForKeys <= end) {
+              const seasonEpisode = episodeForKeys - cumulative;
+              log.log(' Converted continuous episode to season-based:', {
+                continuous: episodeForKeys,
                 seasonIdx: entry.idx,
                 seasonYear: entry.year,
                 seasonEpisode,
@@ -1188,13 +1259,13 @@ export async function tryMapperFailover(
                 seasonEpisodeCount: entry.episodeCount,
                 totalEpisodesInMapper: totalEpisodes,
               });
-              
+
               // Update desired keys to include the season-based episode number
               desiredKeys.clear();
               desiredKeys.add(String(seasonEpisode));
               desiredKeys.add(seasonEpisode);
               if (seasonEpisode < 10) desiredKeys.add(`0${seasonEpisode}`);
-              
+
               // Reorder to prioritize this season
               const newOrder = [entry.idx, ...order.filter(i => i !== entry.idx)];
               order.length = 0;
@@ -1205,16 +1276,16 @@ export async function tryMapperFailover(
           }
 
           // If episode number is beyond all known seasons, no match possible
-          if (episodeFromInfo > cumulative) {
-            console.log('[Episode Detection] Episode number exceeds all available seasons:', {
-              episodeFromInfo,
+          if (episodeForKeys > cumulative) {
+            log.log(' Episode number exceeds all available seasons:', {
+              episodeForKeys,
               totalEpisodesAcrossAllSeasons: cumulative,
               availableSeasons: orderedResults.length,
             });
           }
         }
       }
-      console.log('[Episode Detection] Final desired mapper keys after conversion:', Array.from(desiredKeys));
+      log.log(' Final desired mapper keys after conversion:', Array.from(desiredKeys));
 
       let mapperUrl: string | null = null;
       let movieFallbackUrl: string | null = null;
@@ -1262,13 +1333,13 @@ export async function tryMapperFailover(
         }
         const eps = res.episodes;
         if (eps && typeof eps === 'object' && Object.keys(eps).length > 0) {
-          console.log(`[Episode Detection] Checking mapper result idx=${idx}, available episodes:`, Object.keys(eps));
+          log.log(`Checking mapper result idx=${idx}, available episodes:`, Object.keys(eps));
           if (desiredKeys.size > 0) {
             for (const key of Object.keys(eps)) {
               const num = Number.parseInt(key, 10);
               if (desiredKeys.has(key) || desiredKeys.has(num)) {
-                console.log(`[Mapper Failover] Lightweight match via series lookup (idx=${idx}, key=${key})`);
-                console.log(`[Episode Detection] Matched episode key=${key} to URL:`, eps[key]);
+                log.log(`Lightweight match via series lookup (idx=${idx}, key=${key})`);
+                log.log(`Matched episode key=${key} to URL:`, eps[key]);
                 keyedCandidates.push({
                   idx,
                   url: eps[key],
@@ -1282,7 +1353,7 @@ export async function tryMapperFailover(
           if (!mapperUrl && !(isDisqus && desiredKeys.size > 0)) {
             const firstKey = Object.keys(eps)[0];
             if (firstKey && eps[firstKey]) {
-              console.log(`[Mapper Failover] Lightweight match via first episode (idx=${idx}, key=${firstKey})`);
+              log.log(`Lightweight match via first episode (idx=${idx}, key=${firstKey})`);
               mapperUrl = eps[firstKey];
             }
           }
@@ -1298,7 +1369,7 @@ export async function tryMapperFailover(
           if (ya !== yb) return yb - ya; // prefer newest year
           return a.idx - b.idx; // otherwise prefer lower idx (mapper preference)
         });
-        console.log('[Mapper Failover] Ranked lightweight keyed candidates:', keyedCandidates.slice(0, 3));
+        log.log(' Ranked lightweight keyed candidates:', keyedCandidates.slice(0, 3));
         mapperUrl = keyedCandidates[0].url;
         pickedNonCrIdx = keyedCandidates[0].idx;
       }
@@ -1318,8 +1389,8 @@ export async function tryMapperFailover(
         }
       };
 
-      if (platform === 'reddit' && mapperUrl && episodeFromInfo !== null) {
-        const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeFromInfo, animeInfo?.animeName);
+      if (platform === 'reddit' && mapperUrl && episodeForKeys !== null) {
+        const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeForKeys, animeInfo?.animeName);
         if (corrected && corrected !== mapperUrl) {
           recordNonCrResolved();
           return corrected;
@@ -1331,24 +1402,24 @@ export async function tryMapperFailover(
         return mapperUrl;
       }
 
-      console.log('[Mapper Failover] Lightweight mapper lookup found no episode match');
+      log.log(' Lightweight mapper lookup found no episode match');
       return null;
     }
-    console.log('[Mapper Failover] Extracted episode ID:', episodeId);
+    log.log(' Extracted episode ID:', episodeId);
 
-    console.log('[Mapper Failover] Fetching Crunchyroll episode metadata...');
+    log.log(' Fetching Crunchyroll episode metadata...');
     const crMetadataResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
     if (!crMetadataResult.ok || !(crMetadataResult.data as any).data || !(crMetadataResult.data as any).data[0]) {
-      console.log('[Mapper Failover] Could not fetch Crunchyroll episode metadata. Response:', crMetadataResult);
+      log.log(' Could not fetch Crunchyroll episode metadata. Response:', crMetadataResult);
       return null;
     }
-    console.log('[Mapper Failover] Successfully fetched Crunchyroll metadata');
+    log.log(' Successfully fetched Crunchyroll metadata');
 
     const episodeData = (crMetadataResult.data as any).data[0];
     const episodeMetadata = (episodeData as any).episode_metadata;
 
     if (!episodeMetadata) {
-      console.log('No episode_metadata in Crunchyroll response');
+      log.log('No episode_metadata in Crunchyroll response');
       return null;
     }
 
@@ -1372,15 +1443,15 @@ export async function tryMapperFailover(
 
     // Allow episode_number = 0 (specials). Only fail when undefined/null.
     if (!seriesTitle || !seasonTitle || crEpisodeNumber === undefined || crEpisodeNumber === null) {
-      console.log('Missing required fields in Crunchyroll metadata:', { seriesTitle, seasonTitle, crEpisodeNumber });
+      log.log('Missing required fields in Crunchyroll metadata:', { seriesTitle, seasonTitle, crEpisodeNumber });
       return null;
     }
 
     if (!seriesId) {
-      console.log('[Mapper Failover] No series_id in metadata, cannot fetch seasons data');
+      log.log(' No series_id in metadata, cannot fetch seasons data');
     }
 
-    console.log('[Mapper Failover] Crunchyroll metadata:', {
+    log.log(' Crunchyroll metadata:', {
       seriesTitle,
       seasonTitle,
       seriesId,
@@ -1398,7 +1469,7 @@ export async function tryMapperFailover(
         const seasonsResponse = await fetchCrunchyrollSeasons(seriesId, accessToken.data);
         if (seasonsResponse.ok && (seasonsResponse.data as any).data && Array.isArray((seasonsResponse.data as any).data)) {
           seasonsData = (seasonsResponse.data as any).data;
-          console.log('[Mapper Failover] Fetched seasons data, found', seasonsData.length, 'seasons');
+          log.log(' Fetched seasons data, found', seasonsData.length, 'seasons');
         }
       }
     }
@@ -1415,28 +1486,39 @@ export async function tryMapperFailover(
 
     let mapperResult: any = null;
     if (platform === 'disqus') {
-      console.log('[Mapper Failover] Querying mapper service with series_name only (disqus)...');
+      log.log(' Querying mapper service with series_name only (disqus)...');
       mapperResult = await fetchAnimeMapperDataBySeriesName(seriesTitle, platform, {
         preserveSeasonSuffix: false,
         episodeDate: episodeDateForMapper,
       });
       if (mapperResult && Array.isArray((mapperResult as any).results) && (mapperResult as any).results.length > 0) {
-        console.log('[Mapper Failover] Using series-name-only results for disqus:', (mapperResult as any).results.length, 'results');
+        log.log(' Using series-name-only results for disqus:', (mapperResult as any).results.length, 'results');
       } else {
-        console.log('[Mapper Failover] No series-name-only results for disqus, trying with season_title...');
+        log.log(' No series-name-only results for disqus, trying with season_title...');
         mapperResult = null;
       }
     }
     if (!mapperResult) {
-      console.log('[Mapper Failover] Querying mapper service with series_name and season_title...');
+      log.log(' Querying mapper service with series_name and season_title...');
       mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform, {
         episodeDate: episodeDateForMapper,
       });
     }
-    console.log('[Mapper Failover] Mapper service response:', mapperResult);
+    log.log(' Mapper service response:', mapperResult);
     if (!mapperResult || !(mapperResult as any).results || !(mapperResult as any).results.length) {
-      console.log('[Mapper Failover] No results from mapper service. Full response:', mapperResult);
-      return null;
+      // If Hayami mapper returned nothing, try MAL-Sync title as a last resort
+      const crMalSyncPresence = await malSyncPromise;
+      if (crMalSyncPresence?.title && crMalSyncPresence.title.toLowerCase() !== seriesTitle.toLowerCase()) {
+        log.log(' No results from mapper; retrying with MAL-Sync title:', crMalSyncPresence.title);
+        mapperResult = await fetchAnimeMapperDataBySeriesName(crMalSyncPresence.title, platform, {
+          preserveSeasonSuffix: true,
+          episodeDate: episodeDateForMapper,
+        });
+      }
+      if (!mapperResult || !(mapperResult as any).results || !(mapperResult as any).results.length) {
+        log.log(' No results from mapper service. Full response:', mapperResult);
+        return null;
+      }
     }
 
     // Prefer provided matched_result, but re-score against season_title when possible.
@@ -1509,7 +1591,7 @@ export async function tryMapperFailover(
           (scoreGain > 0 && bestEpisodesCount >= matchedEpisodesCount));
 
       if (matchedAlignsAirYear && !bestAlignsAirYear && matchedCoversEpisode) {
-        console.log('[Mapper Failover] Keeping matched result aligned with air year despite higher season-title score:', {
+        log.log(' Keeping matched result aligned with air year despite higher season-title score:', {
           matchedIndex,
           matchedYear,
           bestYear,
@@ -1521,7 +1603,7 @@ export async function tryMapperFailover(
         });
       } else if (shouldOverride) {
         matchedIndex = bestSeason.idx;
-        console.log('[Mapper Failover] Overriding matched result with season-title similarity:', {
+        log.log(' Overriding matched result with season-title similarity:', {
           matchedIndex,
           score: bestSeason.score,
           scoreGain,
@@ -1532,7 +1614,7 @@ export async function tryMapperFailover(
           crEpisodeCeiling,
         });
       } else if (!allowOverrideByMatchConfidence && matchedCandidate) {
-        console.log('[Mapper Failover] Keeping mapper matched_result due confidence/coverage:', {
+        log.log(' Keeping mapper matched_result due confidence/coverage:', {
           matchedIndex,
           matchedAnime: matchedCandidate?.anime_name,
           matchedSeriesScore,
@@ -1586,7 +1668,7 @@ export async function tryMapperFailover(
         matchedIndex = best.idx;
       }
 
-      console.log('[Mapper Failover] No matched_result; selected best-effort index:', matchedIndex, {
+      log.log(' No matched_result; selected best-effort index:', matchedIndex, {
         selected: best,
         topCandidates: rankedBestEffort.slice(0, 3),
       });
@@ -1595,7 +1677,7 @@ export async function tryMapperFailover(
         const matchingCandidates = rankedBestEffort.filter((candidate) => candidate.seriesScore >= 2);
         if (matchingCandidates.length > 0) {
           matchedIndex = matchingCandidates[0].idx;
-          console.log('[Mapper Failover] Replacing weak best-effort candidate with stronger series-aligned candidate:', {
+          log.log(' Replacing weak best-effort candidate with stronger series-aligned candidate:', {
             previous: best.idx,
             next: matchedIndex,
             previousSeriesScore: best.seriesScore,
@@ -1604,7 +1686,7 @@ export async function tryMapperFailover(
         }
       }
     } else {
-      console.log('[Mapper Failover] Found matched result:', matchedResult);
+      log.log(' Found matched result:', matchedResult);
     }
 
     // If the mapper gave multiple exact matches (e.g., S2 vs S2 Part 2), prefer the one whose title "part" marker
@@ -1633,7 +1715,7 @@ export async function tryMapperFailover(
       if (crSeasonNum === 1 && !looksCollapsedCr) {
         if (exactMatches.length > 0 && typeof exactMatches[0].idx === 'number' && exactMatches[0].idx !== matchedIndex) {
           matchedIndex = exactMatches[0].idx;
-          console.log('[Mapper Failover] Season number=1; preferring earliest exact-match season', {
+          log.log(' Season number=1; preferring earliest exact-match season', {
             previous: matchedResult?.index,
             next: matchedIndex,
             chosenYear: exactMatches[0].year,
@@ -1653,7 +1735,7 @@ export async function tryMapperFailover(
         const yearAligned = exactAirYear ?? nearestPast;
         if (yearAligned && typeof yearAligned.idx === 'number' && yearAligned.idx !== matchedIndex) {
           matchedIndex = yearAligned.idx;
-          console.log('[Mapper Failover] Aligning exact-match season to Crunchyroll air year', {
+          log.log(' Aligning exact-match season to Crunchyroll air year', {
             previous: matchedResult?.index,
             next: matchedIndex,
             airYear: normalizedAirYear,
@@ -1670,7 +1752,7 @@ export async function tryMapperFailover(
           const alt = alternatives[0];
           if (typeof alt.index === 'number' && alt.index !== matchedIndex) {
             matchedIndex = alt.index;
-            console.log('[Mapper Failover] Swapping to non-Part-2 exact match to align with CR season title', {
+            log.log(' Swapping to non-Part-2 exact match to align with CR season title', {
               previous: matchedResult?.index,
               next: matchedIndex,
               crHasPart2,
@@ -1695,7 +1777,7 @@ export async function tryMapperFailover(
         const preAligned = !!(preNorm && normSeries && (preNorm.includes(normSeries) || normSeries.includes(preNorm)));
         const postAligned = !!(postNorm && normSeries && (postNorm.includes(normSeries) || normSeries.includes(postNorm)));
         if (preAligned && !postAligned) {
-          console.log('[Mapper Failover] Reverting refinement: lost series alignment', {
+          log.log(' Reverting refinement: lost series alignment', {
             from: matchedIndex,
             to: preRefinementIndex,
             preAnime: results[preRefinementIndex]?.anime_name,
@@ -1715,7 +1797,7 @@ export async function tryMapperFailover(
         typeof (initialMatchedResult as any).episodes !== 'object' ||
         Object.keys((initialMatchedResult as any).episodes).length === 0)
     ) {
-      console.log('[Mapper Failover] Matched result is a movie or has no episodes, looking for TV series alternative...');
+      log.log(' Matched result is a movie or has no episodes, looking for TV series alternative...');
 
       const matchedResultsMeta = (mapperResult as any).matched_results;
       if (matchedResultsMeta && Array.isArray(matchedResultsMeta)) {
@@ -1729,7 +1811,7 @@ export async function tryMapperFailover(
               Object.keys(altResult.episodes).length > 0 &&
               altResult.year !== 'movies'
             ) {
-              console.log('[Mapper Failover] Found TV series alternative from matched_results:', altMatch.anime_name, altMatch.year);
+              log.log(' Found TV series alternative from matched_results:', altMatch.anime_name, altMatch.year);
               matchedIndex = altMatch.index;
               break;
             }
@@ -1752,7 +1834,7 @@ export async function tryMapperFailover(
             Object.keys(result.episodes).length > 0 &&
             result.year !== 'movies'
           ) {
-            console.log('[Mapper Failover] Found TV series in all results:', result.anime_name, result.year);
+            log.log(' Found TV series in all results:', result.anime_name, result.year);
             matchedIndex = i;
             break;
           }
@@ -1761,7 +1843,7 @@ export async function tryMapperFailover(
     }
 
     if (matchedIndex === undefined || !(mapperResult as any).results || !(mapperResult as any).results[matchedIndex]) {
-      console.log('Invalid matched_result index');
+      log.log('Invalid matched_result index');
       return null;
     }
 
@@ -1818,7 +1900,7 @@ export async function tryMapperFailover(
         clampSeasonEpisode = null;
       }
 
-      console.log('[Mapper Failover] Clamping exact-match episode against CR numbering', {
+      log.log(' Clamping exact-match episode against CR numbering', {
         crEpisodeNumber,
         sequenceNumber,
         seasonNumForClamp,
@@ -1836,13 +1918,13 @@ export async function tryMapperFailover(
     if (matchedSeason.year === 'movies' && Array.isArray(matchedSeason.movies) && matchedSeason.movies.length > 0) {
       // For movies, return the first (typically only) movie URL
       const movieUrl = matchedSeason.movies[0];
-      console.log(`Found ${platform} thread via failover (movie):`, movieUrl);
+      log.log(`Found ${platform} thread via failover (movie):`, movieUrl);
       recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
       return movieUrl;
     }
     
     if (!matchedSeason.episodes || typeof matchedSeason.episodes !== 'object') {
-      console.log('Matched season has no episodes');
+      log.log('Matched season has no episodes');
       return null;
     }
 
@@ -1850,7 +1932,7 @@ export async function tryMapperFailover(
     let seasonEpisode: number | null = hasManualEpisodeOverride ? Number(overrideEpisode) : null;
 
     if (hasManualEpisodeOverride) {
-      console.log('[Mapper Failover] Using manual episode override as authoritative mapper key', {
+      log.log(' Using manual episode override as authoritative mapper key', {
         overrideEpisode: seasonEpisode,
       });
     } else if (seasonsData.length > 0) {
@@ -1908,7 +1990,7 @@ export async function tryMapperFailover(
           crSeasonEpisodes >= matchedSeasonEpisodeCount * 2
         ) {
           forcedSeasonEpisode = ((crEpisodeNumber - 1) % matchedSeasonEpisodeCount) + 1;
-          console.log('[Mapper Failover] Folding CR episode into matched cour length', {
+          log.log(' Folding CR episode into matched cour length', {
             crEpisodeNumber,
             matchedSeasonEpisodeCount,
             crSeasonEpisodes,
@@ -1935,7 +2017,7 @@ export async function tryMapperFailover(
         matchedIndex = sliceMatch.idx;
         matchedSeason = (mapperResult as any).results[matchedIndex];
         forcedSeasonEpisode = sliceMatch.episode;
-        console.log('[Mapper Failover] Using slice-derived season/episode mapping:', {
+        log.log(' Using slice-derived season/episode mapping:', {
           matchedIndex,
           forcedSeasonEpisode,
           lockMatchedSeason,
@@ -1944,11 +2026,11 @@ export async function tryMapperFailover(
         });
 
         if (!matchedSeason || !matchedSeason.episodes || typeof matchedSeason.episodes !== 'object') {
-          console.log('[Mapper Failover] Slice-derived matched season has no episodes');
+          log.log(' Slice-derived matched season has no episodes');
           return null;
         }
       } else if (sliceMatch && lockMatchedSeason && sliceMatch.idx !== matchedIndex) {
-        console.log('[Mapper Failover] Ignoring slice-derived override due to confident title/year match', {
+        log.log(' Ignoring slice-derived override due to confident title/year match', {
           sliceIdx: sliceMatch.idx,
           matchedIndex,
           matchedSeasonScore,
@@ -1960,7 +2042,7 @@ export async function tryMapperFailover(
       const overranCrSeason = currentCrSeasonEpisodes > 0 && (crEpisodeNumber ?? 0) > currentCrSeasonEpisodes;
       const overranMatchedSeason = crEpisodeNumber > Object.keys(matchedSeason?.episodes || {}).length;
       if (forcedSeasonEpisode !== null && seasonEpisode !== null && (overranCrSeason || overranMatchedSeason)) {
-        console.log('[Mapper Failover] Preferring slice-derived episode due to CR overrun', {
+        log.log(' Preferring slice-derived episode due to CR overrun', {
           seasonEpisode,
           forcedSeasonEpisode,
           crEpisodeNumber,
@@ -2009,7 +2091,7 @@ export async function tryMapperFailover(
       for (const candidate of directEpisodeCandidates) {
         if (Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(candidate))) {
           seasonEpisode = candidate;
-          console.log('[Mapper Failover] Recovered season episode via direct candidate key', {
+          log.log(' Recovered season episode via direct candidate key', {
             seasonEpisode,
             candidate,
             parsedEpisodeFromInfo,
@@ -2022,7 +2104,7 @@ export async function tryMapperFailover(
     }
 
     if (!seasonEpisode && seasonEpisode !== 0) {
-      console.log('Could not map episode number to season episode');
+      log.log('Could not map episode number to season episode');
       return null;
     }
 
@@ -2099,7 +2181,7 @@ export async function tryMapperFailover(
           mappedUrl = candidateEpisodes[k as any];
           seasonEpisode = typeof k === 'number' ? k : parseInt(String(k), 10);
           if (candidate !== matchedSeason) {
-            console.log('[Mapper Failover] Resolved episode via duplicate-record fallback', {
+            log.log(' Resolved episode via duplicate-record fallback', {
               requestedEpisode: seasonEpisode,
               matchedName: matchedSeason?.anime_name,
               fallbackName: candidate?.anime_name,
@@ -2127,7 +2209,7 @@ export async function tryMapperFailover(
           if (Number.isFinite(num) && desiredSet.has(num)) {
             mappedUrl = candidateEpisodes[key];
             seasonEpisode = num;
-            console.log('[Mapper Failover] Numeric key match despite formatting:', { key, seasonEpisode });
+            log.log(' Numeric key match despite formatting:', { key, seasonEpisode });
             break;
           }
         }
@@ -2136,16 +2218,16 @@ export async function tryMapperFailover(
     }
 
     if (!mappedUrl) {
-      console.log(`No ${platform} URL found for episode ${seasonEpisode} (tried keys: ${keyCandidates.join(', ')}) in matched season`);
-      console.log('Available episode keys:', Object.keys(matchedSeason.episodes));
+      log.log(`No ${platform} URL found for episode ${seasonEpisode} (tried keys: ${keyCandidates.join(', ')}) in matched season`);
+      log.log('Available episode keys:', Object.keys(matchedSeason.episodes));
       return null;
     }
 
-    console.log(`Found ${platform} thread via failover:`, mappedUrl);
+    log.log(`Found ${platform} thread via failover:`, mappedUrl);
     recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
     return mappedUrl;
   } catch (error) {
-    console.error('Error in mapper failover:', error);
+    log.error('Error in mapper failover:', error);
     return null;
   }
 }

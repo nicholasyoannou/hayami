@@ -3,6 +3,9 @@
  * when the main markdown parser doesn't produce expected output
  */
 
+import { con } from '@/utils/logger';
+const log = con.m('Markdown');
+
 /**
  * Fallback: if raw body contains bullet markers but markdown pipeline
  * fails to emit a list, rebuild as list.
@@ -71,7 +74,7 @@ export function applyRawBulletListFallback(
     const headingHtml = heading ? '<p>' + safe(heading) + '</p>' : '';
     host.innerHTML = headingHtml + listHtml;
 
-    if (debug) console.debug('[markdown-fallback] applied raw-body bullet fallback');
+    if (debug) log.debug('applied raw-body bullet fallback');
   }
 }
 
@@ -147,7 +150,7 @@ export function applyDomParagraphListFallback(
       const lead = paras[leadIdx];
       lead.parentElement?.insertBefore(ul, lead.nextSibling);
 
-      if (debug) console.debug('[markdown-fallback] applied DOM paragraph->list fallback');
+      if (debug) log.debug('applied DOM paragraph->list fallback');
     }
   } catch {
     // ignore errors

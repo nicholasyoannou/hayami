@@ -3,6 +3,10 @@
  * service worker to avoid CORS restrictions in content scripts.
  */
 
+import { con } from '@/utils/logger';
+
+const log = con.m('AniListTransport');
+
 export const ANILIST_API_URL = 'https://graphql.anilist.co';
 
 export interface AniListFetchResponse {
@@ -27,7 +31,7 @@ async function sendAnilistMessage(payload: any): Promise<any> {
       try {
         return await browser.runtime.sendMessage(payload);
       } catch (err) {
-        console.warn('[anilistTransport] sendMessage threw:', err);
+        log.warn('sendMessage threw:', err);
         return { __error: true };
       }
     })();

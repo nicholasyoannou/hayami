@@ -7,6 +7,9 @@
  */
 import { browser } from 'wxt/browser';
 import { ANILIST_CLIENT_ID } from '@/config';
+import { con } from '@/utils/logger';
+
+const log = con.m('AniListAuth');
 
 const ANILIST_AUTH_ENDPOINT = 'https://anilist.co/api/v2/oauth/authorize';
 
@@ -87,7 +90,7 @@ export async function authenticateWithAniList(options: AniListAuthOptions = {}):
       message: 'AniList login opened in a new tab. Complete it to finish connecting.',
     };
   } catch (err) {
-    console.error('[AniList] Failed to launch auth flow', err);
+    log.error('Failed to launch auth flow', err);
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Could not start AniList auth flow.',

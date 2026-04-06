@@ -1,4 +1,6 @@
-import { logger } from '../utils/logger';
+import { con } from '@/utils/logger';
+
+const logger = con.m('Crunchyroll');
 import { Result, ok, err } from './result';
 
 /**

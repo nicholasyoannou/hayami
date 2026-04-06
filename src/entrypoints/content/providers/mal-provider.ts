@@ -20,6 +20,8 @@ import { getSeriesMapping } from '../storage/series-mapping';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { safeClear } from '../utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
+import { con } from '@/utils/logger';
+const log = con.m('MALProvider');
 
 export class MalProvider extends BaseProvider {
   readonly name: CommentProvider = 'mal';
@@ -38,29 +40,29 @@ export class MalProvider extends BaseProvider {
 
     let malId = animeInfo.malId;
     if (!malId) {
-      console.log('[MAL] Resolving malId via AniList');
+      log.log('Resolving malId via AniList');
       const ids = await getCachedAnimeIds(animeInfo.animeName);
       malId = normalizeMalId(ids?.malId);
       if (malId) {
         animeInfo.malId = malId;
-        console.log('[MAL] Resolved malId from AniList:', malId);
+        log.log('Resolved malId from AniList:', malId);
       }
 
       // Final fallback: direct MAL search by name
       if (!malId) {
-        console.warn('[MAL] No malId from mapper/AniList; attempting MAL name search');
+        log.warn('No malId from mapper/AniList; attempting MAL name search');
         malId = await searchMalAnimeId(animeInfo.animeName);
         if (malId) {
           animeInfo.malId = malId;
-          console.log('[MAL] Resolved malId via MAL search:', malId);
+          log.log('Resolved malId via MAL search:', malId);
         } else {
-          console.warn('[MAL] MAL search by name returned no ID');
+          log.warn('MAL search by name returned no ID');
         }
       }
     }
 
     if (!malId) {
-      console.warn('[MAL] Still no malId after search; cannot fetch forum topics');
+      log.warn('Still no malId after search; cannot fetch forum topics');
       toast.error('MAL ID missing', { description: 'Unable to fetch MAL forums for this episode.' });
       clearLoadingState('MAL missing malId');
       return;
@@ -74,7 +76,7 @@ export class MalProvider extends BaseProvider {
       const desiredWithOffset = parsedEpisodeNum !== null ? parsedEpisodeNum + (mapping?.episodeOffset ?? 0) : null;
       const chosenEpisodeNum = desiredWithOffset ?? parsedEpisodeNum;
 
-      console.log('[MAL] Episode resolution (offset + MAL title match)', {
+      log.log('Episode resolution (offset + MAL title match)', {
         anime: animeInfo.animeName,
         rawEpisodeName: animeInfo.episodeName,
         parsedEpisode: parsedEpisodeNum,
@@ -98,7 +100,7 @@ export class MalProvider extends BaseProvider {
         if (pick) {
           forumResult.selectedTopic = pick;
           forumResult.status = 'ok';
-          console.log('[MAL] Picker chose topic', { title: pick.title, id: pick.id });
+          log.log('Picker chose topic', { title: pick.title, id: pick.id });
         } else if (!forumResult.status || forumResult.status === 'ok') {
           forumResult.status = 'no_topic';
         }

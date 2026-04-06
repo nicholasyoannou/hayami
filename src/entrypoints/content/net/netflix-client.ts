@@ -1,4 +1,4 @@
-import { debug } from '@/utils/debug';
+import { con } from '@/utils/logger';
 
 const ANIME_GENRE_IDS = [
   2797624,
@@ -69,7 +69,7 @@ export async function getNetflixContext(): Promise<NetflixContext | null> {
   const videoId = extractVideoIdFromLocation();
   if (!videoId) {
     cachedContext = null;
-    debug.warn('[Netflix] Unable to parse videoId from URL', window.location.href);
+    con.warn('[Netflix] Unable to parse videoId from URL', window.location.href);
     return null;
   }
 
@@ -95,14 +95,14 @@ export async function fetchNetflixMetadata(ctx: NetflixContext): Promise<any | n
       const url = `https://www.netflix.com/nq/website/memberapi/release/metadata?movieid=${ctx.videoId}`;
       const resp = await fetch(url, { credentials: 'include' });
       if (!resp.ok) {
-        debug.warn('[Netflix] metadata fetch failed', resp.status, resp.statusText);
+        con.warn('[Netflix] metadata fetch failed', resp.status, resp.statusText);
         return null;
       }
       const payload = await resp.json();
       cachedMetadata = { videoId: ctx.videoId, payload };
       return payload;
     } catch (err) {
-      debug.warn('[Netflix] metadata fetch error', err);
+      con.warn('[Netflix] metadata fetch error', err);
       return null;
     } finally {
       inFlightMetadata = null;
@@ -113,7 +113,7 @@ export async function fetchNetflixMetadata(ctx: NetflixContext): Promise<any | n
   try {
     return await request;
   } catch (err) {
-    debug.warn('[Netflix] metadata fetch error (outer)', err);
+    con.warn('[Netflix] metadata fetch error (outer)', err);
     return null;
   }
 }
@@ -240,7 +240,7 @@ async function inferIsAnime(video: any, titleId: string | null): Promise<boolean
       }
     }
   } catch (err) {
-    debug.warn('[Netflix] genre detection failed', err);
+    con.warn('[Netflix] genre detection failed', err);
   }
   return null;
 }
@@ -287,7 +287,7 @@ export async function getNetflixAnimeInfo(): Promise<{ animeName: string; episod
       releaseDate: undefined,
     };
   } catch (e) {
-    debug.warn('[Detect][Netflix] Anime info extraction failed', e);
+    con.warn('[Detect][Netflix] Anime info extraction failed', e);
     return null;
   }
 }

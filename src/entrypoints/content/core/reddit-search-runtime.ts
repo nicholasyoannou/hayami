@@ -1,4 +1,6 @@
 import { fetchHayami } from '@/utils/hayamiApi';
+import { con } from '@/utils/logger';
+const log = con.m('RedditSearch');
 
 export async function fetchAnimeMapperData(animeName: string): Promise<any | null> {
   try {
@@ -6,14 +8,14 @@ export async function fetchAnimeMapperData(animeName: string): Promise<any | nul
     const response = await fetchHayami(`https://api.hayami.moe/anime/${encodedName}`);
 
     if (!response.ok) {
-      console.log('Mapper service returned non-OK status:', response.status);
+      log.log('Mapper service returned non-OK status:', response.status);
       return null;
     }
 
     const data = await response.json();
     return data;
   } catch (error) {
-    console.log('Error fetching from mapper service:', error);
+    log.log('Error fetching from mapper service:', error);
     return null;
   }
 }

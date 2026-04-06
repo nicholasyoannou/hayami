@@ -6,6 +6,8 @@ import { getCachedAnimeIds, getLastAnimeIdResolverError } from '@/utils/animeIdR
 import { getSeriesMapping } from '../storage/series-mapping';
 import { safeClear } from '../utils/dom-helpers';
 import { getRuntimeUrl } from '@/utils/runtime';
+import { con } from '@/utils/logger';
+const log = con.m('AnimeCommunity');
 
 /**
  * The Anime Community embed provider
@@ -143,7 +145,7 @@ export class AnimeCommunityProvider extends BaseProvider {
 
       context.clearLoadingState('animecommunity');
     } catch (error) {
-      console.error('[AnimeCommunity] Failed to render embed', error);
+      log.error('Failed to render embed', error);
       const message = error instanceof Error ? error.message : String(error ?? '');
       const isAniListUnavailable = message.startsWith('ANILIST_UNAVAILABLE:');
 
@@ -212,7 +214,7 @@ export class AnimeCommunityProvider extends BaseProvider {
         if (e instanceof Error && e.message.startsWith('ANILIST_UNAVAILABLE:')) {
           throw e;
         }
-        console.warn('[AnimeCommunity] ID resolution failed', e);
+        log.warn('ID resolution failed', e);
       }
     }
 

@@ -13,6 +13,9 @@ import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
 import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem } from '@/config/storage';
+import { con } from '@/utils/logger';
+
+const log = con.m('InlineDiscussion');
 
 interface Discussion {
   id: string;
@@ -105,7 +108,7 @@ const loadDefaultSort = async () => {
     const stored = await redditDefaultSortItem.getValue();
     commentSort.value = normalizeCommentSort(stored);
   } catch (error) {
-    console.warn('Failed to load Reddit default sort', error);
+    log.warn('Failed to load Reddit default sort', error);
     commentSort.value = 'confidence';
   }
 };
@@ -368,7 +371,7 @@ async function loadCurrentUsername() {
 
     currentUsername.value = username || null;
   } catch (e) {
-    console.warn('Failed to load current username', e);
+    log.warn('Failed to load current username', e);
     redditAuthenticated.value = false;
     currentUsername.value = null;
   }
@@ -379,7 +382,7 @@ async function loadEditorMode() {
     const mode = await redditEditorModeItem.getValue();
     redditEditorMode.value = mode === 'markdown' ? 'markdown' : 'editor';
   } catch (error) {
-    console.warn('Failed to load Reddit editor mode', error);
+    log.warn('Failed to load Reddit editor mode', error);
   }
 }
 
@@ -388,7 +391,7 @@ async function loadFlairVisibility() {
     const value = await redditShowFlairsItem.getValue();
     redditShowFlairs.value = value !== false;
   } catch (error) {
-    console.warn('Failed to load Reddit flair visibility', error);
+    log.warn('Failed to load Reddit flair visibility', error);
     redditShowFlairs.value = true;
   }
 }
@@ -398,7 +401,7 @@ async function loadFlairPosition() {
     const value = await redditFlairPositionItem.getValue();
     redditFlairPosition.value = value === 'below' ? 'below' : 'inline';
   } catch (error) {
-    console.warn('Failed to load Reddit flair position', error);
+    log.warn('Failed to load Reddit flair position', error);
     redditFlairPosition.value = 'inline';
   }
 }
@@ -408,7 +411,7 @@ async function loadCommentLayout() {
     const value = await redditCommentLayoutItem.getValue();
     redditCommentLayout.value = value === 'traditional' ? 'traditional' : 'threaded';
   } catch (error) {
-    console.warn('Failed to load Reddit comment layout', error);
+    log.warn('Failed to load Reddit comment layout', error);
     redditCommentLayout.value = 'threaded';
   }
 }
@@ -451,14 +454,14 @@ const isReplyingToComment = computed(() => !!replyTarget.value);
 const postFullname = computed(() => {
   // Prefer fullname if provided, otherwise construct from id
   if (props.discussion.fullname) {
-    console.log('Using fullname from discussion:', props.discussion.fullname);
+    log.log('Using fullname from discussion:', props.discussion.fullname);
     return props.discussion.fullname;
   }
   const fallbackId = props.discussion.permalink?.match(/\/comments\/([a-z0-9]+)/i)?.[1] || '';
   const id = props.discussion.id || fallbackId;
   if (!id) return '';
   const constructed = id.startsWith('t3_') ? id : `t3_${id}`;
-  console.log('Constructed fullname from id:', constructed, 'original id:', id, 'fallback id:', fallbackId);
+  log.log('Constructed fullname from id:', constructed, 'original id:', id, 'fallback id:', fallbackId);
   return constructed;
 });
 
@@ -472,7 +475,7 @@ const discussionId = computed(() => {
 });
 
 watch(discussionId, (id) => {
-  console.log('[Inline] discussionId changed:', id, 'isLoading:', isLoading.value, 'provider:', currentProvider.value);
+  log.log('discussionId changed:', id, 'isLoading:', isLoading.value, 'provider:', currentProvider.value);
   if (id && currentProvider.value === 'reddit') {
     isLoading.value = false;
     discussionStore.clearLoading();
@@ -517,7 +520,7 @@ async function handleUpvote(e?: Event) {
   const prevScore = currentScore.value;
   const fullname = postFullname.value;
   
-  console.log('Upvoting post:', fullname, 'Current state:', prevState);
+  log.log('Upvoting post:', fullname, 'Current state:', prevState);
   
   let newDir: 1 | 0 | -1;
   if (prevState === 'upvoted') {
@@ -538,14 +541,14 @@ async function handleUpvote(e?: Event) {
   }
   
   try {
-    console.log('Calling voteThing with fullname:', fullname, 'direction:', newDir);
+    log.log('Calling voteThing with fullname:', fullname, 'direction:', newDir);
     const result = await voteThing(fullname, newDir, props.discussion.subreddit);
-    console.log('voteThing result:', result);
+    log.log('voteThing result:', result);
     if (!result.success) {
       // Revert on failure
       voteState.value = prevState;
       currentScore.value = prevScore;
-      console.error('Vote failed:', result.error);
+      log.error('Vote failed:', result.error);
       const voteError = String(result.error || '');
       if (/403|not authenticated|modhash|login required/i.test(voteError)) {
         toast.error("You're not logged in to Reddit. Please sign in to vote.");
@@ -553,13 +556,13 @@ async function handleUpvote(e?: Event) {
         toast.error('Failed to vote on this post.');
       }
     } else {
-      console.log('Upvote successful, direction:', newDir);
+      log.log('Upvote successful, direction:', newDir);
     }
   } catch (error) {
     // Revert on error
     voteState.value = prevState;
     currentScore.value = prevScore;
-    console.error('Vote error:', error);
+    log.error('Vote error:', error);
     toast.error('Failed to vote on this post.');
   }
 }
@@ -579,7 +582,7 @@ async function handleDownvote(e?: Event) {
   const prevScore = currentScore.value;
   const fullname = postFullname.value;
   
-  console.log('Downvoting post:', fullname, 'Current state:', prevState);
+  log.log('Downvoting post:', fullname, 'Current state:', prevState);
   
   let newDir: 1 | 0 | -1;
   if (prevState === 'downvoted') {
@@ -600,14 +603,14 @@ async function handleDownvote(e?: Event) {
   }
   
   try {
-    console.log('Calling voteThing with fullname:', fullname, 'direction:', newDir);
+    log.log('Calling voteThing with fullname:', fullname, 'direction:', newDir);
     const result = await voteThing(fullname, newDir, props.discussion.subreddit);
-    console.log('voteThing result:', result);
+    log.log('voteThing result:', result);
     if (!result.success) {
       // Revert on failure
       voteState.value = prevState;
       currentScore.value = prevScore;
-      console.error('Vote failed:', result.error);
+      log.error('Vote failed:', result.error);
       const voteError = String(result.error || '');
       if (/403|not authenticated|modhash|login required/i.test(voteError)) {
         toast.error("You're not logged in to Reddit. Please sign in to vote.");
@@ -615,13 +618,13 @@ async function handleDownvote(e?: Event) {
         toast.error('Failed to vote on this post.');
       }
     } else {
-      console.log('Downvote successful, direction:', newDir);
+      log.log('Downvote successful, direction:', newDir);
     }
   } catch (error) {
     // Revert on error
     voteState.value = prevState;
     currentScore.value = prevScore;
-    console.error('Vote error:', error);
+    log.error('Vote error:', error);
     toast.error('Failed to vote on this post.');
   }
 }
@@ -735,7 +738,7 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
       try {
         await browser.storage.local.set({ reddit_username: username });
       } catch (e) {
-        console.warn('Failed to persist reddit username', e);
+        log.warn('Failed to persist reddit username', e);
       }
     }
     const now = Math.floor(Date.now() / 1000);
@@ -776,7 +779,7 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
             }
           }
         } catch (e) {
-          console.warn('Refresh after comment post failed; keeping optimistic comment', e);
+          log.warn('Refresh after comment post failed; keeping optimistic comment', e);
         }
       }, refreshDelayMs);
     }
@@ -788,7 +791,7 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
     }
     toast.success('Comment posted');
   } catch (err: any) {
-    console.error('Failed to submit comment', err);
+    log.error('Failed to submit comment', err);
     toast.error(err?.message || 'Failed to post comment');
   } finally {
     isPostingTopComment.value = false;
@@ -813,7 +816,7 @@ function handlePlainSubmit(draftKey: string) {
 function handleCommentsLoaded(count: number) {
   showRedditAuthPrompt.value = false;
   totalComments.value = count;
-  console.log('Comments loaded:', count);
+  log.log('Comments loaded:', count);
   // Clear Reddit-only loading state once comments render
   isLoading.value = false;
   discussionStore.clearLoading();
@@ -939,7 +942,7 @@ watch(
 watch(
   () => props.discussion,
   (d) => {
-    console.log('[InlineDiscussion] discussion prop changed:', { id: d.id, fullname: d.fullname, title: d.title });
+    log.log('discussion prop changed:', { id: d.id, fullname: d.fullname, title: d.title });
   },
   { deep: true, immediate: true }
 );
@@ -950,7 +953,7 @@ watch(
   (ctx) => {
     const prov = currentProvider.value;
     if (ctx && prov && prov !== 'reddit') {
-      console.log('[InlineDiscussion] Triggering provider change for non-Reddit default:', prov);
+      log.log('Triggering provider change for non-Reddit default:', prov);
       providerHook.changeProvider(prov);
     }
   },
@@ -971,7 +974,7 @@ watch(
   () => props.redditCommentsKey,
   (v) => {
     if (typeof v === 'number') {
-      console.log('[InlineDiscussion] redditCommentsKey prop changed to:', v);
+      log.log('redditCommentsKey prop changed to:', v);
       redditCommentsKey.value = v;
     }
   },
@@ -996,7 +999,7 @@ watch(
 );
 
 async function handleProviderChange(provider: Provider) {
-  console.log('InlineDiscussion received providerChange:', provider, 'current:', currentProvider.value);
+  log.log('received providerChange:', provider, 'current:', currentProvider.value);
   if (currentProvider.value === provider) return;
 
   clearNonRedditLoadingFailsafe();
@@ -1052,7 +1055,7 @@ async function handleProviderChange(provider: Provider) {
     nonRedditLoadingFailsafe = setTimeout(() => {
       if (currentProvider.value !== provider) return;
       if (!isLoading.value) return;
-      console.warn('[InlineDiscussion] Non-Reddit loading fallback triggered for provider:', provider);
+      log.warn('Non-Reddit loading fallback triggered for provider:', provider);
       isLoading.value = false;
       discussionStore.clearLoading();
     }, failsafeDelayMs);
@@ -1067,15 +1070,15 @@ async function handleProviderChange(provider: Provider) {
 
 // Expose clearLoading method with logging
 const clearLoading = () => {
-  console.log('=== [ClearLoading] START ===');
-  console.log(`clearLoading() called in InlineDiscussion component`);
-  console.log(`Current isLoading value BEFORE:`, isLoading.value);
-  console.log('Current provider:', currentProvider.value);
-  console.log('Skeleton element exists?', document.querySelector('.ri-loading-skeletons') !== null);
+  log.log('=== ClearLoading START ===');
+  log.log('clearLoading() called in InlineDiscussion component');
+  log.log('Current isLoading value BEFORE:', isLoading.value);
+  log.log('Current provider:', currentProvider.value);
+  log.log('Skeleton element exists?', document.querySelector('.ri-loading-skeletons') !== null);
   isLoading.value = false;
   discussionStore.clearLoading();
-  console.log(`isLoading AFTER setting to false:`, isLoading.value);
-  console.log('=== [ClearLoading] END ===');
+  log.log('isLoading AFTER setting to false:', isLoading.value);
+  log.log('=== ClearLoading END ===');
 };
 
 // Get the external comments container element
@@ -1627,7 +1630,7 @@ defineExpose({
           <div class="flex items-center justify-end gap-2">
             <button
               v-if="manualMappingExists"
-              class="mr-auto px-3 py-2 bg-[#4d2f2f] hover:bg-[#643535] text-[#ffd6d6] rounded-lg text-sm"
+              class="mr-auto px-3 py-2 bg-red-700 hover:bg-red-600 text-white rounded-lg text-sm"
               @click="resetCurrentMapping"
               :disabled="manualResetInProgress"
             >
@@ -2019,7 +2022,7 @@ defineExpose({
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #2a2a2a;
+  background: var(--ri-surface-1, #2a2a2a);
   animation: ri-skeleton-shimmer 1.2s ease-in-out infinite;
 }
 
@@ -2032,7 +2035,7 @@ defineExpose({
 
 .ri-skel .sk-line {
   height: 10px;
-  background: linear-gradient(90deg, #1a1a1a, #2a2a2a, #1a1a1a);
+  background: linear-gradient(90deg, var(--ri-surface-1, #1a1a1a), var(--ri-surface-2, #2a2a2a), var(--ri-surface-1, #1a1a1a));
   background-size: 200% 100%;
   animation: ri-skeleton-shimmer 1.2s ease-in-out infinite;
   border-radius: 6px;

@@ -7,6 +7,9 @@
  */
 
 import { anilistProxyFetch } from './anilistTransport';
+import { con } from '@/utils/logger';
+
+const log = con.m('AnimeResolver');
 
 export interface AnimeIdResult {
   malId?: number | null;
@@ -97,7 +100,7 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
         status: response.status,
         message,
       };
-      console.warn('[AnimeIdResolver] AniList search failed:', {
+      log.warn('AniList search failed:', {
         status: response.status,
         message,
       });
@@ -121,7 +124,7 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
         airingDate.getMonth() === today.getMonth() &&
         airingDate.getDate() === today.getDate();
       
-      console.log('[AnimeIdResolver] Next airing episode check:', {
+      log.log('Next airing episode check:', {
         anime: media.title?.romaji,
         airingDate: airingDate.toISOString(),
         isToday: isAiringToday,
@@ -137,7 +140,7 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
       isAiringToday,
     };
   } catch (err) {
-    console.error('[AnimeIdResolver] AniList search error:', err);
+    log.error('AniList search error:', err);
     lastAnimeIdResolverError = {
       status: 0,
       message: err instanceof Error ? err.message : String(err),
@@ -152,15 +155,15 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
  * @returns AniList ID and MAL ID (if available) with metadata
  */
 export async function resolveAnimeIds(animeName: string): Promise<AnimeIdResult | null> {
-  console.log('[AnimeIdResolver] Resolving IDs for:', animeName);
+  log.log('Resolving IDs for:', animeName);
 
   const anilistResult = await searchAniListAnime(animeName);
   if (anilistResult?.anilistId || anilistResult?.malId) {
-    console.log('[AnimeIdResolver] Found IDs:', anilistResult);
+    log.log('Found IDs:', anilistResult);
     return anilistResult;
   }
 
-  console.warn('[AnimeIdResolver] Could not resolve IDs for:', animeName);
+  log.warn('Could not resolve IDs for:', animeName);
   return null;
 }
 

@@ -11,6 +11,8 @@ import {
   setLastProcessedKey,
   setActiveObserver,
 } from '../state';
+import { con } from '@/utils/logger';
+const log = con.m('AnimeExtractor');
 
 type Detector = {
   id: string;
@@ -27,7 +29,7 @@ async function runDetectionPlan(detectors: Detector[]): Promise<AnimeInfo | null
       const detected = await detector.detect();
       if (detected) return detected;
     } catch (err) {
-      console.warn(`[Detect][${detector.id}] failed`, err);
+      log.warn(`${detector.id} failed`, err);
     }
   }
   return null;
@@ -101,7 +103,7 @@ export function observeAnimeInfoOnce(
     if (resolved) return;
 
     if (info) {
-      console.log('Anime Info Found:', info);
+      log.log('Anime Info Found:', info);
       setLastAnimeInfo(info);
       const key = `${info.animeName}|${info.episodeName}`;
       if (key !== state.lastProcessedKey) {
@@ -110,7 +112,7 @@ export function observeAnimeInfoOnce(
         // Execute the provided callback
         await onInfoFound(info);
       } else {
-        console.log('Observer: already processed, skipping');
+        log.log('Observer: already processed, skipping');
       }
 
       // Stop waiting once we've found the info.
@@ -160,7 +162,7 @@ export function observeAnimeInfoOnce(
   // Safety timeout to avoid keeping observers alive indefinitely on unsupported/failed pages.
   hardTimeoutId = window.setTimeout(() => {
     if (!resolved) {
-      console.warn('[Detect] Timed out waiting for anime info after 20s');
+      log.warn('Timed out waiting for anime info after 20s');
       stopWaiting();
     }
   }, 20_000);
@@ -173,6 +175,6 @@ export function observeAnimeInfoOnce(
 
   // Only log in development mode
   if (import.meta.env.DEV) {
-    console.log('Observer set up, waiting for anime info to load...');
+    log.log('Observer set up, waiting for anime info to load...');
   }
 }

@@ -7,6 +7,9 @@
 
 import { extensionFetch } from '@/utils/redditApi';
 import { getAccessToken, makeRedditRequest } from '@/utils/redditAuth';
+import { con } from '@/utils/logger';
+
+const log = con.m('MapperSelftext');
 
 const redditSelftextCache = new Map<string, any>();
 
@@ -80,7 +83,7 @@ export async function extractEpisodeTableFromRedditSelftext(
     const maxEpisode = tableMap.size > 0 ? Math.max(...tableMap.keys()) : null;
     return { tableMap, maxEpisode };
   } catch (error) {
-    console.log('[Mapper Selftext] Error while parsing selftext', error);
+    log.error('Error while parsing selftext', error);
     return null;
   }
 }
@@ -101,7 +104,7 @@ export async function maybeCorrectRedditEpisodeViaSelftext(
   if (tableMap.has(desired)) {
     const target = tableMap.get(desired)!;
     if (target && target !== mapperUrl) {
-      console.log('[Mapper Selftext] Corrected episode via selftext table', { from: mapperUrl, to: target, desired });
+      log.log('Corrected episode via selftext table', { from: mapperUrl, to: target, desired });
       return target;
     }
   }

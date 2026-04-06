@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { con } from '@/utils/logger';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
+
+const log = con.m('Editor');
 import StarterKit from '@tiptap/starter-kit';
 import CodeBlock from '@tiptap/extension-code-block';
 import BubbleMenu from '@tiptap/extension-bubble-menu';
@@ -257,7 +260,7 @@ function submit() {
   if (!editor.value) return;
   const md = htmlToMarkdown(editor.value.getHTML());
   if (!md) return;
-  console.log('Submitted Markdown:', md);
+  log.log('Submitted Markdown:', md);
 
   emit('submit', md);
   editor.value.commands.clearContent();
@@ -789,7 +792,7 @@ const isReady = computed(() => !!editor.value);
 .editor-area :deep(.tiptap .spoiler),
 .editor-area :deep(.ProseMirror .spoiler) {
   background-color: rgba(88, 166, 255, 0.18) !important;
-  color: #e6edf3 !important;
+  color: inherit !important;
   padding: 0 3px;
   border-radius: 3px;
   box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.55);

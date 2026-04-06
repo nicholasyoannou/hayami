@@ -6,6 +6,9 @@ import { escapeHtml } from '@/utils/html-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { imgurOdsItem, type ImgurOdsOption } from '@/config/storage';
 import ProviderAuthRequired from './ProviderAuthRequired.vue';
+import { con } from '@/utils/logger';
+
+const log = con.m('AniList');
 
 const props = defineProps<{
   result: AniListForumResult;
@@ -185,7 +188,7 @@ const formatTimestamp = (createdAt?: number): string => {
       minute: '2-digit',
     });
   } catch (err) {
-    console.warn('[AniList] timestamp format failed', err);
+    log.warn('timestamp format failed', err);
     return String(createdAt);
   }
 };
@@ -532,7 +535,7 @@ async function loadMoreComments() {
       observer = null;
     }
   } catch (e) {
-    console.warn('[AniList] load more comments failed', e);
+    log.warn('load more comments failed', e);
   } finally {
     loadingMore.value = false;
   }

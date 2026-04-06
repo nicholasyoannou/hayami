@@ -1,3 +1,7 @@
+import { con } from '@/utils/logger';
+
+const log = con.m('AnimeInfo');
+
 /**
  * Anime info extraction and caching
  */
@@ -21,7 +25,7 @@ export function useAnimeInfo() {
       const mediaInfoContainer = document.querySelector('.erc-current-media-info');
 
       if (!mediaInfoContainer) {
-        console.warn('Media info container not found');
+        log.warn('Media info container not found');
         return null;
       }
 
@@ -35,13 +39,13 @@ export function useAnimeInfo() {
       const releaseDate = releaseDateElement?.textContent?.trim() || undefined;
 
       if (!animeName || !episodeName) {
-        console.warn('Could not find anime name or episode name');
+        log.warn('Could not find anime name or episode name');
         return null;
       }
 
       return { animeName, episodeName, releaseDate };
     } catch (error) {
-      console.error('Error extracting anime info:', error);
+      log.error('Error extracting anime info:', error);
       return null;
     }
   }

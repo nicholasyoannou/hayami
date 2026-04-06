@@ -9,6 +9,9 @@
 
 import { REDDIT_CLIENT_ID, REDDIT_SCOPES, REDDIT_DURATION, REDDIT_REDIRECT_URI } from '@/config';
 import { redditClientIdItem } from '@/config/storage';
+import { con } from '@/utils/logger';
+
+const log = con.m('RedditAuth');
 
 const DEFAULT_CLIENT_ID = (REDDIT_CLIENT_ID || '').trim();
 const CLIENT_ID_REQUIRED_MESSAGE = 'Add your Reddit Client ID in Settings -> Discussion platforms -> Reddit before logging in.';
@@ -30,7 +33,7 @@ async function resolveClientId(): Promise<string | null> {
     const trimmed = (stored || '').trim();
     if (trimmed) return trimmed;
   } catch (err) {
-    console.warn('Failed to read stored Reddit client ID', err);
+    log.warn('Failed to read stored Reddit client ID', err);
   }
   const fallback = DEFAULT_CLIENT_ID;
   return fallback ? fallback : null;
@@ -122,7 +125,7 @@ export async function authenticateWithReddit(): Promise<RedditAuthResult> {
       error: undefined,
     };
   } catch (error) {
-    console.error('Reddit authentication error:', error);
+    log.error('Authentication error:', error);
     return {
       success: false,
       error: 'Authentication failed. Please try again.',
@@ -161,7 +164,7 @@ export async function exchangeCodeForToken(code: string): Promise<RedditAuthResu
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Token exchange failed:', response.status, errorText);
+      log.error('Token exchange failed:', response.status, errorText);
       return { 
         success: false, 
         error: `Failed to exchange authorization code (${response.status})` 
@@ -180,7 +183,7 @@ export async function exchangeCodeForToken(code: string): Promise<RedditAuthResu
 
     return { success: true };
   } catch (error) {
-    console.error('Token exchange error:', error);
+    log.error('Token exchange error:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Token exchange failed',
@@ -214,7 +217,7 @@ export async function completeRedditRedirectCallback(callbackUrl: string): Promi
     const username = await getRedditUsername();
     return { success: true, username: username || 'Unknown' };
   } catch (err) {
-    console.error('Reddit redirect completion error:', err);
+    log.error('Redirect completion error:', err);
     return { success: false, error: err instanceof Error ? err.message : 'Authentication failed' };
   }
 }
@@ -253,7 +256,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
   try {
     const config = await getRedditConfig();
     if (!config) {
-      console.error('Reddit client ID missing; cannot refresh token');
+      log.error('Reddit client ID missing; cannot refresh token');
       return null;
     }
 
@@ -276,7 +279,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
     });
 
     if (!response.ok) {
-      console.error('Token refresh failed:', response.status);
+      log.error('Token refresh failed:', response.status);
       return null;
     }
 
@@ -291,7 +294,7 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
 
     return data.access_token;
   } catch (error) {
-    console.error('Token refresh error:', error);
+    log.error('Token refresh error:', error);
     return null;
   }
 }
@@ -315,7 +318,7 @@ async function getRedditUsername(): Promise<string | null> {
     });
 
     if (!response.ok) {
-      console.error('Failed to fetch Reddit username:', response.status);
+      log.error('Failed to fetch Reddit username:', response.status);
       return null;
     }
 
@@ -338,7 +341,7 @@ async function getRedditUsername(): Promise<string | null> {
 
     return data.name;
   } catch (error) {
-    console.error('Error fetching Reddit username:', error);
+    log.error('Error fetching Reddit username:', error);
     return null;
   }
 }
@@ -415,7 +418,7 @@ export async function logout(): Promise<void> {
       'oauth_state',
     ]);
   } catch (error) {
-    console.error('Logout error:', error);
+    log.error('Logout error:', error);
   }
 }
 
@@ -426,7 +429,7 @@ async function revokeToken(token: string, tokenType: string): Promise<void> {
   try {
     const config = await getRedditConfig();
     if (!config) {
-      console.error('Reddit client ID missing; cannot revoke token');
+      log.error('Reddit client ID missing; cannot revoke token');
       return;
     }
 
@@ -446,7 +449,7 @@ async function revokeToken(token: string, tokenType: string): Promise<void> {
       body: formData.toString(),
     });
   } catch (error) {
-    console.error('Token revocation error:', error);
+    log.error('Token revocation error:', error);
   }
 }
 
@@ -460,7 +463,7 @@ export async function makeRedditRequest<T>(
   try {
     const accessToken = await getAccessToken();
     if (!accessToken) {
-      console.error('No access token available for Reddit API request');
+      log.error('No access token available for Reddit API request');
       return null;
     }
 
@@ -492,13 +495,13 @@ export async function makeRedditRequest<T>(
     }
 
     if (!response.ok) {
-      console.error(`Reddit API request failed: ${response.status} ${endpoint}`);
+      log.error(`Reddit API request failed: ${response.status} ${endpoint}`);
       return null;
     }
 
     return await response.json();
   } catch (error) {
-    console.error('Reddit API request error:', error);
+    log.error('Reddit API request error:', error);
     return null;
   }
 }

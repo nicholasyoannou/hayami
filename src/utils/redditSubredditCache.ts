@@ -1,8 +1,10 @@
 import { getAccessToken } from './redditAuth';
 import { extensionFetchTransport } from './redditTransport';
+import { con } from '@/utils/logger';
 
-const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
-const devDebug = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.debug(...args); };
+const log = con.m('SubredditCache');
+
+const devDebug = (...args: any[]) => { log.debug(...args); };
 
 const SUBREDDIT_ABOUT_CACHE_KEY = 'subreddit_about_cache_v1';
 const SUBREDDIT_ABOUT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // one week

@@ -6,8 +6,11 @@ type ProxyFetchResponse = {
   text: () => Promise<string>;
 };
 
-const REDDIT_VERBOSE_LOGS = import.meta.env.DEV || (typeof window !== 'undefined' && (window as any).RI_DEBUG === true);
-const devDebug = (...args: any[]) => { if (REDDIT_VERBOSE_LOGS) console.debug(...args); };
+import { con } from '@/utils/logger';
+
+const log = con.m('RedditTransport');
+
+const devDebug = (...args: any[]) => { log.debug(...args); };
 
 // Historical note: this module previously used the callback form
 // `browser.runtime.sendMessage(payload, cb)`. That form is a Chrome-only
@@ -73,7 +76,7 @@ export async function extensionFetchTransport(input: string, init?: RequestInit)
     }
 
     if (res && res.__messagingError) {
-      console.warn('[extensionFetch] proxy messaging failed on first attempt', { url: input, message: res.message || res });
+      log.warn('proxy messaging failed on first attempt', { url: input, message: res.message || res });
       const retry = await sendProxyMessage(payload);
 
       if (retry && typeof retry.ok !== 'undefined') {
@@ -87,7 +90,7 @@ export async function extensionFetchTransport(input: string, init?: RequestInit)
         };
       }
 
-      console.warn('[extensionFetch] proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)', { url: input });
+      log.warn('proxy messaging failed after retry; will fall back to direct fetch (this may trigger CORS errors)', { url: input });
     }
   } catch {
     // Fall through to direct fetch.

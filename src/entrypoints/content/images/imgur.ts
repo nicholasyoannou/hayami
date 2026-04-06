@@ -6,6 +6,8 @@
  */
 
 import { extensionFetch } from '@/utils/redditApi';
+import { con } from '@/utils/logger';
+const log = con.m('Imgur');
 import {
   imgurClientIdItem,
   imgurFrontendItem,
@@ -30,7 +32,7 @@ async function getImgurClientId(): Promise<string | null> {
     const raw = await imgurClientIdItem.getValue();
     return typeof raw === 'string' && raw.trim() ? raw.trim() : null;
   } catch (e) {
-    console.warn('[imgur] Failed to read Imgur Client ID', e);
+    log.warn('Failed to read Imgur Client ID', e);
     return null;
   }
 }
@@ -62,7 +64,7 @@ export async function initializeImgurRegionDefaultsOnce(): Promise<void> {
 
     await imgurRegionDefaultsInitializedItem.setValue(true);
   } catch (error) {
-    console.warn('[imgur] Failed to initialize region defaults', error);
+    log.warn('Failed to initialize region defaults', error);
   }
 }
 
@@ -225,14 +227,14 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
   const anchors = Array.from(host.querySelectorAll('a[href]')) as HTMLAnchorElement[];
   if (anchors.length === 0) return false;
 
-  console.debug('[imgur] maybeHandleImgurAlbums: checking', anchors.length, 'anchors');
+  log.debug('maybeHandleImgurAlbums: checking', anchors.length, 'anchors');
 
   for (const a of anchors) {
     const href = a.getAttribute('href') || '';
     const m = href.match(/^https?:\/\/(?:www\.)?imgur\.(?:com|io)\/a\/(\w+)/i);
     if (!m) continue;
     const albumId = m[1];
-    console.debug('[imgur] Found album:', albumId, 'in link:', href);
+    log.debug('Found album:', albumId, 'in link:', href);
 
     try {
       let images: string[] = [];
@@ -267,7 +269,7 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
         }
       }
 
-      console.debug('[imgur] Album', albumId, 'resolved to', images.length, 'images:', images);
+      log.debug('Album', albumId, 'resolved to', images.length, 'images:', images);
 
       if (images.length === 1) {
         const original = images[0];
@@ -281,14 +283,14 @@ export async function maybeHandleImgurAlbums(host: HTMLElement): Promise<boolean
         // Hover logic will proxy when loading
         try {
           a.setAttribute('data-ri-images', JSON.stringify(images));
-          console.debug('[imgur] Set data-ri-images on album link:', a.href, 'with', images.length, 'images');
+          log.debug('Set data-ri-images on album link:', a.href, 'with', images.length, 'images');
           changed = true;
         } catch {
           // ignore JSON errors
         }
       }
     } catch (e) {
-      console.warn('Imgur album proxy failed', e);
+      log.warn('Imgur album proxy failed', e);
     }
   }
 

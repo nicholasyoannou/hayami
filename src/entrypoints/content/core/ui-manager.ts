@@ -1,4 +1,7 @@
+import { con } from '@/utils/logger';
 import { createIntegratedUi } from 'wxt/utils/content-script-ui/integrated';
+
+const log = con.m('UiManager');
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 import { browser } from 'wxt/browser';
 import type { App as VueApp, Component } from 'vue';
@@ -91,7 +94,7 @@ class UiManager {
     this.unmount(options.mode);
     const contentContext = getContentScriptContext();
     if (!contentContext) {
-      console.warn('UiManager: content script context not available');
+      log.warn('Content script context not available');
       return;
     }
 
@@ -132,7 +135,7 @@ class UiManager {
             try {
               (app as VueApp).unmount();
             } catch (e) {
-              console.warn('UiManager: error unmounting inline app', e);
+              log.warn('Error unmounting inline app', e);
             }
           }
           setInlineDiscussionApp(null);
@@ -170,7 +173,7 @@ class UiManager {
       try {
         this.overlayUi.remove();
       } catch (err) {
-        console.warn('UiManager: failed to remove overlay UI', err);
+        log.warn('Failed to remove overlay UI', err);
       }
       this.overlayUi = null;
     }
@@ -197,7 +200,7 @@ class UiManager {
         try {
           mountedApp?.unmount();
         } catch (err) {
-          console.warn('UiManager: failed to unmount overlay app', err);
+          log.warn('Failed to unmount overlay app', err);
         }
         this.apps.delete('overlay');
       },
@@ -214,10 +217,10 @@ class UiManager {
   updateProps(mode: UiMode, newProps: Record<string, unknown>): void {
     const entry = this.apps.get(mode);
     if (!entry) {
-      console.warn('[UiManager] updateProps: no entry for mode', mode);
+      log.warn('updateProps: no entry for mode', mode);
       return;
     }
-    console.log(`[UiManager] updateProps (${mode}):`, newProps);
+    log.log(`updateProps (${mode}):`, newProps);
     Object.assign(entry.props, newProps);
   }
 
@@ -229,7 +232,7 @@ class UiManager {
     try {
       entry.app.unmount();
     } catch (e) {
-      console.warn('UiManager: error unmounting inline app', e);
+      log.warn('Error unmounting inline app', e);
     }
     const nextProps = reactive({ ...props });
     const app = createApp({
@@ -277,7 +280,7 @@ class UiManager {
         try {
           entry.app.unmount();
         } catch (err) {
-          console.warn('UiManager: failed to unmount current app', err);
+          log.warn('Failed to unmount current app', err);
         }
         this.apps.delete(targetMode);
       }
@@ -320,7 +323,7 @@ class UiManager {
         props: propsFactory({ close }),
       });
     } catch (error) {
-      console.error('UiManager: failed to mount UI', error);
+      log.error('Failed to mount UI', error);
     }
   }
 
@@ -554,7 +557,7 @@ class UiManager {
 
       await this.ensureMappedTrigger();
     } catch (err) {
-      console.warn('UiManager: failed to move inline to custom anchor', err);
+      log.warn('Failed to move inline to custom anchor', err);
     }
   }
 
@@ -632,7 +635,7 @@ class UiManager {
             const shell = this.popupShell || await this.ensurePopupShell();
             shell.setOpen(true);
           } catch (error) {
-            console.warn('UiManager: failed to open popup shell from mapped trigger', error);
+            log.warn('Failed to open popup shell from mapped trigger', error);
           }
           return;
         }

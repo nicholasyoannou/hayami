@@ -11,6 +11,8 @@ import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { aniwaveAutoExpandAllItem, aniwaveAutoExpandDepthItem, aniwaveHideReplyContextItem } from '@/config/storage';
 import { getSeriesMapping } from '../storage/series-mapping';
+import { con } from '@/utils/logger';
+const log = con.m('Aniwave');
 
 interface CommentNode {
   comment: AniwaveComment;
@@ -95,7 +97,7 @@ export class AniwaveProvider extends BaseProvider {
         episodeNumber = rawEpisodeNum + Number(mapping!.episodeOffset);
       }
     } catch (error) {
-      console.warn('[Aniwave] failed to read saved series mapping override', error);
+      log.warn('failed to read saved series mapping override', error);
     }
 
     container.classList.add('aniwave-thread-root');
@@ -142,7 +144,7 @@ export class AniwaveProvider extends BaseProvider {
 
       context.clearLoadingState('aniwave');
     } catch (error) {
-      console.error('[Aniwave] render failed', error);
+      log.error('render failed', error);
       context.toast.error('Failed to load Aniwave comments');
       container.innerHTML = this.renderError('Failed to load Aniwave comments. Please try again.');
     }
@@ -153,7 +155,7 @@ export class AniwaveProvider extends BaseProvider {
       const value = await aniwaveAutoExpandAllItem.getValue();
       return value === true; // default off to prevent aggressive auto-loading
     } catch (error) {
-      console.warn('[Aniwave] failed to read auto-expand preference, defaulting to disabled', error);
+      log.warn('failed to read auto-expand preference, defaulting to disabled', error);
       return false;
     }
   }
@@ -165,7 +167,7 @@ export class AniwaveProvider extends BaseProvider {
       if (!Number.isFinite(num) || num < 1) return 3;
       return num;
     } catch (error) {
-      console.warn('[Aniwave] failed to read auto-expand depth, defaulting to 3', error);
+      log.warn('failed to read auto-expand depth, defaulting to 3', error);
       return 3;
     }
   }
@@ -175,7 +177,7 @@ export class AniwaveProvider extends BaseProvider {
       const value = await aniwaveHideReplyContextItem.getValue();
       return Boolean(value);
     } catch (error) {
-      console.warn('[Aniwave] failed to read hide reply context preference, defaulting to disabled', error);
+      log.warn('failed to read hide reply context preference, defaulting to disabled', error);
       return false;
     }
   }
@@ -227,7 +229,7 @@ export class AniwaveProvider extends BaseProvider {
       } catch (err) {
         const message = String((err as any)?.message || err || '');
         const rateLimited = message.includes('429');
-        console.warn('[Aniwave] load more failed', err);
+        log.warn('load more failed', err);
 
         // On rate-limit, keep the load-more row available for manual retry without showing an error state.
         sentinel.dataset.loading = 'false';
@@ -373,7 +375,7 @@ export class AniwaveProvider extends BaseProvider {
         } catch (error) {
           const message = String((error as any)?.message || error || '');
           const rateLimited = message.includes('429');
-          console.warn('[Aniwave] load replies failed', error);
+          log.warn('load replies failed', error);
 
           btn.classList.toggle('is-error', !rateLimited);
           btn.disabled = false;
@@ -461,7 +463,7 @@ export class AniwaveProvider extends BaseProvider {
         if (fallback) return String(fallback);
       }
     } catch (error) {
-      console.warn('[Aniwave] docID lookup failed', error);
+      log.warn('docID lookup failed', error);
     }
     return null;
   }
@@ -651,7 +653,7 @@ export class AniwaveProvider extends BaseProvider {
       }
 
       if (fetchedPages >= maxPages && this.hasMore) {
-        console.warn('[Aniwave] auto-expand hit page limit; showing remaining comments button');
+        log.warn('auto-expand hit page limit; showing remaining comments button');
       }
 
       await this.autoExpandAllReplies(context);
@@ -659,7 +661,7 @@ export class AniwaveProvider extends BaseProvider {
       this.renderAndBind(container, context, total, { showLoadMore: this.hasMore });
       this.setLoadMoreLoading(container, false);
     } catch (error) {
-      console.warn('[Aniwave] auto-expand failed; falling back to manual load', error);
+      log.warn('auto-expand failed; falling back to manual load', error);
       this.autoExpandAllEnabled = false;
       context.toast.error('Unable to auto-expand all Aniwave comments');
       this.renderAndBind(container, context, total, { showLoadMore: this.hasMore });
@@ -792,7 +794,7 @@ export class AniwaveProvider extends BaseProvider {
       } catch (error) {
         const message = String((error as any)?.message || error || '');
         const rateLimited = message.includes('429');
-        console.warn('[Aniwave] auto-load first replies failed', error);
+        log.warn('auto-load first replies failed', error);
         if (rateLimited) {
           break; // avoid hammering when rate limited
         }

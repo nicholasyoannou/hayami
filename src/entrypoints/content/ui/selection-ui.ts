@@ -13,6 +13,8 @@ import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper/site-mapper-utils';
 import type { AnimeInfo } from '../types';
 import { RedditDiscussionInfoPanel, RedditManualSearchPanel, RedditNoDiscussionPanel, RedditSelectionPanel, type RedditPost } from '@/components/overlays';
+import { con } from '@/utils/logger';
+const log = con.m('SelectionUI');
 
 // Forward declarations - set by main module to avoid circular deps
 let displayDiscussionDependingOnModeFn: ((discussion: any) => Promise<void>) | null = null;
@@ -99,7 +101,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
         applySidePadding(anchor);
         anchor.appendChild(host);
       }
-    }).catch((e) => console.warn('Failed to move inline no-comments panel to custom anchor', e));
+    }).catch((e) => log.warn('Failed to move inline no-comments panel to custom anchor', e));
   }
 
   // Ensure top menu is enabled by clearing loading on the inline Vue app if present
@@ -110,7 +112,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
       exposed.clearLoading();
     }
   } catch (e) {
-    console.warn('[NoComments] Failed to clear loading on inline app', e);
+    log.warn('Failed to clear loading on inline app', e);
   }
 }
 
@@ -153,7 +155,7 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
       },
     }));
   }).catch((error) => {
-    console.warn('[ManualMapping] Failed to check existing reddit mapping', error);
+    log.warn('Failed to check existing reddit mapping', error);
     getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
       initialQuery,
       onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),

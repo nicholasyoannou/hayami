@@ -4,6 +4,9 @@
  */
 
 import { escapeHtml } from '@/utils/html-utils';
+import { con } from '@/utils/logger';
+
+const log = con.m('BBCode');
 
 /**
  * Decodes HTML entities in a string safely using DOMParser
@@ -16,7 +19,7 @@ function decodeEntities(str: string): string {
     textarea.innerHTML = str;
     return textarea.value;
   } catch (e) {
-    console.error('Error decoding entities:', e);
+    log.error('Error decoding entities:', e);
     return str;
   }
 }

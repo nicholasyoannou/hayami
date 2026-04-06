@@ -6,6 +6,9 @@ import MALPost from './MALPost.vue';
 import MALTopicList from './MALTopicList.vue';
 import { escapeHtml } from '@/utils/html-utils';
 import ProviderAuthRequired from './ProviderAuthRequired.vue';
+import { con } from '@/utils/logger';
+
+const log = con.m('MAL');
 
 const props = defineProps<{
   result: MalForumResult;
@@ -91,7 +94,7 @@ async function loadMorePosts() {
       posts.value = [...posts.value, ...more.posts];
     }
   } catch (e) {
-    console.warn('[MAL] load more posts error:', e);
+    log.warn('load more posts error:', e);
   } finally {
     loadingMore.value = false;
     

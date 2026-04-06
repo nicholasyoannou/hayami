@@ -4,6 +4,9 @@ import { getCommentReplies, type YouTubeComment as YouTubeCommentData } from '@/
 import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube-utils';
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl } from '@/utils/runtime';
+import { con } from '@/utils/logger';
+
+const log = con.m('YouTubeComment');
 
 const props = defineProps<{
   comment: YouTubeCommentData;
@@ -73,7 +76,7 @@ async function handleLoadMoreReplies() {
     const targetCount = props.comment.replyCount ?? localReplies.value.length;
     hasMoreReplies.value = targetCount > renderedReplyIds.value.size;
   } catch (err) {
-    console.error('Error loading more YouTube replies:', err);
+    log.error('Error loading more replies:', err);
     toast.error('Failed to load more replies');
   } finally {
     loadingMoreReplies.value = false;
