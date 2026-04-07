@@ -353,10 +353,10 @@ export function applyCommentFaces(html: string, faces: Map<string, CommentFace>)
         // the sprite at native size and CSS-transforms it down.
         const w = Math.round(face.width * scale);
         const h = Math.round(face.height * scale);
-        return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${w}px;height:${h}px;overflow:hidden;vertical-align:middle;" title=":${name}:" aria-label="${name} emote"><span class="ri-face-inner" style="display:block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};transform:scale(${scale.toFixed(4)});transform-origin:top left;"></span></span>`;
+        return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${w}px;height:${h}px;overflow:hidden;vertical-align:middle;" aria-label="${name} emote"><span class="ri-face-inner" style="display:block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};transform:scale(${scale.toFixed(4)});transform-origin:top left;"></span></span>`;
       }
 
-      return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};overflow:hidden;vertical-align:middle;" title=":${name}:" aria-label="${name} emote"></span>`;
+      return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};overflow:hidden;vertical-align:middle;" aria-label="${name} emote"></span>`;
     },
   );
 

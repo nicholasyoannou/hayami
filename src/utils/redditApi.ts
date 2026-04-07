@@ -965,6 +965,11 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1, subredd
 
 export async function saveThing(fullname: string, unsave = false): Promise<{ success: boolean; error?: string }> {
   try {
+    const { modhash } = await getModhash();
+    if (!modhash) {
+      return { success: false, error: 'Not logged in (no modhash)' };
+    }
+
     const endpoint = unsave ? 'unsave' : 'save';
     const form = new URLSearchParams();
     form.set('id', fullname);
@@ -973,6 +978,8 @@ export async function saveThing(fullname: string, unsave = false): Promise<{ suc
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'x-modhash': modhash,
+        'x-requested-with': 'XMLHttpRequest',
       },
       credentials: 'include',
       body: form.toString()
