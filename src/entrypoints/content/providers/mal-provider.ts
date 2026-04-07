@@ -5,7 +5,7 @@
 import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext, MalForumResult } from '../types/data';
 import type { AnimeInfo } from '../types';
-import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId, pickEpisodeTopic } from '@/utils/malForums';
+import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId, searchJikanAnimeId, pickEpisodeTopic } from '@/utils/malForums';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { createApp } from 'vue';
 import MALForumView from '@/components/providers/MALForumView.vue';
@@ -17,7 +17,6 @@ import {
   CONTAINER_RETRY_DELAY_MS 
 } from '../constants';
 import { getSeriesMapping } from '../storage/series-mapping';
-import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { safeClear } from '../utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
@@ -69,12 +68,11 @@ export class MalProvider extends BaseProvider {
     }
 
     if (!malId) {
-      log.log('MAL search failed, trying AniList fallback for:', resolveAnimeName);
-      const ids = await getCachedAnimeIds(resolveAnimeName);
-      malId = normalizeMalId(ids?.malId);
+      log.log('MAL search failed, trying Jikan fallback for:', resolveAnimeName);
+      malId = await searchJikanAnimeId(resolveAnimeName);
       if (malId) {
         animeInfo.malId = malId;
-        log.log('Resolved malId from AniList:', malId);
+        log.log('Resolved malId from Jikan:', malId);
       }
     }
 

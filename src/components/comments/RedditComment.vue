@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onUpdated, nextTick, watch } from 'vue';
-import { voteThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
+import { voteThing, saveThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
 import RedditUserHoverCard from './RedditUserHoverCard.vue';
 import { markdownToHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
+import { getCommentFaces, applyCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
 import { toast } from 'vue-sonner';
 import { con } from '@/utils/logger';
 
@@ -29,7 +30,7 @@ const props = defineProps<{
   showFlairs?: boolean;
   flairPosition?: 'inline' | 'below';
   isRedditConnected?: boolean;
-  layout?: 'threaded' | 'traditional' | 'compact';
+  layout?: 'threaded' | 'traditional' | 'compact' | 'classic';
   compactMode?: boolean;
   profileHoverCard?: boolean;
 
@@ -60,10 +61,14 @@ const localBody = ref(props.comment.body);
 const localEdited = ref(props.comment.edited);
 const shareLabel = ref('Share');
 const isShareCopied = ref(false);
+
+// Comment faces (subreddit CSS emotes like [](#hikariactually))
+const commentFaces = ref<CommentFaceMap>(new Map());
 const childrenHost = ref<HTMLElement | null>(null);
 const isSpineHover = ref(false);
 const showExpandAvatar = computed(() => depth.value === 0 && isCollapsed.value);
 const isDeleted = ref(false);
+const isSaved = ref(props.comment.saved ?? false);
 const showOwnMenu = ref(false);
 const showHoverCard = ref(false);
 const hoverCardPos = ref({ x: 0, y: 0 });
@@ -78,7 +83,8 @@ const currentUserLower = computed(() => props.currentUsername ? props.currentUse
 const showFlairs = computed(() => props.showFlairs !== false);
 const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
 const isFlairBelow = computed(() => flairPosition.value === 'below');
-const isTraditional = computed(() => props.layout === 'traditional' || props.layout === 'compact');
+const isClassic = computed(() => props.layout === 'classic');
+const isTraditional = computed(() => props.layout === 'traditional' || props.layout === 'compact' || props.layout === 'classic');
 const repliesExpanded = ref(true);
 const treeIsLastSibling = computed(() => props.treeIsLastSibling ?? true);
 const treeContinuationColumns = computed<boolean[]>(() => {
@@ -207,6 +213,14 @@ const flairHtml = computed(() => {
   return `<span class="ri-flair" style="background-color: ${escapeHtml(bgColor)};color:${textColor};">${inner}</span>`;
 });
 
+// Convert auto-linked Reddit image URLs into inline <img> tags
+function inlineRedditImageLinks(html: string): string {
+  return html.replace(
+    /<a\s+[^>]*href=["'](https?:\/\/(?:preview|i)\.redd\.it\/[^"']+)["'][^>]*>[^<]*<\/a>/gi,
+    (_match, url) => `<img src="${escapeHtml(url)}" loading="lazy" class="ri-reddit-media" />`,
+  );
+}
+
 // Render comment body as HTML
 const bodyHtml = computed(() => {
   if (isDeleted.value) {
@@ -216,11 +230,38 @@ const bodyHtml = computed(() => {
   if (!raw || raw === '[deleted]' || raw === '[removed]') {
     return `<em>${escapeHtml(raw || '[deleted]')}</em>`;
   }
-  return markdownToHtml(raw);
+  let html = markdownToHtml(raw);
+  // In compact mode, render Reddit image links as inline images
+  if (props.compactMode) {
+    html = inlineRedditImageLinks(html);
+  }
+  // Apply subreddit comment faces (emotes)
+  if (commentFaces.value.size > 0) {
+    html = applyCommentFaces(html, commentFaces.value);
+  }
+  return html;
 });
 
 // Ref for the comment text container to attach spoiler click handlers
 const textContainerRef = ref<HTMLElement | null>(null);
+
+// Fetch comment faces for the subreddit (cached, only fetches once per sub)
+onMounted(async () => {
+  if (props.subreddit && commentFaces.value.size === 0) {
+    // Only fetch if the body might contain comment face references
+    const body = props.comment.body || '';
+    if (/\[\]\(#[a-zA-Z0-9_-]+\)/.test(body) || /<a\s[^>]*href=["']#/.test(body)) {
+      try {
+        const faces = await getCommentFaces(props.subreddit);
+        if (faces.size > 0) {
+          commentFaces.value = faces;
+        }
+      } catch {
+        // Silently fail
+      }
+    }
+  }
+});
 
 // Debug: log moreChildrenIds when component is created
 onMounted(() => {
@@ -647,8 +688,6 @@ async function handleUpvote() {
       if (String(res.error || '').includes('403')) {
         toast.error('Voting requires updated Reddit permissions. Please re-login.');
       }
-    } else {
-      toast.success(newDir === 1 ? 'Upvoted' : 'Upvote removed');
     }
   } finally {
     isVoting.value = false;
@@ -683,8 +722,6 @@ async function handleDownvote() {
       if (String(res.error || '').includes('403')) {
         toast.error('Voting requires updated Reddit permissions. Please re-login.');
       }
-    } else {
-      toast.success(newDir === -1 ? 'Downvoted' : 'Downvote removed');
     }
   } finally {
     isVoting.value = false;
@@ -950,6 +987,19 @@ function handleShare() {
   doCopy();
 }
 
+async function handleSave() {
+  const fullname = getCommentFullname(props.comment);
+  const wasUnsave = isSaved.value;
+  isSaved.value = !isSaved.value;
+  const res = await saveThing(fullname, wasUnsave);
+  if (!res.success) {
+    isSaved.value = wasUnsave;
+    toast.error(res.error || 'Failed to save');
+  } else {
+    toast.success(wasUnsave ? 'Unsaved' : 'Saved');
+  }
+}
+
 // Limited replies for initial render
 const visibleReplies = computed(() => {
   if (allowDeepView.value && isDeepInline.value) {
@@ -1026,7 +1076,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       { 'ri-new-comment': isHighlighted },
       { 'line-hover': isLineHover && depth === 0 },
       { 'ri-traditional': isTraditional },
-      { 'ri-compact': props.compactMode }
+      { 'ri-compact': props.compactMode },
+      { 'ri-classic': isClassic }
     ]"
     :data-comment-id="comment.id"
     :data-tree-depth="isTraditional ? String(treeMetadata.depth) : undefined"
@@ -1087,8 +1138,36 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       <div v-else class="ri-avatar ri-avatar-placeholder" @click.stop="toggleCollapse"></div>
     </template>
     
+    <!-- Classic layout: collapse toggle before vote column (old Reddit order) -->
+    <span
+      v-if="isClassic"
+      class="ri-compact-toggle ri-classic-toggle"
+      @click.stop="toggleCollapse"
+    >[{{ isCollapsed ? '+' : '\u2212' }}]</span>
+
+    <!-- Classic layout: vertical vote column -->
+    <div v-if="isClassic" class="ri-classic-votes" :class="{ 'ri-classic-votes-hidden': isCollapsed }">
+      <button
+        class="ri-classic-vote ri-classic-upvote"
+        :class="{ active: voteState === 'upvoted' }"
+        :disabled="isDisabled"
+        @click.stop="handleUpvote"
+      ></button>
+      <button
+        class="ri-classic-vote ri-classic-downvote"
+        :class="{ active: voteState === 'downvoted' }"
+        :disabled="isDisabled"
+        @click.stop="handleDownvote"
+      ></button>
+    </div>
+
     <div class="ri-body">
       <div class="ri-line1" :class="{ 'ri-line1--flair-below': isFlairBelow }">
+        <span
+          v-if="props.compactMode && !isClassic"
+          class="ri-compact-toggle"
+          @click.stop="toggleCollapse"
+        >[{{ isCollapsed ? '+' : '\u2212' }}]</span>
         <span
           class="ri-username"
           @mouseenter="handleUsernameMouseEnter"
@@ -1102,6 +1181,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           @close="handleHoverCardMouseLeave"
           @card-enter="handleHoverCardMouseEnter"
         />
+        <span v-if="isClassic && comment.is_submitter" class="ri-classic-op-badge">S</span>
         <span v-if="String(comment.distinguished || '').toLowerCase() === 'moderator'" class="ri-mod-badge">MOD</span>
         <span v-if="flairHtml && !isFlairBelow" v-html="flairHtml"></span>
         <span
@@ -1112,8 +1192,10 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           <span class="ri-stickied-icon" aria-hidden="true"></span>
           <span class="ri-stickied-label">Stickied comment</span>
         </span>
-        <span class="ri-timestamp" :title="timestampTitle">{{ timestampText }}</span>
-        <span v-if="editedText" class="ri-edited">{{ editedText }}</span>
+        <span v-if="isClassic" class="ri-classic-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} {{ score === 1 ? 'point' : 'points' }}</span>
+        <span v-else-if="props.compactMode" class="ri-compact-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} pts</span>
+        <span class="ri-timestamp" :title="timestampTitle">{{ timestampText }}{{ isClassic && localEdited ? '*' : '' }}</span>
+        <span v-if="editedText && !isClassic" class="ri-edited">{{ editedText }}</span>
       </div>
       <div v-if="flairHtml && isFlairBelow" class="ri-flair-row" v-html="flairHtml"></div>
       
@@ -1133,40 +1215,55 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
         </div>
       </div>
       
-      <div class="ri-actions">
-        <div 
+      <!-- Classic layout: old-Reddit text-only action links -->
+      <div v-if="isClassic" class="ri-classic-actions">
+        <span class="ri-classic-link" @click.stop="handleShare">{{ isShareCopied ? 'link copied!' : 'permalink' }}</span>
+        <span class="ri-classic-link" @click.stop="handleSave">{{ isSaved ? 'unsave' : 'save' }}</span>
+        <span
+          v-if="!isDisabled"
+          class="ri-classic-link ri-classic-reply-link"
+          :class="{ 'ri-auth-disabled': isReplyAuthBlocked }"
+          @click.stop="handleReply"
+        >reply</span>
+        <span v-if="isOwn" class="ri-classic-link" @click.stop="handleEditComment">edit</span>
+        <span v-if="isOwn" class="ri-classic-link ri-classic-delete" @click.stop="handleDeleteComment">{{ isDeleting ? 'deleting…' : 'delete' }}</span>
+      </div>
+
+      <!-- Default layout: icon-based actions -->
+      <div v-else class="ri-actions">
+        <div
           class="ri-vote-bubble"
           :class="{
             'ri-upvoted': voteState === 'upvoted',
             'ri-downvoted': voteState === 'downvoted'
           }"
         >
-          <button 
+          <button
             class="ri-vote-btn ri-upvote"
             :disabled="isDisabled"
             @click.stop="handleUpvote"
           >
-            <img 
-              class="ri-vote-icon" 
-              :src="voteState === 'upvoted' ? upvoteFilledIconUrl : upvoteIconUrl" 
-              alt="upvote" 
+            <img
+              class="ri-vote-icon"
+              :src="voteState === 'upvoted' ? upvoteFilledIconUrl : upvoteIconUrl"
+              alt="upvote"
             />
           </button>
           <span class="ri-score">{{ score.toLocaleString() }}</span>
-          <button 
+          <button
             class="ri-vote-btn ri-downvote"
             :disabled="isDisabled"
             @click.stop="handleDownvote"
           >
-            <img 
-              class="ri-vote-icon" 
-              :src="voteState === 'downvoted' ? downvoteFilledIconUrl : downvoteIconUrl" 
-              alt="downvote" 
+            <img
+              class="ri-vote-icon"
+              :src="voteState === 'downvoted' ? downvoteFilledIconUrl : downvoteIconUrl"
+              alt="downvote"
             />
           </button>
         </div>
-        
-        <button 
+
+        <button
           v-if="!isDisabled"
           class="ri-action-btn ri-reply"
           :class="{ 'ri-auth-disabled': isReplyAuthBlocked }"
@@ -1177,8 +1274,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           <img class="ri-action-icon" :src="replyIconUrl" alt="reply" />
           Reply
         </button>
-        
-        <button 
+
+        <button
           class="ri-action-btn ri-share-btn"
           :class="{ 'ri-copied': isShareCopied }"
           @click.stop="handleShare"
@@ -1268,7 +1365,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
             :style="{ '--ri-load-more-icon': `url('${leadListIconUrl}')` }"
             aria-hidden="true"
           ></span>
-          {{ localReplies.length - visibleReplies.length }} more replies
+          {{ compactMode ? `load more comments (${localReplies.length - visibleReplies.length} replies)` : `${localReplies.length - visibleReplies.length} more replies` }}
         </button>
 
         <button
@@ -1283,7 +1380,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
             :style="{ '--ri-load-more-icon': `url('${leadListIconUrl}')` }"
             aria-hidden="true"
           ></span>
-          {{ loadingMoreChildren ? 'Loading…' : `${remainingChildrenCount} more replies` }}
+          {{ loadingMoreChildren ? 'Loading…' : (compactMode ? `load more comments (${remainingChildrenCount} replies)` : `${remainingChildrenCount} more replies`) }}
         </button>
       </div>
     </div>
@@ -1486,5 +1583,24 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
 /* ── Username hover ── */
 .ri-username {
   cursor: pointer;
+}
+
+/* ── Compact collapse toggle [-]/[+] ── */
+.ri-compact-toggle {
+  cursor: pointer;
+  color: var(--ri-subtle-fg, #818c94);
+  font-size: 11px;
+  font-weight: 400;
+  font-family: monospace, monospace;
+  user-select: none;
+  flex-shrink: 0;
+  line-height: 1;
+  display: inline-block;
+  width: 16px;
+  text-align: center;
+}
+
+.ri-compact-toggle:hover {
+  color: var(--ri-discussion-fg, #ddd);
 }
 </style>

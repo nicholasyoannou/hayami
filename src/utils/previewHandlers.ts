@@ -331,13 +331,16 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     if (!a) return;
     if (!isInsideCommentBody(a)) return; // only inside comment bodies
     hoveredPreviewAnchor = a;
-    
+
+    // Guard: after any await, bail if the user is no longer hovering this anchor
+    const isStale = () => hoveredPreviewAnchor !== a;
+
     // Don't show preview if link is inside an unrevealed spoiler
     const spoiler = a.closest('.md-spoiler-text, .ri-spoiler') as HTMLElement | null;
     if (spoiler && !spoiler.classList.contains('revealed')) {
       return; // Skip preview for links inside unrevealed spoilers
     }
-    
+
     const href = a.getAttribute('href') || '';
     let ds = a.getAttribute('data-ri-images');
     let multi = ds ? (() => { try { return JSON.parse(ds) as string[]; } catch { return null; } })() : null;
@@ -350,12 +353,12 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
       preview.focusHost(); // ensure keyboard nav works without prior click
       previewInitialized = true;
     };
-    
+
     // Debug logging
     if (ds) {
       log.debug('Album link detected:', href, 'data-ri-images:', ds, 'parsed:', multi);
     }
-    
+
     // If no data-ri-images, check if it's a host link that needs fetching on-demand
     if (!multi) {
       const postimgMatch = parsePostimgUrl(href);
@@ -364,6 +367,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
         try {
           ensurePreviewStarted(); // show spinner immediately
           const images = await fetchPostimgImages(href);
+          if (isStale()) return;
           if (images.length > 0) {
             multi = postimgMatch.kind === 'single' ? [images[0]] : images;
             log.debug(`Postimg ${postimgMatch.kind} resolved to`, multi.length, 'images');
@@ -385,14 +389,16 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
           let images: string[] = [];
 
           ensurePreviewStarted(); // show spinner immediately
-          
+
           // Try GB proxy first
           try {
             const proxyUrl = `https://gbr-img-service.quack.si/a/${encodeURIComponent(albumId)}`;
             const clientId = await getImgurClientId();
+            if (isStale()) return;
             const headers: Record<string, string> = { Accept: 'application/json' };
             if (clientId) headers['AP-Key'] = clientId; // gbr-img-service expects AP-Key
             const r = await fetch(proxyUrl, { headers });
+            if (isStale()) return;
             if (r.ok) {
               const j = await r.json();
               if (Array.isArray(j)) images = j.filter(Boolean).map(String);
@@ -401,16 +407,20 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
             // ignore and fall through
           }
 
+          if (isStale()) return;
+
           // Fall back to Imgur API via background to avoid CORS preflight blocks
           if (images.length === 0) {
             try {
               const clientId = await getImgurClientId();
+              if (isStale()) return;
               images = await fetchImgurAlbumViaExtension(albumId, clientId);
+              if (isStale()) return;
             } catch (e2) {
               log.warn('Failed to fetch album:', e2);
             }
           }
-          
+
           if (images.length > 0) {
             log.debug('Album resolved to', images.length, 'images');
             multi = images;
@@ -429,6 +439,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
           try {
             ensurePreviewStarted(); // show spinner immediately
             const images = await fetchImgchestAlbumImages(imgchestAlbumMatch[1]);
+            if (isStale()) return;
             if (images.length > 0) {
               log.debug('ImgChest album resolved to', images.length, 'images');
               multi = images;
@@ -453,9 +464,11 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
                 try {
                   const apiUrl = `https://api.imgur.com/3/image/${encodeURIComponent(id)}`;
                   const clientId = await getImgurClientId();
+                  if (isStale()) return;
                   const headers: Record<string, string> = { Accept: 'application/json' };
                   if (clientId) headers['X-Imgur-Client-ID'] = clientId;
                   const r = await fetch(apiUrl, { headers });
+                  if (isStale()) return;
                   if (r.ok) {
                     const j = await r.json();
                     if (j?.data?.link) resolved = j.data.link;
@@ -468,9 +481,11 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
                 if (!resolved) {
                   const exts = ['.jpg', '.png', '.gif', '.webp', '.mp4'];
                   for (const ext of exts) {
+                    if (isStale()) return;
                     const tryUrl = `https://i.imgur.com/${id}${ext}`;
                     try {
                       const r2 = await fetch(tryUrl, { method: 'HEAD' });
+                      if (isStale()) return;
                       if (r2.ok) {
                         resolved = tryUrl;
                         break;
@@ -478,6 +493,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
                     } catch {
                       try {
                         const r3 = await fetch(tryUrl);
+                        if (isStale()) return;
                         if (r3.ok) {
                           resolved = tryUrl;
                           break;
@@ -489,9 +505,11 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
 
                 // Final fallback: try GB proxy endpoint if available.
                 if (!resolved) {
+                  if (isStale()) return;
                   try {
                     const proxyUrl = `https://gbr-img-service.quack.si/i/${encodeURIComponent(id)}`;
                     const r = await fetch(proxyUrl);
+                    if (isStale()) return;
                     if (r.ok) {
                       const j = await r.json();
                       if (typeof j === 'string') {
@@ -506,7 +524,8 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
                     log.debug('GB proxy failed:', e1);
                   }
                 }
-                
+
+                if (isStale()) return;
                 if (resolved) {
                   log.debug('Imgur direct link resolved to:', resolved);
                   // Set as single image in array format for consistency
@@ -525,7 +544,9 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
         }
       }
     }
-    
+
+    if (isStale()) return;
+
     if (!multi && !isImageLink(href)) {
       if (previewInitialized) preview.hidePreview();
       return;

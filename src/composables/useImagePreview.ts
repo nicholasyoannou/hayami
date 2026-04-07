@@ -221,19 +221,48 @@ export function useImagePreview() {
     if (!galleryImages || galleryImages.length <= 1 || galleryPreloadTriggered) return;
     galleryPreloadTriggered = true;
     galleryPreloadedImages = [];
-    galleryImages.forEach((src, idx) => {
-      if (isVideoUrl(src)) return;
-      if (!src) return;
-      if (idx === galleryIndex && imgPreviewEl && imgPreviewEl.src === src) return;
-      const pre = new Image();
-      pre.decoding = 'async';
-      try {
-        pre.referrerPolicy = 'no-referrer';
-      } catch {}
-      pre.src = src;
-      galleryPreloadedImages.push(pre);
-    });
-    log.debug(`Prefetched ${galleryPreloadedImages.length} album images via ${reason}`);
+
+    const BATCH_SIZE = 3;
+    const images = galleryImages; // capture ref in case it changes
+    let nextIndex = 0;
+
+    const loadNextBatch = () => {
+      if (!images || nextIndex >= images.length) return;
+      // If gallery was reset (e.g. user moved away), stop loading
+      if (galleryImages !== images) return;
+
+      const end = Math.min(nextIndex + BATCH_SIZE, images.length);
+      let pending = 0;
+
+      for (let i = nextIndex; i < end; i++) {
+        const src = images[i];
+        if (!src || isVideoUrl(src)) continue;
+        if (i === galleryIndex && imgPreviewEl && imgPreviewEl.src === src) continue;
+
+        pending++;
+        const pre = new Image();
+        pre.decoding = 'async';
+        try { pre.referrerPolicy = 'no-referrer'; } catch {}
+        const onDone = () => {
+          pending--;
+          if (pending <= 0) loadNextBatch();
+        };
+        pre.onload = onDone;
+        pre.onerror = onDone;
+        pre.src = src;
+        galleryPreloadedImages.push(pre);
+      }
+
+      nextIndex = end;
+
+      // If everything in this batch was skipped, immediately try the next batch
+      if (pending === 0 && nextIndex < images.length) {
+        loadNextBatch();
+      }
+    };
+
+    loadNextBatch();
+    log.debug(`Started progressive prefetch of ${images.length} album images via ${reason}`);
   }
 
   function hidePreview(): void {

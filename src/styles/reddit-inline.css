@@ -1105,6 +1105,15 @@
   max-height: none !important;
 }
 
+/* Comment face emotes (subreddit CSS sprites like [](#hikariactually)) */
+#reddit-inline-discussion .ri-comment-face {
+  display: inline-block !important;
+  vertical-align: middle;
+  border-radius: 3px;
+  margin: 2px 4px 2px 0;
+  max-width: 100%;
+}
+
 /* Constrain inline images in comment text (NOT flair emojis) */
 .ri-text img:not(.ri-flair-emoji),
 #reddit-inline-discussion .ri-text img:not(.ri-flair-emoji),
@@ -3574,7 +3583,8 @@
 }
 
 /* ==================== Compact Mode ==================== */
-/* Tighter spacing, hidden avatars, smaller text/actions.
+/* Old-Reddit-inspired dense layout. No avatars, simple left-border
+   thread lines (no elbows), minimal actions, tighter spacing.
    .ri-compact is set on each .ri-comment by the Vue prop.
    .ri-compact-list is set on the .ri-comment-list container. */
 
@@ -3584,77 +3594,665 @@
   display: none !important;
 }
 
-/* --- Traditional layout: remove avatar column offset --- */
+/* --- Traditional layout: no avatar column, tight padding --- */
 #reddit-inline-discussion .ri-comment.ri-compact.ri-traditional {
   --trad-avatar: 0rem;
-  padding-top: 0.25rem;
-  padding-bottom: 0.125rem;
+  --trad-content-offset: 1rem;
+  padding-top: 6px;
+  padding-bottom: 4px;
+  gap: 0;
 }
 
 #reddit-inline-discussion .ri-comment.ri-compact.ri-traditional.depth-0 {
-  padding: 0.25rem 0;
+  padding: 8px 0 6px;
 }
 
-/* --- Threaded layout: tighten up without avatars --- */
-#reddit-inline-discussion .ri-comment.ri-compact:not(.ri-traditional) {
-  padding-top: 2px;
-  padding-bottom: 1px;
+/* Depth-0 separator */
+#reddit-inline-discussion
+  .ri-comment.ri-compact.ri-traditional.depth-0
+  + .ri-comment.ri-compact.ri-traditional.depth-0 {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 2px;
+  padding-top: 10px;
 }
 
-/* --- Username / header line --- */
-#reddit-inline-discussion .ri-comment.ri-compact .ri-line1 {
-  font-size: 0.6875rem;
-  line-height: 1.3;
+/* --- Kill elbow connectors on children (no elbows in compact) --- */
+#reddit-inline-discussion
+  .ri-trad-children
+  > .ri-comment.ri-compact.ri-traditional::before {
+  content: none !important;
+  display: none !important;
 }
 
-/* --- Body text --- */
-#reddit-inline-discussion .ri-comment.ri-compact .ri-text {
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  margin-top: 0.125rem;
+#reddit-inline-discussion
+  .ri-comment.ri-compact
+  .ri-trad-children
+  > .ri-load-more::before {
+  content: none !important;
+  display: none !important;
 }
 
-/* --- Actions bar --- */
-#reddit-inline-discussion .ri-comment.ri-compact .ri-actions {
-  gap: 2px;
-  margin-top: 1px;
+/* Kill ::after for compact comments WITHOUT children */
+#reddit-inline-discussion
+  .ri-comment.ri-compact.ri-traditional:not(:has(> .ri-body > .ri-trad-children))::after {
+  content: none !important;
+  display: none !important;
 }
 
-#reddit-inline-discussion .ri-comment.ri-compact .ri-actions .ri-action-btn {
-  padding: 2px 6px;
-  font-size: 11px;
-}
-
-#reddit-inline-discussion .ri-comment.ri-compact .ri-vote-bubble {
-  transform: scale(0.85);
-  transform-origin: left center;
-}
-
-/* --- Traditional connector line: start from top since no avatar --- */
+/* --- Thread line: ::after on parent, attached to [-] toggle --- */
 #reddit-inline-discussion
   .ri-comment.ri-compact.ri-traditional:has(> .ri-body > .ri-trad-children)::after {
-  left: calc(-1px);
-  top: 0.5rem;
+  content: "" !important;
+  display: block !important;
+  position: absolute;
+  left: 7px;
+  top: 26px;
+  bottom: 6px;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  pointer-events: none;
+  z-index: 1;
+  border: none !important;
+  border-radius: 0;
 }
 
-#reddit-inline-discussion .ri-comment.ri-compact.ri-traditional > .ri-trad-line-hit {
-  left: calc(-10px);
-  top: 0.5rem;
-}
-
-/* --- Traditional children container: reduce indent --- */
+/* --- Children container: no border-left, just indentation --- */
 #reddit-inline-discussion
   .ri-comment.ri-compact.ri-traditional
   > .ri-body
   > .ri-trad-children {
-  margin-left: calc(-0.5rem);
-  padding-left: calc(var(--trad-content-offset));
+  margin-left: 0;
+  padding-left: 22px;
+  margin-top: 2px;
+  width: 100%;
+  border-left: none !important;
 }
 
-/* --- Traditional elbow connector --- */
+/* Hover: brighten thread line when hit area is hovered */
 #reddit-inline-discussion
-  .ri-comment.ri-compact.ri-traditional
-  .ri-trad-children
-  > .ri-comment.ri-compact.ri-traditional::before {
-  left: calc(-1 * var(--trad-content-offset) - 1px);
+  .ri-comment.ri-compact.ri-traditional:has(> .ri-trad-line-hit:hover)::after {
+  background: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* --- Clickable hit area over the thread line --- */
+#reddit-inline-discussion .ri-comment.ri-compact.ri-traditional > .ri-trad-line-hit {
+  left: 1px;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+}
+
+/* --- Threaded layout: tighten up without avatars --- */
+#reddit-inline-discussion .ri-comment.ri-compact:not(.ri-traditional) {
+  padding-top: 3px;
+  padding-bottom: 2px;
+}
+
+/* --- Header line --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-line1 {
+  font-size: 12px;
+  line-height: 1.3;
+  gap: 6px;
+  margin-bottom: 1px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-username {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-timestamp {
+  font-size: 11px;
+}
+
+/* --- Inline compact score (header) --- */
+#reddit-inline-discussion .ri-compact-score {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ri-subtle-fg, #818c94);
+}
+
+#reddit-inline-discussion .ri-compact-score.ri-cs-up {
+  color: #ff4500;
+}
+
+#reddit-inline-discussion .ri-compact-score.ri-cs-down {
+  color: #6e8fec;
+}
+
+/* --- Hide flairs in compact mode --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-flair {
+  display: none !important;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-flair-row {
+  display: none !important;
+}
+
+/* --- Body text --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-text {
+  font-size: 13px;
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* Indent body text & actions past the thread line when comment has children */
+#reddit-inline-discussion
+  .ri-comment.ri-compact.ri-traditional:has(> .ri-body > .ri-trad-children)
+  > .ri-body
+  > .ri-text,
+#reddit-inline-discussion
+  .ri-comment.ri-compact.ri-traditional:has(> .ri-body > .ri-trad-children)
+  > .ri-body
+  > .ri-actions {
+  padding-left: 22px;
+}
+
+/* --- Actions: minimal, always visible --- */
+#reddit-inline-discussion .ri-comment.ri-compact > .ri-body > .ri-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 3px;
+  align-items: center;
+}
+
+/* Compact vote bubble: borderless, flat */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-vote-bubble {
+  padding: 2px 4px !important;
+  gap: 4px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-vote-bubble:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-vote-bubble .ri-vote-icon {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-vote-bubble .ri-score {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Action buttons: small text-link style */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-actions .ri-action-btn {
+  padding: 2px 6px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-actions .ri-action-icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Share button: hide icon, show text only (like old Reddit text links) */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-actions .ri-share-btn .ri-share-icon {
+  display: none;
+}
+
+/* --- Stickied label: hide text, keep icon --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-stickied-label {
+  display: none;
+}
+
+/* --- Collapsed compact comment --- */
+#reddit-inline-discussion .ri-comment.ri-compact.ri-collapsed .ri-line1 {
+  opacity: 0.5;
+}
+
+/* --- Load-more buttons (old Reddit link style) --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-load-more {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0;
+  margin: 4px 0 2px;
+  background: none !important;
+  border: none !important;
+  color: #4fbcff;
+  cursor: pointer;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-load-more:hover:not(:disabled) {
+  background: none !important;
+  border: none !important;
+  text-decoration: underline;
+  color: #6dcbff;
+}
+
+/* Hide the subreddit icon in compact load-more */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-load-more .ri-load-more-icon {
+  display: none !important;
+}
+
+/* --- Inline images / Reddit media thumbnails --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-text img:not(.ri-flair-emoji) {
+  max-height: 250px !important;
+  max-width: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  border-radius: 4px;
+  margin: 4px 0;
+  display: block;
+}
+
+/* Linked images (preview.redd.it / i.redd.it thumbnails rendered as links) */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-text a[href*="preview.redd.it"] img,
+#reddit-inline-discussion .ri-comment.ri-compact .ri-text a[href*="i.redd.it"] img {
+  max-height: 200px !important;
+  border-radius: 4px;
+  margin: 4px 0;
+  display: block;
+}
+
+/* ==================== Classic (Old Reddit) Layout ==================== */
+/* Faithfully reproduces the old.reddit.com dark-mode comment look:
+   vertical vote arrows on the left, [–] collapse toggle, bold usernames,
+   text-only action links, nested left-border indentation, no avatars. */
+
+/* --- Base comment: horizontal flex with vote column + content --- */
+#reddit-inline-discussion .ri-comment.ri-classic {
+  --trad-avatar: 0rem;
+  --trad-content-offset: 1rem;
+  display: flex;
+  gap: 2px;
+  padding: 6px 0 4px 0;
+  margin: 0;
+  position: relative;
+  background: transparent;
+  border: none;
+  align-items: flex-start;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic.depth-0 {
+  padding: 8px 0 6px;
+}
+
+/* Separator between top-level comments */
+#reddit-inline-discussion
+  .ri-comment.ri-classic.depth-0
+  + .ri-comment.ri-classic.depth-0 {
+  border-top: 1px solid #404040;
+  margin-top: 4px;
+  padding-top: 10px;
+}
+
+/* --- Kill ALL pseudo-element connectors inherited from traditional ---
+   The traditional :has() selectors raise specificity to ID + 3 classes,
+   so we use .ri-comment.ri-classic.ri-traditional (3 classes) + :has()
+   to guarantee we win. */
+#reddit-inline-discussion .ri-comment.ri-classic.ri-traditional::after,
+#reddit-inline-discussion .ri-comment.ri-classic.ri-traditional::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* Match the :has() specificity of traditional's vertical line rule */
+#reddit-inline-discussion .ri-comment.ri-classic.ri-traditional:has(> .ri-body > .ri-trad-children)::after {
+  content: none !important;
+  display: none !important;
+}
+
+/* Kill child elbow connectors */
+#reddit-inline-discussion .ri-trad-children > .ri-comment.ri-classic.ri-traditional::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* Kill load-more elbow connectors */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-trad-children > .ri-load-more::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* Kill hover-state connectors from traditional parent line hover */
+#reddit-inline-discussion .ri-comment.ri-classic.ri-traditional:has(> .ri-trad-line-hit:hover)::after {
+  content: none !important;
+  display: none !important;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic.ri-traditional:has(> .ri-trad-line-hit:hover) > .ri-body > .ri-trad-children > .ri-comment.ri-traditional::before,
+#reddit-inline-discussion .ri-comment.ri-classic.ri-traditional:has(> .ri-trad-line-hit:hover) > .ri-body > .ri-trad-children > .ri-load-more::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* --- Hide avatars (handled by compactMode, but reinforce) --- */
+#reddit-inline-discussion .ri-comment.ri-classic > .ri-avatar,
+#reddit-inline-discussion .ri-comment.ri-classic > .ri-avatar-placeholder {
+  display: none !important;
+}
+
+/* --- Vote column: stacked arrows on the left --- */
+.ri-classic-votes {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 20px;
+  min-width: 20px;
+  padding-top: 2px;
+  margin-right: 4px;
+}
+
+.ri-classic-vote {
+  width: 15px;
+  height: 14px;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  position: relative;
+  opacity: 0.5;
+  transition: opacity 0.1s;
+}
+
+.ri-classic-vote:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.ri-classic-vote:disabled {
+  opacity: 0.2;
+  cursor: not-allowed;
+}
+
+/* Upvote arrow */
+.ri-classic-upvote::before {
+  content: "";
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 10px solid #c6c6c6;
+  margin: 0 auto;
+}
+
+.ri-classic-upvote:hover:not(:disabled)::before,
+.ri-classic-upvote.active::before {
+  border-bottom-color: #ff8b60;
+}
+
+.ri-classic-upvote.active {
+  opacity: 1;
+}
+
+/* Downvote arrow */
+.ri-classic-downvote::before {
+  content: "";
+  display: block;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 10px solid #c6c6c6;
+  margin: 0 auto;
+}
+
+.ri-classic-downvote:hover:not(:disabled)::before,
+.ri-classic-downvote.active::before {
+  border-top-color: #9494ff;
+}
+
+.ri-classic-downvote.active {
+  opacity: 1;
+}
+
+/* --- Body --- */
+#reddit-inline-discussion .ri-comment.ri-classic > .ri-body {
+  flex: 1;
+  min-width: 0;
+  left: 0;
+  padding-left: 0;
+}
+
+/* --- Header line overrides --- */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-line1 {
+  font-size: 12px;
+  line-height: 1.3;
+  gap: 6px;
+  margin-bottom: 2px;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+/* [–] collapse toggle */
+#reddit-inline-discussion .ri-comment.ri-classic > .ri-classic-toggle {
+  color: #888;
+  font-weight: bold;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+  width: auto;
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic > .ri-classic-toggle:hover {
+  color: #ccc;
+}
+
+/* Username styling */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-username {
+  font-weight: bold;
+  font-size: 12px;
+  color: #cee3f8;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+/* OP/Submitter badge */
+.ri-classic-op-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  background: #228822;
+  color: #fff;
+  font-size: 9px;
+  font-weight: bold;
+  border-radius: 2px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+/* Score */
+.ri-classic-score {
+  font-size: 11px;
+  font-weight: bold;
+  color: #888;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+.ri-classic-score.ri-cs-up {
+  color: #ff8b60;
+}
+
+.ri-classic-score.ri-cs-down {
+  color: #9494ff;
+}
+
+/* Timestamp */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-timestamp {
+  font-size: 11px;
+  color: #888;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+/* --- Comment text --- */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-text {
+  font-size: 14px;
+  line-height: 1.4;
+  color: #ddd;
+  margin-top: 4px;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+/* --- Classic action links (old Reddit text links) --- */
+#reddit-inline-discussion .ri-classic-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 2px;
+  margin-bottom: 2px;
+  font-size: 11px;
+  font-weight: bold;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+#reddit-inline-discussion .ri-classic-link {
+  color: #888;
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.1s;
+}
+
+#reddit-inline-discussion .ri-classic-link:hover {
+  text-decoration: underline;
+  color: #ccc;
+}
+
+#reddit-inline-discussion .ri-classic-reply-link {
+  color: #4488dd;
+  font-weight: bold;
+}
+
+#reddit-inline-discussion .ri-classic-reply-link:hover {
+  color: #6ab0ff;
+}
+
+#reddit-inline-discussion .ri-classic-reply-link.ri-auth-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  color: #888;
+}
+
+#reddit-inline-discussion .ri-classic-delete {
+  color: #cc6666;
+}
+
+#reddit-inline-discussion .ri-classic-delete:hover {
+  color: #ff8888;
+}
+
+/* --- Children container: dotted left border (old Reddit style) --- */
+#reddit-inline-discussion
+  .ri-comment.ri-classic.ri-traditional
+  > .ri-body
+  > .ri-trad-children {
+  margin-left: 0 !important;
+  padding-left: 22px !important;
+  margin-top: 4px;
+  width: 100% !important;
+  border-left: 1px dotted #555 !important;
+  position: relative;
+  overflow: visible;
+}
+
+/* --- Hide the clickable hit area (no visible line to click) --- */
+#reddit-inline-discussion .ri-comment.ri-classic > .ri-trad-line-hit {
+  display: none;
+}
+
+/* --- Collapsed state --- */
+#reddit-inline-discussion .ri-comment.ri-classic.ri-collapsed {
+  opacity: 1;
+  cursor: pointer;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic.ri-collapsed .ri-text,
+#reddit-inline-discussion .ri-comment.ri-classic.ri-collapsed .ri-classic-actions,
+#reddit-inline-discussion .ri-comment.ri-classic.ri-collapsed .ri-children {
+  display: none;
+}
+
+/* Keep vote column in layout when collapsed so the body doesn't shift left */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-classic-votes-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic.ri-collapsed .ri-line1 {
+  opacity: 0.6;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic.ri-collapsed:hover .ri-line1 {
+  opacity: 0.85;
+}
+
+/* --- Load-more buttons --- */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-load-more {
+  font-size: 12px;
+  font-weight: bold;
+  padding: 3px 8px;
+  margin: 4px 0 2px;
+  color: #4488dd;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic .ri-load-more:hover:not(:disabled) {
+  color: #6ab0ff;
+  text-decoration: underline;
+  background: transparent;
+  border: none;
+}
+
+/* --- Hide default actions in classic (uses classic actions instead) --- */
+#reddit-inline-discussion .ri-comment.ri-classic > .ri-body > .ri-actions {
+  display: none !important;
+}
+
+/* --- Hide stickied label, keep minimal --- */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-stickied-label {
+  display: none;
+}
+
+/* --- Hide flairs in classic mode --- */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-flair {
+  display: none !important;
+}
+
+#reddit-inline-discussion .ri-comment.ri-classic .ri-flair-row {
+  display: none !important;
+}
+
+/* --- MOD badge: old Reddit green [M] style --- */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-mod-badge {
+  background: transparent;
+  color: #228822;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 0 2px;
+  border-radius: 0;
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+/* --- Classic list container styles --- */
+.ri-classic-list {
+  font-family: Verdana, Arial, Helvetica, sans-serif;
+}
+
+/* --- Inline images: same constraints as compact --- */
+#reddit-inline-discussion .ri-comment.ri-classic .ri-text img:not(.ri-flair-emoji) {
+  max-height: 250px !important;
+  max-width: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  object-fit: contain !important;
+  border-radius: 4px;
+  margin: 4px 0;
+  display: block;
 }

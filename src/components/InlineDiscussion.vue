@@ -61,7 +61,7 @@ const replyTarget = ref<{ id: string; key: string; draftKey: string; author?: st
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
 const redditFlairPosition = ref<'inline' | 'below'>('inline');
-const redditCommentLayout = ref<'threaded' | 'traditional' | 'compact'>('threaded');
+const redditCommentLayout = ref<'threaded' | 'traditional' | 'compact' | 'classic'>('threaded');
 const redditProfileHoverCard = ref(true);
 const isPostingTopComment = ref(false);
 const linkOnlyMode = ref(false);
@@ -414,7 +414,7 @@ async function loadCommentLayout() {
   try {
     const value = await redditCommentLayoutItem.getValue();
     log.log('loadCommentLayout: storage returned', JSON.stringify(value));
-    if (value === 'traditional' || value === 'compact') {
+    if (value === 'traditional' || value === 'compact' || value === 'classic') {
       redditCommentLayout.value = value;
     } else {
       redditCommentLayout.value = 'threaded';
@@ -1011,7 +1011,7 @@ onMounted(() => {
     if ('reddit_comment_layout' in changes) {
       const newVal = changes.reddit_comment_layout.newValue;
       log.log('Storage changed: reddit_comment_layout =', JSON.stringify(newVal));
-      if (newVal === 'traditional' || newVal === 'compact') {
+      if (newVal === 'traditional' || newVal === 'compact' || newVal === 'classic') {
         redditCommentLayout.value = newVal;
       } else {
         redditCommentLayout.value = 'threaded';

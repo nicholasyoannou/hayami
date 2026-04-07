@@ -24,7 +24,7 @@ const props = defineProps<{
   showFlairs?: boolean;
   flairPosition?: 'inline' | 'below';
   isRedditConnected?: boolean;
-  layout?: 'threaded' | 'traditional' | 'compact';
+  layout?: 'threaded' | 'traditional' | 'compact' | 'classic';
   profileHoverCard?: boolean;
 }>();
 
@@ -48,7 +48,7 @@ const moderatorLookupSubreddit = ref<string | null>(null);
 const textSizeIncrease = ref(0);
 const deepReplyMode = ref<'popup' | 'reddit'>('popup');
 const maxInlineDepth = ref(8);
-const commentLayout = ref<'threaded' | 'traditional' | 'compact'>('traditional');
+const commentLayout = ref<'threaded' | 'traditional' | 'compact' | 'classic'>('traditional');
 const traditionalSpacing = ref(3);
 const truncateLines = ref(true);
 const profileHoverCard = ref(true);
@@ -89,7 +89,7 @@ onMounted(async () => {
   try {
     const layout = await redditCommentLayoutItem.getValue();
     log.log('Loaded comment layout from storage:', JSON.stringify(layout), '| prop layout:', props.layout);
-    if (layout === 'traditional' || layout === 'compact') {
+    if (layout === 'traditional' || layout === 'compact' || layout === 'classic') {
       commentLayout.value = layout;
     } else {
       commentLayout.value = 'threaded';
@@ -125,7 +125,7 @@ const _storageHandler = (changes: Record<string, { oldValue?: any; newValue?: an
   if ('reddit_comment_layout' in changes) {
     const v = changes.reddit_comment_layout.newValue;
     log.log('Storage live update: reddit_comment_layout =', JSON.stringify(v));
-    if (v === 'traditional' || v === 'compact') {
+    if (v === 'traditional' || v === 'compact' || v === 'classic') {
       commentLayout.value = v;
     } else {
       commentLayout.value = 'threaded';
@@ -155,7 +155,7 @@ const effectiveTextSizeIncrease = computed(() =>
 
 const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
 const effectiveLayout = computed(() => props.layout || commentLayout.value);
-const effectiveCompactMode = computed(() => effectiveLayout.value === 'compact');
+const effectiveCompactMode = computed(() => effectiveLayout.value === 'compact' || effectiveLayout.value === 'classic');
 const effectiveProfileHoverCard = computed(() => props.profileHoverCard ?? profileHoverCard.value);
 
 const textSizeStyles = computed(() => ({
@@ -164,6 +164,17 @@ const textSizeStyles = computed(() => ({
 }));
 
 const deepViewRoot = ref<RedditCommentData | null>(null);
+
+function countAllComments(list: RedditCommentData[]): number {
+  let total = 0;
+  for (const c of list) {
+    total += 1;
+    if (Array.isArray(c.replies) && c.replies.length > 0) {
+      total += countAllComments(c.replies);
+    }
+  }
+  return total;
+}
 
 function findCommentById(list: RedditCommentData[], commentId: string): RedditCommentData | null {
   for (const comment of list) {
@@ -398,7 +409,7 @@ async function loadComments(sort: RedditCommentSort = 'confidence') {
     renderedCount.value = Math.min(pageSize, comments.value.length);
     // hasMore should be true if there are more comments to show OR if there are rootMoreIds to fetch
     hasMore.value = comments.value.length > renderedCount.value || rootMoreIds.value.length > 0;
-    emit('commentsLoaded', comments.value.length);
+    emit('commentsLoaded', countAllComments(comments.value));
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load comments';
     log.error('Failed to load comments:', e);
@@ -607,7 +618,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="ri-comment-list" :class="{ 'truncate-lines': truncateLines, 'ri-compact-list': effectiveCompactMode }" :style="textSizeStyles">
+  <div class="ri-comment-list" :class="{ 'truncate-lines': truncateLines, 'ri-compact-list': effectiveCompactMode, 'ri-classic-list': effectiveLayout === 'classic' }" :style="textSizeStyles">
     <!-- Loading state -->
     <template v-if="isLoading">
       <div v-for="i in 6" :key="i" class="ri-skel">

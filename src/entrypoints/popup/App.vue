@@ -431,6 +431,50 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save Reddit default sort',
   },
   {
+    key: 'redditCommentLayout',
+    type: 'select',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Comment layout',
+    description: 'Choose between threaded, traditional, compact, or classic (old Reddit dark mode).',
+    options: redditCommentLayoutOptions,
+    fallback: 'threaded',
+    load: async () => {
+      const value = await redditCommentLayoutItem.getValue();
+      if (value === 'traditional' || value === 'compact' || value === 'classic') return value;
+      return 'threaded';
+    },
+    save: async (value) => redditCommentLayoutItem.setValue(value),
+    successMessage: (value) => {
+      if (value === 'traditional') return 'Traditional nested layout enabled';
+      if (value === 'compact') return 'Compact layout enabled';
+      if (value === 'classic') return 'Classic old Reddit layout enabled';
+      return 'Threaded layout enabled';
+    },
+    errorMessage: 'Failed to update comment layout',
+    onAfterSave: async (value) => {
+      // Auto-adjust related settings based on the chosen layout
+      const changes: Array<{ key: SettingKey; newValue: any }> = [];
+
+      if (value === 'threaded') {
+        changes.push({ key: 'redditTruncateLines', newValue: false });
+      } else if (value === 'traditional') {
+        changes.push({ key: 'redditTruncateLines', newValue: true });
+      } else if (value === 'compact') {
+        changes.push({ key: 'redditTruncateLines', newValue: false });
+        changes.push({ key: 'providerBadgesEnabled', newValue: false });
+        changes.push({ key: 'redditProfileHoverCard', newValue: false });
+      }
+
+      for (const { key, newValue } of changes) {
+        const def = settingDefinitions.find((s) => s.key === key);
+        if (!def) continue;
+        (settingValues as Record<SettingKey, any>)[key] = newValue;
+        await def.save(newValue as any);
+      }
+    },
+  },
+  {
     key: 'redditShowFlairs',
     type: 'toggle',
     category: 'provider',
@@ -502,28 +546,6 @@ const settingDefinitions: SettingDefinition[] = [
     save: async (value) => redditDeepReplyModeItem.setValue(value === 'reddit' ? 'reddit' : 'popup'),
     successMessage: (value) => (value === 'reddit' ? 'Deep replies open on Reddit' : 'Deep replies open in popup'),
     errorMessage: 'Failed to update deep reply behavior',
-  },
-  {
-    key: 'redditCommentLayout',
-    type: 'select',
-    category: 'provider',
-    providerId: 'reddit',
-    label: 'Comment layout',
-    description: 'Choose between threaded (Reddit-style lines), traditional (clean nested indentation), or compact (dense, no avatars).',
-    options: redditCommentLayoutOptions,
-    fallback: 'threaded',
-    load: async () => {
-      const value = await redditCommentLayoutItem.getValue();
-      if (value === 'traditional' || value === 'compact') return value;
-      return 'threaded';
-    },
-    save: async (value) => redditCommentLayoutItem.setValue(value),
-    successMessage: (value) => {
-      if (value === 'traditional') return 'Traditional nested layout enabled';
-      if (value === 'compact') return 'Compact layout enabled';
-      return 'Threaded layout enabled';
-    },
-    errorMessage: 'Failed to update comment layout',
   },
   {
     key: 'redditTraditionalSpacing',
@@ -1178,7 +1200,13 @@ function handleFeedbackKeydown(event: KeyboardEvent) {
 }
 
 function isSettingVisible(setting: SettingDefinition) {
-  void setting;
+  // Traditional layout spacing only applies when traditional layout is selected
+  if (setting.key === 'redditTraditionalSpacing') {
+    return settingValues.redditCommentLayout === 'traditional';
+  }
+  if (setting.key === 'redditProfileHoverCard') {
+    return settingValues.redditCommentLayout === 'traditional' || settingValues.redditCommentLayout === 'threaded';
+  }
   return true;
 }
 

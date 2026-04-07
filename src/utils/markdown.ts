@@ -31,8 +31,9 @@ export function markdownToHtml(text: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'");
 
-  // Remove Reddit emote syntax (e.g., [](#dekuhype)) - these don't appear in actual comment body
-  src = src.replace(/\[\]\(#[a-zA-Z0-9_-]+\)/g, '');
+  // Keep Reddit emote/comment-face syntax (e.g., [](#hikariactually)) —
+  // Snudown will render these as <a href="#name"></a> which we can later
+  // replace with sprite-based images via applyCommentFaces().
 
   // Strip any remaining HTML tags (Reddit sometimes leaves <strong>, <em>, etc. in body_html)
   // BUT preserve spoiler syntax >!...!< by temporarily replacing it
@@ -77,12 +78,15 @@ export function markdownToHtml(text: string): string {
   html = html.replace(/<a\s+([^>]*href=["']([^"']+)["'][^>]*)>/gi, (match: string, attrs: string, url: string) => {
     // Skip if already has target attribute
     if (/target=/i.test(attrs)) return match;
-    
+
+    // Skip fragment-only links (comment face anchors like #hikariactually)
+    if (url.startsWith('#')) return match;
+
     // Make relative URLs absolute
-    const href = url.startsWith('http://') || url.startsWith('https://') 
-      ? url 
+    const href = url.startsWith('http://') || url.startsWith('https://')
+      ? url
       : `https://www.reddit.com${url.startsWith('/') ? url : '/' + url}`;
-    
+
     // Add target and rel attributes
     return `<a ${attrs.replace(/href=["'][^"']+["']/, `href="${href}"`)} target="_blank" rel="noopener noreferrer">`;
   });

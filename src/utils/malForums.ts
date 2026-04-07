@@ -362,6 +362,58 @@ export async function searchMalAnimeId(animeName: string): Promise<number | null
   }
 }
 
+/**
+ * Search for a MAL anime ID using the Jikan API (public, no auth required).
+ * Used as a fallback when the MAL API search fails.
+ */
+export async function searchJikanAnimeId(animeName: string): Promise<number | null> {
+  try {
+    const url = new URL('https://api.jikan.moe/v4/anime');
+    url.searchParams.set('q', animeName);
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('type', 'tv');
+
+    let data: any = null;
+    // Try direct fetch first
+    try {
+      const resp = await fetch(url.toString(), { method: 'GET' });
+      if (resp.ok) {
+        data = await resp.json();
+      }
+    } catch {
+      // Ignore direct error, try proxy
+    }
+
+    // Fallback to proxy
+    if (!data) {
+      try {
+        const proxied = await browser.runtime.sendMessage({
+          action: 'hayami_proxyFetch',
+          url: url.toString(),
+          init: { method: 'GET' },
+        });
+        if (proxied?.ok) {
+          data = proxied.body;
+        }
+      } catch (err) {
+        log.warn('Jikan anime search proxy failed:', err);
+        return null;
+      }
+    }
+
+    if (!data || !Array.isArray(data?.data) || !data.data.length) {
+      log.warn('Jikan anime search returned no results for:', animeName);
+      return null;
+    }
+
+    const id = data.data[0]?.mal_id;
+    return typeof id === 'number' ? id : null;
+  } catch (err) {
+    log.error('Jikan anime search error:', err);
+    return null;
+  }
+}
+
 export function extractEpisodeNumbersFromTitle(title: string = ''): number[] {
   const numbers = new Set<number>();
   const patterns = [

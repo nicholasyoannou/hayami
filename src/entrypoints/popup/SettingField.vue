@@ -89,19 +89,17 @@ function hideHelpTooltip() {
       v-if="setting.type !== 'apiKey'"
       class="min-w-0 flex-1 text-sm text-white/85 leading-tight"
     >
-      <span class="align-middle">{{ setting.label }}</span>
-      <button
+      <span class="align-middle">{{ setting.label }}</span><!--
+      --><button
         v-if="setting.description"
         type="button"
-        class="ml-1.5 inline-flex h-4 w-4 shrink-0 translate-y-[-1px] items-center justify-center rounded-full border border-white/25 align-middle text-[10px] font-bold text-white/70 transition hover:border-white/40 hover:text-white"
+        class="ml-1 inline-block h-[14px] w-[14px] rounded-full border border-white/25 align-middle text-center text-[9px] font-bold leading-[14px] text-white/70 transition hover:border-white/40 hover:text-white"
         :aria-label="`Help: ${setting.label}`"
         @mouseenter="(e) => showHelpTooltip(e, setting.description)"
         @focus="(e) => showHelpTooltip(e, setting.description)"
         @mouseleave="hideHelpTooltip"
         @blur="hideHelpTooltip"
-      >
-        ?
-      </button>
+      >?</button>
     </p>
 
     <div :class="isStackedLayout ? 'w-full' : 'shrink-0'">

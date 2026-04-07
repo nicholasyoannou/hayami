@@ -14,7 +14,7 @@
 import type { DiscussionCache } from '@/entrypoints/content/types/data';
 import type { AnimeInfo } from '@/entrypoints/content/types';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
-import { fetchMalForumTopics, fetchJikanForumTopics, pickEpisodeTopic, searchMalAnimeId } from '@/utils/malForums';
+import { fetchMalForumTopics, fetchJikanForumTopics, pickEpisodeTopic, searchMalAnimeId, searchJikanAnimeId } from '@/utils/malForums';
 import { fetchAniListThreads } from '@/utils/anilistForums';
 import { findThreadForAnime } from '@/utils/disqusApi';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
@@ -81,15 +81,14 @@ async function prefetchMal(
     malId = mapperAnimeName ? null : (animeInfo.malId ?? null);
   }
 
-  // MAL's own API first, then AniList fallback
+  // MAL's own API first, then Jikan fallback
   if (!malId) {
     malId = await searchMalAnimeId(resolveAnimeName);
     if (malId) animeInfo.malId = malId;
   }
 
   if (!malId) {
-    const ids = await getCachedAnimeIds(resolveAnimeName);
-    malId = normalizeMalId(ids?.malId);
+    malId = await searchJikanAnimeId(resolveAnimeName);
     if (malId) animeInfo.malId = malId;
   }
 

@@ -86,6 +86,7 @@ export interface RedditComment {
   stickied?: boolean;
   distinguished?: string; // 'moderator', 'admin', etc.
   is_submitter?: boolean;
+  saved?: boolean;
   depth?: number;
   count?: number; // For "more" placeholders
   children?: string[]; // For "more" placeholders
@@ -959,6 +960,35 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1, subredd
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e?.message || 'Vote error' };
+  }
+}
+
+export async function saveThing(fullname: string, unsave = false): Promise<{ success: boolean; error?: string }> {
+  try {
+    const token = await getAccessToken();
+    const endpoint = unsave ? 'unsave' : 'save';
+    const form = new URLSearchParams();
+    form.set('id', fullname);
+
+    if (token) {
+      const resp = await extensionFetch(`https://oauth.reddit.com/api/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `bearer ${token}`,
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        },
+        body: form.toString()
+      } as any);
+      if (!resp.ok) {
+        const text = await resp.text();
+        return { success: false, error: `Save failed: ${resp.status} ${text}` };
+      }
+      return { success: true };
+    }
+
+    return { success: false, error: 'Not authenticated' };
+  } catch (e: any) {
+    return { success: false, error: e?.message || 'Save error' };
   }
 }
 
