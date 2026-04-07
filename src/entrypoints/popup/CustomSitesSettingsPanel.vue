@@ -74,35 +74,35 @@ function triggerCustomMappingsImport() {
         @change="props.onImportMappingsFileChange"
       />
 
-      <div class="hy-section-header">
-        <div class="min-w-0 flex-1">
+      <div class="hy-section-header" style="flex-direction: column; align-items: stretch; gap: 6px;">
+        <div class="flex items-center justify-between">
           <p class="text-sm font-semibold text-white/90">Mapped sites</p>
-          <p class="text-xs text-white/55">Right click a site and choose "Configure site with Hayami" to add or edit a mapping.</p>
+          <div class="flex shrink-0 items-center gap-1.5">
+            <button
+              class="rounded-full bg-cyan-500/15 px-2.5 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/25"
+              @click="triggerCustomMappingsImport"
+            >
+              Import
+            </button>
+            <button
+              class="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-50"
+              @click="props.onExportAllMappings()"
+              :disabled="props.sortedCustomSiteMappings.length === 0"
+              title="Export all custom site mappings"
+            >
+              Export
+            </button>
+            <button
+              class="rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15 disabled:opacity-60"
+              @click="props.onLoadCustomSiteMappings()"
+              :disabled="props.isLoadingCustomSites"
+              title="Refresh"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
-        <div class="flex shrink-0 items-center gap-1.5">
-          <button
-            class="rounded-full bg-cyan-500/15 px-2.5 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/25"
-            @click="triggerCustomMappingsImport"
-          >
-            Import
-          </button>
-          <button
-            class="rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/25 disabled:opacity-50"
-            @click="props.onExportAllMappings()"
-            :disabled="props.sortedCustomSiteMappings.length === 0"
-            title="Export all custom site mappings"
-          >
-            Export
-          </button>
-          <button
-            class="rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15 disabled:opacity-60"
-            @click="props.onLoadCustomSiteMappings()"
-            :disabled="props.isLoadingCustomSites"
-            title="Refresh"
-          >
-            Refresh
-          </button>
-        </div>
+        <p class="text-xs text-white/55">Right click a site and choose "Configure site with Hayami" to add or edit a mapping.</p>
       </div>
 
       <div v-if="props.isLoadingCustomSites" class="px-4 py-3 text-sm text-white/70">Loading custom sites...</div>

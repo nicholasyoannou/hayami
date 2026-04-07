@@ -7,6 +7,7 @@ import type {
   RedditFlairPositionOption,
   RedditDeepReplyModeOption,
   RedditCommentLayoutOption,
+  RedditLinkDomainOption,
 } from './options';
 import type { KomentoScriptPack, KomentoSourceRegistryEntry } from '@/komentoscript';
 
@@ -392,6 +393,12 @@ export const customSitesSyncHistoryItem = storage.defineItem<CustomSitesSyncHist
 export const verboseLoggingItem = storage.defineItem<boolean>(
   'local:verbose_logging',
   { fallback: false }
+);
+
+// Reddit link domain: open hyperlinks on reddit.com or old.reddit.com
+export const redditLinkDomainItem = storage.defineItem<RedditLinkDomainOption>(
+  'local:reddit_link_domain',
+  { fallback: 'reddit' }
 );
 
 export const malSyncEnabledItem = storage.defineItem<boolean>(

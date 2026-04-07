@@ -31,6 +31,7 @@ const props = defineProps<{
   flairPosition?: 'inline' | 'below';
   isRedditConnected?: boolean;
   layout?: 'threaded' | 'traditional' | 'compact' | 'classic';
+  linkDomain?: 'reddit' | 'old';
   compactMode?: boolean;
   profileHoverCard?: boolean;
 
@@ -744,7 +745,7 @@ async function handleLoadMoreChildren() {
 }
 
 function buildRedditCommentUrl(): string | null {
-  const base = 'https://www.reddit.com';
+  const base = props.linkDomain === 'old' ? 'https://old.reddit.com' : 'https://www.reddit.com';
   const commentId = String(props.comment.id || '').replace(/^t1_/, '').trim();
   const permalink = props.comment.permalink;
 
@@ -1196,7 +1197,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           :style="{ '--ri-stickied-icon': `url('${stickiedIconUrl}')` }"
         >
           <span class="ri-stickied-icon" aria-hidden="true"></span>
-          <span class="ri-stickied-label">{{ isClassic ? '- stickied comment' : 'Stickied comment' }}</span>
+          <span class="ri-stickied-label">{{ isClassic ? 'stickied comment' : 'Stickied comment' }}</span>
         </span>
         <span v-if="isClassic" class="ri-classic-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} {{ score === 1 ? 'point' : 'points' }}</span>
         <span v-else-if="props.compactMode" class="ri-compact-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} pts</span>
@@ -1349,6 +1350,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           :flair-position="flairPosition"
           :is-reddit-connected="props.isRedditConnected"
           :layout="props.layout"
+          :link-domain="props.linkDomain"
           :compact-mode="props.compactMode"
           :profile-hover-card="props.profileHoverCard"
           @reply="(c) => emit('reply', c)"

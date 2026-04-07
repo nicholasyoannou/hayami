@@ -12,7 +12,7 @@ import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, providerBadgesEnabledItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, providerBadgesEnabledItem, redditLinkDomainItem } from '@/config/storage';
 import { prefetchProviderData } from '@/utils/providerPrefetch';
 import { con } from '@/utils/logger';
 
@@ -62,6 +62,7 @@ const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
 const redditFlairPosition = ref<'inline' | 'below'>('inline');
 const redditCommentLayout = ref<'threaded' | 'traditional' | 'compact' | 'classic'>('threaded');
+const redditLinkDomain = ref<'reddit' | 'old'>('reddit');
 const redditProfileHoverCard = ref(true);
 const isPostingTopComment = ref(false);
 const linkOnlyMode = ref(false);
@@ -180,7 +181,7 @@ const {
   animeCommunityMedia, malManualMedia,
   manualEpisodeProviderLabel, isAniwaveManualMode, hasAniwaveDubOptions, hasAniwaveSubOptions,
   showAniwaveDubToggle, isAniListEpisodeManualMode, isMalEpisodeManualMode, isEpisodeOnlyManualMode,
-  selectedEpisodeOffset, redditUrl,
+  selectedEpisodeOffset, redditUrl: rawRedditUrl,
   openManualSearchModal, runManualSearch, loadEpisodeOptions,
   openWrongAnimeForm, searchWrongAnime, selectWrongAnime, setManualDialogTab,
   getManualMappingPlatform, refreshManualMappingState, resetCurrentMapping,
@@ -191,6 +192,16 @@ const {
   getAniListPreferredTitle, normalizeAniListMedia, searchAniListMedia, fetchAniListMediaById,
   normalizeMalMedia, searchMalMedia, fetchMalMediaById, buildMalEpisodeOptions, buildAnimeCommunityEpisodeOptions,
 } = manualSearch;
+
+// Apply the user's link domain preference (reddit.com vs old.reddit.com) to the thread URL
+const redditUrl = computed(() => {
+  const url = rawRedditUrl.value;
+  if (!url) return url;
+  if (redditLinkDomain.value === 'old') {
+    return url.replace(/^https?:\/\/(www\.)?reddit\.com/i, 'https://old.reddit.com');
+  }
+  return url;
+});
 
 // Manage the host element state for "no discussion" conditions so we avoid stale UI
 const updateNoDiscussionFlag = () => {
@@ -423,6 +434,15 @@ async function loadCommentLayout() {
   } catch (error) {
     log.warn('Failed to load Reddit comment layout', error);
     redditCommentLayout.value = 'threaded';
+  }
+}
+
+async function loadLinkDomain() {
+  try {
+    const value = await redditLinkDomainItem.getValue();
+    redditLinkDomain.value = value === 'old' ? 'old' : 'reddit';
+  } catch {
+    redditLinkDomain.value = 'reddit';
   }
 }
 
@@ -951,6 +971,7 @@ onMounted(() => {
   void loadFlairVisibility();
   void loadFlairPosition();
   void loadCommentLayout();
+  void loadLinkDomain();
   void loadProfileHoverCard();
   void loadProviderBadges();
   void loadDefaultSort();
@@ -1016,6 +1037,10 @@ onMounted(() => {
       } else {
         redditCommentLayout.value = 'threaded';
       }
+    }
+    if ('reddit_link_domain' in changes) {
+      const newVal = changes.reddit_link_domain.newValue;
+      redditLinkDomain.value = newVal === 'old' ? 'old' : 'reddit';
     }
     if ('reddit_profile_hover_card' in changes) {
       redditProfileHoverCard.value = changes.reddit_profile_hover_card.newValue !== false;
@@ -1533,6 +1558,7 @@ defineExpose({
           :show-flairs="redditShowFlairs"
           :flair-position="redditFlairPosition"
           :layout="redditCommentLayout"
+          :link-domain="redditLinkDomain"
           :profile-hover-card="redditProfileHoverCard"
           :initial-sort="commentSort"
           :search-query="searchQuery"

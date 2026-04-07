@@ -10,6 +10,7 @@ import {
   redditFlairPositionOptions,
   redditDeepReplyModeOptions,
   redditCommentLayoutOptions,
+  redditLinkDomainOptions,
   type CommentProviderOption,
   type DisplayModeOption,
   type RedditEditorMode,
@@ -17,6 +18,7 @@ import {
   type RedditFlairPositionOption,
   type RedditDeepReplyModeOption,
   type RedditCommentLayoutOption,
+  type RedditLinkDomainOption,
 } from '@/config/options';
 import {
   commentsProviderItem,
@@ -48,6 +50,7 @@ import {
   redditTruncateLinesItem,
   redditProfileHoverCardItem,
   redditKeyboardShortcutsItem,
+  redditLinkDomainItem,
   providerBadgesEnabledItem,
   linkOnlyModeItem,
   siteMapperAdvancedModeItem,
@@ -110,6 +113,7 @@ type SettingValueMap = {
   redditCommentLayout: RedditCommentLayoutOption;
   redditProfileHoverCard: boolean;
   redditKeyboardShortcuts: boolean;
+  redditLinkDomain: RedditLinkDomainOption;
   redditTraditionalSpacing: number;
   redditTruncateLines: boolean;
   redditMaxInlineDepth: number;
@@ -466,6 +470,9 @@ const settingDefinitions: SettingDefinition[] = [
         changes.push({ key: 'redditTruncateLines', newValue: false });
         changes.push({ key: 'providerBadgesEnabled', newValue: false });
         changes.push({ key: 'redditProfileHoverCard', newValue: false });
+        changes.push({ key: 'redditLinkDomain', newValue: 'old' });
+      } else if (value === 'classic') {
+        changes.push({ key: 'redditLinkDomain', newValue: 'old' });
       }
 
       for (const { key, newValue } of changes) {
@@ -620,6 +627,23 @@ const settingDefinitions: SettingDefinition[] = [
     save: async (value) => redditKeyboardShortcutsItem.setValue(Boolean(value)),
     successMessage: (value) => (value ? 'Keyboard shortcuts enabled' : 'Keyboard shortcuts disabled'),
     errorMessage: 'Failed to save keyboard shortcuts setting',
+  },
+  {
+    key: 'redditLinkDomain',
+    type: 'select',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Open links on',
+    description: 'Choose whether permalink and comment links open on reddit.com or old.reddit.com.',
+    options: redditLinkDomainOptions,
+    fallback: 'reddit',
+    load: async () => {
+      const value = await redditLinkDomainItem.getValue();
+      return value === 'old' ? 'old' : 'reddit';
+    },
+    save: async (value) => redditLinkDomainItem.setValue(value === 'old' ? 'old' : 'reddit'),
+    successMessage: (value) => (value === 'old' ? 'Links open on old.reddit.com' : 'Links open on reddit.com'),
+    errorMessage: 'Failed to save link domain',
   },
   {
     key: 'aniwaveAutoExpandAll',

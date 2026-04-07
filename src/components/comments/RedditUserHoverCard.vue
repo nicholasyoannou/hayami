@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { getUserProfile, type RedditUserProfile } from '@/utils/redditApi';
+import { redditLinkDomainItem } from '@/config/storage';
 
 const props = defineProps<{
   username: string;
@@ -16,6 +17,11 @@ const emit = defineEmits<{
 const profile = ref<RedditUserProfile | null>(null);
 const loading = ref(true);
 const error = ref(false);
+const linkDomain = ref<'reddit' | 'old'>('reddit');
+
+const userProfileBase = computed(() =>
+  linkDomain.value === 'old' ? 'https://old.reddit.com' : 'https://www.reddit.com'
+);
 
 const accountAge = computed(() => {
   if (!profile.value?.createdUtc) return '';
@@ -37,7 +43,12 @@ const formattedKarma = (n: number) => {
 
 onMounted(async () => {
   try {
-    profile.value = await getUserProfile(props.username);
+    const [profileResult, domain] = await Promise.all([
+      getUserProfile(props.username),
+      redditLinkDomainItem.getValue(),
+    ]);
+    profile.value = profileResult;
+    linkDomain.value = domain === 'old' ? 'old' : 'reddit';
     if (!profile.value) error.value = true;
   } catch {
     error.value = true;
@@ -95,7 +106,7 @@ onMounted(async () => {
           <div class="ri-hover-card__name-group">
             <a
               class="ri-hover-card__username"
-              :href="`https://www.reddit.com/user/${profile.username}`"
+              :href="`${userProfileBase}/user/${profile.username}`"
               target="_blank"
               rel="noopener noreferrer"
             >

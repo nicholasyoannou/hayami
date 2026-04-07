@@ -27,6 +27,7 @@ const props = defineProps<{
   flairPosition?: 'inline' | 'below';
   isRedditConnected?: boolean;
   layout?: 'threaded' | 'traditional' | 'compact' | 'classic';
+  linkDomain?: 'reddit' | 'old';
   profileHoverCard?: boolean;
 }>();
 
@@ -730,6 +731,7 @@ defineExpose({
         :flair-position="flairPosition"
         :is-reddit-connected="props.isRedditConnected"
         :layout="effectiveLayout"
+        :link-domain="props.linkDomain"
         :compact-mode="effectiveCompactMode"
         :profile-hover-card="effectiveProfileHoverCard"
         @reply="handleReply"
@@ -800,6 +802,7 @@ defineExpose({
             :flair-position="flairPosition"
             :is-reddit-connected="props.isRedditConnected"
             :layout="effectiveLayout"
+            :link-domain="props.linkDomain"
             :compact-mode="effectiveCompactMode"
             @reply="handleReply"
             @collapse="handleCollapse"

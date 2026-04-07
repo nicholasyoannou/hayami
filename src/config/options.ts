@@ -59,3 +59,10 @@ export const redditCommentLayoutOptions = [
 ] as const;
 
 export type RedditCommentLayoutOption = (typeof redditCommentLayoutOptions)[number]['value'];
+
+export const redditLinkDomainOptions = [
+  { value: 'reddit', label: 'reddit.com' },
+  { value: 'old', label: 'old.reddit.com' },
+] as const;
+
+export type RedditLinkDomainOption = (typeof redditLinkDomainOptions)[number]['value'];
