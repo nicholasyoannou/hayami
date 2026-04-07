@@ -34,6 +34,8 @@ type Props = {
   onSettingValueUpdate: (key: string, value: any) => void;
   formatSliderValue: (setting: SettingDefinition, value: any) => string;
   getSettingOptions: (setting: SettingDefinition) => ReadonlyArray<OptionEntry>;
+  isSettingVisible?: (setting: SettingDefinition) => boolean;
+  isSettingDisabled?: (setting: SettingDefinition) => boolean;
 };
 
 const props = defineProps<Props>();
@@ -59,11 +61,19 @@ watch(selectedProvider, () => {
 const activeProviderSection = computed(() => providerSections.value.find((p) => p.id === selectedProvider.value));
 
 const activeProviderPrimarySettings = computed(() =>
-  (activeProviderSection.value?.settings || []).filter((s) => !s.advanced),
+  (activeProviderSection.value?.settings || []).filter((s) => {
+    if (s.advanced) return false;
+    if (props.isSettingVisible && !props.isSettingVisible(s)) return false;
+    return true;
+  }),
 );
 
 const activeProviderAdvancedSettings = computed(() =>
-  (activeProviderSection.value?.settings || []).filter((s) => Boolean(s.advanced)),
+  (activeProviderSection.value?.settings || []).filter((s) => {
+    if (!s.advanced) return false;
+    if (props.isSettingVisible && !props.isSettingVisible(s)) return false;
+    return true;
+  }),
 );
 </script>
 
@@ -121,6 +131,7 @@ const activeProviderAdvancedSettings = computed(() =>
             :setting="setting"
             :model-value="settingValues[setting.key]"
             :options="getSettingOptions(setting)"
+            :disabled="isSettingDisabled?.(setting)"
             variant="primary"
             padding="compact"
             :formatted-slider-value="formatSliderValue(setting, settingValues[setting.key])"

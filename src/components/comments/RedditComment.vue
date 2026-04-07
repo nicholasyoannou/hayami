@@ -2,7 +2,7 @@
 import { ref, computed, inject, onMounted, onUnmounted, onUpdated, nextTick, watch, type Ref } from 'vue';
 import { voteThing, saveThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
 import RedditUserHoverCard from './RedditUserHoverCard.vue';
-import { markdownToHtml } from '@/utils/markdown';
+import { markdownToHtml, processRedditBodyHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
 import { applyCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
@@ -59,6 +59,7 @@ const isVoting = ref(false);
 const showReplies = ref(false);
 const localReplies = ref<RedditComment[]>(props.comment.replies || []);
 const localBody = ref(props.comment.body);
+const localBodyHtml = ref(props.comment.body_html || '');
 const localEdited = ref(props.comment.edited);
 const shareLabel = ref('Share');
 const isShareCopied = ref(false);
@@ -147,6 +148,7 @@ watch(() => props.comment.replies, (newReplies) => {
 }, { deep: true });
 
 watch(() => props.comment.body, (b) => { localBody.value = b; });
+watch(() => props.comment.body_html, (h) => { localBodyHtml.value = h || ''; });
 watch(() => props.comment.edited, (e) => { localEdited.value = e; });
 
 const isDisabled = computed(() => props.isArchived || props.isLocked || props.comment.author === '[deleted]' || isDeleted.value);
@@ -252,7 +254,17 @@ const bodyHtml = computed(() => {
   if (!raw || raw === '[deleted]' || raw === '[removed]') {
     return `<em>${escapeHtml(raw || '[deleted]')}</em>`;
   }
-  let html = markdownToHtml(raw);
+
+  // Prefer Reddit's pre-rendered body_html when available — it produces
+  // correct <ul>/<li>/<p> structure for bullet lists and preserves
+  // comment-face anchors with text content (e.g. [text](#face)).
+  let html: string;
+  if (localBodyHtml.value) {
+    html = processRedditBodyHtml(localBodyHtml.value);
+  } else {
+    html = markdownToHtml(raw);
+  }
+
   // In compact mode, render Reddit image links as inline images
   if (props.compactMode) {
     html = inlineRedditImageLinks(html);
@@ -821,8 +833,12 @@ function handleUsernameMouseEnter(ev: MouseEvent) {
   if (props.comment.author === '[deleted]') return;
   // Cancel any pending close
   if (hoverCloseTimer) { clearTimeout(hoverCloseTimer); hoverCloseTimer = null; }
+  // Capture the element ref immediately — getBoundingClientRect() must be
+  // called when the timer fires (not at event time) so it reflects the
+  // element's *current* viewport position after any scrolling.
+  const target = ev.currentTarget as HTMLElement;
   hoverTimer = setTimeout(() => {
-    const rect = (ev.target as HTMLElement).getBoundingClientRect();
+    const rect = target.getBoundingClientRect();
     const cardHeight = 220;
     let y = rect.bottom + 6;
     if (y + cardHeight > window.innerHeight) {
@@ -938,6 +954,7 @@ async function handleSaveEdit() {
       return;
     }
     localBody.value = trimmed;
+    localBodyHtml.value = ''; // Clear stale pre-rendered HTML; will re-render via Snudown
     localEdited.value = Math.floor(Date.now() / 1000);
     isEditing.value = false;
     toast.success('Comment updated');

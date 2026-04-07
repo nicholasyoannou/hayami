@@ -29,6 +29,7 @@ const props = defineProps<{
   layout?: 'threaded' | 'traditional' | 'compact' | 'classic';
   linkDomain?: 'reddit' | 'old';
   profileHoverCard?: boolean;
+  commentFacesEnabled?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -215,8 +216,9 @@ const sharedCommentFaces = ref<CommentFaceMap>(new Map());
 provide('commentFaces', sharedCommentFaces);
 
 // Fetch comment faces for the subreddit eagerly (cached, only one request per sub)
+// Only when the "Emoticons support" setting is enabled.
 onMounted(async () => {
-  if (props.subreddit) {
+  if (props.subreddit && props.commentFacesEnabled !== false) {
     try {
       const faces = await getCommentFaces(props.subreddit);
       if (faces.size > 0) {

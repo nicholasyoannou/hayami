@@ -50,6 +50,7 @@ import {
   redditTruncateLinesItem,
   redditProfileHoverCardItem,
   redditKeyboardShortcutsItem,
+  redditCommentFacesItem,
   redditLinkDomainItem,
   providerBadgesEnabledItem,
   linkOnlyModeItem,
@@ -113,6 +114,7 @@ type SettingValueMap = {
   redditCommentLayout: RedditCommentLayoutOption;
   redditProfileHoverCard: boolean;
   redditKeyboardShortcuts: boolean;
+  redditCommentFaces: boolean;
   redditLinkDomain: RedditLinkDomainOption;
   redditTraditionalSpacing: number;
   redditTruncateLines: boolean;
@@ -464,15 +466,21 @@ const settingDefinitions: SettingDefinition[] = [
 
       if (value === 'threaded') {
         changes.push({ key: 'redditTruncateLines', newValue: false });
+        changes.push({ key: 'redditProfileHoverCard', newValue: true });
+        changes.push({ key: 'redditCommentFaces', newValue: false });
       } else if (value === 'traditional') {
         changes.push({ key: 'redditTruncateLines', newValue: true });
+        changes.push({ key: 'redditProfileHoverCard', newValue: true });
+        changes.push({ key: 'redditCommentFaces', newValue: false });
       } else if (value === 'compact') {
         changes.push({ key: 'redditTruncateLines', newValue: false });
         changes.push({ key: 'providerBadgesEnabled', newValue: false });
         changes.push({ key: 'redditProfileHoverCard', newValue: false });
         changes.push({ key: 'redditLinkDomain', newValue: 'old' });
+        changes.push({ key: 'redditCommentFaces', newValue: true });
       } else if (value === 'classic') {
         changes.push({ key: 'redditLinkDomain', newValue: 'old' });
+        changes.push({ key: 'redditCommentFaces', newValue: true });
       }
 
       for (const { key, newValue } of changes) {
@@ -627,6 +635,19 @@ const settingDefinitions: SettingDefinition[] = [
     save: async (value) => redditKeyboardShortcutsItem.setValue(Boolean(value)),
     successMessage: (value) => (value ? 'Keyboard shortcuts enabled' : 'Keyboard shortcuts disabled'),
     errorMessage: 'Failed to save keyboard shortcuts setting',
+  },
+  {
+    key: 'redditCommentFaces',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Emoticons support',
+    description: 'Show subreddit comment face sprites (e.g. [](#hikariactually)) as inline images.',
+    fallback: false,
+    load: async () => (await redditCommentFacesItem.getValue()) === true,
+    save: async (value) => redditCommentFacesItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Emoticons enabled' : 'Emoticons disabled'),
+    errorMessage: 'Failed to save emoticons setting',
   },
   {
     key: 'redditLinkDomain',
@@ -798,6 +819,7 @@ const settingValues = reactive<SettingValueMap>({
   redditCommentLayout: 'traditional',
   redditProfileHoverCard: true,
   redditKeyboardShortcuts: false,
+  redditCommentFaces: false,
   redditTraditionalSpacing: 3,
   redditTruncateLines: true,
   redditMaxInlineDepth: 7,
@@ -1927,6 +1949,8 @@ function handleRemoveCustomSite(site: any) {
                   :on-setting-value-update="(key, v) => { (settingValues as any)[key] = v }"
                   :format-slider-value="formatSliderValue"
                   :get-setting-options="getSettingOptions"
+                  :is-setting-visible="isSettingVisible"
+                  :is-setting-disabled="isSettingDisabled"
                 />
               </template>
               </div>

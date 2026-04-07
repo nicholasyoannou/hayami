@@ -1114,6 +1114,12 @@
   max-width: 100%;
 }
 
+/* Compact/classic: slightly smaller face emotes to match tighter layout */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-comment-face {
+  display: inline-block !important;
+  vertical-align: middle;
+}
+
 /* Constrain inline images in comment text (NOT flair emojis) */
 .ri-text img:not(.ri-flair-emoji),
 #reddit-inline-discussion .ri-text img:not(.ri-flair-emoji),

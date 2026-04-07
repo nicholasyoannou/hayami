@@ -395,6 +395,12 @@ export const verboseLoggingItem = storage.defineItem<boolean>(
   { fallback: false }
 );
 
+// Comment faces / emoticons support (subreddit CSS sprites like [](#hikariactually))
+export const redditCommentFacesItem = storage.defineItem<boolean>(
+  'local:reddit_comment_faces',
+  { fallback: false }
+);
+
 // Reddit link domain: open hyperlinks on reddit.com or old.reddit.com
 export const redditLinkDomainItem = storage.defineItem<RedditLinkDomainOption>(
   'local:reddit_link_domain',

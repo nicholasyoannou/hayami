@@ -134,3 +134,82 @@ export function markdownToHtml(text: string): string {
 
   return html;
 }
+
+/**
+ * Process Reddit's pre-rendered `body_html` field into ready-to-display HTML.
+ *
+ * Reddit's API returns `body_html` as HTML-entity-encoded HTML.  We decode the
+ * entities, strip the wrapping `<!-- SC_OFF --><div class="md">…</div><!-- SC_ON -->`,
+ * and apply the same link / image post-processing that `markdownToHtml()` does.
+ *
+ * Prefer this over `markdownToHtml()` because Reddit's own renderer produces
+ * the correct `<ul><li><p>` structure for bullet lists, proper paragraph breaks,
+ * and correctly preserves comment-face anchors (including those with text like
+ * `<a href="#faito">Ganbare, Stark!</a>`).
+ */
+export function processRedditBodyHtml(bodyHtml: string): string {
+  // 1. Decode HTML entities
+  let html = bodyHtml
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+
+  // 2. Strip wrapping SC_OFF / SC_ON comments and <div class="md">
+  html = html
+    .replace(/<!--\s*SC_OFF\s*-->/gi, '')
+    .replace(/<!--\s*SC_ON\s*-->/gi, '')
+    .replace(/^\s*<div\s+class=["']md["']\s*>/i, '')
+    .replace(/<\/div>\s*$/i, '');
+
+  // 3. Ensure spoiler spans have the md-spoiler-text class our CSS targets
+  html = html.replace(/<span([^>]*class=["']([^"']*)["'][^>]*)>/gi, (match: string, _attrs: string, classes: string) => {
+    if (/(?:^|\s)(?:md-)?spoiler/i.test(classes) && !/md-spoiler-text/i.test(classes)) {
+      return match.replace(/class=["']([^"']*)["']/, `class="$1 md-spoiler-text"`);
+    }
+    return match;
+  });
+
+  // 4. Process links — make relative URLs absolute and add target="_blank"
+  html = html.replace(/<a\s+([^>]*href=["']([^"']+)["'][^>]*)>/gi, (match: string, attrs: string, url: string) => {
+    if (/target=/i.test(attrs)) return match;
+    // Skip fragment-only links (comment face anchors)
+    if (url.startsWith('#')) return match;
+
+    const href = url.startsWith('http://') || url.startsWith('https://')
+      ? url
+      : `https://www.reddit.com${url.startsWith('/') ? url : '/' + url}`;
+
+    return `<a ${attrs.replace(/href=["'][^"']+["']/, `href="${href}"`)} target="_blank" rel="noopener noreferrer">`;
+  });
+
+  // 4. Imgur delivery mode (same logic as markdownToHtml)
+  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' => {
+    try {
+      const raw = sessionStorage.getItem('ri-imgur-ods');
+      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'swisscows' || raw === 'imgur') return raw;
+    } catch {}
+    return 'imgur';
+  })();
+
+  html = html.replace(/<img\s+([^>]*src=["']([^"']+)["'][^>]*)>/gi, (match: string, attrs: string, url: string) => {
+    if (/^https?:\/\/i\.imgur\.com\//i.test(url)) {
+      let transformedUrl = url;
+      if (imgurOds === 'duckduckgo') {
+        transformedUrl = `https://external-content.duckduckgo.com/iu/?u=${encodeURIComponent(url)}`;
+      } else if (imgurOds === 'flyimg') {
+        transformedUrl = `https://demo.flyimg.io/upload/q_100/${url}`;
+      } else if (imgurOds === 'swisscows') {
+        transformedUrl = `https://cdn.swisscows.com/image?url=${encodeURIComponent(url)}`;
+      }
+      return `<img ${attrs.replace(/src=["'][^"']+["']/, `src="${transformedUrl}"`)} loading="lazy" />`;
+    }
+    if (!/loading=/i.test(attrs)) {
+      return `<img ${attrs} loading="lazy" />`;
+    }
+    return match;
+  });
+
+  return html.trim();
+}

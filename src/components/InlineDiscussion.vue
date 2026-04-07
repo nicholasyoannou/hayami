@@ -12,7 +12,7 @@ import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, providerBadgesEnabledItem, redditLinkDomainItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, redditCommentFacesItem, providerBadgesEnabledItem, redditLinkDomainItem } from '@/config/storage';
 import { prefetchProviderData } from '@/utils/providerPrefetch';
 import { con } from '@/utils/logger';
 
@@ -64,6 +64,7 @@ const redditFlairPosition = ref<'inline' | 'below'>('inline');
 const redditCommentLayout = ref<'threaded' | 'traditional' | 'compact' | 'classic'>('threaded');
 const redditLinkDomain = ref<'reddit' | 'old'>('reddit');
 const redditProfileHoverCard = ref(true);
+const redditCommentFaces = ref(false);
 const isPostingTopComment = ref(false);
 const linkOnlyMode = ref(false);
 const providerBadgesEnabled = ref(false);
@@ -451,6 +452,14 @@ async function loadProfileHoverCard() {
     redditProfileHoverCard.value = (await redditProfileHoverCardItem.getValue()) !== false;
   } catch {
     redditProfileHoverCard.value = true;
+  }
+}
+
+async function loadCommentFaces() {
+  try {
+    redditCommentFaces.value = (await redditCommentFacesItem.getValue()) === true;
+  } catch {
+    redditCommentFaces.value = false;
   }
 }
 
@@ -973,6 +982,7 @@ onMounted(() => {
   void loadCommentLayout();
   void loadLinkDomain();
   void loadProfileHoverCard();
+  void loadCommentFaces();
   void loadProviderBadges();
   void loadDefaultSort();
   void initializeRedditUiAuthGate();
@@ -1044,6 +1054,9 @@ onMounted(() => {
     }
     if ('reddit_profile_hover_card' in changes) {
       redditProfileHoverCard.value = changes.reddit_profile_hover_card.newValue !== false;
+    }
+    if ('reddit_comment_faces' in changes) {
+      redditCommentFaces.value = changes.reddit_comment_faces.newValue === true;
     }
     if ('provider_badges_enabled' in changes) {
       providerBadgesEnabled.value = changes.provider_badges_enabled.newValue === true;
@@ -1560,6 +1573,7 @@ defineExpose({
           :layout="redditCommentLayout"
           :link-domain="redditLinkDomain"
           :profile-hover-card="redditProfileHoverCard"
+          :comment-faces-enabled="redditCommentFaces"
           :initial-sort="commentSort"
           :search-query="searchQuery"
           :empty-message="redditEmptyMessage"

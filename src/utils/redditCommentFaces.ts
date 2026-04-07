@@ -326,20 +326,29 @@ export function applyCommentFaces(html: string, faces: Map<string, CommentFace>)
   // Track animated faces used in this HTML so we can inject their @keyframes
   const usedAnimations = new Set<string>();
 
-  // Match empty anchors with fragment-only hrefs: <a href="#name"></a>
-  // Also match anchors that only contain whitespace
+  // Match anchors with fragment-only hrefs: <a href="#name">optional text</a>
+  // Handles both empty anchors ([](#face)) and text-bearing anchors ([text](#face))
   const replaced = html.replace(
-    /<a\s+[^>]*href=["']#([a-zA-Z0-9_-]+)["'][^>]*>(\s*)<\/a>/gi,
-    (fullMatch, name: string, _inner: string) => {
+    /<a\s+[^>]*href=["']#([a-zA-Z0-9_-]+)["'][^>]*>([\s\S]*?)<\/a>/gi,
+    (fullMatch, name: string, innerText: string) => {
       const faceName = name.toLowerCase();
       const face = faces.get(faceName);
       if (!face) return fullMatch; // Not a known face, leave as-is
+
+      // If inner text contains HTML tags (e.g. nested elements), this is
+      // likely a real link, not a comment face — leave it alone.
+      const trimmed = innerText.trim();
+      if (trimmed && /<[^>]+>/.test(trimmed)) return fullMatch;
 
       // Track if this face has hover animation
       if (face.hoverAnimation) usedAnimations.add(faceName);
 
       // Unique class for animated faces so the <style> block can target them
       const animClass = face.hoverAnimation ? ` ri-face-${faceName}` : '';
+
+      // Use inner text (if any) as title tooltip; fall back to face name
+      const label = trimmed || name;
+      const titleAttr = trimmed ? ` title="${trimmed.replace(/"/g, '&quot;')}"` : '';
 
       // Clamp dimensions to reasonable maximums for inline display.
       // Use CSS transform to scale rather than background-size, because
@@ -353,10 +362,10 @@ export function applyCommentFaces(html: string, faces: Map<string, CommentFace>)
         // the sprite at native size and CSS-transforms it down.
         const w = Math.round(face.width * scale);
         const h = Math.round(face.height * scale);
-        return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${w}px;height:${h}px;overflow:hidden;vertical-align:middle;" aria-label="${name} emote"><span class="ri-face-inner" style="display:block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};transform:scale(${scale.toFixed(4)});transform-origin:top left;"></span></span>`;
+        return `<span class="ri-comment-face${animClass}"${titleAttr} style="display:inline-block;width:${w}px;height:${h}px;overflow:hidden;vertical-align:middle;" aria-label="${label} emote"><span class="ri-face-inner" style="display:block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};transform:scale(${scale.toFixed(4)});transform-origin:top left;"></span></span>`;
       }
 
-      return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};overflow:hidden;vertical-align:middle;" aria-label="${name} emote"></span>`;
+      return `<span class="ri-comment-face${animClass}"${titleAttr} style="display:inline-block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};overflow:hidden;vertical-align:middle;" aria-label="${label} emote"></span>`;
     },
   );
 
