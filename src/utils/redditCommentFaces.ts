@@ -23,6 +23,13 @@ interface CommentFace {
   backgroundPosition: string;
   width: number;
   height: number;
+  /** Hover-triggered CSS animation (e.g. animated emotes like azusalaugh) */
+  hoverAnimation?: {
+    /** animation shorthand with namespaced keyframe name */
+    css: string;
+    /** Full @keyframes block */
+    keyframesCss: string;
+  };
 }
 
 /** Public type alias */
@@ -178,20 +185,77 @@ function parseCommentFacesFromCSS(css: string): Map<string, CommentFace> {
     }
   }
 
-  // Build final face map - only include faces with at least a sprite URL and dimensions
-  for (const [name, props] of faceProps) {
-    if (props.spriteUrl && props.width && props.height) {
-      faces.set(name, {
-        name,
-        spriteUrl: props.spriteUrl,
-        backgroundPosition: props.backgroundPosition || '0px 0px',
-        width: props.width,
-        height: props.height,
-      });
+  // ── Parse @keyframes definitions ──
+  // @keyframes have nested braces, so our simple ruleRegex won't capture them.
+  // Use a dedicated regex that handles one level of nesting.
+  const keyframesMap = new Map<string, string>(); // original name → body
+  const kfRegex = /@keyframes\s+([a-zA-Z0-9_-]+)\s*\{((?:[^{}]*\{[^{}]*\})*[^{}]*)\}/g;
+  let kfMatch: RegExpExecArray | null;
+  while ((kfMatch = kfRegex.exec(cleanCss)) !== null) {
+    keyframesMap.set(kfMatch[1], kfMatch[2].trim());
+  }
+
+  // ── Parse :hover animation rules for faces ──
+  // e.g.: .md [href="#azusalaugh"i]:hover { animation: a 2.3s steps(23) infinite }
+  const hoverAnims = new Map<string, string>(); // face name → animation shorthand
+  const hoverRuleRegex = /([^{}]+:hover[^{}]*)\{([^{}]+)\}/g;
+  let hoverMatch: RegExpExecArray | null;
+  while ((hoverMatch = hoverRuleRegex.exec(cleanCss)) !== null) {
+    const selector = hoverMatch[1];
+    const decls = hoverMatch[2];
+
+    const hrefInSelector = [...selector.matchAll(/\[href=["']#([a-zA-Z0-9_-]+)["'](?:i)?\]/gi)];
+    if (hrefInSelector.length === 0) continue;
+
+    const animValue = extractCssValue(decls, 'animation');
+    if (!animValue) continue;
+
+    for (const hm of hrefInSelector) {
+      hoverAnims.set(hm[1].toLowerCase(), animValue.replace(/!important/gi, '').trim());
     }
   }
 
-  log.debug(`Parsed ${faces.size} comment faces`);
+  // Build final face map - only include faces with at least a sprite URL and dimensions
+  for (const [name, props] of faceProps) {
+    if (props.spriteUrl && props.width && props.height) {
+      // Old Reddit uses `background-repeat: repeat` (the CSS default) with the
+      // position values exactly as stored. The tiling/modular arithmetic makes
+      // positive offsets like `3688px` show the correct sprite frame. We keep
+      // the positions as-is and use `repeat` in the rendered HTML to match.
+      const bgPos = props.backgroundPosition || '0px 0px';
+      const face: CommentFace = {
+        name,
+        spriteUrl: props.spriteUrl,
+        backgroundPosition: bgPos,
+        width: props.width,
+        height: props.height,
+      };
+
+      // Attach hover animation if present
+      const animShorthand = hoverAnims.get(name);
+      if (animShorthand) {
+        // Extract the keyframes name from the animation shorthand (first word)
+        const animParts = animShorthand.split(/\s+/);
+        const origKfName = animParts[0];
+        const kfBody = keyframesMap.get(origKfName);
+
+        if (kfBody) {
+          // Namespace the keyframe to avoid collisions: ri-face-<name>
+          const nsKfName = `ri-face-${name}`;
+          const nsAnimShorthand = [nsKfName, ...animParts.slice(1)].join(' ');
+
+          face.hoverAnimation = {
+            css: nsAnimShorthand,
+            keyframesCss: `@keyframes ${nsKfName}{${kfBody}}`,
+          };
+        }
+      }
+
+      faces.set(name, face);
+    }
+  }
+
+  log.debug(`Parsed ${faces.size} comment faces (${hoverAnims.size} animated)`);
   return faces;
 }
 
@@ -227,10 +291,21 @@ function extractBackgroundPosition(declarations: string): string | null {
 }
 
 function extractBackgroundShorthandPosition(declarations: string): string | null {
-  // Try to extract position from shorthand: background: url(...) <position>
-  const m = declarations.match(/(?:^|;)\s*background\s*:\s*[^;]*url\([^)]+\)\s+(-?\d+[a-z%]*(?:\s+-?\d+[a-z%]*)?)/i);
-  return m ? m[1].trim() : null;
+  // Extract position from background shorthand.
+  // CSS shorthand can have various orders, e.g.:
+  //   background: url(...) 0 -7597px no-repeat
+  //   background: url(...) no-repeat 0 -7597px
+  //   background: url(...) no-repeat scroll 0 -7597px
+  // We look for a pair of numeric values (with optional px/%) anywhere after url().
+  const bgMatch = declarations.match(/(?:^|;)\s*background\s*:\s*([^;]+)/i);
+  if (!bgMatch) return null;
+  const afterBg = bgMatch[1];
+  // Find pairs of numeric values like "0 -7597px" or "-144px -232px"
+  const posMatch = afterBg.match(/(-?\d+(?:\.\d+)?(?:px|%)?)\s+(-?\d+(?:\.\d+)?(?:px|%)?)(?:\s|;|$|!)/);
+  if (posMatch) return `${posMatch[1]} ${posMatch[2]}`;
+  return null;
 }
+
 
 function normalizeUrl(url: string): string {
   // Ensure protocol
@@ -248,25 +323,56 @@ function normalizeUrl(url: string): string {
 export function applyCommentFaces(html: string, faces: Map<string, CommentFace>): string {
   if (faces.size === 0) return html;
 
+  // Track animated faces used in this HTML so we can inject their @keyframes
+  const usedAnimations = new Set<string>();
+
   // Match empty anchors with fragment-only hrefs: <a href="#name"></a>
   // Also match anchors that only contain whitespace
-  return html.replace(
+  const replaced = html.replace(
     /<a\s+[^>]*href=["']#([a-zA-Z0-9_-]+)["'][^>]*>(\s*)<\/a>/gi,
     (fullMatch, name: string, _inner: string) => {
-      const face = faces.get(name.toLowerCase());
+      const faceName = name.toLowerCase();
+      const face = faces.get(faceName);
       if (!face) return fullMatch; // Not a known face, leave as-is
 
-      // Clamp dimensions to reasonable maximums for inline display
+      // Track if this face has hover animation
+      if (face.hoverAnimation) usedAnimations.add(faceName);
+
+      // Unique class for animated faces so the <style> block can target them
+      const animClass = face.hoverAnimation ? ` ri-face-${faceName}` : '';
+
+      // Clamp dimensions to reasonable maximums for inline display.
+      // Use CSS transform to scale rather than background-size, because
+      // background-size: auto Npx compresses the ENTIRE sprite sheet and
+      // breaks vertical-strip sprites (like animated emotes).
       const maxH = 120;
       const scale = face.height > maxH ? maxH / face.height : 1;
-      const w = Math.round(face.width * scale);
-      const h = Math.round(face.height * scale);
 
-      const bgSize = scale !== 1
-        ? `background-size: auto ${h}px;`
-        : '';
+      if (scale !== 1) {
+        // Outer span handles layout (takes scaled space), inner span renders
+        // the sprite at native size and CSS-transforms it down.
+        const w = Math.round(face.width * scale);
+        const h = Math.round(face.height * scale);
+        return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${w}px;height:${h}px;overflow:hidden;vertical-align:middle;" title=":${name}:" aria-label="${name} emote"><span class="ri-face-inner" style="display:block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};transform:scale(${scale.toFixed(4)});transform-origin:top left;"></span></span>`;
+      }
 
-      return `<span class="ri-comment-face" style="display:inline-block;width:${w}px;height:${h}px;background:url('${face.spriteUrl}') ${face.backgroundPosition} no-repeat;${bgSize}overflow:hidden;vertical-align:middle;" title=":${name}:" aria-label="${name} emote"></span>`;
+      return `<span class="ri-comment-face${animClass}" style="display:inline-block;width:${face.width}px;height:${face.height}px;background:url('${face.spriteUrl}') ${face.backgroundPosition};overflow:hidden;vertical-align:middle;" title=":${name}:" aria-label="${name} emote"></span>`;
     },
   );
+
+  // Inject <style> with @keyframes and :hover rules for animated faces
+  if (usedAnimations.size > 0) {
+    let styleBlock = '';
+    for (const faceName of usedAnimations) {
+      const face = faces.get(faceName);
+      if (!face?.hoverAnimation) continue;
+
+      styleBlock += face.hoverAnimation.keyframesCss;
+      // Target both direct background (no scale) and inner span (scaled)
+      styleBlock += `.ri-face-${faceName}:hover,.ri-face-${faceName}:hover .ri-face-inner{animation:${face.hoverAnimation.css};}`;
+    }
+    return `<style>${styleBlock}</style>${replaced}`;
+  }
+
+  return replaced;
 }

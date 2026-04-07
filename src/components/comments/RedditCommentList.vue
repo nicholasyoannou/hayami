@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
 import RedditComment from './RedditComment.vue';
-import { getPostComments, getMoreChildren, getSubredditModeratorSet, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
+import { getPostComments, getMoreChildren, getSubredditModeratorSet, voteThing, saveThing, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
 import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem, redditProfileHoverCardItem } from '@/config/storage';
+import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
 import { getCurrentUsername } from '@/utils/redditAuth';
+import { getCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
 import { con } from '@/utils/logger';
 
 const log = con.m('RedditComments');
@@ -162,6 +164,68 @@ const textSizeStyles = computed(() => ({
   '--ri-comment-text-size-increase': `${effectiveTextSizeIncrease.value}px`,
   '--trad-spacing': String(traditionalSpacing.value),
 }));
+
+const commentListRef = ref<HTMLElement | null>(null);
+
+// RES-style keyboard shortcuts
+const { selectedCommentId } = useKeyboardShortcuts(
+  commentListRef,
+  effectiveLayout,
+  {
+    onVote(commentId, direction) {
+      const el = commentListRef.value?.querySelector(
+        `.ri-comment[data-comment-id="${commentId}"] .${direction === 'up' ? 'ri-upvote' : 'ri-downvote'}, .ri-comment[data-comment-id="${commentId}"] .${direction === 'up' ? 'ri-classic-upvote' : 'ri-classic-downvote'}`,
+      ) as HTMLElement | null;
+      el?.click();
+    },
+    onCollapse(commentId) {
+      const el = commentListRef.value?.querySelector(
+        `.ri-comment[data-comment-id="${commentId}"] .ri-compact-toggle, .ri-comment[data-comment-id="${commentId}"] > .ri-classic-toggle`,
+      ) as HTMLElement | null;
+      el?.click();
+    },
+    onReply(commentId) {
+      const comment = findCommentById(comments.value, commentId);
+      if (comment) emit('reply', comment);
+    },
+    onSave(commentId) {
+      const el = commentListRef.value?.querySelector(
+        `.ri-comment[data-comment-id="${commentId}"] .ri-save-btn, .ri-comment[data-comment-id="${commentId}"] .ri-classic-link[data-action="save"]`,
+      ) as HTMLElement | null;
+      if (el) {
+        el.click();
+      } else {
+        // Fallback: call saveThing directly
+        const comment = findCommentById(comments.value, commentId);
+        if (comment) {
+          const fullname = `t1_${comment.id}`;
+          saveThing(fullname, !comment.saved).catch(() => {});
+        }
+      }
+    },
+  },
+);
+
+// Provide selected comment ID to all descendant RedditComment instances
+provide('keyboardSelectedId', selectedCommentId);
+
+// Shared comment faces map: fetched once per subreddit, provided to all comments
+const sharedCommentFaces = ref<CommentFaceMap>(new Map());
+provide('commentFaces', sharedCommentFaces);
+
+// Fetch comment faces for the subreddit eagerly (cached, only one request per sub)
+onMounted(async () => {
+  if (props.subreddit) {
+    try {
+      const faces = await getCommentFaces(props.subreddit);
+      if (faces.size > 0) {
+        sharedCommentFaces.value = faces;
+      }
+    } catch {
+      // Silently ignore — comment faces are optional
+    }
+  }
+});
 
 const deepViewRoot = ref<RedditCommentData | null>(null);
 
@@ -618,7 +682,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="ri-comment-list" :class="{ 'truncate-lines': truncateLines, 'ri-compact-list': effectiveCompactMode, 'ri-classic-list': effectiveLayout === 'classic' }" :style="textSizeStyles">
+  <div ref="commentListRef" class="ri-comment-list" :class="{ 'truncate-lines': truncateLines, 'ri-compact-list': effectiveCompactMode, 'ri-classic-list': effectiveLayout === 'classic' }" :style="textSizeStyles">
     <!-- Loading state -->
     <template v-if="isLoading">
       <div v-for="i in 6" :key="i" class="ri-skel">

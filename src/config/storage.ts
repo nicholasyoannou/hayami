@@ -60,6 +60,12 @@ export const redditTruncateLinesItem = storage.defineItem<boolean>(
   { fallback: true }
 );
 
+// RES-style keyboard shortcuts (J/K navigate, A/Z vote, Enter collapse, R reply, S save)
+export const redditKeyboardShortcutsItem = storage.defineItem<boolean>(
+  'local:reddit_keyboard_shortcuts',
+  { fallback: false }
+);
+
 export const displayModeItem = storage.defineItem<DisplayModeOption>(
   'local:display_mode',
   { fallback: 'popup' }

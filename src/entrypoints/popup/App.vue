@@ -47,6 +47,7 @@ import {
   redditTraditionalSpacingItem,
   redditTruncateLinesItem,
   redditProfileHoverCardItem,
+  redditKeyboardShortcutsItem,
   providerBadgesEnabledItem,
   linkOnlyModeItem,
   siteMapperAdvancedModeItem,
@@ -108,6 +109,7 @@ type SettingValueMap = {
   redditDeepReplyMode: RedditDeepReplyModeOption;
   redditCommentLayout: RedditCommentLayoutOption;
   redditProfileHoverCard: boolean;
+  redditKeyboardShortcuts: boolean;
   redditTraditionalSpacing: number;
   redditTruncateLines: boolean;
   redditMaxInlineDepth: number;
@@ -607,6 +609,19 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save profile hover card setting',
   },
   {
+    key: 'redditKeyboardShortcuts',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Keyboard shortcuts (RES-style)',
+    description: 'J/K navigate, A/Z vote, Enter collapse, R reply, S save.',
+    fallback: false,
+    load: async () => (await redditKeyboardShortcutsItem.getValue()) === true,
+    save: async (value) => redditKeyboardShortcutsItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Keyboard shortcuts enabled' : 'Keyboard shortcuts disabled'),
+    errorMessage: 'Failed to save keyboard shortcuts setting',
+  },
+  {
     key: 'aniwaveAutoExpandAll',
     type: 'toggle',
     category: 'provider',
@@ -758,6 +773,7 @@ const settingValues = reactive<SettingValueMap>({
   redditDeepReplyMode: 'popup',
   redditCommentLayout: 'traditional',
   redditProfileHoverCard: true,
+  redditKeyboardShortcuts: false,
   redditTraditionalSpacing: 3,
   redditTruncateLines: true,
   redditMaxInlineDepth: 7,
@@ -1206,6 +1222,9 @@ function isSettingVisible(setting: SettingDefinition) {
   }
   if (setting.key === 'redditProfileHoverCard') {
     return settingValues.redditCommentLayout === 'traditional' || settingValues.redditCommentLayout === 'threaded';
+  }
+  if (setting.key === 'redditKeyboardShortcuts') {
+    return settingValues.redditCommentLayout === 'compact' || settingValues.redditCommentLayout === 'classic';
   }
   return true;
 }

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, onUpdated, nextTick, watch } from 'vue';
+import { ref, computed, inject, onMounted, onUnmounted, onUpdated, nextTick, watch, type Ref } from 'vue';
 import { voteThing, saveThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
 import RedditUserHoverCard from './RedditUserHoverCard.vue';
 import { markdownToHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
-import { getCommentFaces, applyCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
+import { applyCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
 import { toast } from 'vue-sonner';
 import { con } from '@/utils/logger';
 
@@ -63,7 +63,12 @@ const shareLabel = ref('Share');
 const isShareCopied = ref(false);
 
 // Comment faces (subreddit CSS emotes like [](#hikariactually))
-const commentFaces = ref<CommentFaceMap>(new Map());
+// Injected from RedditCommentList (shared across all comments in the list)
+const commentFaces = inject<Ref<CommentFaceMap>>('commentFaces', ref(new Map()));
+
+// Keyboard navigation highlight (provided by RedditCommentList)
+const keyboardSelectedId = inject<Ref<string | null>>('keyboardSelectedId', ref(null));
+const isKeyboardSelected = computed(() => keyboardSelectedId.value === props.comment.id);
 const childrenHost = ref<HTMLElement | null>(null);
 const isSpineHover = ref(false);
 const showExpandAvatar = computed(() => depth.value === 0 && isCollapsed.value);
@@ -213,11 +218,27 @@ const flairHtml = computed(() => {
   return `<span class="ri-flair" style="background-color: ${escapeHtml(bgColor)};color:${textColor};">${inner}</span>`;
 });
 
-// Convert auto-linked Reddit image URLs into inline <img> tags
+// Convert auto-linked Reddit image URLs into inline <img> tags.
+// Only replaces when the link text IS the URL (auto-linked), not when the
+// user wrote custom text like [:)](url).
 function inlineRedditImageLinks(html: string): string {
   return html.replace(
-    /<a\s+[^>]*href=["'](https?:\/\/(?:preview|i)\.redd\.it\/[^"']+)["'][^>]*>[^<]*<\/a>/gi,
-    (_match, url) => `<img src="${escapeHtml(url)}" loading="lazy" class="ri-reddit-media" />`,
+    /<a\s+[^>]*href=["'](https?:\/\/(?:preview|i)\.redd\.it\/[^"']+)["'][^>]*>([^<]*)<\/a>/gi,
+    (match, url, linkText: string) => {
+      // Only inline if the link text looks like a URL (auto-linked) or is empty
+      const trimmed = linkText.trim();
+      if (
+        trimmed === '' ||
+        trimmed.startsWith('http://') ||
+        trimmed.startsWith('https://') ||
+        trimmed.startsWith('preview.redd.it') ||
+        trimmed.startsWith('i.redd.it')
+      ) {
+        return `<img src="${escapeHtml(url)}" loading="lazy" class="ri-reddit-media" />`;
+      }
+      // Custom link text (e.g. ":)") — keep as a normal hyperlink
+      return match;
+    },
   );
 }
 
@@ -245,23 +266,7 @@ const bodyHtml = computed(() => {
 // Ref for the comment text container to attach spoiler click handlers
 const textContainerRef = ref<HTMLElement | null>(null);
 
-// Fetch comment faces for the subreddit (cached, only fetches once per sub)
-onMounted(async () => {
-  if (props.subreddit && commentFaces.value.size === 0) {
-    // Only fetch if the body might contain comment face references
-    const body = props.comment.body || '';
-    if (/\[\]\(#[a-zA-Z0-9_-]+\)/.test(body) || /<a\s[^>]*href=["']#/.test(body)) {
-      try {
-        const faces = await getCommentFaces(props.subreddit);
-        if (faces.size > 0) {
-          commentFaces.value = faces;
-        }
-      } catch {
-        // Silently fail
-      }
-    }
-  }
-});
+// Comment faces are now fetched once at RedditCommentList level and injected via provide/inject.
 
 // Debug: log moreChildrenIds when component is created
 onMounted(() => {
@@ -1077,7 +1082,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       { 'line-hover': isLineHover && depth === 0 },
       { 'ri-traditional': isTraditional },
       { 'ri-compact': props.compactMode },
-      { 'ri-classic': isClassic }
+      { 'ri-classic': isClassic },
+      { 'ri-keyboard-selected': isKeyboardSelected }
     ]"
     :data-comment-id="comment.id"
     :data-tree-depth="isTraditional ? String(treeMetadata.depth) : undefined"
@@ -1190,7 +1196,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           :style="{ '--ri-stickied-icon': `url('${stickiedIconUrl}')` }"
         >
           <span class="ri-stickied-icon" aria-hidden="true"></span>
-          <span class="ri-stickied-label">Stickied comment</span>
+          <span class="ri-stickied-label">{{ isClassic ? '- stickied comment' : 'Stickied comment' }}</span>
         </span>
         <span v-if="isClassic" class="ri-classic-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} {{ score === 1 ? 'point' : 'points' }}</span>
         <span v-else-if="props.compactMode" class="ri-compact-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} pts</span>
@@ -1218,7 +1224,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       <!-- Classic layout: old-Reddit text-only action links -->
       <div v-if="isClassic" class="ri-classic-actions">
         <span class="ri-classic-link" @click.stop="handleShare">{{ isShareCopied ? 'link copied!' : 'permalink' }}</span>
-        <span class="ri-classic-link" @click.stop="handleSave">{{ isSaved ? 'unsave' : 'save' }}</span>
+        <span class="ri-classic-link" data-action="save" @click.stop="handleSave">{{ isSaved ? 'unsave' : 'save' }}</span>
         <span
           v-if="!isDisabled"
           class="ri-classic-link ri-classic-reply-link"
