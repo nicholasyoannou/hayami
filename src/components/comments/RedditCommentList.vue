@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { browser } from 'wxt/browser';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, getSubredditModeratorSet, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
-import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem } from '@/config/storage';
+import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem, redditProfileHoverCardItem } from '@/config/storage';
 import { getCurrentUsername } from '@/utils/redditAuth';
 import { con } from '@/utils/logger';
 
@@ -23,7 +24,8 @@ const props = defineProps<{
   showFlairs?: boolean;
   flairPosition?: 'inline' | 'below';
   isRedditConnected?: boolean;
-  layout?: 'threaded' | 'traditional';
+  layout?: 'threaded' | 'traditional' | 'compact';
+  profileHoverCard?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -46,9 +48,10 @@ const moderatorLookupSubreddit = ref<string | null>(null);
 const textSizeIncrease = ref(0);
 const deepReplyMode = ref<'popup' | 'reddit'>('popup');
 const maxInlineDepth = ref(8);
-const commentLayout = ref<'threaded' | 'traditional'>('traditional');
+const commentLayout = ref<'threaded' | 'traditional' | 'compact'>('traditional');
 const traditionalSpacing = ref(3);
 const truncateLines = ref(true);
+const profileHoverCard = ref(true);
 
 function clampTextSizeIncrease(value: unknown): number {
   const amount = Math.floor(Number(value));
@@ -85,7 +88,12 @@ onMounted(async () => {
 
   try {
     const layout = await redditCommentLayoutItem.getValue();
-    commentLayout.value = layout === 'traditional' ? 'traditional' : 'threaded';
+    log.log('Loaded comment layout from storage:', JSON.stringify(layout), '| prop layout:', props.layout);
+    if (layout === 'traditional' || layout === 'compact') {
+      commentLayout.value = layout;
+    } else {
+      commentLayout.value = 'threaded';
+    }
   } catch (error) {
     log.warn('Failed to load Reddit comment layout:', error);
   }
@@ -103,6 +111,42 @@ onMounted(async () => {
   } catch (error) {
     log.warn('Failed to load truncate lines setting:', error);
   }
+
+  try {
+    profileHoverCard.value = (await redditProfileHoverCardItem.getValue()) !== false;
+  } catch (error) {
+    log.warn('Failed to load profile hover card setting:', error);
+  }
+});
+
+// Listen for live settings changes from popup
+const _storageHandler = (changes: Record<string, { oldValue?: any; newValue?: any }>, areaName: string) => {
+  if (areaName !== 'local') return;
+  if ('reddit_comment_layout' in changes) {
+    const v = changes.reddit_comment_layout.newValue;
+    log.log('Storage live update: reddit_comment_layout =', JSON.stringify(v));
+    if (v === 'traditional' || v === 'compact') {
+      commentLayout.value = v;
+    } else {
+      commentLayout.value = 'threaded';
+    }
+  }
+  if ('reddit_profile_hover_card' in changes) {
+    profileHoverCard.value = changes.reddit_profile_hover_card.newValue !== false;
+  }
+  if ('reddit_truncate_lines' in changes) {
+    truncateLines.value = changes.reddit_truncate_lines.newValue !== false;
+  }
+  if ('reddit_traditional_spacing' in changes) {
+    const num = Math.floor(Number(changes.reddit_traditional_spacing.newValue));
+    traditionalSpacing.value = Number.isFinite(num) ? Math.max(1, Math.min(5, num)) : 3;
+  }
+};
+onMounted(() => {
+  browser.storage.onChanged.addListener(_storageHandler);
+});
+onUnmounted(() => {
+  browser.storage.onChanged.removeListener(_storageHandler);
 });
 
 const effectiveTextSizeIncrease = computed(() =>
@@ -111,6 +155,8 @@ const effectiveTextSizeIncrease = computed(() =>
 
 const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
 const effectiveLayout = computed(() => props.layout || commentLayout.value);
+const effectiveCompactMode = computed(() => effectiveLayout.value === 'compact');
+const effectiveProfileHoverCard = computed(() => props.profileHoverCard ?? profileHoverCard.value);
 
 const textSizeStyles = computed(() => ({
   '--ri-comment-text-size-increase': `${effectiveTextSizeIncrease.value}px`,
@@ -561,7 +607,7 @@ defineExpose({
 </script>
 
 <template>
-  <div class="ri-comment-list" :class="{ 'truncate-lines': truncateLines }" :style="textSizeStyles">
+  <div class="ri-comment-list" :class="{ 'truncate-lines': truncateLines, 'ri-compact-list': effectiveCompactMode }" :style="textSizeStyles">
     <!-- Loading state -->
     <template v-if="isLoading">
       <div v-for="i in 6" :key="i" class="ri-skel">
@@ -609,6 +655,8 @@ defineExpose({
         :flair-position="flairPosition"
         :is-reddit-connected="props.isRedditConnected"
         :layout="effectiveLayout"
+        :compact-mode="effectiveCompactMode"
+        :profile-hover-card="effectiveProfileHoverCard"
         @reply="handleReply"
         @collapse="handleCollapse"
         @open-deep-view="openDeepView"
@@ -617,7 +665,7 @@ defineExpose({
           <slot name="reply-editor" v-bind="slotProps" />
         </template>
       </RedditComment>
-      
+
       <!-- Load more button (when no visible comments but rootMoreIds exist) -->
       <div v-if="visibleComments.length === 0 && rootMoreIds.length > 0 && !loadingMore" class="ri-load-more-container">
         <button 
@@ -677,6 +725,7 @@ defineExpose({
             :flair-position="flairPosition"
             :is-reddit-connected="props.isRedditConnected"
             :layout="effectiveLayout"
+            :compact-mode="effectiveCompactMode"
             @reply="handleReply"
             @collapse="handleCollapse"
           >
@@ -754,4 +803,5 @@ defineExpose({
 .ri-loading-more {
   padding: 1rem 0;
 }
+
 </style>

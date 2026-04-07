@@ -11,6 +11,8 @@ const log = con.m('SeriesMapping');
 export interface SeriesMapping {
   episodeOffset: number;
   mapperAnimeName?: string;
+  malId?: number;
+  anilistId?: number;
   aniwaveIsDub?: boolean;
 }
 

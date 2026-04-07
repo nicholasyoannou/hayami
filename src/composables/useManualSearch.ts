@@ -1024,6 +1024,8 @@ export function useManualSearch(params: {
           provider,
           selectedAnimeName,
           aniwaveIsDub: provider === 'aniwave' ? manualAniwaveIsDub.value : undefined,
+          malId: provider === 'mal' ? malManualMedia.value?.id : undefined,
+          anilistId: (provider === 'anilist' || provider === 'animecommunity') ? animeCommunityMedia.value?.id : undefined,
         },
       }));
     } catch (e) {

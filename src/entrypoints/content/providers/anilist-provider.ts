@@ -33,10 +33,12 @@ export class AniListProvider extends BaseProvider {
       const animeInfoForLookup = mappedAnimeName === animeInfo.animeName
         ? animeInfo
         : { ...animeInfo, animeName: mappedAnimeName };
-      // If the user picked "Wrong anime?" and mapped to a different series name,
-      // do not reuse the old resolved AniList ID from the original title.
+      // If the mapping carries a saved AniList ID (from "wrong anime" picker), use it directly.
+      // Otherwise, if the user overrode the title, discard the old ID from the original series.
       const hasMappedTitleOverride = mappedAnimeName !== animeInfo.animeName;
-      let anilistId = hasMappedTitleOverride ? null : animeInfo.anilistId;
+      let anilistId = (typeof mapping?.anilistId === 'number' && Number.isFinite(mapping.anilistId))
+        ? mapping.anilistId
+        : (hasMappedTitleOverride ? null : animeInfo.anilistId);
 
       // Prefer Hayami mapper for Crunchyroll to get authoritative AniList ID
       const adapter = resolveAdapter();
@@ -107,7 +109,18 @@ export class AniListProvider extends BaseProvider {
         ? rawEpisodeNum + episodeOffset
         : null;
 
-      const threadsResult = await fetchAniListThreads(anilistId, animeInfoForLookup.animeName, episodeParsed);
+      // Use pre-fetched data from cache if available (background prefetch)
+      let threadsResult: Awaited<ReturnType<typeof fetchAniListThreads>>;
+      if (discussionCache.anilist?.threads || discussionCache.anilist?.selectedThread) {
+        log.log('Reusing pre-fetched AniList cache');
+        threadsResult = {
+          threads: discussionCache.anilist.threads,
+          selectedThread: discussionCache.anilist.selectedThread,
+          status: (discussionCache.anilist.status as 'ok' | 'no_thread' | 'error' | 'auth_required') ?? 'ok',
+        };
+      } else {
+        threadsResult = await fetchAniListThreads(anilistId, animeInfoForLookup.animeName, episodeParsed);
+      }
 
       // Link-only mode: show a button linking to the thread instead of rendering comments
       if (await linkOnlyModeItem.getValue()) {
@@ -226,13 +239,16 @@ export class AniListProvider extends BaseProvider {
       throw new Error('No AniList data in cache');
     }
 
+    const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'anilist');
+    const renderAnimeName = (renderMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+
     const app = createApp(AniListForumView, {
       result: discussionCache.anilist as AniListForumResult,
-      animeTitle: animeInfo.animeName,
+      animeTitle: renderAnimeName,
       threadId: discussionCache.anilist.selectedThread?.id,
       wrongAnimeContext: {
         animeName: animeInfo.animeName,
-        mappingAnimeName: animeInfo.animeName,
+        mappingAnimeName: renderAnimeName,
         anilistId: animeInfo.anilistId ?? null,
         crEpisodeNum: (() => {
           const raw = extractEpisodeNumber(animeInfo.episodeName);

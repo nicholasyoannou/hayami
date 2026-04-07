@@ -346,6 +346,8 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         ? ev.detail.selectedAnimeName.trim()
         : '';
       const aniwaveIsDub = ev?.detail?.aniwaveIsDub === true;
+      const eventMalId = typeof ev?.detail?.malId === 'number' && Number.isFinite(ev.detail.malId) ? ev.detail.malId : undefined;
+      const eventAnilistId = typeof ev?.detail?.anilistId === 'number' && Number.isFinite(ev.detail.anilistId) ? ev.detail.anilistId : undefined;
       if (!Number.isFinite(selectedEpisode)) return;
 
       const metadataEpisode = await resolveCurrentCrunchyrollEpisodeForOffset();
@@ -363,6 +365,8 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
+          malId: mappingPlatform === 'mal' ? eventMalId : undefined,
+          anilistId: (mappingPlatform === 'anilist' || mappingPlatform === 'animecommunity') ? eventAnilistId : undefined,
           aniwaveIsDub: mappingPlatform === 'aniwave' ? aniwaveIsDub : undefined,
         }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal');
         toast.success(`Saved episode mapping: current=${currentEp}, ${mappingPlatform}=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);

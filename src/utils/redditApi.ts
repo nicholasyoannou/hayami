@@ -347,6 +347,85 @@ export async function getUserAvatar(username: string): Promise<string | null> {
   }
 }
 
+/** Cached user profile data for hover cards. */
+export interface RedditUserProfile {
+  username: string;
+  avatarUrl: string | null;
+  bannerUrl: string | null;
+  totalKarma: number;
+  commentKarma: number;
+  linkKarma: number;
+  bio: string | null;
+  createdUtc: number;
+}
+
+const userProfileCache = new Map<string, RedditUserProfile | null>();
+const userProfileInflight = new Map<string, Promise<RedditUserProfile | null>>();
+
+/**
+ * Fetches a Reddit user's full profile info for display in hover cards.
+ * Uses the same about.json endpoint as getUserAvatar but extracts more fields.
+ */
+export async function getUserProfile(username: string): Promise<RedditUserProfile | null> {
+  if (!username) return null;
+  const normalized = username.replace(/^u\//i, '').trim();
+  if (!normalized || normalized === '[deleted]') return null;
+  const cacheKey = normalized.toLowerCase();
+
+  if (userProfileCache.has(cacheKey)) return userProfileCache.get(cacheKey) || null;
+  if (userProfileInflight.has(cacheKey)) return await (userProfileInflight.get(cacheKey) as Promise<RedditUserProfile | null>);
+
+  const doFetch = async (): Promise<RedditUserProfile | null> => {
+    try {
+      let data: any = null;
+      const token = await getAccessToken();
+
+      if (token) {
+        const about = await makeRedditRequest<any>(`/user/${encodeURIComponent(normalized)}/about.json`);
+        data = about?.data || null;
+      } else {
+        const resp = await extensionFetch(
+          `https://www.reddit.com/user/${encodeURIComponent(normalized)}/about.json?raw_json=1`,
+          { credentials: 'include' } as any,
+        );
+        if (resp.ok) {
+          const json = await resp.json();
+          data = json?.data || null;
+        }
+      }
+
+      if (!data) {
+        userProfileCache.set(cacheKey, null);
+        return null;
+      }
+
+      const rawAvatar = data.snoovatar_img || data.icon_img || null;
+      const rawBanner = data.subreddit?.banner_img || null;
+
+      const profile: RedditUserProfile = {
+        username: data.name || normalized,
+        avatarUrl: rawAvatar ? normalizeAvatarCdnUrl(String(rawAvatar).replace(/&amp;/g, '&')) : null,
+        bannerUrl: rawBanner ? String(rawBanner).replace(/&amp;/g, '&') : null,
+        totalKarma: Number(data.total_karma ?? data.link_karma ?? 0),
+        commentKarma: Number(data.comment_karma ?? 0),
+        linkKarma: Number(data.link_karma ?? 0),
+        bio: data.subreddit?.public_description || null,
+        createdUtc: Number(data.created_utc ?? 0),
+      };
+
+      userProfileCache.set(cacheKey, profile);
+      return profile;
+    } catch {
+      userProfileCache.set(cacheKey, null);
+      return null;
+    }
+  };
+
+  const inflight = doFetch().finally(() => userProfileInflight.delete(cacheKey));
+  userProfileInflight.set(cacheKey, inflight);
+  return await inflight;
+}
+
 /**
  * Normalizes a Reddit avatar/icon URL to go through Statically CDN and strips any query/hash params.
  * - Keeps data: URIs untouched

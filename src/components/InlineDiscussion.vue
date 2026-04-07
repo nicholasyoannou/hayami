@@ -12,7 +12,8 @@ import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, providerBadgesEnabledItem } from '@/config/storage';
+import { prefetchProviderData } from '@/utils/providerPrefetch';
 import { con } from '@/utils/logger';
 
 const log = con.m('InlineDiscussion');
@@ -60,9 +61,12 @@ const replyTarget = ref<{ id: string; key: string; draftKey: string; author?: st
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
 const redditFlairPosition = ref<'inline' | 'below'>('inline');
-const redditCommentLayout = ref<'threaded' | 'traditional'>('threaded');
+const redditCommentLayout = ref<'threaded' | 'traditional' | 'compact'>('threaded');
+const redditProfileHoverCard = ref(true);
 const isPostingTopComment = ref(false);
 const linkOnlyMode = ref(false);
+const providerBadgesEnabled = ref(false);
+const providerCounts = ref<Partial<Record<Provider, number | null>>>({});
 const replyDrafts = reactive<Record<string, string>>({});
 replyDrafts.root = '';
 
@@ -409,11 +413,80 @@ async function loadFlairPosition() {
 async function loadCommentLayout() {
   try {
     const value = await redditCommentLayoutItem.getValue();
-    redditCommentLayout.value = value === 'traditional' ? 'traditional' : 'threaded';
+    log.log('loadCommentLayout: storage returned', JSON.stringify(value));
+    if (value === 'traditional' || value === 'compact') {
+      redditCommentLayout.value = value;
+    } else {
+      redditCommentLayout.value = 'threaded';
+    }
+    log.log('loadCommentLayout: set to', redditCommentLayout.value);
   } catch (error) {
     log.warn('Failed to load Reddit comment layout', error);
     redditCommentLayout.value = 'threaded';
   }
+}
+
+async function loadProfileHoverCard() {
+  try {
+    redditProfileHoverCard.value = (await redditProfileHoverCardItem.getValue()) !== false;
+  } catch {
+    redditProfileHoverCard.value = true;
+  }
+}
+
+async function loadProviderBadges() {
+  try {
+    providerBadgesEnabled.value = (await providerBadgesEnabledItem.getValue()) === true;
+  } catch {
+    providerBadgesEnabled.value = false;
+  }
+}
+
+/** Read cached comment counts from the discussion cache (plain object, not reactive). */
+function refreshProviderCounts() {
+  if (!providerBadgesEnabled.value) return;
+  const cache = props.providerContext?.discussionCache;
+  const counts: Partial<Record<Provider, number | null>> = {};
+
+  // Reddit: always available from the discussion prop
+  const redditCount = totalComments.value ?? props.discussion?.num_comments;
+  if (typeof redditCount === 'number' && redditCount > 0) counts.reddit = redditCount;
+
+  if (cache) {
+    // Disqus
+    const disqusPosts = cache.disqus?.thread?.posts;
+    if (typeof disqusPosts === 'number' && disqusPosts > 0) counts.disqus = disqusPosts;
+
+    // MAL
+    const malTopic = cache.mal?.selectedTopic;
+    if (typeof malTopic?.comments === 'number' && malTopic.comments > 0) counts.mal = malTopic.comments;
+
+    // AniList
+    const alThread = cache.anilist?.selectedThread;
+    if (typeof alThread?.replyCount === 'number' && alThread.replyCount > 0) counts.anilist = alThread.replyCount;
+
+    // Aniwave
+    const aniwaveTotal = cache.aniwave?.total;
+    if (typeof aniwaveTotal === 'number' && aniwaveTotal > 0) counts.aniwave = aniwaveTotal;
+  }
+
+  providerCounts.value = counts;
+}
+
+let prefetchTriggered = false;
+
+/** Fire background API calls for MAL / AniList / Disqus to populate cache + badges. */
+function triggerBackgroundPrefetch() {
+  if (!providerBadgesEnabled.value) return;
+  if (prefetchTriggered) return;
+  const cache = props.providerContext?.discussionCache;
+  const animeInfo = props.providerContext?.animeInfo;
+  if (!cache || !animeInfo) return;
+  prefetchTriggered = true;
+
+  prefetchProviderData(animeInfo, cache)
+    .then(() => refreshProviderCounts())
+    .catch((err) => log.warn('Background prefetch failed', err));
 }
 
 async function loadLinkOnlyMode() {
@@ -822,6 +895,9 @@ function handleCommentsLoaded(count: number) {
   discussionStore.clearLoading();
   clearNoDiscussionFlag();
   hasCommentsLoaded.value = true;
+  refreshProviderCounts();
+  // Kick off background pre-fetch for MAL/AniList/Disqus badges + cache
+  triggerBackgroundPrefetch();
   // Apply any locally posted comments that were queued before the list was ready
   const list = redditListRef.value;
   if (pendingLocalComments.value.length && list?.addComment) {
@@ -862,11 +938,21 @@ watch(() => isLoading.value, (newVal) => {
   }
 });
 
+// Refresh provider badges whenever loading finishes (a provider just rendered)
+watch(() => isLoading.value, (newVal, oldVal) => {
+  if (oldVal && !newVal) {
+    // Small delay so providers have time to write to the cache
+    setTimeout(refreshProviderCounts, 300);
+  }
+});
+
 onMounted(() => {
   void loadEditorMode();
   void loadFlairVisibility();
   void loadFlairPosition();
   void loadCommentLayout();
+  void loadProfileHoverCard();
+  void loadProviderBadges();
   void loadDefaultSort();
   void initializeRedditUiAuthGate();
   const manualSearchHandler = (ev: Event) => {
@@ -919,12 +1005,38 @@ onMounted(() => {
       refreshCurrentProviderAfterAuth(provider);
     }
   };
+  // Listen for storage changes so popup settings take effect immediately
+  const storageChangeHandler = (changes: Record<string, { oldValue?: any; newValue?: any }>, areaName: string) => {
+    if (areaName !== 'local') return;
+    if ('reddit_comment_layout' in changes) {
+      const newVal = changes.reddit_comment_layout.newValue;
+      log.log('Storage changed: reddit_comment_layout =', JSON.stringify(newVal));
+      if (newVal === 'traditional' || newVal === 'compact') {
+        redditCommentLayout.value = newVal;
+      } else {
+        redditCommentLayout.value = 'threaded';
+      }
+    }
+    if ('reddit_profile_hover_card' in changes) {
+      redditProfileHoverCard.value = changes.reddit_profile_hover_card.newValue !== false;
+    }
+    if ('provider_badges_enabled' in changes) {
+      providerBadgesEnabled.value = changes.provider_badges_enabled.newValue === true;
+      if (providerBadgesEnabled.value) {
+        refreshProviderCounts();
+        triggerBackgroundPrefetch();
+      }
+    }
+  };
+  browser.storage.onChanged.addListener(storageChangeHandler);
+
   window.addEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
   window.addEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
   window.addEventListener('keydown', escHandler);
   browser.runtime.onMessage.addListener(runtimeMessageHandler);
 
   onUnmounted(() => {
+    browser.storage.onChanged.removeListener(storageChangeHandler);
     window.removeEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
     window.removeEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
     window.removeEventListener('keydown', escHandler);
@@ -993,6 +1105,7 @@ watch(
       fetchedDiscussionTitle.value = null;
       fetchedDiscussionAuthor.value = null;
       redditCommentsKey.value++;
+      prefetchTriggered = false; // reset so new episode triggers fresh prefetch
     }
   },
   { deep: false, immediate: true }
@@ -1147,6 +1260,7 @@ defineExpose({
       :provider="currentProvider"
       :show-tabs="true"
       :is-loading="isLoading"
+      :provider-counts="providerBadgesEnabled ? providerCounts : undefined"
       @provider-change="(p: Provider) => handleProviderChange(p)"
     />
 
@@ -1419,6 +1533,7 @@ defineExpose({
           :show-flairs="redditShowFlairs"
           :flair-position="redditFlairPosition"
           :layout="redditCommentLayout"
+          :profile-hover-card="redditProfileHoverCard"
           :initial-sort="commentSort"
           :search-query="searchQuery"
           :empty-message="redditEmptyMessage"

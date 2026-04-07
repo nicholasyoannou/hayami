@@ -103,7 +103,7 @@
       <button
         v-for="item in menuItems"
         :key="item.id"
-        class="hayami-ripple flex items-center h-[36px] bg-[#151515] border border-[#3a3a3a] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative overflow-hidden ri-nav-menu-btn"
+        class="hayami-ripple flex items-center h-[36px] bg-[#151515] border border-[#3a3a3a] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-all flex-shrink-0 whitespace-nowrap relative ri-nav-menu-btn"
         :class="{
           'bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] transform -translate-y-1 z-10': currentProvider === item.id,
           'opacity-50 cursor-not-allowed': isLoading,
@@ -136,6 +136,10 @@
           :src="redditTextUrl"
           alt="reddit"
         />
+        <span
+          v-if="getProviderBadge(item.id)"
+          class="ri-provider-badge"
+        >{{ getProviderBadge(item.id) }}</span>
       </button>
       </div>
     </div>
@@ -268,6 +272,8 @@ interface Props {
   provider?: Provider;
   showTabs?: boolean;
   isLoading?: boolean;
+  /** Comment counts per provider, shown as badges on menu buttons. */
+  providerCounts?: Partial<Record<Provider, number | null>>;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -278,6 +284,7 @@ const props = withDefaults(defineProps<Props>(), {
   provider: 'reddit',
   showTabs: true,
   isLoading: false,
+  providerCounts: () => ({}),
 });
 
 const emit = defineEmits<{
@@ -322,6 +329,13 @@ const menuItems = computed<MenuItem[]>(() => {
   // Filter out the current provider from menu items (it's shown in the main logo position)
   return items.filter(item => item.id !== currentProvider.value);
 });
+
+function getProviderBadge(provider: Provider): string | null {
+  const count = props.providerCounts?.[provider];
+  if (count == null || count <= 0) return null;
+  if (count >= 1000) return `${(count / 1000).toFixed(count >= 10000 ? 0 : 1)}k`;
+  return String(count);
+}
 
 function providerLogoImgClass(provider: Provider): string {
   switch (provider) {
@@ -630,6 +644,35 @@ onUnmounted(() => {
   background: linear-gradient(90deg, #2c2c2c 25%, #1a1a1a 50%, #2c2c2c 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
+}
+
+/* Allow badges to overflow menu buttons while keeping ripple clipped */
+.ri-nav-menu-btn.hayami-ripple {
+  overflow: visible;
+}
+.ri-nav-menu-btn.hayami-ripple::after {
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/* Provider availability badge */
+.ri-provider-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ff4500;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  z-index: 1;
 }
 
 @keyframes shimmer {

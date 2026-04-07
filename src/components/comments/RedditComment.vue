@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, onUpdated, nextTick, watch } from 'vue';
 import { voteThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
+import RedditUserHoverCard from './RedditUserHoverCard.vue';
 import { markdownToHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
@@ -28,7 +29,10 @@ const props = defineProps<{
   showFlairs?: boolean;
   flairPosition?: 'inline' | 'below';
   isRedditConnected?: boolean;
-  layout?: 'threaded' | 'traditional';
+  layout?: 'threaded' | 'traditional' | 'compact';
+  compactMode?: boolean;
+  profileHoverCard?: boolean;
+
 }>();
 
 const emit = defineEmits<{
@@ -61,6 +65,11 @@ const isSpineHover = ref(false);
 const showExpandAvatar = computed(() => depth.value === 0 && isCollapsed.value);
 const isDeleted = ref(false);
 const showOwnMenu = ref(false);
+const showHoverCard = ref(false);
+const hoverCardPos = ref({ x: 0, y: 0 });
+let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+let hoverCloseTimer: ReturnType<typeof setTimeout> | null = null;
+const hoverCardRef = ref<HTMLElement | null>(null);
 const isEditing = ref(false);
 const editDraft = ref('');
 const isSavingEdit = ref(false);
@@ -69,7 +78,7 @@ const currentUserLower = computed(() => props.currentUsername ? props.currentUse
 const showFlairs = computed(() => props.showFlairs !== false);
 const flairPosition = computed(() => (props.flairPosition === 'below' ? 'below' : 'inline'));
 const isFlairBelow = computed(() => flairPosition.value === 'below');
-const isTraditional = computed(() => props.layout === 'traditional');
+const isTraditional = computed(() => props.layout === 'traditional' || props.layout === 'compact');
 const repliesExpanded = ref(true);
 const treeIsLastSibling = computed(() => props.treeIsLastSibling ?? true);
 const treeContinuationColumns = computed<boolean[]>(() => {
@@ -265,6 +274,9 @@ const pickDeletedAvatar = () => {
 };
 
 onMounted(async () => {
+  // Skip avatar loading in compact mode to reduce API calls
+  if (props.compactMode) return;
+
   // Load avatar
   const author = props.comment.author;
   if (!author) return;
@@ -292,6 +304,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('click', closeOwnMenu);
+  if (hoverTimer) { clearTimeout(hoverTimer); hoverTimer = null; }
+  if (hoverCloseTimer) { clearTimeout(hoverCloseTimer); hoverCloseTimer = null; }
+  showHoverCard.value = false;
 });
 
 /* ---- Line truncation (JS-driven) ----
@@ -758,6 +773,53 @@ function handleShowMoreChildren() {
   void handleLoadMoreChildren();
 }
 
+function handleUsernameMouseEnter(ev: MouseEvent) {
+  if (props.profileHoverCard === false) return;
+  if (props.comment.author === '[deleted]') return;
+  // Cancel any pending close
+  if (hoverCloseTimer) { clearTimeout(hoverCloseTimer); hoverCloseTimer = null; }
+  hoverTimer = setTimeout(() => {
+    const rect = (ev.target as HTMLElement).getBoundingClientRect();
+    const cardHeight = 220;
+    let y = rect.bottom + 6;
+    if (y + cardHeight > window.innerHeight) {
+      y = rect.top - cardHeight - 6;
+    }
+    hoverCardPos.value = {
+      x: Math.max(4, Math.min(rect.left, window.innerWidth - 296)),
+      y: Math.max(4, y),
+    };
+    showHoverCard.value = true;
+  }, 500);
+}
+
+function handleUsernameMouseLeave() {
+  if (hoverTimer) {
+    clearTimeout(hoverTimer);
+    hoverTimer = null;
+  }
+  // Give user time to move mouse into the hover card
+  scheduleHoverClose();
+}
+
+function scheduleHoverClose() {
+  if (hoverCloseTimer) clearTimeout(hoverCloseTimer);
+  hoverCloseTimer = setTimeout(() => {
+    showHoverCard.value = false;
+    hoverCloseTimer = null;
+  }, 200);
+}
+
+function handleHoverCardMouseEnter() {
+  // Mouse entered the card — cancel the pending close
+  if (hoverCloseTimer) { clearTimeout(hoverCloseTimer); hoverCloseTimer = null; }
+}
+
+function handleHoverCardMouseLeave() {
+  // Mouse left the card — close it
+  scheduleHoverClose();
+}
+
 function handleReply() {
   if (isReplyAuthBlocked.value) {
     toast.error("You're not logged in to Reddit. Please sign in to add comments.");
@@ -963,7 +1025,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       { 'ri-collapsed': isCollapsed },
       { 'ri-new-comment': isHighlighted },
       { 'line-hover': isLineHover && depth === 0 },
-      { 'ri-traditional': isTraditional }
+      { 'ri-traditional': isTraditional },
+      { 'ri-compact': props.compactMode }
     ]"
     :data-comment-id="comment.id"
     :data-tree-depth="isTraditional ? String(treeMetadata.depth) : undefined"
@@ -1008,23 +1071,37 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
       @click.stop="handleTradLineClick"
     ></div>
 
-    <div
-      v-if="showExpandAvatar" 
-      class="ri-avatar ri-avatar-placeholder ri-avatar-collapsed-placeholder" 
-      @click.stop="toggleCollapse"
-    ></div>
-    <img 
-      v-else-if="avatarUrl" 
-      class="ri-avatar" 
-      :src="avatarUrl" 
-      alt="" 
-      @click.stop="toggleCollapse"
-    />
-    <div v-else class="ri-avatar ri-avatar-placeholder" @click.stop="toggleCollapse"></div>
+    <template v-if="!props.compactMode">
+      <div
+        v-if="showExpandAvatar"
+        class="ri-avatar ri-avatar-placeholder ri-avatar-collapsed-placeholder"
+        @click.stop="toggleCollapse"
+      ></div>
+      <img
+        v-else-if="avatarUrl"
+        class="ri-avatar"
+        :src="avatarUrl"
+        alt=""
+        @click.stop="toggleCollapse"
+      />
+      <div v-else class="ri-avatar ri-avatar-placeholder" @click.stop="toggleCollapse"></div>
+    </template>
     
     <div class="ri-body">
       <div class="ri-line1" :class="{ 'ri-line1--flair-below': isFlairBelow }">
-        <span class="ri-username">u/{{ comment.author }}</span>
+        <span
+          class="ri-username"
+          @mouseenter="handleUsernameMouseEnter"
+          @mouseleave="handleUsernameMouseLeave"
+        >u/{{ comment.author }}</span>
+        <RedditUserHoverCard
+          v-if="showHoverCard && comment.author && comment.author !== '[deleted]'"
+          :username="comment.author"
+          :x="hoverCardPos.x"
+          :y="hoverCardPos.y"
+          @close="handleHoverCardMouseLeave"
+          @card-enter="handleHoverCardMouseEnter"
+        />
         <span v-if="String(comment.distinguished || '').toLowerCase() === 'moderator'" class="ri-mod-badge">MOD</span>
         <span v-if="flairHtml && !isFlairBelow" v-html="flairHtml"></span>
         <span
@@ -1169,6 +1246,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           :flair-position="flairPosition"
           :is-reddit-connected="props.isRedditConnected"
           :layout="props.layout"
+          :compact-mode="props.compactMode"
+          :profile-hover-card="props.profileHoverCard"
           @reply="(c) => emit('reply', c)"
           @collapse="(id, state) => emit('collapse', id, state)"
           @open-deep-view="(c) => emit('openDeepView', c)"
@@ -1401,6 +1480,11 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
 /* Clickable line hit area */
 .ri-trad-line-hit {
   position: absolute;
+  cursor: pointer;
+}
+
+/* ── Username hover ── */
+.ri-username {
   cursor: pointer;
 }
 </style>

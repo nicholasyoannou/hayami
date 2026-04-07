@@ -46,6 +46,8 @@ import {
   redditCommentLayoutItem,
   redditTraditionalSpacingItem,
   redditTruncateLinesItem,
+  redditProfileHoverCardItem,
+  providerBadgesEnabledItem,
   linkOnlyModeItem,
   siteMapperAdvancedModeItem,
   aniwaveAutoExpandAllItem,
@@ -105,9 +107,11 @@ type SettingValueMap = {
   redditFlairPosition: RedditFlairPositionOption;
   redditDeepReplyMode: RedditDeepReplyModeOption;
   redditCommentLayout: RedditCommentLayoutOption;
+  redditProfileHoverCard: boolean;
   redditTraditionalSpacing: number;
   redditTruncateLines: boolean;
   redditMaxInlineDepth: number;
+  providerBadgesEnabled: boolean;
   commentTextSizeIncrease: number;
   imgurClientId: string;
   imgchestApiKey: string;
@@ -211,6 +215,18 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => linkOnlyModeItem.setValue(value),
     successMessage: (value) => (value ? 'Link-only mode enabled' : 'Link-only mode disabled'),
     errorMessage: 'Failed to save Link-only mode',
+  },
+  {
+    key: 'providerBadgesEnabled',
+    type: 'toggle',
+    category: 'general',
+    label: 'Provider availability badges',
+    description: 'Show comment count badges on provider tabs. May trigger additional API requests when switching episodes.',
+    fallback: false,
+    load: () => providerBadgesEnabledItem.getValue(),
+    save: (value) => providerBadgesEnabledItem.setValue(value),
+    successMessage: (value) => (value ? 'Provider badges enabled' : 'Provider badges disabled'),
+    errorMessage: 'Failed to save provider badges setting',
   },
   {
     key: 'siteMapperAdvancedMode',
@@ -493,15 +509,20 @@ const settingDefinitions: SettingDefinition[] = [
     category: 'provider',
     providerId: 'reddit',
     label: 'Comment layout',
-    description: 'Choose between threaded (Reddit-style lines) or traditional (clean nested indentation).',
+    description: 'Choose between threaded (Reddit-style lines), traditional (clean nested indentation), or compact (dense, no avatars).',
     options: redditCommentLayoutOptions,
     fallback: 'threaded',
     load: async () => {
       const value = await redditCommentLayoutItem.getValue();
-      return value === 'traditional' ? 'traditional' : 'threaded';
+      if (value === 'traditional' || value === 'compact') return value;
+      return 'threaded';
     },
-    save: async (value) => redditCommentLayoutItem.setValue(value === 'traditional' ? 'traditional' : 'threaded'),
-    successMessage: (value) => (value === 'traditional' ? 'Traditional nested layout enabled' : 'Threaded layout enabled'),
+    save: async (value) => redditCommentLayoutItem.setValue(value),
+    successMessage: (value) => {
+      if (value === 'traditional') return 'Traditional nested layout enabled';
+      if (value === 'compact') return 'Compact layout enabled';
+      return 'Threaded layout enabled';
+    },
     errorMessage: 'Failed to update comment layout',
   },
   {
@@ -549,6 +570,19 @@ const settingDefinitions: SettingDefinition[] = [
     save: async (value) => redditTruncateLinesItem.setValue(Boolean(value)),
     successMessage: (value) => (value ? 'Thread lines truncated at last reply' : 'Thread lines extend to full height'),
     errorMessage: 'Failed to save line truncation setting',
+  },
+  {
+    key: 'redditProfileHoverCard',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Profile hover card',
+    description: 'Show a profile card with karma, avatar, and bio when hovering over usernames.',
+    fallback: true,
+    load: async () => (await redditProfileHoverCardItem.getValue()) !== false,
+    save: async (value) => redditProfileHoverCardItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Profile hover card enabled' : 'Profile hover card disabled'),
+    errorMessage: 'Failed to save profile hover card setting',
   },
   {
     key: 'aniwaveAutoExpandAll',
@@ -701,10 +735,12 @@ const settingValues = reactive<SettingValueMap>({
   redditFlairPosition: 'inline',
   redditDeepReplyMode: 'popup',
   redditCommentLayout: 'traditional',
+  redditProfileHoverCard: true,
   redditTraditionalSpacing: 3,
   redditTruncateLines: true,
   redditMaxInlineDepth: 7,
   redditClientId: '',
+  providerBadgesEnabled: false,
   commentTextSizeIncrease: 0,
   imgurClientId: '',
   imgchestApiKey: '',
@@ -1419,19 +1455,6 @@ function handleRemoveCustomSite(site: any) {
               aria-label="Settings"
             >
               <img :src="settingsIcon" alt="Settings" class="h-6 w-6" />
-            </button>
-            <button
-              v-if="currentView === 'settings'"
-              @click="triggerHeaderCustomMappingsImport"
-              class="rounded-full p-1 text-white/80 transition hover:bg-white/10 hover:text-white active:scale-95"
-              aria-label="Import custom websites"
-              title="Import custom websites"
-            >
-              <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 3v11" />
-                <path d="M8.5 10.5 12 14l3.5-3.5" />
-                <path d="M4 16.5v2A2.5 2.5 0 0 0 6.5 21h11A2.5 2.5 0 0 0 20 18.5v-2" />
-              </svg>
             </button>
           </div>
           <button

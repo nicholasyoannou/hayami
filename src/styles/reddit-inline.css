@@ -3572,3 +3572,89 @@
       hue-rotate(225deg) brightness(94%) contrast(87%)
   ) !important;
 }
+
+/* ==================== Compact Mode ==================== */
+/* Tighter spacing, hidden avatars, smaller text/actions.
+   .ri-compact is set on each .ri-comment by the Vue prop.
+   .ri-compact-list is set on the .ri-comment-list container. */
+
+/* --- Hide avatars --- */
+#reddit-inline-discussion .ri-comment.ri-compact > .ri-avatar,
+#reddit-inline-discussion .ri-comment.ri-compact > .ri-avatar-placeholder {
+  display: none !important;
+}
+
+/* --- Traditional layout: remove avatar column offset --- */
+#reddit-inline-discussion .ri-comment.ri-compact.ri-traditional {
+  --trad-avatar: 0rem;
+  padding-top: 0.25rem;
+  padding-bottom: 0.125rem;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact.ri-traditional.depth-0 {
+  padding: 0.25rem 0;
+}
+
+/* --- Threaded layout: tighten up without avatars --- */
+#reddit-inline-discussion .ri-comment.ri-compact:not(.ri-traditional) {
+  padding-top: 2px;
+  padding-bottom: 1px;
+}
+
+/* --- Username / header line --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-line1 {
+  font-size: 0.6875rem;
+  line-height: 1.3;
+}
+
+/* --- Body text --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-text {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  margin-top: 0.125rem;
+}
+
+/* --- Actions bar --- */
+#reddit-inline-discussion .ri-comment.ri-compact .ri-actions {
+  gap: 2px;
+  margin-top: 1px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-actions .ri-action-btn {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact .ri-vote-bubble {
+  transform: scale(0.85);
+  transform-origin: left center;
+}
+
+/* --- Traditional connector line: start from top since no avatar --- */
+#reddit-inline-discussion
+  .ri-comment.ri-compact.ri-traditional:has(> .ri-body > .ri-trad-children)::after {
+  left: calc(-1px);
+  top: 0.5rem;
+}
+
+#reddit-inline-discussion .ri-comment.ri-compact.ri-traditional > .ri-trad-line-hit {
+  left: calc(-10px);
+  top: 0.5rem;
+}
+
+/* --- Traditional children container: reduce indent --- */
+#reddit-inline-discussion
+  .ri-comment.ri-compact.ri-traditional
+  > .ri-body
+  > .ri-trad-children {
+  margin-left: calc(-0.5rem);
+  padding-left: calc(var(--trad-content-offset));
+}
+
+/* --- Traditional elbow connector --- */
+#reddit-inline-discussion
+  .ri-comment.ri-compact.ri-traditional
+  .ri-trad-children
+  > .ri-comment.ri-compact.ri-traditional::before {
+  left: calc(-1 * var(--trad-content-offset) - 1px);
+}

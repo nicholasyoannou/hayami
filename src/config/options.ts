@@ -54,6 +54,7 @@ export type RedditDeepReplyModeOption = (typeof redditDeepReplyModeOptions)[numb
 export const redditCommentLayoutOptions = [
   { value: 'threaded', label: 'Threaded (Reddit-style)' },
   { value: 'traditional', label: 'Traditional (nested)' },
+  { value: 'compact', label: 'Compact' },
 ] as const;
 
 export type RedditCommentLayoutOption = (typeof redditCommentLayoutOptions)[number]['value'];

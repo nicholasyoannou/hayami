@@ -137,6 +137,24 @@ export const onboardingCompleteItem = storage.defineItem<boolean>(
   { fallback: false }
 );
 
+// Compact mode: hides avatars, tightens spacing, skips /about API calls
+export const redditCompactModeItem = storage.defineItem<boolean>(
+  'local:reddit_compact_mode',
+  { fallback: false }
+);
+
+// Profile hover card: show user info card when hovering over usernames
+export const redditProfileHoverCardItem = storage.defineItem<boolean>(
+  'local:reddit_profile_hover_card',
+  { fallback: true }
+);
+
+// Provider availability badges: show comment counts on provider tabs (manually enabled)
+export const providerBadgesEnabledItem = storage.defineItem<boolean>(
+  'local:provider_badges_enabled',
+  { fallback: false }
+);
+
 // Reddit comment text size increase (in px, capped in UI/consumer)
 export const redditCommentTextSizeIncreaseItem = storage.defineItem<number>(
   'local:reddit_comment_text_size_increase',
@@ -169,6 +187,8 @@ export const seriesMappingItem = storage.defineItem<
   Record<string, Record<string, Record<string, {
     episodeOffset: number;
     mapperAnimeName?: string;
+    malId?: number;
+    anilistId?: number;
     aniwaveIsDub?: boolean;
   }>>>
 >(
@@ -188,6 +208,8 @@ export type ManualOverrideRecentEntry = {
   mapping: {
     episodeOffset: number;
     mapperAnimeName?: string;
+    malId?: number;
+    anilistId?: number;
     aniwaveIsDub?: boolean;
   };
   updatedAt: string;

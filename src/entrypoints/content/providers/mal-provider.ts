@@ -38,26 +38,43 @@ export class MalProvider extends BaseProvider {
       return null;
     };
 
-    let malId = animeInfo.malId;
+    // Check for a "wrong anime" override before resolving MAL ID, so we
+    // resolve against the corrected title instead of the original one.
+    const mapping = await getSeriesMapping(animeInfo.animeName || '', 'mal');
+    const mapperAnimeName = (mapping?.mapperAnimeName || '').trim();
+    const resolveAnimeName = mapperAnimeName || animeInfo.animeName;
+
+    // If the user picked a specific MAL anime via "wrong anime", the mapping
+    // carries the authoritative MAL ID — use it directly, no search needed.
+    let malId = normalizeMalId(mapping?.malId) ?? null;
+    if (malId) {
+      animeInfo.malId = malId;
+      log.log('Using saved malId from mapping:', malId);
+    }
+
+    // When the user corrected the anime name but we don't have a saved MAL ID,
+    // the original malId (if any) belongs to the wrong series — discard it.
     if (!malId) {
-      log.log('Resolving malId via AniList');
-      const ids = await getCachedAnimeIds(animeInfo.animeName);
+      malId = mapperAnimeName ? null : animeInfo.malId;
+    }
+
+    // Resolve via MAL's own API first, then AniList as fallback
+    if (!malId) {
+      log.log('Resolving malId via MAL search for:', resolveAnimeName);
+      malId = await searchMalAnimeId(resolveAnimeName);
+      if (malId) {
+        animeInfo.malId = malId;
+        log.log('Resolved malId via MAL search:', malId);
+      }
+    }
+
+    if (!malId) {
+      log.log('MAL search failed, trying AniList fallback for:', resolveAnimeName);
+      const ids = await getCachedAnimeIds(resolveAnimeName);
       malId = normalizeMalId(ids?.malId);
       if (malId) {
         animeInfo.malId = malId;
         log.log('Resolved malId from AniList:', malId);
-      }
-
-      // Final fallback: direct MAL search by name
-      if (!malId) {
-        log.warn('No malId from mapper/AniList; attempting MAL name search');
-        malId = await searchMalAnimeId(animeInfo.animeName);
-        if (malId) {
-          animeInfo.malId = malId;
-          log.log('Resolved malId via MAL search:', malId);
-        } else {
-          log.warn('MAL search by name returned no ID');
-        }
       }
     }
 
@@ -70,7 +87,6 @@ export class MalProvider extends BaseProvider {
 
     try {
       const episodeNum = extractEpisodeNumber(animeInfo.episodeName);
-      const mapping = await getSeriesMapping(animeInfo.animeName || '', 'mal');
 
       const parsedEpisodeNum = episodeNum ? Number(episodeNum) : null;
       const desiredWithOffset = parsedEpisodeNum !== null ? parsedEpisodeNum + (mapping?.episodeOffset ?? 0) : null;
@@ -84,9 +100,20 @@ export class MalProvider extends BaseProvider {
         chosenEpisodeNum,
         malId,
       });
-      
+
+      // Use pre-fetched data from cache if available (background prefetch)
+      let forumResult: MalForumResult;
+      if (discussionCache.mal?.topics || discussionCache.mal?.selectedTopic) {
+        log.log('Reusing pre-fetched MAL cache');
+        forumResult = {
+          topics: discussionCache.mal.topics,
+          selectedTopic: discussionCache.mal.selectedTopic,
+          status: (discussionCache.mal.status as MalForumResult['status']) ?? 'ok',
+          retryAfterSeconds: discussionCache.mal.retryAfterSeconds,
+        };
+      } else {
       // MAL forum HTML is primary; Jikan is fallback only.
-      let forumResult: MalForumResult = await fetchMalForumTopics(malId, chosenEpisodeNum ?? undefined);
+      forumResult = await fetchMalForumTopics(malId, chosenEpisodeNum ?? undefined);
       if (!forumResult.selectedTopic && (!forumResult.topics || forumResult.topics.length === 0)) {
         const jikanFallback = await fetchJikanForumTopics(malId, chosenEpisodeNum ?? undefined);
         if (jikanFallback.topics?.length || jikanFallback.selectedTopic) {
@@ -104,6 +131,7 @@ export class MalProvider extends BaseProvider {
         } else if (!forumResult.status || forumResult.status === 'ok') {
           forumResult.status = 'no_topic';
         }
+      }
       }
 
       // Link-only mode: show a button linking to the topic instead of rendering posts
@@ -177,11 +205,11 @@ export class MalProvider extends BaseProvider {
           posts: postsResult?.posts,
           nextPageUrl: postsResult?.nextPageUrl ?? null,
         },
-        animeTitle: animeInfo.animeName,
+        animeTitle: resolveAnimeName,
         topicId: forumResult.selectedTopic?.id,
         wrongAnimeContext: {
           animeName: animeInfo.animeName,
-          mappingAnimeName: animeInfo.animeName,
+          mappingAnimeName: resolveAnimeName,
           malId,
           crEpisodeNum: parsedEpisode,
         },
@@ -214,14 +242,18 @@ export class MalProvider extends BaseProvider {
     container.style.display = 'block';
     safeClear(container);
     
+    // Check for a "wrong anime" override so the render reflects the corrected title
+    const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'mal');
+    const renderAnimeName = (renderMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+
     // Mount MAL forum component
     const app = createApp(MALForumView, {
       result: discussionCache.mal as MalForumResult,
-      animeTitle: animeInfo.animeName,
+      animeTitle: renderAnimeName,
       topicId: discussionCache.mal.selectedTopic?.id,
       wrongAnimeContext: {
         animeName: animeInfo.animeName,
-        mappingAnimeName: animeInfo.animeName,
+        mappingAnimeName: renderAnimeName,
         malId: animeInfo.malId ?? null,
         crEpisodeNum: (() => {
           const raw = extractEpisodeNumber(animeInfo.episodeName);
