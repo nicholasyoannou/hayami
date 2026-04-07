@@ -472,7 +472,10 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           // Manual-mapped/third-party sites may not have CR episode metadata.
           // Explicitly query Hayami's series mapper before any direct Disqus lookup.
           if (animeInfoForMapper.animeName) {
-            const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfoForMapper.animeName, 'disqus');
+            const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfoForMapper.animeName, 'disqus', {
+              malId: seriesMapping?.malId,
+              anilistId: seriesMapping?.anilistId,
+            });
             const mapperEpisode = mappedEpisodeNum ?? rawEpisodeNum;
             if (mapperData?.results?.length && Number.isFinite(mapperEpisode)) {
               const desired = String(mapperEpisode);

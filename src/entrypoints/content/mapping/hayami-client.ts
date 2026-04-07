@@ -57,13 +57,11 @@ export async function fetchAnimeMapperDataBySeriesName(
     const platformParam = platform !== 'reddit' ? `&platform=${encodeURIComponent(platform)}` : '';
 
     let idParams = '';
-    if (options?.isThirdPartySite) {
-      if (options?.malId) {
-        idParams += `&mal_id=${options.malId}`;
-      }
-      if (options?.anilistId) {
-        idParams += `&anilist_id=${options.anilistId}`;
-      }
+    if (options?.malId) {
+      idParams += `&mal_id=${options.malId}`;
+    }
+    if (options?.anilistId) {
+      idParams += `&anilist_id=${options.anilistId}`;
     }
 
     let episodeCountParam = '';

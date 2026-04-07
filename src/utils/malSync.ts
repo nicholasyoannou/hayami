@@ -1,12 +1,19 @@
 /**
  * MAL-Sync Integration Utility
  *
- * Communicates with the MAL-Sync browser extension via
- * chrome.runtime.onMessageExternal to retrieve presence data
- * (anime title, episode number) for the current tab.
+ * Two complementary strategies for reading MAL-Sync's resolved data:
  *
- * MAL-Sync must have its Discord Rich Presence feature enabled
- * for presence data to be available.
+ * 1. **DOM observation** (primary, content-script only):
+ *    MAL-Sync injects a floating overlay (`.floatbutton`) with an
+ *    `<a id="malRating">` whose href is set to the MAL/AniList page URL
+ *    once the anime is resolved. A MutationObserver watches for this
+ *    element and extracts the tracking URL.
+ *
+ * 2. **Cross-extension messaging** (fallback, via background):
+ *    Sends `{ tab, info }` to MAL-Sync via chrome.runtime.sendMessage
+ *    and reads the presence response. This requires Discord Rich Presence
+ *    enabled in MAL-Sync, and can fail if MAL-Sync's presence handler
+ *    has internal errors (e.g. getImage TypeError).
  */
 
 // MAL-Sync extension IDs
@@ -18,6 +25,9 @@ export type MalSyncPresence = {
   episode: number | null;
   totalEpisodes: number | null;
   rawState: string | null;
+  malUrl: string | null;
+  malId: number | null;
+  anilistId: number | null;
 };
 
 /**
@@ -94,6 +104,30 @@ export async function detectMalSync(): Promise<boolean> {
 }
 
 /**
+ * Extract a MAL ID from a MyAnimeList URL.
+ * Handles: https://myanimelist.net/anime/63376 or https://myanimelist.net/anime/63376/...
+ */
+function parseMalIdFromUrl(url: string | null | undefined): number | null {
+  if (!url) return null;
+  const match = url.match(/myanimelist\.net\/anime\/(\d+)/i);
+  if (!match) return null;
+  const id = Number.parseInt(match[1], 10);
+  return Number.isFinite(id) ? id : null;
+}
+
+/**
+ * Extract an AniList ID from an AniList URL.
+ * Handles: https://anilist.co/anime/12345 or https://anilist.co/anime/12345/...
+ */
+function parseAnilistIdFromUrl(url: string | null | undefined): number | null {
+  if (!url) return null;
+  const match = url.match(/anilist\.co\/anime\/(\d+)/i);
+  if (!match) return null;
+  const id = Number.parseInt(match[1], 10);
+  return Number.isFinite(id) ? id : null;
+}
+
+/**
  * Parse MAL-Sync presence state string into episode info.
  * Examples: "Episode 5/12", "Episode 5", "Episode 5/12 | Volume 2/5"
  */
@@ -141,11 +175,21 @@ export async function queryMalSyncPresence(tabId: number): Promise<MalSyncPresen
           }
 
           const { episode, totalEpisodes } = parsePresenceState(response.presence.state);
+
+          // MAL-Sync returns the tracking URL at the top level of the response
+          // (e.g. "https://myanimelist.net/anime/63376" or "https://anilist.co/anime/12345").
+          const trackingUrl: string | null = typeof response.url === 'string' ? response.url : null;
+          const malId = parseMalIdFromUrl(trackingUrl);
+          const anilistId = parseAnilistIdFromUrl(trackingUrl);
+
           resolve({
             title,
             episode,
             totalEpisodes,
             rawState: response.presence.state || null,
+            malUrl: trackingUrl,
+            malId,
+            anilistId,
           });
         });
       } catch {
@@ -156,4 +200,105 @@ export async function queryMalSyncPresence(tabId: number): Promise<MalSyncPresen
   } catch {
     return null;
   }
+}
+
+// ── DOM observation (content-script) ────────────────────────────────
+
+/** Tracking-site URL pattern in MAL-Sync's injected DOM anchors. */
+const TRACKING_URL_RE = /(?:myanimelist\.net|anilist\.co)\/anime\/\d+/i;
+
+/**
+ * Scan MAL-Sync's injected DOM for a tracking URL right now.
+ * Checks `#malRating` first (the primary link), then any anchor
+ * inside `.floatbutton` or `#MalData`.
+ */
+function scanMalSyncDom(): { malUrl: string; malId: number | null; anilistId: number | null } | null {
+  const candidates: HTMLAnchorElement[] = [];
+
+  const malRating = document.querySelector<HTMLAnchorElement>('#malRating[href]');
+  if (malRating) candidates.push(malRating);
+
+  // Broader sweep inside MAL-Sync containers
+  document.querySelectorAll<HTMLAnchorElement>('.floatbutton a[href], #MalData a[href]').forEach((a) => {
+    if (!candidates.includes(a)) candidates.push(a);
+  });
+
+  for (const anchor of candidates) {
+    const href = anchor.href || anchor.getAttribute('href') || '';
+    if (TRACKING_URL_RE.test(href)) {
+      return {
+        malUrl: href,
+        malId: parseMalIdFromUrl(href),
+        anilistId: parseAnilistIdFromUrl(href),
+      };
+    }
+  }
+  return null;
+}
+
+export type MalSyncDomResult = {
+  malUrl: string;
+  malId: number | null;
+  anilistId: number | null;
+};
+
+/**
+ * Observe the page DOM for MAL-Sync's injected elements and resolve
+ * as soon as a tracking URL (MAL/AniList) is found.
+ *
+ * This is the **primary** strategy — it works even when MAL-Sync's
+ * cross-extension presence handler is broken, because it reads directly
+ * from the DOM elements MAL-Sync injects into the streaming page.
+ *
+ * @param timeoutMs  Max time to wait (default 15 s — MAL-Sync can be slow).
+ * @returns  Resolved tracking data, or `null` on timeout / non-browser env.
+ */
+export function observeMalSyncDom(timeoutMs = 15_000): { promise: Promise<MalSyncDomResult | null>; cancel: () => void } {
+  // Not in a browser / no document
+  if (typeof document === 'undefined') {
+    return { promise: Promise.resolve(null), cancel: () => {} };
+  }
+
+  // Immediate check — MAL-Sync may have already injected its elements.
+  const immediate = scanMalSyncDom();
+  if (immediate) {
+    return { promise: Promise.resolve(immediate), cancel: () => {} };
+  }
+
+  let observer: MutationObserver | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let settled = false;
+
+  const promise = new Promise<MalSyncDomResult | null>((resolve) => {
+    const settle = (result: MalSyncDomResult | null) => {
+      if (settled) return;
+      settled = true;
+      if (observer) { observer.disconnect(); observer = null; }
+      if (timer) { clearTimeout(timer); timer = null; }
+      resolve(result);
+    };
+
+    timer = setTimeout(() => settle(null), timeoutMs);
+
+    observer = new MutationObserver(() => {
+      const found = scanMalSyncDom();
+      if (found) settle(found);
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['href'],
+    });
+  });
+
+  const cancel = () => {
+    if (settled) return;
+    settled = true;
+    if (observer) { observer.disconnect(); observer = null; }
+    if (timer) { clearTimeout(timer); timer = null; }
+  };
+
+  return { promise, cancel };
 }

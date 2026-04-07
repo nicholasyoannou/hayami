@@ -16,7 +16,8 @@ import { con } from '@/utils/logger';
 import { AnimeInfo } from './types';
 import { browser } from 'wxt/browser';
 import { malSyncEnabledItem } from '@/config/storage';
-import type { MalSyncPresence } from '@/utils/malSync';
+import type { MalSyncPresence, MalSyncDomResult } from '@/utils/malSync';
+import { observeMalSyncDom } from '@/utils/malSync';
 import type {
   MapperResponse,
   MapperResultEntry,
@@ -53,6 +54,31 @@ import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './mapping/
 
 export { SERIES_MAPPING_KEY } from './mapping-keys';
 export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from './storage/series-mapping';
+import { saveSeriesMapping as _saveSeriesMapping, getSeriesMapping as _getSeriesMapping } from './storage/series-mapping';
+import type { SeriesMappingPlatform } from './storage/series-mapping';
+
+/**
+ * Persist MAL-Sync-resolved IDs into the local series mapping without
+ * overwriting any user-set episodeOffset or mapperAnimeName.
+ */
+async function saveMalSyncIds(
+  animeName: string,
+  malId: number | null,
+  anilistId: number | null,
+  platform: SeriesMappingPlatform,
+): Promise<void> {
+  if (!animeName || (!malId && !anilistId)) return;
+  const existing = await _getSeriesMapping(animeName, platform);
+  const update: Record<string, unknown> = {
+    episodeOffset: existing?.episodeOffset ?? 0,
+  };
+  if (malId) update.malId = malId;
+  if (anilistId) update.anilistId = anilistId;
+  // Preserve existing fields the user may have set
+  if (existing?.mapperAnimeName) update.mapperAnimeName = existing.mapperAnimeName;
+  if (existing?.aniwaveIsDub !== undefined) update.aniwaveIsDub = existing.aniwaveIsDub;
+  await _saveSeriesMapping(animeName, update as any, platform);
+}
 export {
   parseEpisodeFromTitle,
   parseMapperYear,
@@ -128,8 +154,9 @@ export function getLastResolvedHayamiName(baseAnimeName: string | null | undefin
   return lastResolvedHayami.baseKey === baseKey ? lastResolvedHayami.resolvedName : null;
 }
 
-// --- MAL-Sync presence helper ---
+// --- MAL-Sync helpers ---
 
+/** Cross-extension messaging fallback (requires Discord RPC enabled in MAL-Sync). */
 async function fetchMalSyncPresenceViaBackground(): Promise<MalSyncPresence | null> {
   try {
     const enabled = await malSyncEnabledItem.getValue();
@@ -145,6 +172,58 @@ async function fetchMalSyncPresenceViaBackground(): Promise<MalSyncPresence | nu
   } catch {
     return null;
   }
+}
+
+/** Active DOM watcher handle so it can be cancelled on navigation. */
+let activeMalSyncDomWatcher: { cancel: () => void } | null = null;
+
+/**
+ * Start both MAL-Sync strategies in parallel:
+ *  - DOM observer (primary): watches for MAL-Sync's injected `#malRating` / `.floatbutton` elements
+ *  - Cross-extension messaging (fallback): queries MAL-Sync's presence API via background
+ *
+ * Returns a merged result — DOM data takes priority for IDs since the messaging
+ * handler can crash (getImage TypeError) before returning the tracking URL.
+ */
+function startMalSyncQuery(): {
+  promise: Promise<{ presence: MalSyncPresence | null; dom: MalSyncDomResult | null }>;
+  cancel: () => void;
+} {
+  // Cancel any previous watcher from a prior navigation
+  if (activeMalSyncDomWatcher) {
+    activeMalSyncDomWatcher.cancel();
+    activeMalSyncDomWatcher = null;
+  }
+
+  const domWatcher = observeMalSyncDom(15_000);
+  activeMalSyncDomWatcher = domWatcher;
+
+  const presencePromise = fetchMalSyncPresenceViaBackground();
+
+  const promise = Promise.all([presencePromise, domWatcher.promise]).then(([presence, dom]) => {
+    activeMalSyncDomWatcher = null;
+    return { presence, dom };
+  });
+
+  return {
+    promise,
+    cancel: () => {
+      domWatcher.cancel();
+      activeMalSyncDomWatcher = null;
+    },
+  };
+}
+
+/** Extract the best malId / anilistId from combined MAL-Sync results. */
+function pickMalSyncIds(
+  presence: MalSyncPresence | null,
+  dom: MalSyncDomResult | null,
+): { malId: number | null; anilistId: number | null; malUrl: string | null } {
+  // DOM is more reliable (doesn't depend on Discord RPC or getImage)
+  const malId = dom?.malId ?? presence?.malId ?? null;
+  const anilistId = dom?.anilistId ?? presence?.anilistId ?? null;
+  const malUrl = dom?.malUrl ?? presence?.malUrl ?? null;
+  return { malId, anilistId, malUrl };
 }
 
 // =============================================================================
@@ -166,10 +245,11 @@ export async function tryMapperFailover(
       episodeOverride,
     });
 
-    // Start MAL-Sync presence query in parallel (non-blocking).
+    // Start MAL-Sync query in parallel (DOM observer + messaging fallback).
     // The result supplements Hayami's own detection with MAL-Sync's
-    // title/episode data when available.
-    const malSyncPromise = fetchMalSyncPresenceViaBackground();
+    // title/episode/ID data when available.
+    const malSyncQuery = startMalSyncQuery();
+    const malSyncPromise = malSyncQuery.promise;
 
     // If we are not on a Crunchyroll watch URL, skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.
@@ -325,13 +405,18 @@ export async function tryMapperFailover(
         }
       }
       
-      // ── MAL-Sync presence supplement ─────────────────────────────────
-      // Use MAL-Sync's title/episode to supplement or improve the mapper query.
-      const malSyncPresence = await malSyncPromise;
+      // ── MAL-Sync supplement (DOM + messaging) ───────────────────────
+      // Use MAL-Sync's title/episode/IDs to supplement or improve the mapper query.
+      const { presence: malSyncPresence, dom: malSyncDom } = await malSyncPromise;
       let malSyncAnimeName: string | null = null;
       let malSyncEpisode: number | null = null;
+      const { malId: malSyncMalId, anilistId: malSyncAnilistId, malUrl: malSyncUrl } = pickMalSyncIds(malSyncPresence, malSyncDom);
+
+      if (malSyncPresence || malSyncDom) {
+        log.log(' MAL-Sync data:', { presence: malSyncPresence, dom: malSyncDom, malId: malSyncMalId, anilistId: malSyncAnilistId, malUrl: malSyncUrl });
+      }
+
       if (malSyncPresence) {
-        log.log(' MAL-Sync presence data:', malSyncPresence);
         malSyncAnimeName = malSyncPresence.title || null;
         malSyncEpisode = malSyncPresence.episode ?? null;
 
@@ -339,6 +424,12 @@ export async function tryMapperFailover(
         if (episodeFromInfo === null && malSyncEpisode !== null) {
           log.log(' Using MAL-Sync episode as fallback:', malSyncEpisode);
         }
+      }
+
+      // Persist MAL-Sync IDs to local series mapping for future lookups
+      if (animeInfo?.animeName && (malSyncMalId || malSyncAnilistId)) {
+        log.log(' Saving MAL-Sync IDs to local mapping:', { malId: malSyncMalId, anilistId: malSyncAnilistId });
+        saveMalSyncIds(animeInfo.animeName, malSyncMalId, malSyncAnilistId, platform === 'disqus' ? 'disqus' : 'reddit').catch(() => {});
       }
 
       // Determine the best anime name for the mapper query:
@@ -349,6 +440,8 @@ export async function tryMapperFailover(
 
       const mapperResult = primaryAnimeName ? await fetchAnimeMapperDataBySeriesName(primaryAnimeName, platform, {
         ...(mapperOptions || {}),
+        malId: malSyncMalId,
+        anilistId: malSyncAnilistId,
         // Keep explicit season/part markers to avoid broad matches (e.g., S2 vs S2 Part 2).
         preserveSeasonSuffix: true,
         episodeDate: animeInfo?.releaseDate ?? null,
@@ -364,6 +457,8 @@ export async function tryMapperFailover(
         log.log(' Primary name yielded no results; retrying with MAL-Sync title:', malSyncAnimeName);
         effectiveMapperResult = await fetchAnimeMapperDataBySeriesName(malSyncAnimeName, platform, {
           ...(mapperOptions || {}),
+          malId: malSyncMalId,
+          anilistId: malSyncAnilistId,
           preserveSeasonSuffix: true,
           episodeDate: animeInfo?.releaseDate ?? null,
         });
@@ -659,12 +754,28 @@ export async function tryMapperFailover(
       (parsedAirDate && !Number.isNaN(parsedAirDate.getTime()) ? parsedAirDate : null) ||
       (animeInfo?.releaseDate ?? null);
 
+    // Resolve MAL-Sync IDs upfront (DOM + messaging) so they can be passed to all mapper queries
+    const { presence: crMalSyncPresence, dom: crMalSyncDom } = await malSyncPromise;
+    const { malId: crMalSyncMalId, anilistId: crMalSyncAnilistId, malUrl: crMalSyncUrl } = pickMalSyncIds(crMalSyncPresence, crMalSyncDom);
+
+    if (crMalSyncPresence || crMalSyncDom) {
+      log.log(' MAL-Sync data (CR path):', { presence: crMalSyncPresence, dom: crMalSyncDom, malId: crMalSyncMalId, anilistId: crMalSyncAnilistId, malUrl: crMalSyncUrl });
+    }
+
+    // Persist MAL-Sync IDs to local series mapping for future lookups
+    if (animeInfo?.animeName && (crMalSyncMalId || crMalSyncAnilistId)) {
+      log.log(' Saving MAL-Sync IDs to local mapping:', { malId: crMalSyncMalId, anilistId: crMalSyncAnilistId });
+      saveMalSyncIds(animeInfo.animeName, crMalSyncMalId, crMalSyncAnilistId, platform === 'disqus' ? 'disqus' : 'reddit').catch(() => {});
+    }
+
     let mapperResult: MapperResponse | null = null;
     if (platform === 'disqus') {
       log.log(' Querying mapper service with series_name only (disqus)...');
       mapperResult = await fetchAnimeMapperDataBySeriesName(seriesTitle, platform, {
         preserveSeasonSuffix: false,
         episodeDate: episodeDateForMapper,
+        malId: crMalSyncMalId,
+        anilistId: crMalSyncAnilistId,
       });
       if (mapperResult?.results?.length) {
         log.log(' Using series-name-only results for disqus:', mapperResult.results.length, 'results');
@@ -682,12 +793,13 @@ export async function tryMapperFailover(
     log.log(' Mapper service response:', mapperResult);
     if (!mapperResult?.results?.length) {
       // If Hayami mapper returned nothing, try MAL-Sync title as a last resort
-      const crMalSyncPresence = await malSyncPromise;
       if (crMalSyncPresence?.title && crMalSyncPresence.title.toLowerCase() !== seriesTitle.toLowerCase()) {
         log.log(' No results from mapper; retrying with MAL-Sync title:', crMalSyncPresence.title);
         mapperResult = await fetchAnimeMapperDataBySeriesName(crMalSyncPresence.title, platform, {
           preserveSeasonSuffix: true,
           episodeDate: episodeDateForMapper,
+          malId: crMalSyncMalId,
+          anilistId: crMalSyncAnilistId,
         });
       }
       if (!mapperResult?.results?.length) {
