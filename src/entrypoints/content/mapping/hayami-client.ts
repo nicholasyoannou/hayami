@@ -105,6 +105,8 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
   platform: 'reddit' | 'disqus' = 'reddit',
   options?: {
     episodeDate?: string | Date | null;
+    malId?: number | null;
+    anilistId?: number | null;
     // Accepted for forward-compat with caller sites (e.g., AniList provider) but
     // currently unused by the season-title endpoint.
     isThirdPartySite?: boolean;
@@ -119,7 +121,14 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
     if (normalizedDate) {
       episodeDateParam = `&episode_date=${encodeURIComponent(normalizedDate)}`;
     }
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}${episodeDateParam}`;
+    let idParams = '';
+    if (options?.malId) {
+      idParams += `&mal_id=${options.malId}`;
+    }
+    if (options?.anilistId) {
+      idParams += `&anilist_id=${options.anilistId}`;
+    }
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}&season_title=${encodedSeason}${platformParam}${episodeDateParam}${idParams}`;
     log.log('Querying mapper service URL:', url);
     const response = await fetchHayami(url);
 

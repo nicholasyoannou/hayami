@@ -788,6 +788,8 @@ export async function tryMapperFailover(
       log.log(' Querying mapper service with series_name and season_title...');
       mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform, {
         episodeDate: episodeDateForMapper,
+        malId: crMalSyncMalId,
+        anilistId: crMalSyncAnilistId,
       });
     }
     log.log(' Mapper service response:', mapperResult);
