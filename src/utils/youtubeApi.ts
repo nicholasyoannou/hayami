@@ -227,20 +227,37 @@ export async function getCommentReplies(
   }
 }
 
+export type YouTubePlatform =
+  | 'youtube'
+  | 'youtube-muse-asia'
+  | 'youtube-muse-indonesia'
+  | 'youtube-tropics-anime-asia'
+  | 'youtube-ani-one-asia'
+  | 'youtube-its-anime';
+
 /**
- * Searches for YouTube videos/playlists using the r-anime-wiki-mapper service
+ * Searches for YouTube videos/playlists using the Hayami mapper service.
+ *
+ * When `platform` is `'youtube'` (generic), the API returns a `channel_results`
+ * array covering every indexed channel.  We pick the best match across all of
+ * them so the user doesn't have to know which channel hosts the show.
  */
 export async function searchYouTubePlaylist(
   seriesName: string,
   seasonTitle: string,
-  platform: 'youtube-muse-asia' | 'youtube-muse-indonesia' | 'youtube-tropics-anime-asia' | 'youtube-ani-one-asia'
+  platform: YouTubePlatform = 'youtube'
 ): Promise<any | null> {
   try {
     const params = new URLSearchParams({
       series_name: seriesName,
-      season_title: seasonTitle,
       platform,
     });
+
+    // Only pass season_title for channel-specific queries; the generic
+    // endpoint doesn't use it meaningfully and it can cause false negatives.
+    if (platform !== 'youtube') {
+      params.set('season_title', seasonTitle);
+    }
 
     const response = await fetchHayami(
       `https://api.hayami.moe/anime/search?${params.toString()}`,
@@ -255,8 +272,17 @@ export async function searchYouTubePlaylist(
     }
 
     const data = await response.json();
-    
-    // Prefer the API's matched_result even when not marked exact, but ensure it resembles the requested series.
+
+    // ------------------------------------------------------------------
+    // Generic "youtube" platform – aggregated channel_results response
+    // ------------------------------------------------------------------
+    if (platform === 'youtube' && Array.isArray(data.channel_results)) {
+      return pickBestChannelResult(data, seriesName);
+    }
+
+    // ------------------------------------------------------------------
+    // Channel-specific platform – legacy matched_result / results format
+    // ------------------------------------------------------------------
     const normalize = (value: string = '') => value.toLowerCase().replace(/[^a-z0-9]/g, '');
     const normalizedSeries = normalize(seriesName);
     const matched = data.matched_result;
@@ -288,6 +314,63 @@ export async function searchYouTubePlaylist(
     log.error('Error searching YouTube playlist:', error);
     return null;
   }
+}
+
+/**
+ * Given the generic `platform=youtube` response, iterate over every channel's
+ * results and return the best playlist match (preferring exact matches and
+ * playlists with the most videos).
+ */
+function pickBestChannelResult(data: any, seriesName: string): any | null {
+  const normalize = (value: string = '') => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normalizedSeries = normalize(seriesName);
+
+  let bestMatch: any = null;
+  let bestVideoCount = -1;
+  let bestIsExact = false;
+
+  for (const channel of data.channel_results) {
+    if (!channel.has_match) continue;
+
+    // Check best_match shortcut first
+    const candidate = channel.best_match;
+    if (!candidate) continue;
+
+    const normalizedTitle = normalize(candidate.title ?? '');
+    const isRelated =
+      normalizedTitle.includes(normalizedSeries) ||
+      normalizedSeries.includes(normalizedTitle);
+
+    if (!candidate.is_exact_match && !isRelated) continue;
+
+    const videoCount = candidate.videos?.length ?? 0;
+    const isExact = !!candidate.is_exact_match;
+
+    // Prefer: exact match > related match, then most videos
+    if (
+      !bestMatch ||
+      (isExact && !bestIsExact) ||
+      (isExact === bestIsExact && videoCount > bestVideoCount)
+    ) {
+      // Attach channel metadata so the provider can show which channel it came from
+      bestMatch = {
+        ...candidate,
+        _channel_name: channel.channel_name ?? candidate.channel_name,
+        _channel_id: channel.channel_id ?? candidate.channel_id,
+        _platform: channel.platform,
+      };
+      bestVideoCount = videoCount;
+      bestIsExact = isExact;
+    }
+  }
+
+  if (bestMatch) {
+    log.log('Generic YouTube search: best match from', bestMatch._channel_name, bestMatch);
+  } else {
+    log.log('Generic YouTube search: no matching channel found for', seriesName);
+  }
+
+  return bestMatch;
 }
 
 /**

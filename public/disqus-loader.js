@@ -134,49 +134,93 @@
   window.disqus_config = function () {
     this.page.url = threadUrl;
     this.page.identifier = identifier;
+    this.page.title = threadTitle;
   };
 
-  // Load Disqus embed script
+  // Intercept iframe insertion BEFORE the browser starts navigation.
+  // Disqus embed.js creates an iframe, sets its src, then appends it to the DOM.
+  // By patching appendChild/insertBefore we can fix the URL params while the
+  // iframe is still detached, so the browser only ever navigates once with the
+  // correct URL. This avoids the racy post-insertion src rewrite that broke
+  // Disqus's postMessage channel and caused intermittent image loading failures.
+  const POLL_STYLE_OVERRIDE = 'width: 100% !important; border: none !important; overflow: hidden !important; height: 0px !important; transition: height 0.3s !important; min-width: 320px !important; max-width: 620px !important; flex: 1 1 0% !important;';
+  let embedFixed = false;
+
+  const fixDisqusIframeSrc = (node) => {
+    if (!node || node.tagName !== 'IFRAME') return;
+    try {
+      if (node.src && node.src.includes('disqus.com/embed/comments/') && !embedFixed) {
+        const url = new URL(node.src);
+        url.searchParams.delete('t_i');
+        url.searchParams.set('t_s', threadSlug);
+        url.searchParams.set('t_e', threadTitle);
+        url.searchParams.set('t_d', threadTitle + ' \u00b7 Discuss Anime \u00b7 Disqus');
+        url.searchParams.set('t_t', threadTitle);
+        url.searchParams.set('s_o', 'popular');
+        node.src = url.toString();
+        embedFixed = true;
+        console.log('[Disqus] Fixed iframe URL (pre-insert):', url.toString());
+      }
+      if (node.src && node.src.includes('polls.services.disqus.com/poll')) {
+        node.style.cssText = POLL_STYLE_OVERRIDE + ' display: none !important;';
+      }
+    } catch (e) {
+      console.error('[Disqus] Error fixing iframe:', e);
+    }
+  };
+
+  // Patch appendChild and insertBefore on Node.prototype to intercept
+  // Disqus's iframe before it enters the DOM.
+  const origAppendChild = Node.prototype.appendChild;
+  const origInsertBefore = Node.prototype.insertBefore;
+
+  Node.prototype.appendChild = function(child) {
+    fixDisqusIframeSrc(child);
+    const result = origAppendChild.call(this, child);
+    if (embedFixed) restoreInsertMethods();
+    return result;
+  };
+
+  Node.prototype.insertBefore = function(child, ref) {
+    fixDisqusIframeSrc(child);
+    const result = origInsertBefore.call(this, child, ref);
+    if (embedFixed) restoreInsertMethods();
+    return result;
+  };
+
+  const restoreInsertMethods = () => {
+    Node.prototype.appendChild = origAppendChild;
+    Node.prototype.insertBefore = origInsertBefore;
+    if (proxyMoveObserver) proxyMoveObserver.disconnect();
+    restoreCompetingThreadIds();
+  };
+
+  // Safety: restore original methods after 15s even if no iframe was caught
+  setTimeout(() => {
+    if (!embedFixed) {
+      Node.prototype.appendChild = origAppendChild;
+      Node.prototype.insertBefore = origInsertBefore;
+    }
+    restoreCompetingThreadIds();
+  }, 15000);
+
+  // Load Disqus embed script (AFTER patches are in place)
   var d = document, s = d.createElement('script');
   s.src = 'https://' + forumShortname + '.disqus.com/embed.js';
   s.setAttribute('data-timestamp', +new Date());
   (d.head || d.body).appendChild(s);
 
-  // Watch for iframe creation and fix the URL
-  const POLL_STYLE_OVERRIDE = 'width: 100% !important; border: none !important; overflow: hidden !important; height: 0px !important; transition: height 0.3s !important; min-width: 320px !important; max-width: 620px !important; flex: 1 1 0% !important;';
-  let embedFixed = false;
-
+  // Still observe for poll iframes that may arrive after the embed iframe
   const observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
       mutation.addedNodes.forEach(function(node) {
         if (node.tagName === 'IFRAME') {
           try {
-            if (node.src && node.src.includes('disqus.com/embed/comments/')) {
-              const url = new URL(node.src);
-              // Remove t_i parameter (identifier)
-              url.searchParams.delete('t_i');
-              // Add/update parameters with correct values
-              url.searchParams.set('t_s', threadSlug); // slug
-              url.searchParams.set('t_e', threadTitle); // title with period
-              url.searchParams.set('t_d', threadTitle + ' · Discuss Anime · Disqus'); // full page title
-              url.searchParams.set('t_t', threadTitle); // thread title
-              url.searchParams.set('s_o', 'popular'); // sort order
-              node.src = url.toString();
-              embedFixed = true;
-              console.log('[Disqus] Fixed iframe URL:', url.toString());
-            }
-
             if (node.src && node.src.includes('polls.services.disqus.com/poll')) {
               node.style.cssText = POLL_STYLE_OVERRIDE + ' display: none !important;';
             }
-
-            if (embedFixed) {
-              observer.disconnect();
-              if (proxyMoveObserver) proxyMoveObserver.disconnect();
-              restoreCompetingThreadIds();
-            }
           } catch (e) {
-            console.error('[Disqus] Error fixing iframe URL:', e);
+            // ignore
           }
         }
       });

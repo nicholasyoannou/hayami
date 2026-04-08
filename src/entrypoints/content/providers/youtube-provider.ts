@@ -96,8 +96,8 @@ export class YouTubeProvider extends BaseProvider {
         return;
       }
 
-      // Determine platform
-      const platform = 'youtube-muse-asia'; // Default platform, could be configurable
+      // Search all YouTube channels via the generic platform
+      const platform = 'youtube' as const;
 
       // Try to get season title from Crunchyroll metadata
       let seasonTitle = 'Season 1';
@@ -183,7 +183,7 @@ export class YouTubeProvider extends BaseProvider {
         return;
       }
 
-      log.log('Found YouTube video:', video);
+      log.log('Found YouTube video:', video, 'from channel:', playlist._channel_name ?? 'unknown');
       setCurrentYouTubeVideo(video);
 
       // Cache the YouTube data

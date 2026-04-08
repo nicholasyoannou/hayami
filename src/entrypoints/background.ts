@@ -673,6 +673,11 @@ async function purgeHostPermissionsForHost(host: string, origin?: string) {
 const POLL_RULE_ID = 99001;
 const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
 
+// Rule IDs for rewriting sec-fetch-* headers on Reddit .json API requests so
+// that they look like browser navigations instead of programmatic fetches.
+// Without this, Reddit returns 403 for requests with sec-fetch-mode: cors.
+const REDDIT_NAV_HEADER_RULE_ID = 99010;
+
 const CONTEXT_MENU_ID = 'hayami-configure-site';
 
 async function requestSitePermission(url: string): Promise<boolean> {
@@ -1688,14 +1693,40 @@ export default defineBackground(() => {
   void migrateLocalToSync();
 
   // Safety cleanup: remove stale session poll-block rules from previous runs.
+  // Also register Reddit header-rewrite rules so background fetch() requests
+  // look like browser navigations (Reddit 403s programmatic sec-fetch-mode: cors).
   void (async () => {
     try {
       const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
       if (dnr?.updateSessionRules) {
-        await dnr.updateSessionRules({ removeRuleIds: [POLL_RULE_ID] });
+        await dnr.updateSessionRules({
+          removeRuleIds: [POLL_RULE_ID, REDDIT_NAV_HEADER_RULE_ID],
+          addRules: [{
+            id: REDDIT_NAV_HEADER_RULE_ID,
+            priority: 1,
+            action: {
+              type: 'modifyHeaders' as const,
+              requestHeaders: [
+                { header: 'sec-fetch-mode', operation: 'set' as const, value: 'navigate' },
+                { header: 'sec-fetch-dest', operation: 'set' as const, value: 'document' },
+                { header: 'sec-fetch-site', operation: 'set' as const, value: 'none' },
+                { header: 'sec-fetch-user', operation: 'set' as const, value: '?1' },
+                { header: 'accept', operation: 'set' as const, value: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' },
+                { header: 'upgrade-insecure-requests', operation: 'set' as const, value: '1' },
+              ],
+            },
+            condition: {
+              regexFilter: '.*\\.json(\\?.*)?$',
+              requestDomains: ['www.reddit.com', 'old.reddit.com'],
+              initiatorDomains: [chrome.runtime.id],
+              resourceTypes: ['xmlhttprequest' as const, 'other' as const],
+            },
+          }],
+        });
+        bg.debug('Registered Reddit nav-header rewrite rule');
       }
     } catch (error) {
-      bg.warn(' Failed to clear stale Disqus poll block rule', error);
+      bg.warn('Failed to register Reddit header rewrite / clear stale rules', error);
     }
   })();
 

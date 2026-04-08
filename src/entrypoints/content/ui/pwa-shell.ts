@@ -122,12 +122,8 @@ async function handleAniListRedirect(ctx: ContentScriptContext): Promise<void> {
       await browser.runtime.sendMessage({ action: 'hayami_closeTab' });
     } catch {}
 
-    try {
-      history.replaceState(null, '', `${window.location.origin}/pwa`);
-    } catch {}
-
     setTimeout(() => {
-      window.location.href = `${window.location.origin}/pwa`;
+      try { window.close(); } catch {}
     }, 1200);
   } else {
     status.replaceWith(
@@ -166,12 +162,8 @@ async function handleRedditRedirect(ctx: ContentScriptContext): Promise<void> {
       await browser.runtime.sendMessage({ action: 'hayami_closeTab' });
     } catch {}
 
-    try {
-      history.replaceState(null, '', `${window.location.origin}/pwa`);
-    } catch {}
-
     setTimeout(() => {
-      window.location.href = `${window.location.origin}/pwa`;
+      try { window.close(); } catch {}
     }, 1200);
   } else {
     status.replaceWith(
@@ -214,12 +206,8 @@ async function handleMALRedirect(ctx: ContentScriptContext): Promise<void> {
       await browser.runtime.sendMessage({ action: 'hayami_closeTab' });
     } catch {}
 
-    try {
-      history.replaceState(null, '', `${window.location.origin}/pwa`);
-    } catch {}
-
     setTimeout(() => {
-      window.location.href = `${window.location.origin}/pwa`;
+      try { window.close(); } catch {}
     }, 1200);
   } else {
     status.replaceWith(
@@ -262,12 +250,8 @@ async function handleYouTubeRedirect(ctx: ContentScriptContext): Promise<void> {
       await browser.runtime.sendMessage({ action: 'hayami_closeTab' });
     } catch {}
 
-    try {
-      history.replaceState(null, '', `${window.location.origin}/pwa`);
-    } catch {}
-
     setTimeout(() => {
-      window.location.href = `${window.location.origin}/pwa`;
+      try { window.close(); } catch {}
     }, 1200);
   } else {
     status.replaceWith(

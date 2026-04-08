@@ -131,17 +131,36 @@ function extractEpisodeNumberText(input: string): string | null {
   return Number.isFinite(parsed) ? String(parsed) : null;
 }
 
+function extractPostIdFromSource(source: string): string | null {
+  const commentsMatch = source.match(/\/comments\/([a-z0-9]+)/i);
+  if (commentsMatch?.[1]) return commentsMatch[1];
+  // redd.it short links: https://redd.it/<id>
+  try {
+    const urlObj = new URL(source);
+    if (urlObj.hostname === 'redd.it' || urlObj.hostname === 'www.redd.it') {
+      const id = urlObj.pathname.replace(/^\/+|\/+$/g, '');
+      if (/^[a-z0-9]{4,10}$/i.test(id)) return id;
+    }
+  } catch { /* not a valid URL */ }
+  return null;
+}
+
 function normalizeRedditDiscussion(discussion: any): void {
   if (!discussion) return;
   const permalink = typeof discussion.permalink === 'string' ? discussion.permalink : '';
   const url = typeof discussion.url === 'string' ? discussion.url : '';
   const source = permalink || url;
   const fullname = typeof discussion.fullname === 'string' ? discussion.fullname : '';
-  const match = source.match(/\/comments\/([a-z0-9]+)/i);
+  const extractedId = extractPostIdFromSource(source);
   const fullnameId = fullname.startsWith('t3_') ? fullname.slice(3) : '';
-  const id = match?.[1] || discussion.id || fullnameId;
+  const id = extractedId || discussion.id || fullnameId;
   if (!discussion.permalink && url) {
-    discussion.permalink = url.replace('https://www.reddit.com', '');
+    // For redd.it short links, construct a permalink from the post ID
+    if (url.includes('redd.it/') && !url.includes('reddit.com')) {
+      discussion.permalink = id ? `/comments/${id}` : url;
+    } else {
+      discussion.permalink = url.replace(/^https?:\/\/[^/]*reddit\.com/, '');
+    }
   }
   if (id && !discussion.id) {
     discussion.id = id;

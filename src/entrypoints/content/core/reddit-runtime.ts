@@ -8,23 +8,42 @@ function sanitizeRedditIconUrl(iconUrl?: string | null): string | null {
   return iconUrl.replace(/&amp;/g, '&').trim();
 }
 
+/**
+ * Extract a Reddit post ID from any Reddit URL format:
+ *  - https://www.reddit.com/r/anime/comments/8kkkp3/...
+ *  - https://redd.it/8kkkp3
+ *  - https://old.reddit.com/r/anime/comments/8kkkp3/...
+ */
+export function extractRedditPostId(url: string): string | null {
+  const commentsMatch = url.match(/\/comments\/([a-z0-9]+)/i);
+  if (commentsMatch?.[1]) return commentsMatch[1];
+
+  try {
+    const urlObj = new URL(url);
+    // redd.it short links: the post ID is the only path segment
+    if (urlObj.hostname === 'redd.it' || urlObj.hostname === 'www.redd.it') {
+      const id = urlObj.pathname.replace(/^\/+|\/+$/g, '');
+      if (/^[a-z0-9]{4,10}$/i.test(id)) return id;
+    }
+    // Generic fallback: last path segment
+    const pathParts = urlObj.pathname.split('/').filter((p) => p.length > 0);
+    if (pathParts.length > 0) {
+      const lastPart = pathParts[pathParts.length - 1];
+      if (/^[a-z0-9]{4,10}$/i.test(lastPart)) return lastPart;
+    }
+  } catch { /* invalid URL */ }
+
+  return null;
+}
+
+/** Build a permalink from a post ID when the original URL doesn't contain one (e.g. redd.it short links). */
+function permalinkFromPostId(postId: string): string {
+  return `/comments/${postId}`;
+}
+
 export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
   try {
-    let postId: string | null = null;
-
-    const commentsMatch = redditUrl.match(/\/comments\/([a-z0-9]+)/i);
-    if (commentsMatch && commentsMatch[1]) {
-      postId = commentsMatch[1];
-    } else {
-      const urlObj = new URL(redditUrl);
-      const pathParts = urlObj.pathname.split('/').filter((p) => p.length > 0);
-      if (pathParts.length > 0) {
-        const lastPart = pathParts[pathParts.length - 1];
-        if (/^[a-z0-9]{4,10}$/i.test(lastPart)) {
-          postId = lastPart;
-        }
-      }
-    }
+    const postId = extractRedditPostId(redditUrl);
 
     if (!postId) {
       log.log('Could not extract post ID from URL:', redditUrl);
@@ -94,7 +113,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
         score: 0,
         num_comments: 0,
         created_utc: Math.floor(Date.now() / 1000),
-        permalink: redditUrl.replace('https://www.reddit.com', ''),
+        permalink: redditUrl.includes('reddit.com') ? redditUrl.replace(/^https?:\/\/[^/]*reddit\.com/, '') : permalinkFromPostId(postId),
         url: redditUrl,
       };
     }
@@ -139,7 +158,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
         score: 0,
         num_comments: 0,
         created_utc: Math.floor(Date.now() / 1000),
-        permalink: redditUrl.replace('https://www.reddit.com', ''),
+        permalink: redditUrl.includes('reddit.com') ? redditUrl.replace(/^https?:\/\/[^/]*reddit\.com/, '') : permalinkFromPostId(postId),
         url: redditUrl,
       };
     }
@@ -185,7 +204,7 @@ export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | n
       score: 0,
       num_comments: 0,
       created_utc: Math.floor(Date.now() / 1000),
-      permalink: redditUrl.replace('https://www.reddit.com', ''),
+      permalink: redditUrl.includes('reddit.com') ? redditUrl.replace(/^https?:\/\/[^/]*reddit\.com/, '') : permalinkFromPostId(postId),
       url: redditUrl,
     };
   } catch (error) {

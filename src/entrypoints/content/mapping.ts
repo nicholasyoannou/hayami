@@ -185,8 +185,14 @@ let activeMalSyncDomWatcher: { cancel: () => void } | null = null;
  * Returns a merged result — DOM data takes priority for IDs since the messaging
  * handler can crash (getImage TypeError) before returning the tracking URL.
  */
+type MalSyncResult = { presence: MalSyncPresence | null; dom: MalSyncDomResult | null };
+const MALSYNC_EMPTY: MalSyncResult = { presence: null, dom: null };
+
 function startMalSyncQuery(): {
-  promise: Promise<{ presence: MalSyncPresence | null; dom: MalSyncDomResult | null }>;
+  /** Resolves quickly (≤500 ms) with whatever MAL-Sync data is already available, or nulls. */
+  fast: Promise<MalSyncResult>;
+  /** Resolves when both MAL-Sync strategies have fully completed (up to 15 s). */
+  full: Promise<MalSyncResult>;
   cancel: () => void;
 } {
   // Cancel any previous watcher from a prior navigation
@@ -195,21 +201,41 @@ function startMalSyncQuery(): {
     activeMalSyncDomWatcher = null;
   }
 
-  const domWatcher = observeMalSyncDom(15_000);
-  activeMalSyncDomWatcher = domWatcher;
+  // Check the setting synchronously from cache — if MAL-Sync is disabled,
+  // skip all work entirely (no DOM observer, no messaging).
+  const enabledPromise = malSyncEnabledItem.getValue();
+  const gatedFull = enabledPromise.then(async (enabled) => {
+    if (!enabled) return MALSYNC_EMPTY;
 
-  const presencePromise = fetchMalSyncPresenceViaBackground();
+    const domWatcher = observeMalSyncDom(15_000);
+    activeMalSyncDomWatcher = domWatcher;
 
-  const promise = Promise.all([presencePromise, domWatcher.promise]).then(([presence, dom]) => {
-    activeMalSyncDomWatcher = null;
-    return { presence, dom };
+    const presencePromise = fetchMalSyncPresenceViaBackground();
+
+    const result = await Promise.all([presencePromise, domWatcher.promise]).then(([presence, dom]) => {
+      activeMalSyncDomWatcher = null;
+      return { presence, dom };
+    });
+    return result;
   });
 
+  // Fast path: race the full promise against a short timeout so the mapper
+  // is never blocked for more than 500 ms waiting on MAL-Sync.
+  const fast = Promise.race([
+    gatedFull,
+    new Promise<MalSyncResult>((resolve) =>
+      setTimeout(() => resolve(MALSYNC_EMPTY), 500),
+    ),
+  ]);
+
   return {
-    promise,
+    fast,
+    full: gatedFull,
     cancel: () => {
-      domWatcher.cancel();
-      activeMalSyncDomWatcher = null;
+      if (activeMalSyncDomWatcher) {
+        activeMalSyncDomWatcher.cancel();
+        activeMalSyncDomWatcher = null;
+      }
     },
   };
 }
@@ -249,7 +275,8 @@ export async function tryMapperFailover(
     // The result supplements Hayami's own detection with MAL-Sync's
     // title/episode/ID data when available.
     const malSyncQuery = startMalSyncQuery();
-    const malSyncPromise = malSyncQuery.promise;
+    const malSyncFast = malSyncQuery.fast;
+    const malSyncFull = malSyncQuery.full;
 
     // If we are not on a Crunchyroll watch URL, skip CR metadata and
     // fall back to a lightweight mapper lookup by series name + episode number.
@@ -407,7 +434,8 @@ export async function tryMapperFailover(
       
       // ── MAL-Sync supplement (DOM + messaging) ───────────────────────
       // Use MAL-Sync's title/episode/IDs to supplement or improve the mapper query.
-      const { presence: malSyncPresence, dom: malSyncDom } = await malSyncPromise;
+      // Use the fast path (≤500 ms) so we don't block the mapper on slow MAL-Sync queries.
+      const { presence: malSyncPresence, dom: malSyncDom } = await malSyncFast;
       let malSyncAnimeName: string | null = null;
       let malSyncEpisode: number | null = null;
       const { malId: malSyncMalId, anilistId: malSyncAnilistId, malUrl: malSyncUrl } = pickMalSyncIds(malSyncPresence, malSyncDom);
@@ -754,8 +782,8 @@ export async function tryMapperFailover(
       (parsedAirDate && !Number.isNaN(parsedAirDate.getTime()) ? parsedAirDate : null) ||
       (animeInfo?.releaseDate ?? null);
 
-    // Resolve MAL-Sync IDs upfront (DOM + messaging) so they can be passed to all mapper queries
-    const { presence: crMalSyncPresence, dom: crMalSyncDom } = await malSyncPromise;
+    // Resolve MAL-Sync IDs (fast path ≤500 ms) so mapper queries aren't blocked by slow MAL-Sync
+    const { presence: crMalSyncPresence, dom: crMalSyncDom } = await malSyncFast;
     const { malId: crMalSyncMalId, anilistId: crMalSyncAnilistId, malUrl: crMalSyncUrl } = pickMalSyncIds(crMalSyncPresence, crMalSyncDom);
 
     if (crMalSyncPresence || crMalSyncDom) {
@@ -794,14 +822,22 @@ export async function tryMapperFailover(
     }
     log.log(' Mapper service response:', mapperResult);
     if (!mapperResult?.results?.length) {
+      // Initial mapper query failed — now it's worth waiting for the full MAL-Sync
+      // result (which may have arrived by now) to get IDs and title for a retry.
+      const malSyncLate = await malSyncFull;
+      const lateMalSyncPresence = malSyncLate.presence ?? crMalSyncPresence;
+      const { malId: lateMalId, anilistId: lateAnilistId } = pickMalSyncIds(malSyncLate.presence, malSyncLate.dom);
+      const retryMalId = lateMalId ?? crMalSyncMalId;
+      const retryAnilistId = lateAnilistId ?? crMalSyncAnilistId;
+
       // If Hayami mapper returned nothing, try MAL-Sync title as a last resort
-      if (crMalSyncPresence?.title && crMalSyncPresence.title.toLowerCase() !== seriesTitle.toLowerCase()) {
-        log.log(' No results from mapper; retrying with MAL-Sync title:', crMalSyncPresence.title);
-        mapperResult = await fetchAnimeMapperDataBySeriesName(crMalSyncPresence.title, platform, {
+      if (lateMalSyncPresence?.title && lateMalSyncPresence.title.toLowerCase() !== seriesTitle.toLowerCase()) {
+        log.log(' No results from mapper; retrying with MAL-Sync title:', lateMalSyncPresence.title);
+        mapperResult = await fetchAnimeMapperDataBySeriesName(lateMalSyncPresence.title, platform, {
           preserveSeasonSuffix: true,
           episodeDate: episodeDateForMapper,
-          malId: crMalSyncMalId,
-          anilistId: crMalSyncAnilistId,
+          malId: retryMalId,
+          anilistId: retryAnilistId,
         });
       }
       if (!mapperResult?.results?.length) {
@@ -1213,10 +1249,15 @@ export async function tryMapperFailover(
     }
 
     const hasManualEpisodeOverride = Number.isFinite(overrideEpisode);
-    let seasonEpisode: number | null = hasManualEpisodeOverride ? Number(overrideEpisode) : null;
+    let seasonEpisode: number | null = null;
 
-    if (hasManualEpisodeOverride) {
-      log.log(' Using manual episode override as authoritative mapper key', {
+    // When we have CR seasons data, always use smart mapping even if an override
+    // was provided – the override comes from the episode title (absolute numbering
+    // like "E56") while the mapper uses within-season numbering (like "9").
+    // The override is kept as a fallback if smart mapping fails.
+    if (hasManualEpisodeOverride && seasonsData.length === 0) {
+      seasonEpisode = Number(overrideEpisode);
+      log.log(' Using manual episode override as authoritative mapper key (no seasons data)', {
         overrideEpisode: seasonEpisode,
       });
     } else if (seasonsData.length > 0) {

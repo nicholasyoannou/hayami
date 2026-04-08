@@ -7,6 +7,7 @@
 
 import { extensionFetch } from '@/utils/redditApi';
 import { getAccessToken, makeRedditRequest } from '@/utils/redditAuth';
+import { extractRedditPostId } from '@/entrypoints/content/core/reddit-runtime';
 import { con } from '@/utils/logger';
 
 const log = con.m('MapperSelftext');
@@ -17,8 +18,7 @@ export async function extractEpisodeTableFromRedditSelftext(
   mapperUrl: string,
   seriesName?: string,
 ): Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> {
-  const postIdMatch = mapperUrl.match(/comments\/([a-z0-9]+)/i);
-  const postId = postIdMatch?.[1] || null;
+  const postId = extractRedditPostId(mapperUrl);
   const cacheKey = postId || mapperUrl;
 
   try {
