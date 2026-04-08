@@ -207,7 +207,15 @@ const redditUrl = computed(() => {
 // Manage the host element state for "no discussion" conditions so we avoid stale UI
 const updateNoDiscussionFlag = () => {
   const host = inlineSectionRef.value;
-  isNoDiscussion.value = host?.dataset?.noDiscussion === 'true';
+  const noDisc = host?.dataset?.noDiscussion === 'true';
+  isNoDiscussion.value = noDisc;
+  // When the no-discussion flag is set, ensure loading state is cleared so
+  // the title shows "No Reddit thread found" instead of "Loading discussion…"
+  // and the avatar shimmer in RiTopStrip stops.
+  if (noDisc && isLoading.value) {
+    isLoading.value = false;
+    discussionStore.clearLoading();
+  }
 };
 
 const clearNoDiscussionFlag = () => {
