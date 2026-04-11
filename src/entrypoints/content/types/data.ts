@@ -310,6 +310,29 @@ export interface MapperResultEntry {
     mal_id?: number | string | null;
     anilist_id?: number | string | null;
   };
+  /** Per-subreddit episode discussion threads (e.g. `{ JuJutsuKaisen: { "1": "url" } }`). */
+  subreddit_episodes?: Record<string, Record<string, string>>;
+  subreddit_episodes_anime_only?: Record<string, Record<string, string>>;
+  subreddit_episodes_dub?: Record<string, Record<string, string>>;
+  subreddit_episodes_manga?: Record<string, Record<string, string>>;
+  subreddit_episodes_rewatch?: Record<string, Record<string, string>>;
+  /** Subreddits linked to this anime by Hayami (e.g. `["JuJutsuKaisen"]`). */
+  linked_subreddits?: string[];
+}
+
+/** Category of a Reddit discussion thread (beyond the main r/anime episode thread). */
+export type AlternateRedditCategory = 'main' | 'sub' | 'anime_only' | 'dub' | 'manga' | 'rewatch';
+
+/** Describes an alternate Reddit discussion thread for an episode. */
+export interface AlternateRedditThread {
+  /** Absolute Reddit thread URL. */
+  url: string;
+  /** Category (e.g. sub-specific, dub, rewatch). */
+  category: AlternateRedditCategory;
+  /** Short display label for the tab (e.g. "Dub Discussion"). */
+  label: string;
+  /** Subreddit name without the `r/` prefix, when applicable. */
+  subreddit?: string;
 }
 
 /** Metadata about a single matched result (from matched_result / matched_results). */

@@ -86,7 +86,7 @@
             @error="handleAvatarError"
         />
         </span>
-        <span class="truncate max-w-[8rem]">{{ subredditName }}</span>
+        <span class="truncate w-[8rem]">{{ subredditName }}</span>
       </div>
     </div>
 
@@ -146,91 +146,136 @@
 
     <div
       v-if="showTabs"
-      class="flex min-w-0 overflow-visible transition-opacity duration-300 relative"
+      class="flex items-end min-w-0 overflow-visible transition-opacity duration-300 relative gap-[6px]"
       :class="[
         showOnlyActiveTab
           ? 'flex-none w-auto bg-transparent border-b-0'
-          : 'flex-1 bg-[#191919] border-b border-[#2f2f2f] ri-nav-tabs',
+          : 'flex-1 ri-nav-tabs',
         menuOpen ? 'opacity-0 pointer-events-none' : ''
       ]"
       ref="tabsContainer"
     >
-      <div
+      <button
         v-for="tab in tabItems"
         :key="tab.id"
+        type="button"
+        class="ri-nav-tab ri-tab-btn relative group flex items-center gap-[10px] px-[16px] h-[42px] rounded-t-xl transition-colors duration-150 max-w-[260px] flex-shrink-0 overflow-hidden"
         :class="[
-          'relative border-r border-[#2c2c2c] last:border-r-0 transition-all duration-200 ri-nav-tab',
           tab.active
-            ? 'flex-shrink-0 bg-[#323232] shadow-[0_8px_16px_rgba(0,0,0,0.4)] z-[2] max-w-[400px] ri-nav-tab-active'
-            : 'flex-1 min-w-0 bg-[#1b1b1b] hover:bg-[#222] group ri-nav-tab-inactive',
+            ? 'ri-nav-tab-active bg-[#323232] text-[#f5f5f5] z-[2] shadow-[0_8px_18px_rgba(0,0,0,0.42)]'
+            : 'ri-nav-tab-inactive bg-[#1b1b1b] text-[#cfcfcf] hover:bg-[#262626] hover:text-[#f0f0f0]',
+          { 'cursor-not-allowed opacity-60': isLoading && !tab.active, 'cursor-pointer': !isLoading && !tab.active, 'cursor-default': tab.active }
         ]"
+        :disabled="isLoading"
+        @click.stop="handleTabClick(tab)"
       >
-        <div
+        <!-- Soft radial glow emanating from the top-center of the active tab,
+             tinted with the category accent. This replaces the hard inset
+             line that looked out of place directly on the tab chrome. -->
+        <span
           v-if="tab.active"
-          class="flex items-center gap-[10px] px-[12px] py-[8px] min-h-[44px] relative"
-        >
-          <div class="w-[28px] h-[28px] rounded-xl bg-[#353535] p-[6px] flex items-center justify-center flex-shrink-0 ri-nav-tab-icon-wrapper">
-          <img
-              class="w-full h-full object-contain"
-            :src="discussionIconUrl"
-            alt=""
-          />
-          </div>
-          <div class="flex flex-col gap-[2px] min-w-0">
-            <span class="text-[14px] font-semibold text-[#f5f5f5] truncate leading-tight ri-nav-tab-title">{{ tab.title }}</span>
-            <span v-if="tab.subtitle" class="text-[10px] uppercase tracking-wide text-[#adadad] truncate ri-nav-tab-subtitle">
-              {{ tab.subtitle }}
-              </span>
-          </div>
-        </div>
-        <div
-          v-else
-          class="relative px-[10px] py-[4px] min-h-[28px] flex items-center w-full"
-        >
-          <span class="text-[11px] font-medium truncate text-[#d1d1d1] w-full text-left ri-nav-tab-inactive-text">{{ tab.title }}</span>
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 rounded-t-xl"
+          :style="{
+            backgroundImage: `radial-gradient(ellipse 120% 90% at 50% 0%, ${getCategoryAccent(tab.category)}40 0%, ${getCategoryAccent(tab.category)}14 40%, transparent 75%)`,
+            mixBlendMode: 'screen',
+          }"
+        ></span>
+        <img
+          v-if="tab.category === 'main' || !tab.category"
+          class="w-[18px] h-[18px] object-contain flex-shrink-0 opacity-85"
+          :src="discussionIconUrl"
+          alt=""
+        />
+        <span
+          v-else-if="categoryShortLabel(tab.category)"
+          class="text-[9px] font-bold tracking-wide px-[7px] py-[2px] rounded-full border flex-shrink-0 leading-none"
+          :class="categoryBadgeClass(tab.category)"
+        >{{ categoryShortLabel(tab.category) }}</span>
+        <span class="text-[13px] font-semibold truncate leading-tight">{{ tab.title }}</span>
 
-          <!-- Hover popout tooltip -->
-          <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 pointer-events-none">
-            <div class="bg-[#2a2a2a] border border-[#3f3f3f] rounded-lg shadow-xl px-[16px] py-[12px] min-w-[200px]">
-              <div class="flex items-center gap-[8px] mb-[4px]">
-                <img
-                  class="w-[20px] h-[20px] rounded-lg bg-[#353535] p-[2px] flex-shrink-0 object-contain"
-                  :src="discussionIconUrl"
-                  alt=""
-                />
-                <span class="text-[14px] font-semibold text-[#f5f5f5]">{{ tab.title }}</span>
+        <!-- Delayed rich hover card (450ms intent delay) -->
+        <div class="ri-tab-hover-card pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-[14px] z-50">
+          <div
+            class="ri-hover-card-body relative min-w-[260px] max-w-[340px] rounded-xl overflow-hidden text-left shadow-[0_12px_28px_rgba(0,0,0,0.55)]"
+            :style="{ '--hc-accent': getCategoryAccent(tab.category) } as any"
+          >
+            <!-- Accent bar on top -->
+            <div class="h-[3px] w-full" :style="{ background: 'var(--hc-accent)' }"></div>
+            <div
+              class="relative px-[18px] pt-[14px] pb-[14px] bg-[#0f0f0f] border-l border-r border-b border-[#2f2f2f] rounded-b-xl"
+            >
+              <div class="flex items-center gap-[8px] mb-[8px]">
+                <span
+                  v-if="categoryShortLabel(tab.category)"
+                  class="text-[9px] font-bold tracking-wide px-[7px] py-[2px] rounded-full border flex-shrink-0 leading-none"
+                  :class="categoryBadgeClass(tab.category)"
+                >{{ categoryShortLabel(tab.category) }}</span>
+                <span
+                  v-else
+                  class="text-[9px] font-bold tracking-wide px-[7px] py-[2px] rounded-full border border-[#5a2a10] text-[#ffb088] bg-[#3a1a0a] flex-shrink-0 leading-none"
+                >MAIN</span>
+                <span class="text-[14px] font-semibold text-[#ffffff] flex-1 break-words leading-snug">{{ tab.title }}</span>
               </div>
-              <div class="flex items-center gap-[16px] text-[12px] text-[#cfcfcf]">
-          <span class="flex items-center gap-[4px]">
+
+              <div v-if="tab.subtitle" class="flex items-center gap-[6px] text-[11px] text-[#d5d5d5] mb-[8px]">
+                <span class="w-[6px] h-[6px] rounded-full flex-shrink-0" :style="{ background: 'var(--hc-accent)' }"></span>
+                <span class="truncate">{{ tab.subtitle }}</span>
+              </div>
+
+              <p v-if="tab.description" class="text-[11px] text-[#c8c8c8] leading-relaxed mb-[10px]">
+                {{ tab.description }}
+              </p>
+
+              <div
+                v-if="(tab.score !== null && tab.score !== undefined) || (tab.comments !== null && tab.comments !== undefined) || formatRelativeTime(tab.createdUtc)"
+                class="flex items-center gap-[14px] text-[11px] text-[#e5e5e5] pt-[8px] border-t border-[#2f2f2f]"
+              >
+                <span v-if="tab.score !== null && tab.score !== undefined" class="flex items-center gap-[5px]">
                   <img
                     class="w-[12px] h-[12px]"
                     :src="upvoteFilledIconUrl"
                     alt="upvote"
                     style="filter: brightness(0) saturate(100%) invert(47%) sepia(96%) saturate(1352%) hue-rotate(359deg) brightness(102%) contrast(101%);"
                   />
-            {{ tab.score.toLocaleString() }}
-          </span>
-          <span class="flex items-center gap-[4px]">
-                  <img
-                    class="w-[16px] h-[12px]"
-                    :src="popoutDiscussionIconUrl"
-                    alt="comments"
-                  />
-            {{ tab.comments.toLocaleString() }}
-          </span>
+                  <span class="font-semibold">{{ Number(tab.score).toLocaleString() }}</span>
+                </span>
+                <span v-if="tab.comments !== null && tab.comments !== undefined" class="flex items-center gap-[5px]">
+                  <img class="w-[14px] h-[11px]" :src="popoutDiscussionIconUrl" alt="comments" />
+                  <span class="font-semibold">{{ Number(tab.comments).toLocaleString() }}</span>
+                </span>
+                <span v-if="formatRelativeTime(tab.createdUtc)" class="flex items-center gap-[5px]">
+                  <svg
+                    class="w-[12px] h-[12px] text-[#bfbfbf]"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="12" r="9" />
+                    <polyline points="12 7 12 12 15.5 14" />
+                  </svg>
+                  <span class="font-semibold">{{ formatRelativeTime(tab.createdUtc) }}</span>
+                </span>
               </div>
-              <!-- Arrow pointing down -->
-              <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
-                <div class="w-2 h-2 bg-[#2a2a2a] border-r border-b border-[#3f3f3f] rotate-45"></div>
+              <div
+                v-else
+                class="text-[10px] text-[#9a9a9a] italic pt-[8px] border-t border-[#2f2f2f]"
+              >
+                Click to load discussion
               </div>
+            </div>
+
+            <!-- Tail arrow -->
+            <div class="absolute top-full left-1/2 -translate-x-1/2 -mt-[6px]">
+              <div class="w-[10px] h-[10px] bg-[#0f0f0f] rotate-45 border-r border-b border-[#2f2f2f]"></div>
             </div>
           </div>
         </div>
-        <div
-          v-if="tab.active"
-          class="pointer-events-none absolute bottom-[-1px] left-[1px] right-[1px] h-[3px] rounded-full bg-[#f5f5f5] ri-nav-tab-indicator"
-        />
-      </div>
+      </button>
     </div>
   </div>
 </template>
@@ -246,13 +291,19 @@ const log = con.m('TopStrip');
 // instead of importing 'css-ripple-effect' globally, which would leak
 // an unscoped ripple class into the host page and break site menus.
 
-interface DiscussionTab {
+export interface DiscussionTab {
   id: string;
   title: string;
   subtitle?: string;
-  score: number;
-  comments: number;
+  /** Human-readable description shown in the hover card. */
+  description?: string;
+  score?: number | null;
+  comments?: number | null;
+  /** Post creation time as unix seconds; displayed as a relative age. */
+  createdUtc?: number | null;
+  category?: 'main' | 'sub' | 'anime_only' | 'dub' | 'manga' | 'rewatch';
   active?: boolean;
+  url?: string;
 }
 
 type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
@@ -274,6 +325,12 @@ interface Props {
   isLoading?: boolean;
   /** Comment counts per provider, shown as badges on menu buttons. */
   providerCounts?: Partial<Record<Provider, number | null>>;
+  /**
+   * Full discussion tab list (main + alternates). When provided, overrides the
+   * default single "Episode Discussion" tab. The consumer is responsible for
+   * marking which tab is active.
+   */
+  discussionTabs?: DiscussionTab[];
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -285,10 +342,12 @@ const props = withDefaults(defineProps<Props>(), {
   showTabs: true,
   isLoading: false,
   providerCounts: () => ({}),
+  discussionTabs: () => [],
 });
 
 const emit = defineEmits<{
   providerChange: [provider: Provider];
+  tabChange: [tabId: string];
 }>();
 
 const menuOpen = ref(false);
@@ -423,41 +482,106 @@ const recalculateMenuWidthSoon = () => {
   });
 };
 
-const fallbackTabs: DiscussionTab[] = [
-  // {
-  //   id: 'clip',
-  //   title: '3:19 - Clip Discussion',
-  //   score: 230,
-  //   comments: 214,
-  // },
-  // {
-  //   id: 'pv',
-  //   title: '"Frieren: Beyond Journey" Season 2 New PV',
-  //   score: 120,
-  //   comments: 1100,
-  // },
-  // {
-  //   id: 'mha',
-  //   title: '[My Hero Academia] Deku really went bazooka this time huh',
-  //   score: 740,
-  //   comments: 980,
-  // },
-];
-
 const tabItems = computed<DiscussionTab[]>(() => {
-  const main: DiscussionTab = {
+  // When not Reddit, only show a single synthetic "active" tab.
+  if (showOnlyActiveTab.value) {
+    return [{
+      id: 'episode',
+      title: 'Episode Discussion',
+      score: Number(props.score ?? 0),
+      comments: Number(props.numComments ?? 0),
+      category: 'main',
+      active: true,
+    }];
+  }
+
+  if (props.discussionTabs && props.discussionTabs.length > 0) {
+    // Caller-provided tabs: keep as-is but ensure the active tab reflects
+    // the currently-displayed thread's live score/comments.
+    return props.discussionTabs.map((tab) => {
+      if (tab.active) {
+        return {
+          ...tab,
+          score: tab.score ?? Number(props.score ?? 0),
+          comments: tab.comments ?? Number(props.numComments ?? 0),
+        };
+      }
+      return tab;
+    });
+  }
+
+  // Default: single "Episode Discussion" tab, reflecting the current post.
+  return [{
     id: 'episode',
     title: 'Episode Discussion',
     score: Number(props.score ?? 0),
     comments: Number(props.numComments ?? 0),
+    category: 'main',
     active: true,
-  };
-  // When not Reddit, only show the active tab
-  if (showOnlyActiveTab.value) {
-    return [main];
-  }
-  return [main, ...fallbackTabs];
+  }];
 });
+
+function handleTabClick(tab: DiscussionTab) {
+  if (props.isLoading || tab.active) return;
+  emit('tabChange', tab.id);
+}
+
+function categoryBadgeClass(category: DiscussionTab['category']): string {
+  switch (category) {
+    case 'dub':
+      return 'bg-[#4a2323] text-[#ff9f80] border-[#6b2f2f]';
+    case 'anime_only':
+      return 'bg-[#1f3a2a] text-[#7ee0a6] border-[#2a5740]';
+    case 'rewatch':
+      return 'bg-[#2a2344] text-[#b7a4ff] border-[#3f3570]';
+    case 'manga':
+      return 'bg-[#3a2f12] text-[#f4c76a] border-[#5a4718]';
+    case 'sub':
+      return 'bg-[#1b2a3d] text-[#8cc4ff] border-[#2a4a72]';
+    default:
+      return 'bg-[#2a2a2a] text-[#d1d1d1] border-[#3f3f3f]';
+  }
+}
+
+function categoryShortLabel(category: DiscussionTab['category']): string | null {
+  switch (category) {
+    case 'dub': return 'DUB';
+    case 'anime_only': return 'ANIME-ONLY';
+    case 'rewatch': return 'REWATCH';
+    case 'manga': return 'MANGA';
+    case 'sub': return 'SUB';
+    default: return null;
+  }
+}
+
+function getCategoryAccent(category: DiscussionTab['category']): string {
+  switch (category) {
+    case 'dub': return '#ff8363';
+    case 'anime_only': return '#5ed88c';
+    case 'rewatch': return '#a58fff';
+    case 'manga': return '#f0b438';
+    case 'sub': return '#5aa8ff';
+    default: return '#ff4500'; // Reddit orange for the main r/anime thread
+  }
+}
+
+/** Compact relative-time formatter ("2h ago", "3d ago", "Jan 4, 2024"). */
+function formatRelativeTime(utcSeconds: number | null | undefined): string | null {
+  if (typeof utcSeconds !== 'number' || !Number.isFinite(utcSeconds) || utcSeconds <= 0) return null;
+  const nowMs = Date.now();
+  const thenMs = utcSeconds * 1000;
+  const diffSec = Math.max(0, Math.round((nowMs - thenMs) / 1000));
+  if (diffSec < 60) return 'just now';
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  if (diffDay < 30) return `${Math.round(diffDay / 7)}w ago`;
+  if (diffDay < 365) return `${Math.round(diffDay / 30)}mo ago`;
+  return `${Math.round(diffDay / 365)}y ago`;
+}
 
 const defaultSubredditIconUrl = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';
 const fetchedPrimaryColor = ref<string | null>(null);
@@ -682,5 +806,27 @@ onUnmounted(() => {
   100% {
     background-position: -200% 0;
   }
+}
+
+/* Delayed rich hover card on discussion tabs.
+   - Hidden by default; 450ms intent delay before appearing on hover/focus.
+   - Instant fade-out when the pointer leaves so it never lingers. */
+.ri-tab-hover-card {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-50%) translateY(4px);
+  transition:
+    opacity 160ms ease,
+    visibility 160ms ease,
+    transform 160ms ease;
+  transition-delay: 0ms;
+}
+
+.ri-tab-btn:hover .ri-tab-hover-card,
+.ri-tab-btn:focus-visible .ri-tab-hover-card {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  transition-delay: 450ms;
 }
 </style>
