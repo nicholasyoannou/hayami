@@ -21,6 +21,9 @@ type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist'
 export interface AniListSearchMedia {
   id: number;
   title: string;
+  romajiTitle: string | null;
+  englishTitle: string | null;
+  nativeTitle: string | null;
   episodes: number | null;
   nextAiringEpisode: number | null;
   seasonYear: number | null;
@@ -31,6 +34,8 @@ export interface AniListSearchMedia {
 export interface MalSearchMedia {
   id: number;
   title: string;
+  romajiTitle: string | null;
+  englishTitle: string | null;
   episodes: number | null;
   seasonYear: number | null;
   coverImage: string | null;
@@ -168,9 +173,16 @@ export function useManualSearch(params: {
         : typeof media?.coverImage?.medium === 'string' ? media.coverImage.medium
           : null;
 
+    const romajiRaw = typeof media?.title?.romaji === 'string' ? media.title.romaji.trim() : '';
+    const englishRaw = typeof media?.title?.english === 'string' ? media.title.english.trim() : '';
+    const nativeRaw = typeof media?.title?.native === 'string' ? media.title.native.trim() : '';
+
     return {
       id,
       title: getAniListPreferredTitle(media),
+      romajiTitle: romajiRaw || null,
+      englishTitle: englishRaw || null,
+      nativeTitle: nativeRaw || null,
       episodes: Number.isFinite(episodesRaw) && episodesRaw > 0 ? episodesRaw : null,
       nextAiringEpisode: Number.isFinite(nextAiringRaw) && nextAiringRaw > 1 ? nextAiringRaw - 1 : null,
       seasonYear: Number.isFinite(seasonYearRaw) ? seasonYearRaw : null,
@@ -261,11 +273,27 @@ export function useManualSearch(params: {
     const id = Number(media?.mal_id ?? media?.id);
     if (!Number.isFinite(id)) return null;
 
-    const title = typeof media?.title === 'string' && media.title.trim()
-      ? media.title.trim()
-      : typeof media?.title_english === 'string' && media.title_english.trim()
-        ? media.title_english.trim()
-        : 'Unknown title';
+    // Jikan exposes `title` (romaji/default), `title_english`, and a `titles` array
+    // with { type, title } entries where type is "Default", "English", "Japanese", etc.
+    const defaultTitleRaw = typeof media?.title === 'string' ? media.title.trim() : '';
+    const englishTitleRaw = typeof media?.title_english === 'string' ? media.title_english.trim() : '';
+
+    let romajiFromArray = '';
+    let englishFromArray = '';
+    if (Array.isArray(media?.titles)) {
+      for (const entry of media.titles) {
+        const type = typeof entry?.type === 'string' ? entry.type.toLowerCase() : '';
+        const value = typeof entry?.title === 'string' ? entry.title.trim() : '';
+        if (!value) continue;
+        if (!romajiFromArray && (type === 'default' || type === 'romaji')) romajiFromArray = value;
+        if (!englishFromArray && type === 'english') englishFromArray = value;
+      }
+    }
+
+    const romajiTitle = romajiFromArray || defaultTitleRaw || null;
+    const englishTitle = englishTitleRaw || englishFromArray || null;
+
+    const title = romajiTitle || englishTitle || 'Unknown title';
     const episodesRaw = Number(media?.episodes);
     const yearRaw = Number(media?.year);
     const coverImage =
@@ -276,6 +304,8 @@ export function useManualSearch(params: {
     return {
       id,
       title,
+      romajiTitle,
+      englishTitle,
       episodes: Number.isFinite(episodesRaw) && episodesRaw > 0 ? episodesRaw : null,
       seasonYear: Number.isFinite(yearRaw) ? yearRaw : null,
       coverImage,

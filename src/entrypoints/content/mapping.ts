@@ -1310,7 +1310,7 @@ export async function tryMapperFailover(
         )?.number_of_episodes || 0;
 
         if (
-          matchedSeasonEpisodeCount > 0 &&
+          matchedSeasonEpisodeCount >= 6 &&
           crEpisodeNumber > matchedSeasonEpisodeCount &&
           crSeasonEpisodes >= matchedSeasonEpisodeCount * 2
         ) {

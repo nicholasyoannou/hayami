@@ -11,6 +11,7 @@ import {
   redditDeepReplyModeOptions,
   redditCommentLayoutOptions,
   redditLinkDomainOptions,
+  wrongAnimeTitleFormatOptions,
   type CommentProviderOption,
   type DisplayModeOption,
   type RedditEditorMode,
@@ -19,6 +20,7 @@ import {
   type RedditDeepReplyModeOption,
   type RedditCommentLayoutOption,
   type RedditLinkDomainOption,
+  type WrongAnimeTitleFormatOption,
 } from '@/config/options';
 import {
   commentsProviderItem,
@@ -60,6 +62,8 @@ import {
   aniwaveHideReplyContextItem,
   seriesMappingItem,
   malSyncEnabledItem,
+  malWrongAnimeTitleFormatItem,
+  anilistWrongAnimeTitleFormatItem,
   verboseLoggingItem,
   MANUAL_OVERRIDES_RECENT_LIMIT,
   type ImgurFrontendOption,
@@ -129,6 +133,8 @@ type SettingValueMap = {
   aniwaveHideReplyContext: boolean;
   siteMapperAdvancedMode: boolean;
   malSyncEnabled: boolean;
+  malWrongAnimeTitleFormat: WrongAnimeTitleFormatOption;
+  anilistWrongAnimeTitleFormat: WrongAnimeTitleFormatOption;
   verboseLogging: boolean;
 };
 type SettingKey = keyof SettingValueMap;
@@ -730,6 +736,46 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to update MAL-Sync setting',
   },
   {
+    key: 'malWrongAnimeTitleFormat',
+    type: 'select',
+    category: 'provider',
+    providerId: 'mal',
+    label: 'Wrong anime listing titles',
+    description: 'Which title(s) to show for each result in the MAL "Wrong anime?" picker.',
+    options: wrongAnimeTitleFormatOptions,
+    fallback: 'romaji',
+    load: async () => {
+      const value = await malWrongAnimeTitleFormatItem.getValue();
+      return wrongAnimeTitleFormatOptions.some((option) => option.value === value) ? value : 'romaji';
+    },
+    save: (value) => malWrongAnimeTitleFormatItem.setValue(value),
+    successMessage: (value) => {
+      const label = wrongAnimeTitleFormatOptions.find((o) => o.value === value)?.label ?? value;
+      return `MAL wrong anime titles set to ${label}`;
+    },
+    errorMessage: 'Failed to save MAL wrong anime title format',
+  },
+  {
+    key: 'anilistWrongAnimeTitleFormat',
+    type: 'select',
+    category: 'provider',
+    providerId: 'anilist',
+    label: 'Wrong anime listing titles',
+    description: 'Which title(s) to show for each result in the AniList "Wrong anime?" picker.',
+    options: wrongAnimeTitleFormatOptions,
+    fallback: 'romaji',
+    load: async () => {
+      const value = await anilistWrongAnimeTitleFormatItem.getValue();
+      return wrongAnimeTitleFormatOptions.some((option) => option.value === value) ? value : 'romaji';
+    },
+    save: (value) => anilistWrongAnimeTitleFormatItem.setValue(value),
+    successMessage: (value) => {
+      const label = wrongAnimeTitleFormatOptions.find((o) => o.value === value)?.label ?? value;
+      return `AniList wrong anime titles set to ${label}`;
+    },
+    errorMessage: 'Failed to save AniList wrong anime title format',
+  },
+  {
     key: 'verboseLogging',
     type: 'toggle',
     category: 'general',
@@ -833,6 +879,8 @@ const settingValues = reactive<SettingValueMap>({
   aniwaveHideReplyContext: false,
   siteMapperAdvancedMode: false,
   malSyncEnabled: false,
+  malWrongAnimeTitleFormat: 'romaji',
+  anilistWrongAnimeTitleFormat: 'romaji',
   verboseLogging: false,
 });
 

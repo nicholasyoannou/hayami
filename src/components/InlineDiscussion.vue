@@ -12,7 +12,8 @@ import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { useDiscussionStore } from '@/store/discussion';
-import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, redditCommentFacesItem, providerBadgesEnabledItem, redditLinkDomainItem } from '@/config/storage';
+import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, redditCommentFacesItem, providerBadgesEnabledItem, redditLinkDomainItem, malWrongAnimeTitleFormatItem, anilistWrongAnimeTitleFormatItem } from '@/config/storage';
+import type { WrongAnimeTitleFormatOption } from '@/config/options';
 import { prefetchProviderData } from '@/utils/providerPrefetch';
 import { con } from '@/utils/logger';
 
@@ -67,6 +68,8 @@ const redditProfileHoverCard = ref(true);
 const redditCommentFaces = ref(false);
 const isPostingTopComment = ref(false);
 const linkOnlyMode = ref(false);
+const malWrongAnimeTitleFormat = ref<WrongAnimeTitleFormatOption>('romaji');
+const anilistWrongAnimeTitleFormat = ref<WrongAnimeTitleFormatOption>('romaji');
 const providerBadgesEnabled = ref(false);
 const providerCounts = ref<Partial<Record<Provider, number | null>>>({});
 const replyDrafts = reactive<Record<string, string>>({});
@@ -534,6 +537,55 @@ async function loadLinkOnlyMode() {
   }
 }
 
+function normalizeWrongAnimeTitleFormat(value: unknown): WrongAnimeTitleFormatOption {
+  return value === 'english' || value === 'both' ? value : 'romaji';
+}
+
+async function loadWrongAnimeTitleFormats() {
+  try {
+    malWrongAnimeTitleFormat.value = normalizeWrongAnimeTitleFormat(await malWrongAnimeTitleFormatItem.getValue());
+  } catch {
+    malWrongAnimeTitleFormat.value = 'romaji';
+  }
+  try {
+    anilistWrongAnimeTitleFormat.value = normalizeWrongAnimeTitleFormat(await anilistWrongAnimeTitleFormatItem.getValue());
+  } catch {
+    anilistWrongAnimeTitleFormat.value = 'romaji';
+  }
+}
+
+interface WrongAnimeDisplayTitles {
+  primary: string;
+  secondary: string | null;
+}
+
+function getWrongAnimeDisplayTitles(item: AniListSearchMedia | MalSearchMedia): WrongAnimeDisplayTitles {
+  const format = manualEpisodeProvider.value === 'mal'
+    ? malWrongAnimeTitleFormat.value
+    : anilistWrongAnimeTitleFormat.value;
+
+  const romaji = (item.romajiTitle || '').trim();
+  const english = (item.englishTitle || '').trim();
+  const fallback = (item.title || '').trim() || 'Unknown title';
+
+  if (format === 'english') {
+    const primary = english || romaji || fallback;
+    return { primary, secondary: null };
+  }
+
+  if (format === 'both') {
+    const primary = romaji || english || fallback;
+    const secondary = romaji && english && romaji.toLowerCase() !== english.toLowerCase()
+      ? english
+      : null;
+    return { primary, secondary };
+  }
+
+  // romaji (default)
+  const primary = romaji || english || fallback;
+  return { primary, secondary: null };
+}
+
 async function initializeRedditUiAuthGate() {
   await loadLinkOnlyMode();
   await loadCurrentUsername();
@@ -993,6 +1045,7 @@ onMounted(() => {
   void loadCommentFaces();
   void loadProviderBadges();
   void loadDefaultSort();
+  void loadWrongAnimeTitleFormats();
   void initializeRedditUiAuthGate();
   const manualSearchHandler = (ev: Event) => {
     const detail = (ev as CustomEvent)?.detail || {};
@@ -1065,6 +1118,12 @@ onMounted(() => {
     }
     if ('reddit_comment_faces' in changes) {
       redditCommentFaces.value = changes.reddit_comment_faces.newValue === true;
+    }
+    if ('mal_wrong_anime_title_format' in changes) {
+      malWrongAnimeTitleFormat.value = normalizeWrongAnimeTitleFormat(changes.mal_wrong_anime_title_format.newValue);
+    }
+    if ('anilist_wrong_anime_title_format' in changes) {
+      anilistWrongAnimeTitleFormat.value = normalizeWrongAnimeTitleFormat(changes.anilist_wrong_anime_title_format.newValue);
     }
     if ('provider_badges_enabled' in changes) {
       providerBadgesEnabled.value = changes.provider_badges_enabled.newValue === true;
@@ -1870,7 +1929,16 @@ defineExpose({
                     referrerpolicy="no-referrer"
                   />
                   <div class="min-w-0 flex-1">
-                    <div class="text-sm font-semibold text-white line-clamp-2 leading-snug">{{ item.title }}</div>
+                    <div class="text-sm font-semibold text-white line-clamp-2 leading-snug">
+                      {{ getWrongAnimeDisplayTitles(item).primary }}
+                    </div>
+                    <div
+                      v-if="getWrongAnimeDisplayTitles(item).secondary"
+                      class="mt-0.5 truncate text-[11px] text-[#9aa5b4]"
+                      :title="getWrongAnimeDisplayTitles(item).secondary || ''"
+                    >
+                      {{ getWrongAnimeDisplayTitles(item).secondary }}
+                    </div>
                     <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
                       <span v-if="item.episodes || item.nextAiringEpisode" class="rounded-full bg-[#1a2332] px-2 py-0.5 text-[#8dd4ff]">
                         {{ item.episodes ?? item.nextAiringEpisode }} eps

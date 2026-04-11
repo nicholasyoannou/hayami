@@ -8,6 +8,7 @@ import type {
   RedditDeepReplyModeOption,
   RedditCommentLayoutOption,
   RedditLinkDomainOption,
+  WrongAnimeTitleFormatOption,
 } from './options';
 import type { KomentoScriptPack, KomentoSourceRegistryEntry } from '@/komentoscript';
 
@@ -410,4 +411,14 @@ export const redditLinkDomainItem = storage.defineItem<RedditLinkDomainOption>(
 export const malSyncEnabledItem = storage.defineItem<boolean>(
   'sync:malsync_enabled',
   { fallback: false }
+);
+
+export const malWrongAnimeTitleFormatItem = storage.defineItem<WrongAnimeTitleFormatOption>(
+  'local:mal_wrong_anime_title_format',
+  { fallback: 'romaji' }
+);
+
+export const anilistWrongAnimeTitleFormatItem = storage.defineItem<WrongAnimeTitleFormatOption>(
+  'local:anilist_wrong_anime_title_format',
+  { fallback: 'romaji' }
 );

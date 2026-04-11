@@ -66,3 +66,11 @@ export const redditLinkDomainOptions = [
 ] as const;
 
 export type RedditLinkDomainOption = (typeof redditLinkDomainOptions)[number]['value'];
+
+export const wrongAnimeTitleFormatOptions = [
+  { value: 'romaji', label: 'Romaji only' },
+  { value: 'english', label: 'English only' },
+  { value: 'both', label: 'Romaji and English' },
+] as const;
+
+export type WrongAnimeTitleFormatOption = (typeof wrongAnimeTitleFormatOptions)[number]['value'];
