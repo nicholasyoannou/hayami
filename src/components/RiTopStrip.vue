@@ -86,7 +86,7 @@
             @error="handleAvatarError"
         />
         </span>
-        <span class="truncate w-[8rem]">{{ subredditName }}</span>
+        <span class="truncate max-w-[8rem]">{{ subredditName }}</span>
       </div>
     </div>
 
@@ -144,8 +144,20 @@
       </div>
     </div>
 
+    <!-- Non-Reddit: classic single "Episode Discussion" tab attached flush
+         to the right of the provider logo button. Pre-dates the multi-tab
+         Reddit UI — simpler, more compact for providers that only ever have
+         one thread per episode. -->
     <div
-      v-if="showTabs"
+      v-if="showTabs && currentProvider !== 'reddit' && !menuOpen"
+      class="flex items-center gap-[8px] px-[20px] h-[45px] bg-[#323232] rounded-l-none rounded-br-none rounded-tr-2xl font-semibold text-[14px] text-[#f5f5f5] shrink-0 -ml-3 overflow-hidden"
+    >
+      <img class="w-[18px] h-[18px] opacity-90" :src="discussionIconUrl" alt="" />
+      <span>Episode Discussion</span>
+    </div>
+
+    <div
+      v-if="showTabs && currentProvider === 'reddit'"
       class="flex items-end min-w-0 overflow-visible transition-opacity duration-300 relative gap-[6px]"
       :class="[
         showOnlyActiveTab
@@ -638,6 +650,23 @@ const showOnlyActiveTab = computed(() => currentProvider.value !== 'reddit');
 watch(subredditAvatar, (val) => {
   avatarSrc.value = val || defaultSubredditIconUrl;
 });
+
+// When the subreddit name changes (e.g., user clicks an alternate-thread tab
+// pointing to a different subreddit), reset the avatar so stale chip icons
+// from the previous sub don't linger while the new one hydrates.
+watch(
+  () => props.subredditName,
+  (newName, oldName) => {
+    if (!newName || newName === oldName) return;
+    // If a fresh icon URL was supplied alongside the name change, the other
+    // watcher handles it; otherwise fall back to the default so hydration
+    // fires for the new sub.
+    if (!props.subredditIconUrl) {
+      avatarSrc.value = defaultSubredditIconUrl;
+      fetchedPrimaryColor.value = null;
+    }
+  }
+);
 
 watch(
   () => props.subredditPrimaryColor,

@@ -33,7 +33,10 @@ import {
   saveSeriesMapping,
   tryMapperFailover,
   fetchAnimeMapperDataBySeriesName,
+  type MapperFailoverOut,
 } from '../mapping';
+import { collectRedditAlternateThreads } from '../mapping/reddit-alternates';
+import type { AlternateRedditThread, MapperResultEntry } from '../types/data';
 
 // Template renderers
 // UI utilities
@@ -172,6 +175,102 @@ function normalizeRedditDiscussion(discussion: any): void {
   // Ensure score is populated even when Reddit omits it (use ups fallback)
   if (typeof discussion.score !== 'number' && typeof discussion.ups === 'number') {
     discussion.score = discussion.ups;
+  }
+}
+
+/**
+ * Attach alternate Reddit threads to the given discussion object.
+ *
+ * Uses the matched mapper entry + resolved episode captured by
+ * `tryMapperFailover` to extract every sub-specific / dub / anime-only /
+ * rewatch / manga thread for the same episode, and stashes them as
+ * `discussion.alternateThreads` so `InlineDiscussion` can render them as
+ * additional `RiTopStrip` tabs.
+ *
+ * The main (currently displayed) thread URL is passed as `mainUrl` and
+ * excluded from the alternates list to avoid duplication.
+ */
+function attachRedditAlternates(
+  discussion: any,
+  failoverOut: MapperFailoverOut,
+  mainUrl: string | null,
+): void {
+  if (!discussion) return;
+  const entry = failoverOut.entry as MapperResultEntry | null | undefined;
+  const episode = failoverOut.episode ?? null;
+  if (!entry || episode === null) return;
+  try {
+    const exclude: string[] = [];
+    if (mainUrl) exclude.push(mainUrl);
+    const alternates = collectRedditAlternateThreads(entry, episode, exclude);
+    if (alternates.length > 0) {
+      discussion.alternateThreads = alternates;
+      // Stash the original main thread URL so tab identity survives swaps.
+      if (mainUrl && !discussion.mainThreadUrl) {
+        discussion.mainThreadUrl = mainUrl;
+      }
+      log.log('Collected Reddit alternate threads:', alternates.length, alternates);
+    }
+  } catch (err) {
+    log.warn('Failed to collect reddit alternate threads', err);
+  }
+}
+
+/**
+ * Preserve alternates + main thread metadata onto a newly fetched discussion,
+ * so switching Reddit tabs keeps the full tab list (and stable main identity)
+ * rather than collapsing back to a single thread.
+ */
+function carryOverAlternates(target: any, source: any): void {
+  if (!target || !source) return;
+  if (Array.isArray(source.alternateThreads) && source.alternateThreads.length > 0 && !target.alternateThreads) {
+    target.alternateThreads = source.alternateThreads;
+  }
+  if (source.mainThreadUrl && !target.mainThreadUrl) {
+    target.mainThreadUrl = source.mainThreadUrl;
+  }
+}
+
+/**
+ * Load a specific Reddit thread URL (from a tab click in `RiTopStrip`) and
+ * swap the currently displayed discussion in place. Preserves the alternates
+ * list and main-thread metadata so the tab strip stays intact through the
+ * swap — only the active tab indicator and visible content change.
+ *
+ * Shared between popup and inline mount paths; the mount site passes the
+ * matching uiManager mode as `mode`.
+ */
+async function handleRedditTabChange(mode: 'popup' | 'inline', url: string): Promise<void> {
+  if (!url) return;
+  const manager = getUiManager();
+  const currentState = state();
+  const cache = currentState.discussionCache;
+  const inlineStore = useDiscussionStore();
+  inlineStore.startLoading();
+  try {
+    const postData = await fetchRedditPostFromUrl(url);
+    if (!postData) {
+      log.warn('Tab-change fetch returned no post data', url);
+      return;
+    }
+    normalizeRedditDiscussion(postData);
+    carryOverAlternates(postData, cache.reddit);
+    cache.reddit = { ...postData };
+
+    const key = Date.now();
+    manager.updateProps(mode, {
+      discussion: postData,
+      provider: 'reddit',
+      redditCommentsKey: key,
+    });
+    const exposed = manager.getExposed<InlineDiscussionExposed>(mode);
+    if (exposed?.handleProviderChange) {
+      exposed.handleProviderChange('reddit');
+    }
+  } catch (err) {
+    log.warn('Failed to switch Reddit tab', err);
+  } finally {
+    inlineStore.clearLoading();
   }
 }
 
@@ -557,11 +656,13 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
 
     // NEW FAILOVER: Try mapper service with series_name and season_title from Crunchyroll API
     log.log('Attempting new mapper failover...');
-    const failoverRedditUrl = await tryMapperFailover(animeInfoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+    const failoverOut: MapperFailoverOut = {};
+    const failoverRedditUrl = await tryMapperFailover(animeInfoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
     if (failoverRedditUrl) {
       log.log('Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
       if (postData) {
+        attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
         await displayDiscussionDependingOnMode(postData);
         return;
       }
@@ -876,11 +977,13 @@ async function displayDiscussion(discussion: any): Promise<void> {
           const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
           const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
-          const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+          const failoverOut: MapperFailoverOut = {};
+          const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
           if (failoverRedditUrl) {
             const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
             if (postData) {
               normalizeRedditDiscussion(postData);
+              attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
               cache.reddit = { ...postData };
 
               const key = Date.now();
@@ -920,10 +1023,12 @@ async function displayDiscussion(discussion: any): Promise<void> {
     }
   }
 
+  const popupTabChangeCallback = (url: string) => { void handleRedditTabChange('popup', url); };
   if (uiManager.isMounted('popup')) {
     uiManager.updateProps('popup', {
       discussion,
       onProviderChange: providerChangeCallback,
+      onRedditTabChange: popupTabChangeCallback,
       providerContext: buildProviderContext(),
     });
     await uiManager.syncMappedTrigger();
@@ -935,6 +1040,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
         discussion,
         provider: activeProvider,
         onProviderChange: providerChangeCallback,
+        onRedditTabChange: popupTabChangeCallback,
         providerContext: buildProviderContext(),
       },
     });
@@ -1340,11 +1446,13 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
             const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
 
-            const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null);
+            const failoverOut: MapperFailoverOut = {};
+            const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
             if (failoverRedditUrl) {
               const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
               if (postData) {
                 normalizeRedditDiscussion(postData);
+                attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
                 cache.reddit = { ...postData };
 
                 const key = Date.now();
@@ -1383,6 +1491,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       }
     };
     
+    const inlineTabChangeCallback = (url: string) => { void handleRedditTabChange('inline', url); };
     if (manager.isMounted('inline')) {
       const discussionStore = useDiscussionStore();
       discussionStore.startLoading();
@@ -1390,6 +1499,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
         discussion,
         provider: activeProvider,
         onProviderChange: providerChangeCallback,
+        onRedditTabChange: inlineTabChangeCallback,
         providerContext: buildProviderContext(),
         redditCommentsKey: 0,
         initialLoading: true,
@@ -1402,6 +1512,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           discussion,
           provider: activeProvider,
           onProviderChange: providerChangeCallback,
+          onRedditTabChange: inlineTabChangeCallback,
           providerContext: buildProviderContext(),
           redditCommentsKey: 0,
           initialLoading: true,

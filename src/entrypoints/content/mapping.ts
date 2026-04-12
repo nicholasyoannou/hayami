@@ -257,10 +257,22 @@ function pickMalSyncIds(
 // Functions for handling mapper failures and trying alternative mapping approaches
 // =============================================================================
 
+/**
+ * Optional out-parameter for `tryMapperFailover`. When supplied, the function
+ * populates it with the matched mapper entry and resolved episode number on
+ * success, so callers (e.g., discussion-manager) can collect alternate Reddit
+ * threads (sub-specific, dub, anime-only, rewatch, manga) for the same episode.
+ */
+export interface MapperFailoverOut {
+  entry?: MapperResultEntry | null;
+  episode?: number | null;
+}
+
 export async function tryMapperFailover(
   animeInfo: AnimeInfo,
   platform: 'reddit' | 'disqus' = 'reddit',
   episodeOverride?: number | null,
+  out?: MapperFailoverOut,
 ): Promise<string | null> {
   try {
     log.log(' Starting failover process', { platform });
@@ -685,16 +697,27 @@ export async function tryMapperFailover(
         }
       };
 
+      const writeLightweightOut = () => {
+        if (!out) return;
+        const pickedEntry =
+          pickedNonCrIdx !== null ? results[pickedNonCrIdx] ?? null : null;
+        out.entry = pickedEntry;
+        // Lightweight path uses raw episodeForKeys in the requested numbering.
+        out.episode = episodeForKeys ?? null;
+      };
+
       if (platform === 'reddit' && mapperUrl && episodeForKeys !== null) {
         const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeForKeys, animeInfo?.animeName);
         if (corrected && corrected !== mapperUrl) {
           recordNonCrResolved();
+          writeLightweightOut();
           return corrected;
         }
       }
 
       if (mapperUrl) {
         recordNonCrResolved();
+        writeLightweightOut();
         return mapperUrl;
       }
 
@@ -1240,6 +1263,10 @@ export async function tryMapperFailover(
       const movieUrl = matchedSeason.movies[0];
       log.log(`Found ${platform} thread via failover (movie):`, movieUrl);
       recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
+      if (out) {
+        out.entry = matchedSeason;
+        out.episode = null;
+      }
       return movieUrl;
     }
     
@@ -1550,6 +1577,10 @@ export async function tryMapperFailover(
 
     log.log(`Found ${platform} thread via failover:`, mappedUrl);
     recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
+    if (out) {
+      out.entry = matchedSeason;
+      out.episode = seasonEpisode ?? null;
+    }
     return mappedUrl;
   } catch (error) {
     log.error('Error in mapper failover:', error);

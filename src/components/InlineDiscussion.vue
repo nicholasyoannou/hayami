@@ -10,7 +10,8 @@ import { useDisqusSearch } from '@/composables/useDisqusSearch';
 import { useManualSearch, type Provider, type AniListSearchMedia, type MalSearchMedia } from '@/composables/useManualSearch';
 import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
-import type { ProviderContext } from '@/entrypoints/content/types/data';
+import type { ProviderContext, AlternateRedditThread } from '@/entrypoints/content/types/data';
+import type { DiscussionTab } from './RiTopStrip.vue';
 import { useDiscussionStore } from '@/store/discussion';
 import { redditEditorModeItem, redditShowFlairsItem, redditFlairPositionItem, redditDefaultSortItem, linkOnlyModeItem, redditCommentLayoutItem, redditClientIdItem, redditProfileHoverCardItem, redditCommentFacesItem, providerBadgesEnabledItem, redditLinkDomainItem, malWrongAnimeTitleFormatItem, anilistWrongAnimeTitleFormatItem } from '@/config/storage';
 import type { WrongAnimeTitleFormatOption } from '@/config/options';
@@ -34,12 +35,20 @@ interface Discussion {
   subreddit?: string;
   likes?: boolean | null;
   fullname?: string; // t3_ prefixed fullname for voting
+  /** Alternate Reddit threads for the same episode (sub, dub, anime-only, rewatch, manga). */
+  alternateThreads?: AlternateRedditThread[];
+  /** URL of the main (r/anime) thread, captured when alternates were first collected. */
+  mainThreadUrl?: string;
+  /** Extra fields we carry through for tab hover cards. */
+  url?: string;
 }
 
 const props = defineProps<{
   discussion: Discussion;
   provider?: Provider;
   onProviderChange?: (provider: Provider) => void;
+  /** Invoked when the user clicks a Reddit alternate thread tab. */
+  onRedditTabChange?: (url: string) => void;
   initialLoading?: boolean;
   providerContext?: ProviderContext | null;
   redditCommentsKey?: number;
@@ -1216,6 +1225,94 @@ watch(
   { deep: false, immediate: true }
 );
 
+/**
+ * Normalize a Reddit URL to a stable post-identity key. Matches by Reddit
+ * post ID (the alphanumeric slug after `/comments/` or the redd.it short
+ * link) so a main-thread URL of `/r/anime/comments/abc123/...` and a
+ * permalink of `/comments/abc123/...` resolve to the same tab.
+ */
+function normalizeRedditThreadKey(url: string | null | undefined): string {
+  if (!url) return '';
+  const s = String(url).trim();
+  if (!s) return '';
+  const commentsMatch = s.match(/\/comments\/([a-z0-9]{4,10})/i);
+  if (commentsMatch) return commentsMatch[1].toLowerCase();
+  const reddItMatch = s.match(/redd\.it\/([a-z0-9]{4,10})/i);
+  if (reddItMatch) return reddItMatch[1].toLowerCase();
+  return s.toLowerCase().replace(/^https?:\/\/[^/]*/i, '').replace(/\/+$/, '');
+}
+
+/**
+ * Build the tab list shown in `RiTopStrip` for Reddit discussions.
+ *
+ * When the current discussion has collected alternate threads (sub-specific,
+ * dub, anime-only, rewatch, manga), emit one tab for the main r/anime thread
+ * plus one tab per alternate. The currently displayed thread is marked
+ * `active` via URL identity (normalized permalink).
+ */
+const discussionTabs = computed<DiscussionTab[]>(() => {
+  if (currentProvider.value !== 'reddit') return [];
+  const alts = props.discussion?.alternateThreads;
+  if (!alts || alts.length === 0) return [];
+
+  const mainUrl = props.discussion?.mainThreadUrl
+    || (props.discussion?.permalink ? `https://reddit.com${props.discussion.permalink}` : null);
+  const currentKey = normalizeRedditThreadKey(
+    props.discussion?.permalink || props.discussion?.url || null,
+  );
+  const mainKey = normalizeRedditThreadKey(mainUrl);
+
+  const tabs: DiscussionTab[] = [];
+  tabs.push({
+    id: 'main',
+    title: 'Episode Discussion',
+    category: 'main',
+    url: mainUrl || undefined,
+    active: !currentKey || currentKey === mainKey,
+    score: currentKey === mainKey ? Number(props.discussion?.score ?? 0) : null,
+    comments: currentKey === mainKey ? Number(props.discussion?.num_comments ?? 0) : null,
+  });
+
+  for (const alt of alts) {
+    const altKey = normalizeRedditThreadKey(alt.url);
+    const isActive = !!currentKey && currentKey === altKey;
+    tabs.push({
+      id: `alt-${alt.category}-${alt.subreddit || ''}-${altKey}`,
+      title: alt.label || (alt.subreddit ? `r/${alt.subreddit}` : 'Alternate'),
+      subtitle: alt.subreddit ? `r/${alt.subreddit}` : undefined,
+      category: alt.category,
+      url: alt.url,
+      active: isActive,
+      score: isActive ? Number(props.discussion?.score ?? 0) : null,
+      comments: isActive ? Number(props.discussion?.num_comments ?? 0) : null,
+    });
+  }
+
+  // If no tab matched the current URL (e.g., swap in progress), fall back to marking main active.
+  if (!tabs.some((t) => t.active)) {
+    tabs[0].active = true;
+  }
+  return tabs;
+});
+
+/** Invoked when the user clicks a discussion tab in `RiTopStrip`. */
+function handleTabChange(tabId: string) {
+  const tabs = discussionTabs.value;
+  const target = tabs.find((t) => t.id === tabId);
+  if (!target || target.active || !target.url) return;
+  if (typeof props.onRedditTabChange === 'function') {
+    isLoading.value = true;
+    discussionStore.startLoading();
+    try {
+      props.onRedditTabChange(target.url);
+    } catch (err) {
+      log.warn('onRedditTabChange handler threw', err);
+      isLoading.value = false;
+      discussionStore.clearLoading();
+    }
+  }
+}
+
 async function handleProviderChange(provider: Provider) {
   log.log('received providerChange:', provider, 'current:', currentProvider.value);
   if (currentProvider.value === provider) return;
@@ -1366,7 +1463,9 @@ defineExpose({
       :show-tabs="true"
       :is-loading="isLoading"
       :provider-counts="providerBadgesEnabled ? providerCounts : undefined"
+      :discussion-tabs="discussionTabs"
       @provider-change="(p: Provider) => handleProviderChange(p)"
+      @tab-change="(tabId: string) => handleTabChange(tabId)"
     />
 
     <section id="reddit-inline-discussion" ref="inlineSectionRef" style="margin-top: 0; width: 100%;">
