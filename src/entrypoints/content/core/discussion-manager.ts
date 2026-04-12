@@ -75,6 +75,7 @@ import {
 
 // MAL utilities
 import { extractMalIdFromMapperResult, extractSeasonNumber } from '../utils/mal-utils';
+import { normalizeForMatch } from '../sites/shared';
 
 // =============================================================================
 // OPTION REGISTRY HELPERS
@@ -699,6 +700,22 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         ...candidates.map((_entry: any, i: number) => i),
       ].filter((v: number, i: number, arr: number[]) => arr.indexOf(v) === i);
 
+      // Tokenize the target anime name to filter out completely unrelated entries
+      const stopWords = new Set(['season', 'part', 'the', 'and', 'of', 'no', 'wa', 'ga', 'ni', 'wo', 'mo', 'to', 'de', 'ha']);
+      const tokenize = (name: string): Set<string> => {
+        return new Set(
+          normalizeForMatch(name)
+            .split(' ')
+            .filter((t) => t.length >= 3 && !stopWords.has(t) && !/^\d+$/.test(t)),
+        );
+      };
+      const targetTokens = tokenize(mapperAnimeName);
+
+      // Parse release year from animeInfo to prefer entries from the matching year
+      // when targetSeason is unknown (e.g., "Released on Jul 9, 2023" → 2023)
+      const releaseYearMatch = animeInfo.releaseDate?.match(/(\d{4})/);
+      const releaseYear = releaseYearMatch ? Number(releaseYearMatch[1]) : null;
+
       for (const idx of pickOrder) {
         const entry: any = candidates[idx];
         if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) {
@@ -709,18 +726,99 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           continue;
         }
         if (entrySeason && !targetSeason && entrySeason > 1) {
-          continue;
+          // When we don't know the target season but have a release year,
+          // allow the entry if its year matches the episode's release year.
+          const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
+          if (!(releaseYear && entryYear && entryYear === releaseYear)) {
+            continue;
+          }
+        }
+        // Skip entries whose anime name has no meaningful token overlap with the target.
+        // This prevents picking completely unrelated anime that happen to share an episode number.
+        if (targetTokens.size > 0) {
+          const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
+          const entryTokens = tokenize(entryName);
+          let overlap = 0;
+          for (const t of entryTokens) {
+            if (targetTokens.has(t)) overlap++;
+          }
+          if (overlap === 0) {
+            log.log('Skipping unrelated mapper entry by name', { idx, entryName, mapperAnimeName });
+            continue;
+          }
         }
         const url = entry?.episodes?.[epNum];
         if (url) {
           log.log('Using mapped episode URL', { idx, epNum, url });
           const postData = await fetchRedditPostFromUrl(url);
           if (postData) {
+            // Attach alternates from the matched mapper entry
+            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: Number(epNum) };
+            attachRedditAlternates(postData, directOut, url);
             await displayDiscussionDependingOnMode(postData);
             return true;
           }
         }
       }
+
+      // Collapsed-part fallback: when CR merges multiple parts into one season
+      // (e.g., Mushoku Tensei Part 1 = 11 eps + Part 2 = 13 eps = 24 total),
+      // episode keys only go up to each part's count. Walk related entries by
+      // year to compute the offset episode in the correct part.
+      const epNumInt = Number(epNum);
+      if (!isNaN(epNumInt) && epNumInt > 0) {
+        // Collect related entries that share token overlap and same year
+        const relatedEntries: { entry: any; idx: number; epCount: number }[] = [];
+        for (const idx of pickOrder) {
+          const entry: any = candidates[idx];
+          if (!entry?.episodes || entry?.year === 'movies') continue;
+          const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
+          const entryTokens = tokenize(entryName);
+          let overlap = 0;
+          for (const t of entryTokens) {
+            if (targetTokens.has(t)) overlap++;
+          }
+          if (overlap === 0) continue;
+          // Filter by release year if available
+          if (releaseYear) {
+            const entryYear = entry.year && entry.year !== 'movies' ? Number(entry.year) : null;
+            if (entryYear && entryYear !== releaseYear) continue;
+          }
+          const epKeys = Object.keys(entry.episodes).filter((k: string) => /^\d+$/.test(k)).map(Number);
+          if (epKeys.length === 0) continue;
+          const maxEp = Math.max(...epKeys);
+          // Avoid duplicates
+          if (!relatedEntries.some((r) => r.idx === idx)) {
+            relatedEntries.push({ entry, idx, epCount: maxEp });
+          }
+        }
+
+        // Only attempt if we have multiple parts and the episode exceeds the first entry's range
+        if (relatedEntries.length > 1) {
+          // Sort by index (mapper order represents chronological order)
+          relatedEntries.sort((a, b) => a.idx - b.idx);
+          let cumulative = 0;
+          for (const { entry, idx, epCount } of relatedEntries) {
+            cumulative += epCount;
+            if (epNumInt <= cumulative) {
+              const offsetEp = epNumInt - (cumulative - epCount);
+              const url = entry?.episodes?.[String(offsetEp)];
+              if (url) {
+                log.log('Using collapsed-part fallback', { idx, epNum, offsetEp, url });
+                const postData = await fetchRedditPostFromUrl(url);
+                if (postData) {
+                  const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: offsetEp };
+                  attachRedditAlternates(postData, directOut, url);
+                  await displayDiscussionDependingOnMode(postData);
+                  return true;
+                }
+              }
+              break;
+            }
+          }
+        }
+      }
+
       return false;
     };
 
@@ -751,6 +849,12 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           // Extract post ID from Reddit URL and fetch post data
           const postData = await fetchRedditPostFromUrl(redditUrl);
           if (postData) {
+            // Attach alternates from the single-result mapper entry
+            const singleOut: MapperFailoverOut = {
+              entry: animeData as MapperResultEntry,
+              episode: epNum ? Number(epNum) : null,
+            };
+            attachRedditAlternates(postData, singleOut, redditUrl);
             await displayDiscussionDependingOnMode(postData);
             return;
           }

@@ -1,11 +1,3 @@
 [test]
-root = "."
 preload = ["./tests/setup.bun.ts"]
-
-# Only run tests from the tests/ directory
-include = ["tests/**/*.test.ts"]
-
-[test.moduleResolution]
-# Map @/ alias to src/ (matching tsconfig paths)
-"@/*" = ["./src/*"]
-"~/*" = ["./src/*"]
+root = "./tests"

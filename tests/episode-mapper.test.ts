@@ -152,6 +152,25 @@ describe('mapEpisodeWithSeasonsData', () => {
       expect(result).toBe(5);
     });
 
+    // Mushoku Tensei S1E14: CR collapses Part 1 (11 eps) + Part 2 (13 eps).
+    // Episode 14 should resolve to Part 2 Episode 3 (14 - 11 = 3).
+    it('Mushoku Tensei collapsed season remaps ep 14 to Part 2 ep 3', () => {
+      const s1 = makeMapperEntry({
+        anime_name: 'Mushoku Tensei: Jobless Reincarnation',
+        year: '2021',
+        episodes: makeEpisodes(1, 11),
+      });
+      const s1p2 = makeMapperEntry({
+        anime_name: 'Mushoku Tensei: Jobless Reincarnation Part 2',
+        year: '2021',
+        episodes: makeEpisodes(1, 13),
+      });
+      const crSeasons = [makeCrSeason(1, 24)]; // CR collapses both parts
+      // Episode 14 → Part 2 Episode 3 (14 - 11 = 3)
+      const result = mapEpisodeWithSeasonsData(14, 14, 1, crSeasons, s1, [s1, s1p2], 0);
+      expect(result).toBe(3);
+    });
+
     // Classroom of the Elite: single mapper entry covering latest season only
     it('CotE S1E1 maps to episode 1 with single mapper result', () => {
       const cote = makeMapperEntry({
