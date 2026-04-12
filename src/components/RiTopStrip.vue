@@ -65,12 +65,14 @@
 
       <div
         v-if="currentProvider === 'reddit'"
-        class="flex items-center gap-[8px] px-[16px] h-[45px] border border-[#3a3a3a] bg-[#151515] rounded-full text-[14px] font-semibold text-[#f0f0f0] transition-opacity duration-300 relative ri-nav-subreddit-chip"
+        class="flex items-center gap-[8px] px-[16px] h-[45px] bg-[#0f0f0f] rounded-l-none rounded-br-none rounded-tr-2xl text-[14px] font-semibold text-[#f0f0f0] transition-opacity duration-300 relative -ml-3 ri-nav-subreddit-chip"
         :class="{ 'opacity-0 pointer-events-none z-0': menuOpen }"
         :style="{ zIndex: menuOpen ? 0 : 'auto' }"
       >
+        <!-- Subtle divider between Reddit logo and subreddit identity -->
+        <span class="w-[1px] h-[22px] bg-[#3a3a3a] -ml-[4px] mr-[4px] flex-shrink-0"></span>
         <span
-          class="flex items-center justify-center w-[32px] h-[32px] rounded-full border border-[#2f2f2f] overflow-hidden"
+          class="flex items-center justify-center w-[28px] h-[28px] rounded-full border border-[#2f2f2f] overflow-hidden flex-shrink-0"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
         >
           <div
