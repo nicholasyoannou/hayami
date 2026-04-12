@@ -94,12 +94,9 @@ export async function getPostCommentsRuntime(postId: string, sort: RedditComment
     } else {
       if (hasOAuthIdentity) {
         result = await tryOauthCookieFetch();
-        if (!result) {
-          return emptyResult();
-        }
       }
 
-      if (!hasOAuthIdentity) {
+      if (!result) {
         try {
           const url = `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=${encodeURIComponent(sortParam)}&depth=5&limit=500&raw_json=1`;
           const resp = await extensionFetch(url, { credentials: 'include' } as any);
