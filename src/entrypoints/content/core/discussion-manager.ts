@@ -655,10 +655,17 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       // do not show auth prompt here; allow unauthenticated browsing
     }
 
+    // Helper: bail out if user switched away from Reddit during async search
+    const userSwitchedAway = () => activeUiProvider !== null && activeUiProvider !== 'reddit';
+
     // NEW FAILOVER: Try mapper service with series_name and season_title from Crunchyroll API
     log.log('Attempting new mapper failover...');
     const failoverOut: MapperFailoverOut = {};
     const failoverRedditUrl = await tryMapperFailover(animeInfoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
+    if (userSwitchedAway()) {
+      log.log('User switched providers during search, aborting Reddit search');
+      return;
+    }
     if (failoverRedditUrl) {
       log.log('Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
@@ -673,6 +680,10 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
 
     // Before showing selection/no discussion, check r-anime-wiki-mapper service (original method)
     const mapperResult = await fetchAnimeMapperData(mapperAnimeName);
+    if (userSwitchedAway()) {
+      log.log('User switched providers during search, aborting Reddit search');
+      return;
+    }
     setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
 
     const epNum = mappedEpisodeStr;
@@ -1083,8 +1094,16 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       if (used) return;
     }
 
+    if (userSwitchedAway()) {
+      log.log('User switched providers during search, aborting Reddit search');
+      return;
+    }
     const { searchSeriesDiscussionsByDate } = await getRedditApiModule();
     const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
+    if (userSwitchedAway()) {
+      log.log('User switched providers during search, aborting Reddit search');
+      return;
+    }
 
     // Check if any result matches the exact release date (same day)
     const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
@@ -1485,6 +1504,7 @@ function mountLoadingShell(): void {
 
     const handleShellProviderChange = async (provider: CommentProvider) => {
       preferredProvider = provider;
+      activeUiProvider = provider;
       const placeholder = buildPlaceholderDiscussion(state().lastAnimeInfo || undefined);
       await displayDiscussionDependingOnMode(placeholder);
     };

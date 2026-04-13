@@ -3016,6 +3016,27 @@
   margin: 0 0 6px;
 }
 
+#reddit-inline-discussion .aniwave-message img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+
+.aniwave-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+#reddit-inline-discussion .aniwave-attachment img {
+  max-width: 100%;
+  max-height: 400px;
+  height: auto;
+  border-radius: 6px;
+  object-fit: contain;
+}
+
 .aniwave-actions {
   display: flex;
   align-items: center;
