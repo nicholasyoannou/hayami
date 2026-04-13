@@ -54,6 +54,8 @@ import {
   redditKeyboardShortcutsItem,
   redditCommentFacesItem,
   redditLinkDomainItem,
+  redditMultiSubredditItem,
+  redditAutoExpandAllItem,
   providerBadgesEnabledItem,
   linkOnlyModeItem,
   siteMapperAdvancedModeItem,
@@ -120,6 +122,8 @@ type SettingValueMap = {
   redditKeyboardShortcuts: boolean;
   redditCommentFaces: boolean;
   redditLinkDomain: RedditLinkDomainOption;
+  redditMultiSubreddit: boolean;
+  redditAutoExpandAll: boolean;
   redditTraditionalSpacing: number;
   redditTruncateLines: boolean;
   redditMaxInlineDepth: number;
@@ -673,6 +677,33 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save link domain',
   },
   {
+    key: 'redditMultiSubreddit',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Multi-subreddit threads',
+    description: 'Show tabs for alternate discussion threads from other subreddits (dub, anime-only, rewatch, manga).',
+    fallback: false,
+    load: async () => (await redditMultiSubredditItem.getValue()) === true,
+    save: async (value) => redditMultiSubredditItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Multi-subreddit threads enabled' : 'Multi-subreddit threads disabled'),
+    errorMessage: 'Failed to save multi-subreddit setting',
+  },
+  {
+    key: 'redditAutoExpandAll',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Auto-expand all comments',
+    description: 'Automatically fetch and expand all collapsed reply threads when comments load. This consumes significantly more Reddit API requests and may cause rate-limiting — use at your own risk.',
+    fallback: false,
+    load: async () => (await redditAutoExpandAllItem.getValue()) === true,
+    save: async (value) => redditAutoExpandAllItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Auto-expand all comments enabled' : 'Auto-expand all comments disabled'),
+    errorMessage: 'Failed to save auto-expand setting',
+    advanced: true,
+  },
+  {
     key: 'aniwaveAutoExpandAll',
     type: 'toggle',
     category: 'provider',
@@ -866,6 +897,8 @@ const settingValues = reactive<SettingValueMap>({
   redditProfileHoverCard: true,
   redditKeyboardShortcuts: false,
   redditCommentFaces: false,
+  redditMultiSubreddit: false,
+  redditAutoExpandAll: false,
   redditTraditionalSpacing: 3,
   redditTruncateLines: true,
   redditMaxInlineDepth: 7,

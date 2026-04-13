@@ -191,12 +191,16 @@ function normalizeRedditDiscussion(discussion: any): void {
  * The main (currently displayed) thread URL is passed as `mainUrl` and
  * excluded from the alternates list to avoid duplication.
  */
-function attachRedditAlternates(
+async function attachRedditAlternates(
   discussion: any,
   failoverOut: MapperFailoverOut,
   mainUrl: string | null,
-): void {
+): Promise<void> {
   if (!discussion) return;
+  // Gate behind user setting (off by default)
+  const { redditMultiSubredditItem } = await import('@/config/storage');
+  const enabled = await redditMultiSubredditItem.getValue();
+  if (!enabled) return;
   const entry = failoverOut.entry as MapperResultEntry | null | undefined;
   const episode = failoverOut.episode ?? null;
   if (!entry || episode === null) return;
@@ -670,7 +674,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       log.log('Failover succeeded, found Reddit URL:', failoverRedditUrl);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
       if (postData) {
-        attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
+        await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
         await displayDiscussionDependingOnMode(postData);
         return;
       }
@@ -936,7 +940,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           const postData = await fetchRedditPostFromUrl(url);
           if (postData) {
             const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: Number(epNum) };
-            attachRedditAlternates(postData, directOut, url);
+            await attachRedditAlternates(postData, directOut, url);
             await displayDiscussionDependingOnMode(postData);
             return true;
           }
@@ -966,7 +970,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
             const postData = await fetchRedditPostFromUrl(url);
             if (postData) {
               const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: perSeasonEpNum };
-              attachRedditAlternates(postData, directOut, url);
+              await attachRedditAlternates(postData, directOut, url);
               await displayDiscussionDependingOnMode(postData);
               return true;
             }
@@ -1014,7 +1018,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
                 const postData = await fetchRedditPostFromUrl(url);
                 if (postData) {
                   const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: offsetEp };
-                  attachRedditAlternates(postData, directOut, url);
+                  await attachRedditAlternates(postData, directOut, url);
                   await displayDiscussionDependingOnMode(postData);
                   return true;
                 }
@@ -1041,7 +1045,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           const postData = await fetchRedditPostFromUrl(url);
           if (postData) {
             const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: usedEp };
-            attachRedditAlternates(postData, directOut, url);
+            await attachRedditAlternates(postData, directOut, url);
             await displayDiscussionDependingOnMode(postData);
             return true;
           }
@@ -1083,7 +1087,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
               entry: animeData as MapperResultEntry,
               episode: epNum ? Number(epNum) : null,
             };
-            attachRedditAlternates(postData, singleOut, redditUrl);
+            await attachRedditAlternates(postData, singleOut, redditUrl);
             await displayDiscussionDependingOnMode(postData);
             return;
           }
@@ -1324,7 +1328,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
             const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
             if (postData) {
               normalizeRedditDiscussion(postData);
-              attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
+              await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
               cache.reddit = { ...postData };
 
               const key = Date.now();
@@ -1794,7 +1798,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
               const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
               if (postData) {
                 normalizeRedditDiscussion(postData);
-                attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
+                await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
                 cache.reddit = { ...postData };
 
                 const key = Date.now();

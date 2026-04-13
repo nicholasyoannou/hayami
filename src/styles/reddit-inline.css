@@ -286,6 +286,13 @@
   text-decoration: underline;
 }
 
+#reddit-inline-discussion .ri-link--disabled {
+  color: #888;
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: default;
+}
+
 #reddit-inline-discussion .ri-meta {
   display: flex;
   align-items: center;

@@ -408,6 +408,18 @@ export const redditLinkDomainItem = storage.defineItem<RedditLinkDomainOption>(
   { fallback: 'reddit' }
 );
 
+// Multi-subreddit support: show alternate subreddit threads (dub, anime-only, rewatch, manga, etc.)
+export const redditMultiSubredditItem = storage.defineItem<boolean>(
+  'local:reddit_multi_subreddit',
+  { fallback: false }
+);
+
+// Auto-expand all collapsed comment replies (fetches moreChildren automatically)
+export const redditAutoExpandAllItem = storage.defineItem<boolean>(
+  'local:reddit_auto_expand_all',
+  { fallback: false }
+);
+
 export const malSyncEnabledItem = storage.defineItem<boolean>(
   'sync:malsync_enabled',
   { fallback: false }

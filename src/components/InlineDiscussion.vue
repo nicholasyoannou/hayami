@@ -830,6 +830,7 @@ async function handleShare() {
 }
 
 function handleAddCommentClick() {
+  if (isLoading.value) return;
   if (!isRedditConnected.value) {
     toast.error("You're not logged in to Reddit. Please sign in to add comments.");
     return;
@@ -1479,18 +1480,29 @@ defineExpose({
             <button
               class="ri-manual-search-btn"
               title="Search manually"
+              :disabled="isLoading"
               @click="handleManualSearch"
-              style="background: none; border: none; color: #FF6740; cursor: pointer; font-size: 18px; padding: 0 4px; display: flex; align-items: center; opacity: 0.8; transition: opacity 0.2s;"
-              @mouseover="(e) => (e.currentTarget as HTMLElement).style.opacity = '1'"
-              @mouseout="(e) => (e.currentTarget as HTMLElement).style.opacity = '0.8'"
+              :style="{
+                background: 'none', border: 'none',
+                color: isLoading ? '#888' : '#FF6740',
+                cursor: isLoading ? 'default' : 'pointer',
+                fontSize: '18px', padding: '0 4px',
+                display: 'flex', alignItems: 'center',
+                opacity: isLoading ? '0.4' : '0.8',
+                transition: 'opacity 0.2s',
+              }"
+              @mouseover="(e) => { if (!isLoading) (e.currentTarget as HTMLElement).style.opacity = '1' }"
+              @mouseout="(e) => { if (!isLoading) (e.currentTarget as HTMLElement).style.opacity = '0.8' }"
             >
               ?
             </button>
             <a
               class="ri-link"
-              :href="redditUrl"
-              target="_blank"
+              :href="(!isLoading && !isNoDiscussion) ? redditUrl : undefined"
+              :class="{ 'ri-link--disabled': isLoading || isNoDiscussion }"
+              :target="(!isLoading && !isNoDiscussion) ? '_blank' : undefined"
               rel="noopener"
+              @click="(isLoading || isNoDiscussion) && $event.preventDefault()"
             >
               Open on Reddit
             </a>

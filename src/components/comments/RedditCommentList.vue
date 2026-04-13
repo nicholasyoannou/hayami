@@ -3,7 +3,7 @@ import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
 import RedditComment from './RedditComment.vue';
 import { getPostComments, getMoreChildren, getSubredditModeratorSet, voteThing, saveThing, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
-import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem, redditProfileHoverCardItem } from '@/config/storage';
+import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem, redditProfileHoverCardItem, redditAutoExpandAllItem } from '@/config/storage';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
 import { getCurrentUsername } from '@/utils/redditAuth';
 import { getCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
@@ -56,6 +56,7 @@ const commentLayout = ref<'threaded' | 'traditional' | 'compact' | 'classic'>('t
 const traditionalSpacing = ref(3);
 const truncateLines = ref(true);
 const profileHoverCard = ref(true);
+const autoExpandAll = ref(false);
 
 function clampTextSizeIncrease(value: unknown): number {
   const amount = Math.floor(Number(value));
@@ -121,6 +122,12 @@ onMounted(async () => {
   } catch (error) {
     log.warn('Failed to load profile hover card setting:', error);
   }
+
+  try {
+    autoExpandAll.value = (await redditAutoExpandAllItem.getValue()) === true;
+  } catch (error) {
+    log.warn('Failed to load auto-expand all setting:', error);
+  }
 });
 
 // Listen for live settings changes from popup
@@ -144,6 +151,9 @@ const _storageHandler = (changes: Record<string, { oldValue?: any; newValue?: an
   if ('reddit_traditional_spacing' in changes) {
     const num = Math.floor(Number(changes.reddit_traditional_spacing.newValue));
     traditionalSpacing.value = Number.isFinite(num) ? Math.max(1, Math.min(5, num)) : 3;
+  }
+  if ('reddit_auto_expand_all' in changes) {
+    autoExpandAll.value = changes.reddit_auto_expand_all.newValue === true;
   }
 };
 onMounted(() => {
@@ -477,11 +487,51 @@ async function loadComments(sort: RedditCommentSort = 'confidence') {
     // hasMore should be true if there are more comments to show OR if there are rootMoreIds to fetch
     hasMore.value = comments.value.length > renderedCount.value || rootMoreIds.value.length > 0;
     emit('commentsLoaded', countAllComments(comments.value));
+
+    // Auto-expand all collapsed replies if enabled (fire-and-forget)
+    if (autoExpandAll.value) {
+      autoExpandAllComments().catch((err) => log.warn('Auto-expand all failed:', err));
+    }
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load comments';
     log.error('Failed to load comments:', e);
   } finally {
     isLoading.value = false;
+  }
+}
+
+async function autoExpandAllComments() {
+  if (!autoExpandAll.value) return;
+
+  // Collect all comment IDs that have unexpanded children
+  function collectExpandable(list: RedditCommentData[]): string[] {
+    const ids: string[] = [];
+    for (const c of list) {
+      if (c.moreChildrenIds && c.moreChildrenIds.length > 0) {
+        ids.push(c.id);
+      }
+      if (Array.isArray(c.replies) && c.replies.length > 0) {
+        ids.push(...collectExpandable(c.replies));
+      }
+    }
+    return ids;
+  }
+
+  // Expand in waves until nothing left (with a safety cap)
+  const maxWaves = 20;
+  for (let wave = 0; wave < maxWaves; wave++) {
+    if (!autoExpandAll.value) break; // setting toggled off mid-expand
+    const expandableIds = collectExpandable(comments.value);
+    if (expandableIds.length === 0) break;
+    log.log(`Auto-expand wave ${wave + 1}: expanding ${expandableIds.length} comments`);
+    for (const id of expandableIds) {
+      if (!autoExpandAll.value) return;
+      try {
+        await loadMoreForComment(id);
+      } catch (err) {
+        log.warn('Auto-expand failed for comment', id, err);
+      }
+    }
   }
 }
 
