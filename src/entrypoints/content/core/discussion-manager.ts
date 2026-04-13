@@ -684,6 +684,17 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       return null;
     };
     const entryMal = (entry: any): number | null => normalizeMal(entry?.mal_id ?? entry?.malId ?? entry?.external_sites?.mal_id);
+    // Helper: look up an episode URL with fallback for zero-padded keys
+    // (e.g., "2" → "02"). Some older entries use "01", "02", etc.
+    const lookupEpisodeUrl = (episodes: Record<string, string> | undefined, key: string | number): string | undefined => {
+      if (!episodes) return undefined;
+      const str = String(key);
+      if (str in episodes) return episodes[str];
+      const padded = str.padStart(2, '0');
+      if (padded !== str && padded in episodes) return episodes[padded];
+      return undefined;
+    };
+
     const tryMapperDirect = async (): Promise<boolean> => {
       if (!mapperResult?.results?.length || !epNum) return false;
 
@@ -694,10 +705,25 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         .map((x: { i: number }) => x.i) : [];
       const matchedIdx = typeof mapperResult.matched_result?.index === 'number' ? mapperResult.matched_result.index : null;
 
+      // Parse release year early so pickOrder can sort by year proximity
+      const releaseYearMatch = animeInfo.releaseDate?.match(/(\d{4})/);
+      const releaseYear = releaseYearMatch ? Number(releaseYearMatch[1]) : null;
+
+      // Sort remaining candidates by year proximity to releaseYear so that
+      // e.g. Tensura S1 (2018) is checked before Coleus no Yume (2023) when
+      // watching S1E1 released in 2018.
+      const remainingByYear = candidates.map((_entry: any, i: number) => i).sort((a: number, b: number) => {
+        if (!releaseYear) return 0;
+        const yearA = candidates[a]?.year && candidates[a].year !== 'movies' ? Number(candidates[a].year) : null;
+        const yearB = candidates[b]?.year && candidates[b].year !== 'movies' ? Number(candidates[b].year) : null;
+        const distA = yearA !== null && !isNaN(yearA) ? Math.abs(yearA - releaseYear) : Infinity;
+        const distB = yearB !== null && !isNaN(yearB) ? Math.abs(yearB - releaseYear) : Infinity;
+        return distA - distB;
+      });
       const pickOrder = [
         ...(malPreferred.length ? malPreferred : []),
         ...(matchedIdx !== null ? [matchedIdx] : []),
-        ...candidates.map((_entry: any, i: number) => i),
+        ...remainingByYear,
       ].filter((v: number, i: number, arr: number[]) => arr.indexOf(v) === i);
 
       // Tokenize the target anime name to filter out completely unrelated entries
@@ -711,10 +737,20 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       };
       const targetTokens = tokenize(mapperAnimeName);
 
-      // Parse release year from animeInfo to prefer entries from the matching year
-      // when targetSeason is unknown (e.g., "Released on Jul 9, 2023" → 2023)
-      const releaseYearMatch = animeInfo.releaseDate?.match(/(\d{4})/);
-      const releaseYear = releaseYearMatch ? Number(releaseYearMatch[1]) : null;
+      // Helper: check if an entry's year (or merge_years) matches releaseYear
+      const entryYearMatchesRelease = (entry: any): boolean => {
+        if (!releaseYear) return false;
+        const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
+        if (entryYear && entryYear === releaseYear) return true;
+        // Also check merge_years (e.g., AoT S3 has year "2018" but merge_years ["2018","2019"])
+        const mergeYears: string[] | undefined = entry?.merge_years;
+        if (Array.isArray(mergeYears)) {
+          for (const my of mergeYears) {
+            if (Number(my) === releaseYear) return true;
+          }
+        }
+        return false;
+      };
 
       // Helper: check if an entry passes MAL, season, year, and token-overlap filters
       const isEntryRelevant = (entry: any, idx: number): boolean => {
@@ -722,9 +758,18 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         const entrySeason = extractSeasonNumber(entry?.title || entry?.anime_name || entry?.name || entry?.alt_title);
         if (entrySeason && targetSeason && entrySeason !== targetSeason) return false;
         if (entrySeason && !targetSeason && entrySeason > 1) {
-          const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
-          if (!(releaseYear && entryYear && entryYear === releaseYear)) return false;
+          if (!entryYearMatchesRelease(entry)) return false;
         }
+        // Skip token overlap check for the mapper-matched entry — the mapper service
+        // already determined it's the best match. This prevents entries like
+        // "Shingeki no Kyojin: The Final Season Kanketsu-hen" from being excluded
+        // when mapperAnimeName is "Attack on Titan" (Japanese vs English title).
+        if (idx === matchedIdx) return true;
+        // If the entry's year exactly matches the release year, treat it as
+        // relevant even without token overlap.  This handles Japanese-only titles
+        // like "Shingeki no Kyojin: The Final Season Kanketsu-hen" that share
+        // zero tokens with the English mapper name "Attack on Titan".
+        if (entryYearMatchesRelease(entry)) return true;
         if (targetTokens.size > 0) {
           const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
           const entryTokens = tokenize(entryName);
@@ -737,38 +782,224 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         return true;
       };
 
-      // Collapsed-part resolution: when CR merges multiple parts into one season
-      // (e.g., Mushoku Tensei Part 1 = 11 eps + Part 2 = 13 eps = 24 total),
-      // episode keys only go up to each part's count. Walk related entries by
-      // index order to compute the offset episode in the correct part.
+      // Helper: relaxed relevance check for franchise-wide entry collection.
+      // Unlike isEntryRelevant, this does NOT filter by season number — it only
+      // checks MAL ID and token overlap. This is needed for per-season episode
+      // computation which must see ALL seasons of the franchise (e.g., AoT S1, S2,
+      // S3) to correctly compute cumulative episode counts.
+      const isEntryInFranchise = (entry: any): boolean => {
+        if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) {
+          // MAL ID mismatch — but still allow if tokens overlap (different MAL IDs
+          // for different seasons of the same franchise is common)
+        }
+        // Year-match bypass for franchise collection too — entries whose year
+        // matches releaseYear belong to the same franchise even if the title is
+        // in a different language.
+        if (entryYearMatchesRelease(entry)) return true;
+        if (targetTokens.size > 0) {
+          const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
+          const entryTokens = tokenize(entryName);
+          let overlap = 0;
+          for (const t of entryTokens) {
+            if (targetTokens.has(t)) overlap++;
+          }
+          if (overlap === 0) return false;
+        }
+        return true;
+      };
+
+      // Collect all relevant entries with their year and max episode key.
+      // Uses isEntryRelevant for the main lookup candidates, but also builds a
+      // broader franchise-wide collection for per-season episode computation.
       const epNumInt = Number(epNum);
+      const allRelated: { entry: any; idx: number; epCount: number; year: string }[] = [];
+      const allFranchise: { entry: any; idx: number; epCount: number; year: string }[] = [];
       if (!isNaN(epNumInt) && epNumInt > 0) {
-        const relatedEntries: { entry: any; idx: number; epCount: number }[] = [];
         for (const idx of pickOrder) {
           const entry: any = candidates[idx];
           if (!entry?.episodes || entry?.year === 'movies') continue;
-          if (!isEntryRelevant(entry, idx)) continue;
-          if (releaseYear) {
-            const entryYear = entry.year && entry.year !== 'movies' ? Number(entry.year) : null;
-            if (entryYear && entryYear !== releaseYear) continue;
-          }
           const epKeys = Object.keys(entry.episodes).filter((k: string) => /^\d+$/.test(k)).map(Number);
           if (epKeys.length === 0) continue;
-          if (!relatedEntries.some((r) => r.idx === idx)) {
-            relatedEntries.push({ entry, idx, epCount: Math.max(...epKeys) });
+          const yr = entry.year && entry.year !== 'movies' ? String(entry.year) : 'unknown';
+          if (isEntryRelevant(entry, idx) && !allRelated.some((r) => r.idx === idx)) {
+            allRelated.push({ entry, idx, epCount: Math.max(...epKeys), year: yr });
+          }
+          if (isEntryInFranchise(entry) && !allFranchise.some((r) => r.idx === idx)) {
+            allFranchise.push({ entry, idx, epCount: Math.max(...epKeys), year: yr });
           }
         }
+      }
 
-        if (relatedEntries.length > 1) {
-          relatedEntries.sort((a, b) => a.idx - b.idx);
+      // Group by year — allRelated for collapsed detection, allFranchise for per-season
+      const yearGroups = new Map<string, typeof allRelated>();
+      for (const r of allRelated) {
+        const group = yearGroups.get(r.year) || [];
+        group.push(r);
+        yearGroups.set(r.year, group);
+      }
+      const franchiseYearGroups = new Map<string, typeof allFranchise>();
+      for (const r of allFranchise) {
+        const group = franchiseYearGroups.get(r.year) || [];
+        group.push(r);
+        franchiseYearGroups.set(r.year, group);
+      }
+
+      // Compute per-season episode number from mapper data when epNum looks like
+      // continuous numbering (e.g., AoT S2E37 = 25 (S1) + 12 (S2) → per-season 12).
+      // Sum the max episode count per year group for years before releaseYear.
+      // Uses franchiseYearGroups (broader collection) so that ALL earlier seasons
+      // are counted, even if isEntryRelevant would exclude them due to season-number
+      // mismatch (e.g., AoT S3E39: S2 entry excluded from allRelated because
+      // entrySeason=2, targetSeason=null, entryYear(2017) ≠ releaseYear(2018)).
+      let perSeasonEpNum: number | null = null;
+      if (releaseYear && !isNaN(epNumInt) && epNumInt > 0) {
+        let previousEpisodes = 0;
+        for (const [yr, group] of franchiseYearGroups) {
+          const yrNum = yr !== 'unknown' ? Number(yr) : null;
+          if (yrNum !== null && yrNum < releaseYear) {
+            // Skip this year group if any entry has merge_years spanning releaseYear
+            // (e.g., AoT S3 has year "2018" but merge_years ["2018","2019"] — when
+            // releaseYear is 2019, S3 is the current season, not a previous one)
+            const spansReleaseYear = group.some((r) => {
+              const mergeYears: string[] | undefined = r.entry?.merge_years;
+              return Array.isArray(mergeYears) && mergeYears.some((my: string) => Number(my) === releaseYear);
+            });
+            if (spansReleaseYear) continue;
+
+            // Take the max epCount among entries in this year group (thread variants
+            // like anime-only/manga-readers share the same episodes, don't sum them)
+            const maxInGroup = Math.max(...group.map((r) => r.epCount));
+            previousEpisodes += maxInGroup;
+          }
+        }
+        if (previousEpisodes > 0 && epNumInt > previousEpisodes) {
+          perSeasonEpNum = epNumInt - previousEpisodes;
+          log.log('Computed per-season episode number', { epNumInt, previousEpisodes, perSeasonEpNum, releaseYear });
+        }
+      }
+
+      // Track which indices belong to multi-entry (collapsed) year groups
+      const collapsedIndices = new Set<number>();
+      for (const [, group] of yearGroups) {
+        if (group.length >= 2) {
+          for (const r of group) collapsedIndices.add(r.idx);
+        }
+      }
+
+      // Check if collapsed entries include an entry whose year is close to
+      // releaseYear.  When true, the direct key lookup below must not match
+      // distant-year non-collapsed entries — collapsed-part resolution (later)
+      // should handle the closer entries instead.  This prevents e.g. AoT
+      // Final Season (2021, idx 2) matching ep "3" when the user is watching
+      // AoT S1E3 (2013) and the 2013 entries are collapsed.
+      const hasCloseCollapsed = releaseYear
+        ? [...collapsedIndices].some((ci) => {
+            const e = candidates[ci];
+            const ey = e?.year && e.year !== 'movies' ? Number(e.year) : null;
+            if (ey !== null && Math.abs(ey - releaseYear) <= 1) return true;
+            // Also check merge_years
+            const my: string[] | undefined = e?.merge_years;
+            return Array.isArray(my) && my.some((m: string) => Math.abs(Number(m) - releaseYear) <= 1);
+          })
+        : false;
+
+      // Direct key lookup with raw epNum — only for entries NOT in collapsed year
+      // groups (to avoid matching the wrong part in collapsed-season scenarios like
+      // Mushoku Tensei where Part 2 has key "12" but ep 12 is actually Part 2 Ep 1).
+      for (const idx of pickOrder) {
+        if (collapsedIndices.has(idx)) continue;
+        const entry: any = candidates[idx];
+        if (!isEntryRelevant(entry, idx)) continue;
+        const url = lookupEpisodeUrl(entry?.episodes, epNum);
+        if (url) {
+          // Skip distant-year matches when closer collapsed entries exist —
+          // collapsed-part resolution will handle those correctly.
+          if (hasCloseCollapsed && releaseYear) {
+            const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
+            if (entryYear !== null && Math.abs(entryYear - releaseYear) > 1) {
+              log.log('Skipping distant-year direct match; closer collapsed entries exist', { idx, epNum, entryYear, releaseYear });
+              continue;
+            }
+          }
+          log.log('Using mapped episode URL (direct)', { idx, epNum, url });
+          const postData = await fetchRedditPostFromUrl(url);
+          if (postData) {
+            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: Number(epNum) };
+            attachRedditAlternates(postData, directOut, url);
+            await displayDiscussionDependingOnMode(postData);
+            return true;
+          }
+        }
+      }
+
+      // Per-season episode lookup: when epNum is continuous numbering across
+      // seasons (e.g., AoT S2E37 = S1(25) + S2(12)), try the computed per-season
+      // episode number against entries sorted by year proximity. This catches
+      // cases where the raw epNum doesn't exist in the target season's entry.
+      if (perSeasonEpNum !== null) {
+        for (const idx of pickOrder) {
+          if (collapsedIndices.has(idx)) continue;
+          const entry: any = candidates[idx];
+          if (!isEntryRelevant(entry, idx)) continue;
+          const url = lookupEpisodeUrl(entry?.episodes, perSeasonEpNum);
+          if (url) {
+            // Same distant-year guard as in the direct key lookup above
+            if (hasCloseCollapsed && releaseYear) {
+              const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
+              if (entryYear !== null && Math.abs(entryYear - releaseYear) > 1) {
+                log.log('Skipping distant-year per-season match; closer collapsed entries exist', { idx, perSeasonEpNum, entryYear, releaseYear });
+                continue;
+              }
+            }
+            log.log('Using mapped episode URL (per-season)', { idx, epNum: perSeasonEpNum, rawEpNum: epNum, url });
+            const postData = await fetchRedditPostFromUrl(url);
+            if (postData) {
+              const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: perSeasonEpNum };
+              attachRedditAlternates(postData, directOut, url);
+              await displayDiscussionDependingOnMode(postData);
+              return true;
+            }
+          }
+        }
+      }
+
+      // Collapsed-part resolution: when CR merges multiple parts into one season
+      // (e.g., Mushoku Tensei Part 1 = 11 eps + Part 2 = 13 eps = 24 total),
+      // episode keys only go up to each part's count. Group related entries by
+      // year, then walk each year-group to compute the offset episode.
+      // Only apply to the releaseYear group (or within ±1 year) to avoid
+      // incorrectly treating thread variants from a different season as
+      // collapsed parts (e.g., AoT 2013 anime-only + manga-reader threads).
+      if (!isNaN(epNumInt) && epNumInt > 0) {
+        // Sort year groups: prefer the closest year to releaseYear, then descending
+        const sortedYears = [...yearGroups.keys()].sort((a, b) => {
+          if (releaseYear) {
+            const da = a === 'unknown' ? Infinity : Math.abs(Number(a) - releaseYear);
+            const db = b === 'unknown' ? Infinity : Math.abs(Number(b) - releaseYear);
+            if (da !== db) return da - db;
+          }
+          return Number(b) - Number(a);
+        });
+
+        for (const yr of sortedYears) {
+          // Only try collapsed-part resolution for the year matching releaseYear
+          // (or within 1 year). This prevents e.g., 2013 S1 thread variants from
+          // being treated as collapsed parts when watching a 2017 S2 episode.
+          if (releaseYear && yr !== 'unknown') {
+            const yrNum = Number(yr);
+            if (Math.abs(yrNum - releaseYear) > 1) continue;
+          }
+          const group = yearGroups.get(yr)!;
+          if (group.length < 2) continue; // Need multiple parts
+          group.sort((a, b) => a.idx - b.idx);
           let cumulative = 0;
-          for (const { entry, idx, epCount } of relatedEntries) {
+          for (const { entry, idx, epCount } of group) {
             cumulative += epCount;
             if (epNumInt <= cumulative) {
               const offsetEp = epNumInt - (cumulative - epCount);
-              const url = entry?.episodes?.[String(offsetEp)];
+              const url = lookupEpisodeUrl(entry?.episodes, offsetEp);
               if (url) {
-                log.log('Using collapsed-part mapping', { idx, epNum, offsetEp, url });
+                log.log('Using collapsed-part mapping', { idx, epNum, offsetEp, year: yr, url });
                 const postData = await fetchRedditPostFromUrl(url);
                 if (postData) {
                   const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: offsetEp };
@@ -783,16 +1014,22 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         }
       }
 
-      // Direct key lookup fallback (single-entry or non-collapsed cases)
+      // Final fallback: try direct key lookup including collapsed entries
+      // (in case none of the above matched)
       for (const idx of pickOrder) {
         const entry: any = candidates[idx];
         if (!isEntryRelevant(entry, idx)) continue;
-        const url = entry?.episodes?.[epNum];
+        let url = lookupEpisodeUrl(entry?.episodes, epNum);
+        let usedEp = Number(epNum);
+        if (!url && perSeasonEpNum !== null) {
+          url = lookupEpisodeUrl(entry?.episodes, perSeasonEpNum);
+          usedEp = perSeasonEpNum;
+        }
         if (url) {
-          log.log('Using mapped episode URL', { idx, epNum, url });
+          log.log('Using mapped episode URL (final fallback)', { idx, epNum: usedEp, url });
           const postData = await fetchRedditPostFromUrl(url);
           if (postData) {
-            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: Number(epNum) };
+            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: usedEp };
             attachRedditAlternates(postData, directOut, url);
             await displayDiscussionDependingOnMode(postData);
             return true;
@@ -817,8 +1054,8 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
         // Handle both episodes (dictionary) and movies (array)
         let redditUrl: string | undefined;
 
-        if (epNum && animeData.episodes && animeData.episodes[epNum]) {
-          redditUrl = animeData.episodes[epNum];
+        if (epNum && animeData.episodes) {
+          redditUrl = lookupEpisodeUrl(animeData.episodes, epNum);
         } else if (animeData.year === 'movies' && Array.isArray(animeData.movies) && animeData.movies.length > 0) {
           // For movies, use the first (and typically only) movie URL
           redditUrl = animeData.movies[0];

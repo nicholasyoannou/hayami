@@ -61,6 +61,11 @@ export function mapEpisodeWithSeasonsData(
   );
   const currentCrSeasonEpisodes = currentCrSeason?.number_of_episodes || 0;
 
+  // The hayami API sometimes returns truncated episode data (e.g., only 1 of 22
+  // episodes). Use the CR season episode count as the upper bound when it's
+  // larger than the mapper count, so valid episode numbers aren't rejected.
+  const effectiveEpisodeLimit = Math.max(mapperEpisodeCount, currentCrSeasonEpisodes);
+
   let totalPreviousCrEpisodes = 0;
   for (const season of sortedCrSeasons) {
     const seasonSeq = season.season_sequence_number || season.season_number || 0;
@@ -288,7 +293,28 @@ export function mapEpisodeWithSeasonsData(
     const baseline = totalPreviousCrEpisodes > 0 ? Math.min(mapperBaseline, totalPreviousCrEpisodes) : mapperBaseline;
     const seasonEpisode = episodeNumberToUse - baseline;
 
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
+      // Guard: when the computed episode overshoots the matched season's actual
+      // episode count but crEpisodeNumber is a valid key in the mapper, prefer
+      // crEpisodeNumber. This handles specials like AoT Kanketsu-hen E-SP1 where
+      // sequenceNumber=88 minus an inaccurate baseline gives episode 21, but the
+      // matched season only has 2 episodes and crEpisodeNumber=1 is the correct key.
+      if (
+        seasonEpisode > mapperEpisodeCount &&
+        typeof crEpisodeNumber === 'number' &&
+        crEpisodeNumber >= 1 &&
+        crEpisodeNumber <= mapperEpisodeCount &&
+        Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(crEpisodeNumber))
+      ) {
+        log.log(' Computed episode exceeds mapper count; preferring crEpisodeNumber as direct key', {
+          seasonEpisode,
+          mapperEpisodeCount,
+          crEpisodeNumber,
+          episodeNumberToUse,
+          baseline,
+        });
+        return crEpisodeNumber;
+      }
       log.log(' Adjusted using mapper baseline before CR counts:', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
@@ -309,7 +335,23 @@ export function mapEpisodeWithSeasonsData(
     const baseline = totalPreviousCrEpisodes > 0 ? Math.min(fallbackPreviousMapperEpisodes, totalPreviousCrEpisodes) : fallbackPreviousMapperEpisodes;
     const seasonEpisode = episodeNumberToUse - baseline;
 
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
+      if (
+        seasonEpisode > mapperEpisodeCount &&
+        typeof crEpisodeNumber === 'number' &&
+        crEpisodeNumber >= 1 &&
+        crEpisodeNumber <= mapperEpisodeCount &&
+        Object.prototype.hasOwnProperty.call(matchedSeason.episodes, String(crEpisodeNumber))
+      ) {
+        log.log(' Computed episode exceeds mapper count (fallback baseline); preferring crEpisodeNumber', {
+          seasonEpisode,
+          mapperEpisodeCount,
+          crEpisodeNumber,
+          episodeNumberToUse,
+          baseline,
+        });
+        return crEpisodeNumber;
+      }
       log.log(' Adjusted using fallback mapper baseline:', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
@@ -328,7 +370,7 @@ export function mapEpisodeWithSeasonsData(
     const adjustedPrevious = Math.max(0, totalPreviousCrEpisodes - overcount);
     const seasonEpisode = episodeNumberToUse - adjustedPrevious;
 
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
       log.log(' Adjusted continuous numbering using CR/global baseline:', {
         episodeNumberToUse,
         crEpisodeNumber,
@@ -344,14 +386,14 @@ export function mapEpisodeWithSeasonsData(
   }
 
   const isDefinitelyContinuous = episodeNumberToUse > totalPreviousCrEpisodes + currentCrSeasonEpisodes;
-  const couldBePerSeason = episodeNumberToUse <= currentCrSeasonEpisodes && episodeNumberToUse <= mapperEpisodeCount;
-  const couldBeContinuous = episodeNumberToUse > totalPreviousCrEpisodes && episodeNumberToUse - totalPreviousCrEpisodes <= mapperEpisodeCount;
+  const couldBePerSeason = episodeNumberToUse <= currentCrSeasonEpisodes && episodeNumberToUse <= effectiveEpisodeLimit;
+  const couldBeContinuous = episodeNumberToUse > totalPreviousCrEpisodes && episodeNumberToUse - totalPreviousCrEpisodes <= effectiveEpisodeLimit;
 
   if (isSequenceNumberContinuous && episodeNumberToUse <= totalPreviousCrEpisodes) {
     const adjustedPrevious = Math.max(0, Math.min(totalPreviousCrEpisodes, episodeNumberToUse - 1));
     const seasonEpisode = episodeNumberToUse - adjustedPrevious;
 
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
       log.log(' Adjusted continuous numbering with capped previous total:', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
@@ -366,7 +408,7 @@ export function mapEpisodeWithSeasonsData(
     const inferredPrevious = Math.max(totalPreviousCrEpisodes, currentCrSeasonEpisodes);
     const seasonEpisode = episodeNumberToUse - inferredPrevious;
 
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
       log.log(' Inferred previous episodes from CR season length for continuous numbering:', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
@@ -378,12 +420,12 @@ export function mapEpisodeWithSeasonsData(
     }
   }
 
-  const maxReasonablePrevious = totalPreviousCrEpisodes + mapperEpisodeCount;
-  if (isSequenceNumberContinuous && mapperEpisodeCount >= 1 && episodeNumberToUse > maxReasonablePrevious) {
+  const maxReasonablePrevious = totalPreviousCrEpisodes + effectiveEpisodeLimit;
+  if (isSequenceNumberContinuous && effectiveEpisodeLimit >= 1 && episodeNumberToUse > maxReasonablePrevious) {
     const adjustedPrevious = Math.min(episodeNumberToUse - 1, maxReasonablePrevious);
     const seasonEpisode = episodeNumberToUse - adjustedPrevious;
 
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
       log.log(' Overshoot guard: trimmed previous total into cour span', {
         episodeNumberToUse,
         totalPreviousCrEpisodes,
@@ -397,7 +439,7 @@ export function mapEpisodeWithSeasonsData(
 
   if (isSequenceNumberContinuous) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
       log.log(' Determined CONTINUOUS numbering (from sequenceNumber):', {
         sequenceNumber: episodeNumberToUse,
         totalPreviousCrEpisodes,
@@ -410,7 +452,7 @@ export function mapEpisodeWithSeasonsData(
 
   if (isDefinitelyContinuous || (couldBeContinuous && !couldBePerSeason)) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
       log.log(' Determined CONTINUOUS numbering:', {
         crEpisodeNumber: episodeNumberToUse,
         totalPreviousCrEpisodes,
@@ -421,7 +463,7 @@ export function mapEpisodeWithSeasonsData(
     }
   }
 
-  if (couldBePerSeason && episodeNumberToUse >= 1 && episodeNumberToUse <= mapperEpisodeCount) {
+  if (couldBePerSeason && episodeNumberToUse >= 1 && episodeNumberToUse <= effectiveEpisodeLimit) {
     if (episodeNumberToUse <= currentCrSeasonEpisodes || currentCrSeasonEpisodes === 0) {
       log.log(' Determined PER-SEASON numbering:', {
         crEpisodeNumber: episodeNumberToUse,
@@ -435,13 +477,13 @@ export function mapEpisodeWithSeasonsData(
 
   if (episodeNumberToUse > totalPreviousCrEpisodes) {
     const seasonEpisode = episodeNumberToUse - totalPreviousCrEpisodes;
-    if (seasonEpisode >= 1 && seasonEpisode <= mapperEpisodeCount) {
+    if (seasonEpisode >= 1 && seasonEpisode <= effectiveEpisodeLimit) {
       log.log(' Fallback to CONTINUOUS numbering:', seasonEpisode);
       return seasonEpisode;
     }
   }
 
-  if (sequenceNumber === totalPreviousCrEpisodes && seasonNumber > 1) {
+  if (sequenceNumber === totalPreviousCrEpisodes && seasonNumber > 1 && isSequenceNumberContinuous) {
     log.log(' Last resort: sequenceNumber equals previous total, trying episode 1');
     if (mapperEpisodeCount >= 1) {
       return 1;
@@ -451,7 +493,7 @@ export function mapEpisodeWithSeasonsData(
   if (
     typeof crEpisodeNumber === 'number' &&
     crEpisodeNumber >= 1 &&
-    crEpisodeNumber <= mapperEpisodeCount &&
+    crEpisodeNumber <= effectiveEpisodeLimit &&
     crEpisodeNumber <= currentCrSeasonEpisodes
   ) {
     log.log(' Last resort: using crEpisodeNumber as per-season:', crEpisodeNumber);

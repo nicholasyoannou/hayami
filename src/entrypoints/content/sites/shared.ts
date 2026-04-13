@@ -48,6 +48,7 @@ export function parseEpisodeFromTitle(title: unknown): number | null {
   const patterns = [
     /\bEpisode\s*[:#\-]?\s*(\d+)\b/i,
     /\bEp\.?\s*[:#\-]?\s*(\d+)\b/i,
+    /\bE-?SP\s*(\d+)\b/i, // "E-SP1", "ESP2" — Crunchyroll special episodes
     /\bE\s*[:#\-]?\s*(\d+)\b/i,
   ];
 

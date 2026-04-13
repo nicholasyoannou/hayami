@@ -41,7 +41,12 @@ export function refineMatchedIndexUsingCrunchyrollData(
     name: results[idx]?.anime_name,
   }));
 
-  const coversRequiredEpisode = (entry: { episodeCount: number }) => entry.episodeCount >= requiredEpisode;
+  const coversRequiredEpisode = (entry: { episodeCount: number; idx: number }) => {
+    if (entry.episodeCount >= requiredEpisode) return true;
+    // Also check if the actual episode key exists (handles non-1-indexed entries like eps 2-10)
+    const eps = results[entry.idx]?.episodes;
+    return eps && typeof eps === 'object' && String(requiredEpisode) in eps;
+  };
 
   const hasSeasonsData = Array.isArray(seasonsData) && seasonsData.length > 0;
   const seasonNum = episodeMetadata?.season_number || episodeMetadata?.season_sequence_number;

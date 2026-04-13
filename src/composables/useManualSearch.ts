@@ -390,10 +390,12 @@ export function useManualSearch(params: {
     const romaji = typeof result?.romaji_title === 'string' ? result.romaji_title.trim() : '';
     const english = typeof result?.english_title === 'string' ? result.english_title.trim() : '';
     const animeName = typeof result?.anime_name === 'string' ? result.anime_name.trim() : '';
+    const matchedTitle = typeof result?.matched_title === 'string' ? result.matched_title.trim() : '';
 
     // Prefer romaji as primary; english as secondary when different. Fall back
-    // to the parenthetical-style anime_name when fine-grained titles aren't available.
-    let primary = romaji || english || animeName || 'Unknown title';
+    // to matched_title (Hayami results) or the parenthetical-style anime_name
+    // when fine-grained titles aren't available.
+    let primary = romaji || english || animeName || matchedTitle || 'Unknown title';
     let secondary: string | null = null;
     if (romaji && english && romaji.toLowerCase() !== english.toLowerCase()) {
       secondary = english;
@@ -428,8 +430,8 @@ export function useManualSearch(params: {
       if (keys.length > 0) episodeCount = keys.length;
     }
 
-    const anilistIdRaw = Number(result?.external_sites?.anilist_id);
-    const malIdRaw = Number(result?.external_sites?.mal_id);
+    const anilistIdRaw = Number(result?.external_sites?.anilist_id || result?.anilist_id);
+    const malIdRaw = Number(result?.external_sites?.mal_id || result?.mal_id);
 
     return {
       primaryTitle: primary,

@@ -1234,11 +1234,16 @@ export async function tryMapperFailover(
       // Re:Zero-style continuous numbering (e.g., CR ep 51 = S3 ep 1): when CR numbering is very high, bias to reset at 50.
       if (absoluteEpisode >= 50) {
         clampSeasonEpisode = Math.max(1, Math.min(maxMatchedEpisodes, absoluteEpisode - 50));
-      } else if (candidate !== null && candidate >= 1 && candidate <= maxMatchedEpisodes) {
+      } else if (candidate !== null && candidate >= 1 && candidate <= Math.max(maxMatchedEpisodes, currentSeasonEpisodes)) {
+        // Accept the candidate if it fits within either the mapper's episode count
+        // or the CR season's episode count (handles incomplete mapper data, e.g.,
+        // AoT S2 with only 1 of 12 episodes in the hayami response).
         clampSeasonEpisode = candidate;
       } else if (absoluteEpisode > currentSeasonEpisodes && currentSeasonEpisodes > 0) {
-        // Oversized CR numbering past the season length: fall back to episode 1 of the matched season.
-        clampSeasonEpisode = 1;
+        // Oversized CR numbering past the season length and candidate didn't fit:
+        // don't blindly fall back to episode 1 as it's almost always wrong for
+        // continuous numbering. Let the full mapper handle it instead.
+        clampSeasonEpisode = null;
       } else {
         clampSeasonEpisode = null;
       }

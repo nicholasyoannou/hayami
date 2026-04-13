@@ -57,6 +57,17 @@ describe('parseEpisodeFromTitle', () => {
     expect(parseEpisodeFromTitle('E5')).toBe(5);
     expect(parseEpisodeFromTitle('E-10')).toBe(10);
   });
+
+  it('parses "E-SP" / "ESP" special episode formats', () => {
+    // AoT Final Season THE FINAL CHAPTERS Special 1
+    expect(parseEpisodeFromTitle('E-SP1 - Attack on Titan Final Season THE FINAL CHAPTERS Special 1')).toBe(1);
+    // AoT Final Season THE FINAL CHAPTERS Special 2
+    expect(parseEpisodeFromTitle('E-SP2 - Attack on Titan Final Season THE FINAL CHAPTERS Special 2')).toBe(2);
+    // Variants without hyphen
+    expect(parseEpisodeFromTitle('ESP3 - Some Special Episode')).toBe(3);
+    // Variant with space
+    expect(parseEpisodeFromTitle('E-SP 4 - Another Special')).toBe(4);
+  });
 });
 
 // ---------------------------------------------------------------------------

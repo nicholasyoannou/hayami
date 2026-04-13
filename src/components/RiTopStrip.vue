@@ -1,7 +1,7 @@
 <template>
   <div class="flex w-full items-end gap-3 pt-4 px-0 relative" ref="rootContainer">
     <div
-      class="flex items-center gap-[8px] shrink-0 relative z-30 h-[45px]"
+      class="flex items-center gap-0 shrink-0 relative z-30 h-[45px]"
       style="display: inline-flex; flex: 0 0 auto; width: max-content;"
       ref="logoContainer"
     >
@@ -65,19 +65,17 @@
 
       <div
         v-if="currentProvider === 'reddit'"
-        class="flex items-center gap-[8px] px-[16px] h-[45px] bg-[#0f0f0f] rounded-l-none rounded-br-none rounded-tr-2xl text-[14px] font-semibold text-[#f0f0f0] transition-opacity duration-300 relative -ml-3 ri-nav-subreddit-chip"
+        class="flex items-center gap-[8px] px-[16px] h-[45px] bg-[#0a0a0a] rounded-l-none rounded-br-none rounded-tr-2xl text-[14px] font-semibold text-[#888888] transition-opacity duration-300 relative ri-nav-subreddit-chip"
         :class="{ 'opacity-0 pointer-events-none z-0': menuOpen }"
         :style="{ zIndex: menuOpen ? 0 : 'auto' }"
       >
-        <!-- Subtle divider between Reddit logo and subreddit identity -->
-        <span class="w-[1px] h-[22px] bg-[#3a3a3a] -ml-[4px] mr-[4px] flex-shrink-0"></span>
         <span
           class="flex items-center justify-center w-[28px] h-[28px] rounded-full border border-[#2f2f2f] overflow-hidden flex-shrink-0"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
         >
           <div
             v-if="props.isLoading || isAvatarHydrating"
-            class="w-full h-full shimmer-bg"
+            class="w-[28px] h-[28px] rounded-full shimmer-bg"
             aria-hidden="true"
           />
           <img
@@ -160,7 +158,7 @@
 
     <div
       v-if="showTabs && currentProvider === 'reddit'"
-      class="flex items-end min-w-0 overflow-visible transition-opacity duration-300 relative gap-[6px]"
+      class="flex items-end min-w-0 overflow-visible transition-opacity duration-300 relative gap-[8px]"
       :class="[
         showOnlyActiveTab
           ? 'flex-none w-auto bg-transparent border-b-0'
@@ -176,7 +174,7 @@
         class="ri-nav-tab ri-tab-btn relative group flex items-center gap-[10px] px-[16px] h-[42px] rounded-t-xl transition-colors duration-150 max-w-[260px] flex-shrink-0 overflow-hidden"
         :class="[
           tab.active
-            ? 'ri-nav-tab-active bg-[#323232] text-[#f5f5f5] z-[2] shadow-[0_8px_18px_rgba(0,0,0,0.42)]'
+            ? 'ri-nav-tab-active bg-[#323232] text-[#f5f5f5] z-[2]'
             : 'ri-nav-tab-inactive bg-[#1b1b1b] text-[#cfcfcf] hover:bg-[#262626] hover:text-[#f0f0f0]',
           { 'cursor-not-allowed opacity-60': isLoading && !tab.active, 'cursor-pointer': !isLoading && !tab.active, 'cursor-default': tab.active }
         ]"
