@@ -716,25 +716,15 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       const releaseYearMatch = animeInfo.releaseDate?.match(/(\d{4})/);
       const releaseYear = releaseYearMatch ? Number(releaseYearMatch[1]) : null;
 
-      for (const idx of pickOrder) {
-        const entry: any = candidates[idx];
-        if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) {
-          continue;
-        }
+      // Helper: check if an entry passes MAL, season, year, and token-overlap filters
+      const isEntryRelevant = (entry: any, idx: number): boolean => {
+        if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) return false;
         const entrySeason = extractSeasonNumber(entry?.title || entry?.anime_name || entry?.name || entry?.alt_title);
-        if (entrySeason && targetSeason && entrySeason !== targetSeason) {
-          continue;
-        }
+        if (entrySeason && targetSeason && entrySeason !== targetSeason) return false;
         if (entrySeason && !targetSeason && entrySeason > 1) {
-          // When we don't know the target season but have a release year,
-          // allow the entry if its year matches the episode's release year.
           const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
-          if (!(releaseYear && entryYear && entryYear === releaseYear)) {
-            continue;
-          }
+          if (!(releaseYear && entryYear && entryYear === releaseYear)) return false;
         }
-        // Skip entries whose anime name has no meaningful token overlap with the target.
-        // This prevents picking completely unrelated anime that happen to share an episode number.
         if (targetTokens.size > 0) {
           const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
           const entryTokens = tokenize(entryName);
@@ -742,60 +732,34 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
           for (const t of entryTokens) {
             if (targetTokens.has(t)) overlap++;
           }
-          if (overlap === 0) {
-            log.log('Skipping unrelated mapper entry by name', { idx, entryName, mapperAnimeName });
-            continue;
-          }
+          if (overlap === 0) return false;
         }
-        const url = entry?.episodes?.[epNum];
-        if (url) {
-          log.log('Using mapped episode URL', { idx, epNum, url });
-          const postData = await fetchRedditPostFromUrl(url);
-          if (postData) {
-            // Attach alternates from the matched mapper entry
-            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: Number(epNum) };
-            attachRedditAlternates(postData, directOut, url);
-            await displayDiscussionDependingOnMode(postData);
-            return true;
-          }
-        }
-      }
+        return true;
+      };
 
-      // Collapsed-part fallback: when CR merges multiple parts into one season
+      // Collapsed-part resolution: when CR merges multiple parts into one season
       // (e.g., Mushoku Tensei Part 1 = 11 eps + Part 2 = 13 eps = 24 total),
       // episode keys only go up to each part's count. Walk related entries by
-      // year to compute the offset episode in the correct part.
+      // index order to compute the offset episode in the correct part.
       const epNumInt = Number(epNum);
       if (!isNaN(epNumInt) && epNumInt > 0) {
-        // Collect related entries that share token overlap and same year
         const relatedEntries: { entry: any; idx: number; epCount: number }[] = [];
         for (const idx of pickOrder) {
           const entry: any = candidates[idx];
           if (!entry?.episodes || entry?.year === 'movies') continue;
-          const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
-          const entryTokens = tokenize(entryName);
-          let overlap = 0;
-          for (const t of entryTokens) {
-            if (targetTokens.has(t)) overlap++;
-          }
-          if (overlap === 0) continue;
-          // Filter by release year if available
+          if (!isEntryRelevant(entry, idx)) continue;
           if (releaseYear) {
             const entryYear = entry.year && entry.year !== 'movies' ? Number(entry.year) : null;
             if (entryYear && entryYear !== releaseYear) continue;
           }
           const epKeys = Object.keys(entry.episodes).filter((k: string) => /^\d+$/.test(k)).map(Number);
           if (epKeys.length === 0) continue;
-          const maxEp = Math.max(...epKeys);
-          // Avoid duplicates
           if (!relatedEntries.some((r) => r.idx === idx)) {
-            relatedEntries.push({ entry, idx, epCount: maxEp });
+            relatedEntries.push({ entry, idx, epCount: Math.max(...epKeys) });
           }
         }
 
-        // Only attempt if we have multiple parts and the episode exceeds the first entry's range
         if (relatedEntries.length > 1) {
-          // Sort by index (mapper order represents chronological order)
           relatedEntries.sort((a, b) => a.idx - b.idx);
           let cumulative = 0;
           for (const { entry, idx, epCount } of relatedEntries) {
@@ -804,7 +768,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
               const offsetEp = epNumInt - (cumulative - epCount);
               const url = entry?.episodes?.[String(offsetEp)];
               if (url) {
-                log.log('Using collapsed-part fallback', { idx, epNum, offsetEp, url });
+                log.log('Using collapsed-part mapping', { idx, epNum, offsetEp, url });
                 const postData = await fetchRedditPostFromUrl(url);
                 if (postData) {
                   const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: offsetEp };
@@ -815,6 +779,23 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
               }
               break;
             }
+          }
+        }
+      }
+
+      // Direct key lookup fallback (single-entry or non-collapsed cases)
+      for (const idx of pickOrder) {
+        const entry: any = candidates[idx];
+        if (!isEntryRelevant(entry, idx)) continue;
+        const url = entry?.episodes?.[epNum];
+        if (url) {
+          log.log('Using mapped episode URL', { idx, epNum, url });
+          const postData = await fetchRedditPostFromUrl(url);
+          if (postData) {
+            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: Number(epNum) };
+            attachRedditAlternates(postData, directOut, url);
+            await displayDiscussionDependingOnMode(postData);
+            return true;
           }
         }
       }

@@ -11,6 +11,8 @@
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "compile": "vue-tsc --noEmit",
     "postinstall": "wxt prepare"
   },
@@ -43,6 +45,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.4",
     "vue-tsc": "^3.2.2",
     "wxt": "^0.20.13"
   }

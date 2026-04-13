@@ -3542,8 +3542,8 @@
 }
 
 #ri-inline-vue-host .ri-nav-tabs {
-  background: var(--ri-surface-1, #191919) !important;
-  border-color: var(--ri-border-1, #2f2f2f) !important;
+  background: transparent !important;
+  border-color: transparent !important;
 }
 
 #ri-inline-vue-host .ri-nav-tab {

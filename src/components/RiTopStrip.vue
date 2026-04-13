@@ -183,18 +183,6 @@
         :disabled="isLoading"
         @click.stop="handleTabClick(tab)"
       >
-        <!-- Soft radial glow emanating from the top-center of the active tab,
-             tinted with the category accent. This replaces the hard inset
-             line that looked out of place directly on the tab chrome. -->
-        <span
-          v-if="tab.active"
-          aria-hidden="true"
-          class="pointer-events-none absolute inset-0 rounded-t-xl"
-          :style="{
-            backgroundImage: `radial-gradient(ellipse 120% 90% at 50% 0%, ${getCategoryAccent(tab.category)}40 0%, ${getCategoryAccent(tab.category)}14 40%, transparent 75%)`,
-            mixBlendMode: 'screen',
-          }"
-        ></span>
         <img
           v-if="tab.category === 'main' || !tab.category"
           class="w-[18px] h-[18px] object-contain flex-shrink-0 opacity-85"
