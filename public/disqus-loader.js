@@ -35,20 +35,29 @@
       return (el.getAttribute('data-ri-disqus-target') || '') === token;
     };
 
-    const host = document.getElementById('ri-inline-vue-host');
-    if (host && host.shadowRoot) {
-      const found = token
-        ? Array.from(host.shadowRoot.querySelectorAll('#disqus_thread')).find(matchesToken)
-        : host.shadowRoot.querySelector('#disqus_thread');
+    const searchShadow = (shadowRoot) => {
+      if (!shadowRoot) return null;
+      return token
+        ? Array.from(shadowRoot.querySelectorAll('#disqus_thread')).find(matchesToken) || null
+        : shadowRoot.querySelector('#disqus_thread');
+    };
+
+    // Check known Hayami hosts first:
+    //   #ri-inline-vue-host  — inline mode (no shadow, but kept for forward-compat)
+    //   <hayami-popup-shell> — popup mode, WXT createShadowRootUi
+    const knownHosts = [
+      document.getElementById('ri-inline-vue-host'),
+      document.querySelector('hayami-popup-shell'),
+    ];
+    for (const host of knownHosts) {
+      const found = searchShadow(host?.shadowRoot);
       if (found) return found;
     }
 
-    // Fallback: scan all shadow roots (shallow) to be safe
+    // Fallback: scan all open shadow roots (shallow) to be safe
     const shadowHosts = Array.from(document.querySelectorAll('*')).filter((el) => el.shadowRoot);
     for (const el of shadowHosts) {
-      const found = token
-        ? Array.from(el.shadowRoot.querySelectorAll('#disqus_thread')).find(matchesToken)
-        : el.shadowRoot.querySelector('#disqus_thread');
+      const found = searchShadow(el.shadowRoot);
       if (found) return found;
     }
     return null;
@@ -188,14 +197,29 @@
     return result;
   };
 
+  const flushProxyIntoShadow = () => {
+    if (!proxyMoveObserver || !shadowTarget || !renderTarget) return;
+    // MutationObserver.disconnect() empties the record queue, so any iframe
+    // Disqus just appended to the proxy would be dropped. Flush synchronously
+    // into the shadow target before (or instead of) disconnecting.
+    while (renderTarget.firstChild) {
+      shadowTarget.appendChild(renderTarget.firstChild);
+    }
+  };
+
   const restoreInsertMethods = () => {
     Node.prototype.appendChild = origAppendChild;
     Node.prototype.insertBefore = origInsertBefore;
-    if (proxyMoveObserver) proxyMoveObserver.disconnect();
+    // Do NOT disconnect proxyMoveObserver here — Disqus continues to append
+    // content (reply widgets, poll iframes, etc.) after the initial embed
+    // iframe, and we need those moved into the shadow target too. The
+    // observer is disconnected on the safety timeout below.
+    flushProxyIntoShadow();
     restoreCompetingThreadIds();
   };
 
-  // Safety: restore original methods after 15s even if no iframe was caught
+  // Safety: restore original methods after 15s even if no iframe was caught,
+  // and tear down the proxy observer after Disqus has had time to settle.
   setTimeout(() => {
     if (!embedFixed) {
       Node.prototype.appendChild = origAppendChild;
@@ -203,6 +227,14 @@
     }
     restoreCompetingThreadIds();
   }, 15000);
+
+  setTimeout(() => {
+    flushProxyIntoShadow();
+    if (proxyMoveObserver) {
+      proxyMoveObserver.disconnect();
+      proxyMoveObserver = null;
+    }
+  }, 30000);
 
   // Load Disqus embed script (AFTER patches are in place)
   var d = document, s = d.createElement('script');
