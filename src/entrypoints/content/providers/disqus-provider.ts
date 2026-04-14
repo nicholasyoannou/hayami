@@ -301,64 +301,6 @@ async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
 }
 
 /**
- * Shows Disqus search UI (delegates to Vue component)
- */
-type DisqusSearchResult =
-  | { status: 'embedded'; thread: any }
-  | { status: 'fallback' | 'dismissed' };
-
-async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<DisqusSearchResult> {
-  return new Promise((resolve) => {
-    let settled = false;
-
-    const cleanup = () => {
-      window.removeEventListener('ri-disqus-thread-selected', onSelect as EventListener);
-      window.removeEventListener('ri-disqus-search-cancelled', onCancel as EventListener);
-      clearTimeout(timer);
-    };
-
-    const onSelect = (ev: CustomEvent) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      const thread = ev?.detail?.thread;
-      if (thread) {
-        resolve({ status: 'embedded', thread });
-      } else {
-        resolve({ status: 'dismissed' });
-      }
-    };
-
-    const onCancel = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve({ status: 'dismissed' });
-    };
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve({ status: 'dismissed' });
-    }, 15000);
-
-    window.addEventListener('ri-disqus-thread-selected', onSelect as EventListener, { once: true });
-    window.addEventListener('ri-disqus-search-cancelled', onCancel as EventListener, { once: true });
-
-    try {
-      const event = new CustomEvent('ri-disqus-search-requested', { detail: { animeInfo } });
-      window.dispatchEvent(event);
-      log.log('Routed manual Disqus search to Vue event');
-    } catch (e) {
-      log.warn('Failed to dispatch Disqus search event', e);
-      cleanup();
-      resolve({ status: 'dismissed' });
-    }
-  });
-}
-
-/**
  * Renders a Disqus thread into the container
  */
 async function renderDisqusThread(
@@ -613,7 +555,7 @@ export class DisqusProvider extends BaseProvider {
         }
         await renderDisqusThread(thread, container, animeInfo, clearLoadingState);
       } else {
-        // No Disqus thread found, show search UI
+        // No Disqus thread found, show manual mapping picker entry point
         const fallbackContainer = await this.getContainerWithRetry(
           getExternalCommentsContainer,
           CONTAINER_RETRY_ATTEMPTS,
@@ -624,47 +566,26 @@ export class DisqusProvider extends BaseProvider {
         fallbackContainer.innerHTML = `
           <div style="padding:12px 0;color:#c9c9c9;font-size:13px;line-height:1.4;text-align:left;">
             No Disqus thread found for this episode.
-            <button id="ri-disqus-search-btn" style="margin-top:8px;display:inline-block;padding:6px 10px;background:#2f6feb;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">
-              Browse Disqus threads
+            <button id="ri-disqus-wrong-anime-btn" style="margin-top:8px;display:inline-block;padding:6px 10px;background:#2f6feb;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">
+              Wrong anime?
             </button>
           </div>
         `;
 
-        // Wire the button to trigger the Vue modal search
-        const btn = fallbackContainer.querySelector('#ri-disqus-search-btn') as HTMLButtonElement | null;
+        // Wire the button to open the manual anime-mapping picker
+        const btn = fallbackContainer.querySelector('#ri-disqus-wrong-anime-btn') as HTMLButtonElement | null;
         if (btn) {
-          btn.addEventListener('click', async () => {
-            btn.disabled = true;
-            const originalLabel = btn.textContent || 'Browse Disqus threads';
-            btn.textContent = 'Loading...';
-            try {
-              const result = await showDisqusSearchUI(animeInfo);
-              if (result.status === 'embedded' && result.thread) {
-                let selectedThread = result.thread as DisqusThread;
-
-                // Hydrate title when the picker result only contains link/slug fields.
-                if (!hasResolvedTitle(selectedThread) && selectedThread.link) {
-                  const hydrated = await findThreadByLink(animeInfo, String(selectedThread.link));
-                  if (hydrated) {
-                    selectedThread = {
-                      ...selectedThread,
-                      ...hydrated,
-                      title: String(hydrated?.title || selectedThread.title || ''),
-                      clean_title: String(hydrated?.clean_title || hydrated?.title || selectedThread.clean_title || ''),
-                    } as DisqusThread;
-                  }
-                }
-
-                discussionCache.disqus = { thread: selectedThread, animeKey: cacheKey || undefined };
-                await renderDisqusThread(selectedThread, fallbackContainer, animeInfo, clearLoadingState);
-                return;
-              }
-            } catch (e) {
-              log.warn('Manual Disqus thread selection failed', e);
-            } finally {
-              btn.disabled = false;
-              btn.textContent = originalLabel;
-            }
+          btn.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const crEpisodeNum = parseEpisodeFromTitle(animeInfo?.episodeName || '') ?? undefined;
+            window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+              detail: {
+                provider: 'disqus',
+                animeInfo,
+                crEpisodeNum,
+              },
+            }));
           });
         }
         clearLoadingState('Disqus fallback');
