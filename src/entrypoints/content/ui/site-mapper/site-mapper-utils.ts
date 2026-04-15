@@ -660,9 +660,37 @@ export function getCustomAnimeInfo(): {
     if (extracted) episodeName = extracted;
   }
   if (animeName && episodeName) {
-    return { animeName, episodeName };
+    const releaseDate = extractCustomReleaseDate(customSiteMapping, evaluateXPath);
+    return releaseDate
+      ? { animeName, episodeName, releaseDate }
+      : { animeName, episodeName };
   }
   return null;
+}
+
+/**
+ * Read the optional release-date selector/xpath/regex from a custom site
+ * mapping and return a trimmed raw date string (e.g. "Jan 9, 2026"). The
+ * string is normalized to ISO downstream by `toEpisodeDateParam` in the
+ * Hayami client, so we don't need to parse it here.
+ */
+function extractCustomReleaseDate(
+  mapping: CustomSiteMapping,
+  evaluateXPath: (xpath?: string) => Element | null,
+): string | undefined {
+  const selector = mapping.releaseDateSelector?.trim();
+  const xpath = mapping.releaseDateXPath?.trim();
+  if (!selector && !xpath) return undefined;
+  const el = selector
+    ? safeQuerySelector(selector)
+    : evaluateXPath(xpath);
+  let text = el?.textContent?.trim();
+  if (!text) return undefined;
+  if (mapping.releaseDateRegex) {
+    const extracted = applyFieldRegex(text, mapping.releaseDateRegex);
+    if (extracted) text = extracted;
+  }
+  return text || undefined;
 }
 
 /**

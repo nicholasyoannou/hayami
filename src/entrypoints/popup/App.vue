@@ -90,6 +90,7 @@ import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
 import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
 import CustomSitesSyncSettingsPanel from './CustomSitesSyncSettingsPanel.vue';
+import PublishCustomSitesPanel from './PublishCustomSitesPanel.vue';
 import CustomOverridesSettingsPanel from './CustomOverridesSettingsPanel.vue';
 import {
   loadAllManualOverrides,
@@ -143,7 +144,7 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides';
 type SettingsNavItem = {
   id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
   label: string;
@@ -1877,6 +1878,7 @@ function handleRemoveCustomSite(site: any) {
                     :on-load-custom-site-mappings="csm.loadCustomSiteMappings"
                     :on-open-custom-site-detail="openCustomSiteDetailScreen"
                     :on-open-sync-settings="() => { settingsScreen = 'custom-sites-sync'; }"
+                    :on-open-publish-settings="() => { settingsScreen = 'custom-sites-publish'; }"
                     :on-remove-custom-site="handleRemoveCustomSite"
                     :get-favicon-url="csm.getFaviconUrl"
                     :format-origin="csm.formatOrigin"
@@ -1962,6 +1964,15 @@ function handleRemoveCustomSite(site: any) {
                   :on-edit-source="editCustomSitesSyncSource"
                   :on-remove-source="removeCustomSitesSyncSource"
                   :format-history-when="formatCustomSitesSyncHistoryWhen"
+                />
+              </template>
+
+              <template v-else-if="settingsScreen === 'custom-sites-publish'">
+                <PublishCustomSitesPanel
+                  :back-icon="backIcon"
+                  :settings-icon="customSitesIcon"
+                  :is-large-layout="isLargeLayout"
+                  :on-back="() => { settingsScreen = 'custom-sites'; }"
                 />
               </template>
 

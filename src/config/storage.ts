@@ -387,6 +387,59 @@ export const customSitesSyncHistoryItem = storage.defineItem<CustomSitesSyncHist
   { fallback: [] }
 );
 
+// ── Publish Custom Sites (GitHub Gist / GitLab Snippet) ──────────────
+
+export type PublishProviderId = 'github' | 'gitlab';
+
+export type PublishAuthState = {
+  accessToken: string;
+  tokenType?: string;
+  refreshToken?: string;
+  expiresAt?: number | null;
+  username?: string | null;
+  avatarUrl?: string | null;
+  scope?: string | null;
+  // For GitHub, flags a pasted PAT (not from device flow) so we don't try to revoke via revoke endpoint
+  isPat?: boolean;
+};
+
+export const githubPublishAuthItem = storage.defineItem<PublishAuthState | null>(
+  'local:github_publish_auth',
+  { fallback: null }
+);
+
+export const gitlabPublishAuthItem = storage.defineItem<PublishAuthState | null>(
+  'local:gitlab_publish_auth',
+  { fallback: null }
+);
+
+export type PublishedSelection =
+  | { kind: 'all' }
+  | { kind: 'all-future' }
+  | { kind: 'pick'; origins: string[] };
+
+export type PublishedVisibility = 'private' | 'public';
+
+export type PublishedCollection = {
+  id: string;                         // local uuid
+  name: string;                       // user-chosen label
+  provider: PublishProviderId;
+  remoteId: string;                   // gist id / snippet id
+  rawUrl: string;                     // raw JSON URL (the thing users share)
+  htmlUrl?: string;                   // browser-visible URL (for "View on GitHub/GitLab")
+  selection: PublishedSelection;
+  visibility: PublishedVisibility;
+  createdAt: string;
+  lastPublishedAt: string | null;
+  lastHash?: string | null;           // content hash for change detection
+  lastError?: string | null;
+};
+
+export const publishedCollectionsItem = storage.defineItem<PublishedCollection[]>(
+  'local:published_collections',
+  { fallback: [] }
+);
+
 // ── MAL-Sync Integration ──────────────────────────────────────────────
 
 // ── Verbose Logging ──────────────────────────────────────────────────

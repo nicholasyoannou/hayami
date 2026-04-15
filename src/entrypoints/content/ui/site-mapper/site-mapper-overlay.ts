@@ -488,6 +488,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         <div class="raw-selector-row" data-raw-for="anchor"><span class="raw-label">Anchor CSS</span><input id="anchorSelector" type="text" placeholder="CSS selector" /></div>
         <div class="raw-selector-row"><span class="raw-label">Title regex</span><input id="titleRegex" type="text" placeholder="Title regex" /></div>
         <div class="raw-selector-row"><span class="raw-label">Episode regex</span><input id="episodeRegex" type="text" placeholder="Episode regex" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Release date CSS</span><input id="releaseDateSelector" type="text" placeholder="Optional — e.g. '.episode-aired'" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Release date regex</span><input id="releaseDateRegex" type="text" placeholder="Optional regex to strip 'Aired: '" /></div>
       </div>
 
       <div class="inline-inputs">
@@ -584,6 +586,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const episodeInput = shadow.getElementById('episodeSelector') as HTMLInputElement;
     const episodeRegexInput = shadow.getElementById('episodeRegex') as HTMLInputElement | null;
     const titleRegexInput = shadow.getElementById('titleRegex') as HTMLInputElement | null;
+    const releaseDateInput = shadow.getElementById('releaseDateSelector') as HTMLInputElement | null;
+    const releaseDateRegexInput = shadow.getElementById('releaseDateRegex') as HTMLInputElement | null;
     const titleRegexToggleBtn = shadow.getElementById('titleRegexToggle') as HTMLButtonElement | null;
     const episodeRegexToggleBtn = shadow.getElementById('episodeRegexToggle') as HTMLButtonElement | null;
     const paddingInput = shadow.getElementById('sidePadding') as HTMLInputElement | null;
@@ -630,6 +634,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       episodeInput.value = currentMapping.episodeSelector || '';
       if (episodeRegexInput) episodeRegexInput.value = currentMapping.episodeRegex || '';
       if (titleRegexInput) titleRegexInput.value = currentMapping.titleRegex || '';
+      if (releaseDateInput) releaseDateInput.value = currentMapping.releaseDateSelector || '';
+      if (releaseDateRegexInput) releaseDateRegexInput.value = currentMapping.releaseDateRegex || '';
       if (paddingInput) paddingInput.value = (currentMapping.sidePadding ?? '').toString();
       selectedIconKind = currentMapping.iconDisplayKind === 'icon' ? 'icon' : 'text';
       selectedIconAction = currentMapping.iconDisplayAction === 'replace' ? 'replace' : 'popup';
@@ -1636,11 +1642,14 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         episodeSelector: episodeInput.value.trim(),
         episodeRegex: (episodeRegexInput?.value || '').trim() || undefined,
         titleRegex: (titleRegexInput?.value || '').trim() || undefined,
+        releaseDateSelector: (releaseDateInput?.value || '').trim() || undefined,
+        releaseDateRegex: (releaseDateRegexInput?.value || '').trim() || undefined,
         sidePadding,
         anchorXPath: (anchorInput as any)._hayamiXPath || currentMapping?.anchorXPath || '',
         mountXPath: (mountInput as any)._hayamiXPath || currentMapping?.mountXPath || '',
         titleXPath: (titleInput as any)._hayamiXPath || currentMapping?.titleXPath || '',
         episodeXPath: (episodeInput as any)._hayamiXPath || currentMapping?.episodeXPath || '',
+        releaseDateXPath: currentMapping?.releaseDateXPath || '',
       };
 
       try {

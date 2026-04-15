@@ -84,7 +84,40 @@ export const MAL_SCOPES = 'read';
  */
 export const MAL_TOKEN_PROXY_URL = 'https://api.hayami.moe/mal/token';
 
+/**
+ * Publish Custom Sites — GitHub OAuth App (Device Flow)
+ *
+ * SETUP INSTRUCTIONS:
+ * 1. Go to https://github.com/settings/developers → "New OAuth App".
+ * 2. Application name: Hayami (or whatever you like).
+ *    Homepage URL: https://hayami.moe
+ *    Authorization callback URL: https://hayami.moe (unused by device flow, but required)
+ * 3. After creating the app, open its settings and tick
+ *    "Enable Device Flow". Save.
+ * 4. Copy the Client ID shown at the top and paste it below.
+ * 5. No client secret is needed — device flow doesn't use one.
+ */
+export const GITHUB_PUBLISH_CLIENT_ID = 'Ov23livVpxxhS113Q8jh';
+export const GITHUB_PUBLISH_SCOPE = 'gist';
+
+/**
+ * Publish Custom Sites — GitLab OAuth Application (Auth Code + PKCE)
+ *
+ * SETUP INSTRUCTIONS:
+ * 1. Go to https://gitlab.com/-/user_settings/applications → "Add new application".
+ * 2. Name: Hayami. Redirect URI: https://hayami.moe/pwa/link/gitlab
+ *    Tick "Confidential": OFF (public client — required for PKCE without a secret).
+ *    Scopes: api
+ * 3. Copy the Application ID and paste it below.
+ */
+export const GITLAB_PUBLISH_CLIENT_ID = 'a98056edf85a058d255e3036d3558e09de41220c66f5e739e30a12cdc6f86873';
+export const GITLAB_PUBLISH_REDIRECT_URI = 'https://hayami.moe/pwa/link/gitlab';
+export const GITLAB_PUBLISH_SCOPE = 'api';
+
 export const hostPermissions = [
+      'https://github.com/*',
+      'https://api.github.com/*',
+      'https://gitlab.com/*',
       'https://www.reddit.com/*',
       'https://api.reddit.com/*',
       'https://oauth.reddit.com/*',

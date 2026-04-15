@@ -16,6 +16,7 @@ type Props = {
   onLoadCustomSiteMappings: () => void | Promise<void>;
   onOpenCustomSiteDetail: (site: CustomSiteMapping) => void | Promise<void>;
   onOpenSyncSettings: () => void | Promise<void>;
+  onOpenPublishSettings: () => void | Promise<void>;
   onRemoveCustomSite: (site: CustomSiteMapping) => void | Promise<void>;
   getFaviconUrl: (origin: string) => string;
   formatOrigin: (origin: string) => string;
@@ -58,6 +59,18 @@ function triggerCustomMappingsImport() {
         <button
           class="shrink-0 rounded-full bg-white/[0.08] px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
           @click="props.onOpenSyncSettings()"
+        >
+          Open
+        </button>
+      </div>
+      <div class="hy-row">
+        <div class="flex-1 min-w-0">
+          <p class="text-sm text-white/85">Publish custom sites</p>
+          <p class="text-xs text-white/60">Host your mappings on GitHub or GitLab and share a link others can subscribe to.</p>
+        </div>
+        <button
+          class="shrink-0 rounded-full bg-white/[0.08] px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
+          @click="props.onOpenPublishSettings()"
         >
           Open
         </button>
