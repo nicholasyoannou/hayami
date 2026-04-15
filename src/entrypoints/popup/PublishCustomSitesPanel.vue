@@ -6,7 +6,6 @@ import type { CustomSiteMapping } from '@/entrypoints/content/ui/site-mapper/typ
 import type {
   PublishProviderId,
   PublishedSelection,
-  PublishedVisibility,
 } from '@/config/storage';
 import { usePublishedCollections } from '@/composables/usePublishedCollections';
 
@@ -164,8 +163,6 @@ const newProvider = ref<PublishProviderId>('github');
 const newName = ref('');
 const newSelectionKind = ref<'all' | 'all-future' | 'pick'>('all-future');
 const newPickedOrigins = ref<Set<string>>(new Set());
-const newVisibility = ref<PublishedVisibility>('private');
-
 function togglePick(origin: string) {
   const set = new Set(newPickedOrigins.value);
   if (set.has(origin)) set.delete(origin); else set.add(origin);
@@ -177,7 +174,16 @@ function resetNewForm() {
   newName.value = '';
   newSelectionKind.value = 'all-future';
   newPickedOrigins.value = new Set();
-  newVisibility.value = 'private';
+}
+
+// Show provider picker only when both providers are connected.
+const connectedProviderCount = computed(() => (hasGithub.value ? 1 : 0) + (hasGitlab.value ? 1 : 0));
+const showProviderPicker = computed(() => connectedProviderCount.value > 1);
+
+// Auto-select the sole connected provider whenever the form opens or auth changes.
+function syncDefaultProvider() {
+  if (!hasGithub.value && hasGitlab.value) newProvider.value = 'gitlab';
+  else if (hasGithub.value && !hasGitlab.value) newProvider.value = 'github';
 }
 
 const providerReady = computed(() => (newProvider.value === 'github' ? hasGithub.value : hasGitlab.value));
@@ -196,7 +202,7 @@ async function submitNewCollection() {
     name: newName.value,
     provider: newProvider.value,
     selection,
-    visibility: newVisibility.value,
+    visibility: 'private',
   });
   if (entry) resetNewForm();
 }
@@ -341,7 +347,7 @@ function formatWhen(iso: string | null): string {
         <button
           class="rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15"
           :disabled="!hasGithub && !hasGitlab"
-          @click="newOpen = true"
+          @click="syncDefaultProvider(); newOpen = true"
         >New collection</button>
       </div>
 
@@ -356,14 +362,14 @@ function formatWhen(iso: string | null): string {
           />
         </div>
 
-        <div class="space-y-1">
+        <div v-if="showProviderPicker" class="space-y-1">
           <label class="text-[11px] font-semibold text-white/70">Provider</label>
           <div class="flex items-center gap-2">
             <label class="flex items-center gap-1.5 text-xs text-white/80">
-              <input type="radio" value="github" v-model="newProvider" :disabled="!hasGithub" /> GitHub Gist
+              <input type="radio" value="github" v-model="newProvider" /> GitHub Gist
             </label>
             <label class="flex items-center gap-1.5 text-xs text-white/80">
-              <input type="radio" value="gitlab" v-model="newProvider" :disabled="!hasGitlab" /> GitLab Snippet
+              <input type="radio" value="gitlab" v-model="newProvider" /> GitLab Snippet
             </label>
           </div>
         </div>
@@ -400,18 +406,6 @@ function formatWhen(iso: string | null): string {
           </div>
         </div>
 
-        <div class="space-y-1">
-          <label class="text-[11px] font-semibold text-white/70">Visibility</label>
-          <div class="flex items-center gap-2 text-xs text-white/80">
-            <label class="flex items-center gap-1.5">
-              <input type="radio" value="private" v-model="newVisibility" /> Private (shareable by link)
-            </label>
-            <label class="flex items-center gap-1.5">
-              <input type="radio" value="public" v-model="newVisibility" /> Public
-            </label>
-          </div>
-        </div>
-
         <div class="flex items-center gap-2">
           <button
             class="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
@@ -441,7 +435,6 @@ function formatWhen(iso: string | null): string {
               <div class="text-[11px] text-white/55">
                 {{ entry.provider === 'github' ? 'GitHub Gist' : 'GitLab Snippet' }}
                 · {{ formatSelection(entry.selection) }}
-                · {{ entry.visibility }}
               </div>
               <div class="text-[11px] text-white/55">
                 Last published: {{ formatWhen(entry.lastPublishedAt) }}
