@@ -111,7 +111,7 @@ export async function runGitlabAuthFlow(): Promise<{ ok: true; state: PublishAut
 
   return new Promise((resolve) => {
     let settled = false;
-    const timeoutId = window.setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (settled) return;
       settled = true;
       cleanup();
@@ -143,7 +143,7 @@ export async function runGitlabAuthFlow(): Promise<{ ok: true; state: PublishAut
     };
 
     const cleanup = () => {
-      window.clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
       try { browser.tabs.onUpdated.removeListener(onUpdated); } catch { /* noop */ }
       try { browser.tabs.onRemoved.removeListener(onRemoved); } catch { /* noop */ }
     };
