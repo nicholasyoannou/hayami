@@ -1033,6 +1033,30 @@ export function useManualSearch(params: {
     wrongAnimeQuery.value = name;
     manualMappingAnimeName.value = name;
     void refreshManualMappingState();
+
+    // Populate episode options directly from the user-picked mapper entry so the
+    // selection isn't lost to a second Hayami query that may rank a different
+    // entry highest. Without this, loadEpisodeOptions re-fetches using the new
+    // anime name and can silently switch back to a different result.
+    const directOptions = getMapperEpisodeOptions(result, {
+      provider: manualEpisodeProvider.value,
+      aniwaveIsDub: manualAniwaveIsDub.value,
+    });
+    if (directOptions.length > 0) {
+      manualEpisodeError.value = null;
+      if (manualEpisodeProvider.value === 'aniwave') {
+        manualAniwaveEpisodeVariants.value = getAniwaveEpisodeVariants(result);
+      } else {
+        manualAniwaveEpisodeVariants.value = [];
+      }
+      manualEpisodeOptions.value = directOptions;
+      const crEp = manualEpisodeContext.value.crEpisodeNum;
+      const candidate = crEp ? directOptions.find((opt) => opt.episode === crEp) : null;
+      manualEpisodeSelected.value = candidate ? candidate.episode : directOptions[0]?.episode ?? null;
+      manualEpisodeLoading.value = false;
+      return;
+    }
+
     void loadEpisodeOptions();
   }
 
