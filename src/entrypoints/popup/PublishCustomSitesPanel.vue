@@ -273,7 +273,7 @@ function formatWhen(iso: string | null): string {
           <p v-if="githubAuth?.username" class="text-xs text-emerald-200/80">
             Signed in as {{ githubAuth.username }}{{ githubAuth.isPat ? ' (PAT)' : '' }}
           </p>
-          <p v-else class="text-xs text-white/60">Sign in to host via Gist.</p>
+          <p v-else class="text-xs text-white/60">Sign in to host via GitHub Gist.</p>
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
           <button
@@ -323,7 +323,7 @@ function formatWhen(iso: string | null): string {
           <p v-if="gitlabAuth?.username" class="text-xs text-emerald-200/80">
             Signed in as {{ gitlabAuth.username }}
           </p>
-          <p v-else class="text-xs text-white/60">Sign in to host via Snippet.</p>
+          <p v-else class="text-xs text-white/60">Sign in to host via GitLab Snippet.</p>
         </div>
         <div class="flex shrink-0 items-center gap-1.5">
           <button
