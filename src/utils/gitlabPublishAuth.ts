@@ -97,14 +97,27 @@ export async function buildGitlabAuthorizeUrl(): Promise<{ ok: true; url: string
  *
  * Resolves when the user completes authorization or 5 minutes pass.
  */
-export async function runGitlabAuthFlow(): Promise<{ ok: true; state: PublishAuthState } | { ok: false; error: string }> {
+export async function runGitlabAuthFlow(
+  opts: { openAs?: 'tab' | 'popup' } = {},
+): Promise<{ ok: true; state: PublishAuthState } | { ok: false; error: string }> {
   const prep = await buildGitlabAuthorizeUrl();
   if (!prep.ok) return { ok: false, error: prep.error };
 
-  const tab = await browser.tabs.create({ url: prep.url, active: true });
-  const watchTabId = tab?.id;
+  let watchTabId: number | undefined;
+  if (opts.openAs === 'popup' && browser.windows?.create) {
+    const win = await browser.windows.create({
+      url: prep.url,
+      type: 'popup',
+      width: 520,
+      height: 760,
+    });
+    watchTabId = win?.tabs?.[0]?.id;
+  } else {
+    const tab = await browser.tabs.create({ url: prep.url, active: true });
+    watchTabId = tab?.id;
+  }
   if (typeof watchTabId !== 'number') {
-    return { ok: false, error: 'Failed to open authorization tab.' };
+    return { ok: false, error: 'Failed to open authorization window.' };
   }
 
   const redirectPrefix = GITLAB_PUBLISH_REDIRECT_URI.replace(/\/+$/, '');
@@ -249,6 +262,29 @@ async function fetchUser(token: string): Promise<{ username: string; avatar_url:
   if (!resp.ok) return null;
   const data = await resp.json();
   return { username: data.username, avatar_url: data.avatar_url };
+}
+
+/**
+ * Stores a user-pasted Personal Access Token. Validates by calling /user.
+ * The token must have `api` scope (GitLab does not offer a narrower
+ * snippet-write scope at this time).
+ */
+export async function setGitlabPat(token: string): Promise<{ ok: true; state: PublishAuthState } | { ok: false; error: string }> {
+  const cleaned = (token || '').trim();
+  if (!cleaned) return { ok: false, error: 'Token is empty.' };
+  const profile = await fetchUser(cleaned).catch(() => null);
+  if (!profile) return { ok: false, error: 'Could not verify token — is it valid and does it have api scope?' };
+  const state: PublishAuthState = {
+    accessToken: cleaned,
+    tokenType: 'Bearer',
+    scope: GITLAB_PUBLISH_SCOPE,
+    username: profile.username,
+    avatarUrl: profile.avatar_url,
+    expiresAt: null,
+    isPat: true,
+  };
+  await gitlabPublishAuthItem.setValue(state);
+  return { ok: true, state };
 }
 
 export async function getGitlabAuth(): Promise<PublishAuthState | null> {

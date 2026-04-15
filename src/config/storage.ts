@@ -175,18 +175,18 @@ export const redditDefaultSortItem = storage.defineItem<RedditSortOption>(
   { fallback: 'confidence' }
 );
 
+// Site mapper "Advanced" disclosure: when on, the overlay reveals advanced
+// fields (currently the Release date row inside the <details> section).
+export const siteMapperAdvancedModeItem = storage.defineItem<boolean>(
+  'local:site_mapper_advanced_mode',
+  { fallback: false }
+);
+
 // Site mapper custom mappings per origin
 // Kept in local storage because mappings can exceed browser.storage.sync's 8KB per-item limit.
 export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
   'local:custom_site_mappings',
   { fallback: {} }
-);
-
-// Advanced mode for the "Map site with Hayami" overlay.
-// When enabled, shows the raw CSS selectors and extracted text preview strings.
-export const siteMapperAdvancedModeItem = storage.defineItem<boolean>(
-  'sync:site_mapper_advanced_mode',
-  { fallback: false }
 );
 
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title

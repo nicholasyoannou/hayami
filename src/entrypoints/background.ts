@@ -30,6 +30,7 @@ import {
   buildGitlabAuthorizeUrl,
   completeGitlabRedirectCallback,
   runGitlabAuthFlow,
+  setGitlabPat,
   getGitlabAuth,
   logoutGitlab,
 } from '@/utils/gitlabPublishAuth';
@@ -960,7 +961,11 @@ export default defineBackground(() => {
       return true;
     }
     if (message.action === 'hayami_publish_gitlab_runAuthFlow') {
-      (async () => sendResponse(await runGitlabAuthFlow()))();
+      (async () => sendResponse(await runGitlabAuthFlow({ openAs: message.openAs })))();
+      return true;
+    }
+    if (message.action === 'hayami_publish_gitlab_setPat') {
+      (async () => sendResponse(await setGitlabPat(message.token || '')))();
       return true;
     }
     if (message.action === 'hayami_publish_gitlab_completeCallback') {

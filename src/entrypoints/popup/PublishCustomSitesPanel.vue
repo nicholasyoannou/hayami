@@ -65,6 +65,14 @@ async function send<T = any>(message: any): Promise<T> {
   return browser.runtime.sendMessage(message) as Promise<T>;
 }
 
+async function openExternalUrl(url: string) {
+  if (!props.isLargeLayout && browser?.windows?.create) {
+    await browser.windows.create({ url, type: 'popup', width: 520, height: 760 });
+  } else {
+    await browser.tabs.create({ url, active: true });
+  }
+}
+
 async function startGithubSignIn() {
   const result = await send<any>({ action: 'hayami_publish_github_startDeviceFlow' });
   if (!result?.ok) {
@@ -120,19 +128,27 @@ function cancelGithubDevice() {
   ghDeviceModal.value = null;
 }
 
-// ── GitHub PAT fallback ──────────────────────────────────────────────
-const patEntryOpen = ref(false);
+// ── PAT fallback (both providers) ────────────────────────────────────
+const patEntryOpen = ref<PublishProviderId | null>(null);
 const patInput = ref('');
 const patSaving = ref(false);
+function togglePatEntry(provider: PublishProviderId) {
+  patEntryOpen.value = patEntryOpen.value === provider ? null : provider;
+  patInput.value = '';
+}
 async function submitPat() {
+  const provider = patEntryOpen.value;
+  if (!provider) return;
   patSaving.value = true;
   try {
-    const result = await send<any>({ action: 'hayami_publish_github_setPat', token: patInput.value });
+    const action = provider === 'github' ? 'hayami_publish_github_setPat' : 'hayami_publish_gitlab_setPat';
+    const result = await send<any>({ action, token: patInput.value });
     if (!result?.ok) { showError(result?.error || 'Invalid token'); return; }
     patInput.value = '';
-    patEntryOpen.value = false;
+    patEntryOpen.value = null;
     await loadAuth();
-    showSuccess(`Signed in as ${result.state?.username || 'GitHub user'}`);
+    const label = provider === 'github' ? 'GitHub' : 'GitLab';
+    showSuccess(`Signed in as ${result.state?.username || `${label} user`}`);
   } finally {
     patSaving.value = false;
   }
@@ -145,7 +161,10 @@ async function startGitlabSignIn() {
   gitlabSigningIn.value = true;
   try {
     showSuccess('Complete the sign-in in the opened tab…');
-    const result = await send<any>({ action: 'hayami_publish_gitlab_runAuthFlow' });
+    const result = await send<any>({
+      action: 'hayami_publish_gitlab_runAuthFlow',
+      openAs: props.isLargeLayout ? 'tab' : 'popup',
+    });
     if (!result?.ok) {
       showError(result?.error || 'GitLab sign-in failed');
       return;
@@ -284,7 +303,7 @@ function formatWhen(iso: string | null): string {
           <button
             v-if="!hasGithub"
             class="rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15"
-            @click="patEntryOpen = !patEntryOpen"
+            @click="togglePatEntry('github')"
           >Use token</button>
           <button
             v-if="hasGithub"
@@ -293,7 +312,7 @@ function formatWhen(iso: string | null): string {
           >Sign out</button>
         </div>
       </div>
-      <div v-if="patEntryOpen && !hasGithub" class="border-b border-white/[0.06] px-4 py-3 space-y-2">
+      <div v-if="patEntryOpen === 'github' && !hasGithub" class="border-b border-white/[0.06] px-4 py-3 space-y-2">
         <p class="text-[11px] text-white/60">
           Paste a fine-grained personal access token with Gist: Read and write permission.
         </p>
@@ -311,7 +330,7 @@ function formatWhen(iso: string | null): string {
           >{{ patSaving ? 'Verifying...' : 'Save token' }}</button>
           <button
             class="rounded-full bg-white/[0.08] px-3 py-1 text-xs font-semibold text-white hover:bg-white/15"
-            @click="patEntryOpen = false; patInput = ''"
+            @click="patEntryOpen = null; patInput = ''"
           >Cancel</button>
         </div>
       </div>
@@ -332,10 +351,39 @@ function formatWhen(iso: string | null): string {
             @click="startGitlabSignIn"
           >Sign in</button>
           <button
+            v-if="!hasGitlab"
+            class="rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15"
+            @click="togglePatEntry('gitlab')"
+          >Use token</button>
+          <button
             v-if="hasGitlab"
             class="rounded-full bg-rose-500/15 px-2.5 py-1 text-[11px] font-semibold text-rose-200 hover:bg-rose-500/25"
             @click="logoutProvider('gitlab')"
           >Sign out</button>
+        </div>
+      </div>
+      <div v-if="patEntryOpen === 'gitlab' && !hasGitlab" class="border-b border-white/[0.06] px-4 py-3 space-y-2">
+        <p class="text-[11px] text-white/60">
+          Paste a GitLab personal access token with
+          <span class="text-white/85">api</span> scope.
+          GitLab does not offer a narrower scope for snippets.
+        </p>
+        <input
+          v-model="patInput"
+          type="password"
+          placeholder="glpat-..."
+          class="w-full rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/40"
+        />
+        <div class="flex items-center gap-2">
+          <button
+            class="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
+            :disabled="patSaving"
+            @click="submitPat"
+          >{{ patSaving ? 'Verifying...' : 'Save token' }}</button>
+          <button
+            class="rounded-full bg-white/[0.08] px-3 py-1 text-xs font-semibold text-white hover:bg-white/15"
+            @click="patEntryOpen = null; patInput = ''"
+          >Cancel</button>
         </div>
       </div>
     </div>
@@ -473,13 +521,11 @@ function formatWhen(iso: string | null): string {
             <p class="text-[10px] text-white/50">
               Paste this in Custom Sites Sync → Add Source on another device to subscribe.
             </p>
-            <a
+            <button
               v-if="entry.htmlUrl"
-              :href="entry.htmlUrl"
-              target="_blank"
-              rel="noopener"
               class="inline-block text-[10px] text-white/60 underline hover:text-white"
-            >View on {{ entry.provider === 'github' ? 'GitHub' : 'GitLab' }}</a>
+              @click="openExternalUrl(entry.htmlUrl!)"
+            >View on {{ entry.provider === 'github' ? 'GitHub' : 'GitLab' }}</button>
           </div>
         </div>
       </div>
@@ -500,12 +546,10 @@ function formatWhen(iso: string | null): string {
       <div class="mb-3 select-all rounded-lg bg-white/[0.08] px-3 py-2 text-center font-mono text-lg tracking-widest">
         {{ ghDeviceModal.userCode }}
       </div>
-      <a
-        :href="ghDeviceModal.verificationUri"
-        target="_blank"
-        rel="noopener"
-        class="mb-3 block truncate rounded-lg bg-emerald-500/20 px-3 py-2 text-center text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
-      >Open {{ ghDeviceModal.verificationUri }}</a>
+      <button
+        class="mb-3 block w-full truncate rounded-lg bg-emerald-500/20 px-3 py-2 text-center text-xs font-semibold text-emerald-100 hover:bg-emerald-500/30"
+        @click="openExternalUrl(ghDeviceModal.verificationUri)"
+      >Open {{ ghDeviceModal.verificationUri }}</button>
       <p v-if="ghDeviceModal.status === 'pending'" class="text-[11px] text-white/60">
         Waiting for you to authorize…
       </p>

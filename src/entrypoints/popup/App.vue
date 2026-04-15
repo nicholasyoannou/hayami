@@ -58,7 +58,6 @@ import {
   redditAutoExpandAllItem,
   providerBadgesEnabledItem,
   linkOnlyModeItem,
-  siteMapperAdvancedModeItem,
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
@@ -67,6 +66,7 @@ import {
   malWrongAnimeTitleFormatItem,
   anilistWrongAnimeTitleFormatItem,
   verboseLoggingItem,
+  siteMapperAdvancedModeItem,
   MANUAL_OVERRIDES_RECENT_LIMIT,
   type ImgurFrontendOption,
   type ImgurOdsOption,
@@ -136,11 +136,11 @@ type SettingValueMap = {
   aniwaveAutoExpandAll: boolean;
   aniwaveAutoExpandDepth: number;
   aniwaveHideReplyContext: boolean;
-  siteMapperAdvancedMode: boolean;
   malSyncEnabled: boolean;
   malWrongAnimeTitleFormat: WrongAnimeTitleFormatOption;
   anilistWrongAnimeTitleFormat: WrongAnimeTitleFormatOption;
   verboseLogging: boolean;
+  siteMapperAdvancedMode: boolean;
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
@@ -246,18 +246,6 @@ const settingDefinitions: SettingDefinition[] = [
     save: (value) => providerBadgesEnabledItem.setValue(value),
     successMessage: (value) => (value ? 'Provider badges enabled' : 'Provider badges disabled'),
     errorMessage: 'Failed to save provider badges setting',
-  },
-  {
-    key: 'siteMapperAdvancedMode',
-    type: 'toggle',
-    category: 'general',
-    label: 'Show advanced site mapper details',
-    description: 'Reveal the raw CSS selectors and extracted text in the "Map site with Hayami" overlay. Leave off for a cleaner, simpler interface.',
-    fallback: false,
-    load: () => siteMapperAdvancedModeItem.getValue(),
-    save: (value) => siteMapperAdvancedModeItem.setValue(Boolean(value)),
-    successMessage: (value) => (value ? 'Advanced site mapper details enabled' : 'Advanced site mapper details hidden'),
-    errorMessage: 'Failed to save site mapper preference',
   },
   {
     key: 'commentTextSizeIncrease',
@@ -808,6 +796,18 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save AniList wrong anime title format',
   },
   {
+    key: 'siteMapperAdvancedMode',
+    type: 'toggle',
+    category: 'general',
+    label: 'Show advanced site mapper details',
+    description: 'Reveal advanced fields in the custom-site mapper overlay (e.g. release-date selector for better multi-season matching).',
+    fallback: false,
+    load: async () => Boolean(await siteMapperAdvancedModeItem.getValue()),
+    save: (value) => siteMapperAdvancedModeItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Advanced site mapper details enabled' : 'Advanced site mapper details disabled'),
+    errorMessage: 'Failed to update advanced site mapper details',
+  },
+  {
     key: 'verboseLogging',
     type: 'toggle',
     category: 'general',
@@ -911,11 +911,11 @@ const settingValues = reactive<SettingValueMap>({
   aniwaveAutoExpandAll: true,
   aniwaveAutoExpandDepth: 3,
   aniwaveHideReplyContext: false,
-  siteMapperAdvancedMode: false,
   malSyncEnabled: false,
   malWrongAnimeTitleFormat: 'romaji',
   anilistWrongAnimeTitleFormat: 'romaji',
   verboseLogging: false,
+  siteMapperAdvancedMode: false,
 });
 
 const imagePreviewsEnabled = computed(() => Boolean(settingValues.embedImages));

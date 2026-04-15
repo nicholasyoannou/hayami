@@ -104,6 +104,15 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     overlay.attachShadow({ mode: 'open' });
     const shadow = overlay.shadowRoot!;
 
+    // Apply the popup's "Show advanced site mapper details" preference; CSS
+    // (`:host(.advanced-mode) .advanced-section`) reveals the Advanced disclosure.
+    void (async () => {
+      try {
+        const enabled = await siteMapperAdvancedModeItem.getValue();
+        overlay.classList.toggle('advanced-mode', Boolean(enabled));
+      } catch {}
+    })();
+
     const style = document.createElement('style');
     style.textContent = `
       :host, .overlay { position: fixed; inset: 0; z-index: 2147483000; display: flex; align-items: center; justify-content: center; }
@@ -330,28 +339,50 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
       .regex-popover .popover-actions .hint { margin-left: auto; }
       .regex-popover .pick-btn { padding: 3px 8px; min-width: 0; }
-      .raw-selector-row {
-        display: none;
+      /* Raw inputs are kept in the DOM for the picker/regex machinery to write
+         into, but are never shown to the user. */
+      .raw-selector-row { display: none; }
+
+      .advanced-section {
         grid-column: 1 / -1;
+        margin-top: 4px;
+        border-top: 1px solid rgba(255,255,255,0.08);
+        padding-top: 8px;
+      }
+      /* Hidden by default; the popup's "Show advanced site mapper details"
+         toggle adds .advanced-mode to #hayami-site-mapper-overlay to reveal. */
+      .advanced-section { display: none; }
+      :host(.advanced-mode) .advanced-section { display: block; }
+      .advanced-section > summary {
+        cursor: pointer;
+        list-style: none;
+        display: flex;
         align-items: center;
         gap: 6px;
-        margin-top: -2px;
+        font-size: 11px;
+        font-weight: 600;
+        color: rgba(255,255,255,0.72);
+        user-select: none;
+        padding: 2px 0;
       }
-      .raw-selector-row .raw-label {
-        font-size: 10px;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: rgba(255,255,255,0.4);
-        min-width: 58px;
+      .advanced-section > summary::-webkit-details-marker { display: none; }
+      .advanced-section > summary::before {
+        content: '';
+        display: inline-block;
+        width: 0;
+        height: 0;
+        border-left: 5px solid rgba(255,255,255,0.6);
+        border-top: 4px solid transparent;
+        border-bottom: 4px solid transparent;
+        transition: transform 120ms ease;
       }
-      .advanced-mode .raw-selector-row { display: flex; }
-      .raw-selector-row.is-open { display: flex; }
-      .raw-selector-row input {
-        flex: 1;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      .advanced-section[open] > summary::before { transform: rotate(90deg); }
+      .advanced-section > summary:hover { color: rgba(255,255,255,0.92); }
+      .advanced-section .advanced-hint {
         font-size: 10px;
-        padding: 5px 8px;
-        border-radius: 6px;
+        color: rgba(255,255,255,0.45);
+        margin: 6px 0 8px 14px;
+        line-height: 1.4;
       }
       .inline-inputs {
         display: grid;
@@ -473,23 +504,44 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
           <button class="pick-btn" data-target="mount" data-pick-kind="mount">Pick</button>
           <span class="row-label" id="mountLabelText">Mount selector</span>
           ${tip('Parent container Hayami will mount its comments inside. If left blank, Display target is used.', 'mountInfoTip')}
-          <button class="icon-btn" id="mountRawToggle" type="button" aria-label="Edit raw mount selector" data-hayami-tip="Edit the raw CSS selector manually">${pencilIconSvg}</button>
         </div>
         <div class="mapper-row" data-field="anchor">
           <button class="pick-btn" data-target="anchor" data-pick-kind="anchor">Pick</button>
           <span class="row-label" id="anchorLabelText">Display target</span>
           ${tip("The site's existing comments element. Hayami will append inside it, replace it, or hide it depending on the display mode.", 'anchorInfoTip')}
-          <button class="icon-btn" id="anchorRawToggle" type="button" aria-label="Edit raw anchor selector" data-hayami-tip="Edit the raw CSS selector manually">${pencilIconSvg}</button>
         </div>
 
-        <div class="raw-selector-row"><span class="raw-label">Title CSS</span><input id="titleSelector" type="text" placeholder="CSS selector" /></div>
-        <div class="raw-selector-row"><span class="raw-label">Episode CSS</span><input id="episodeSelector" type="text" placeholder="CSS selector" /></div>
-        <div class="raw-selector-row" data-raw-for="mount"><span class="raw-label">Mount CSS</span><input id="mountSelector" type="text" placeholder="CSS selector" /></div>
-        <div class="raw-selector-row" data-raw-for="anchor"><span class="raw-label">Anchor CSS</span><input id="anchorSelector" type="text" placeholder="CSS selector" /></div>
-        <div class="raw-selector-row"><span class="raw-label">Title regex</span><input id="titleRegex" type="text" placeholder="Title regex" /></div>
-        <div class="raw-selector-row"><span class="raw-label">Episode regex</span><input id="episodeRegex" type="text" placeholder="Episode regex" /></div>
-        <div class="raw-selector-row"><span class="raw-label">Release date CSS</span><input id="releaseDateSelector" type="text" placeholder="Optional — e.g. '.episode-aired'" /></div>
-        <div class="raw-selector-row"><span class="raw-label">Release date regex</span><input id="releaseDateRegex" type="text" placeholder="Optional regex to strip 'Aired: '" /></div>
+        <details class="advanced-section" id="advancedSection">
+          <summary>Advanced</summary>
+          <div class="advanced-hint">Point at an element showing when the episode aired (e.g. "Aired: Jan 9, 2026"). Helps pick the right discussion for multi-season shows.</div>
+          <div class="mapper-row" data-field="releaseDate">
+            <button class="pick-btn" data-target="releaseDate" data-pick-kind="releaseDate">Pick</button>
+            <span class="row-label">Release date</span>
+            ${tip('Optional. The element that shows when the current episode aired.')}
+            <span class="row-value" data-preview-value="releaseDate" data-tip-overflow tabindex="0">Not picked</span>
+            <button class="icon-btn" id="releaseDateRegexToggle" type="button" aria-label="Build release-date extractor" data-hayami-tip="Build a regex to extract just the date">${pencilIconSvg}</button>
+          </div>
+          <div class="regex-popover" data-regex-popover="releaseDate">
+            <div class="hint">Highlight just the <b>date</b> portion below, then Apply.</div>
+            <div class="source-text" data-regex-source="releaseDate"></div>
+            <div class="popover-actions">
+              <button class="pick-btn" data-regex-apply="releaseDate" type="button">Apply</button>
+              <button class="icon-btn" data-regex-clear="releaseDate" type="button" aria-label="Clear" title="Clear">✕</button>
+              <span class="hint" data-regex-preview="releaseDate"></span>
+            </div>
+          </div>
+        </details>
+
+        <!-- Hidden raw inputs: written to by the picker/regex-popover machinery
+             and read by save/extraction code. Never shown to the user. -->
+        <div class="raw-selector-row"><input id="titleSelector" type="text" /></div>
+        <div class="raw-selector-row"><input id="episodeSelector" type="text" /></div>
+        <div class="raw-selector-row"><input id="mountSelector" type="text" /></div>
+        <div class="raw-selector-row"><input id="anchorSelector" type="text" /></div>
+        <div class="raw-selector-row"><input id="titleRegex" type="text" /></div>
+        <div class="raw-selector-row"><input id="episodeRegex" type="text" /></div>
+        <div class="raw-selector-row"><input id="releaseDateSelector" type="text" /></div>
+        <div class="raw-selector-row"><input id="releaseDateRegex" type="text" /></div>
       </div>
 
       <div class="inline-inputs">
@@ -590,6 +642,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const releaseDateRegexInput = shadow.getElementById('releaseDateRegex') as HTMLInputElement | null;
     const titleRegexToggleBtn = shadow.getElementById('titleRegexToggle') as HTMLButtonElement | null;
     const episodeRegexToggleBtn = shadow.getElementById('episodeRegexToggle') as HTMLButtonElement | null;
+    const releaseDateRegexToggleBtn = shadow.getElementById('releaseDateRegexToggle') as HTMLButtonElement | null;
     const paddingInput = shadow.getElementById('sidePadding') as HTMLInputElement | null;
     const placementTabs = shadow.getElementById('placementTabs') as HTMLElement | null;
     const iconKindTabs = shadow.getElementById('iconKindTabs') as HTMLElement | null;
@@ -600,8 +653,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     const anchorLabelText = shadow.getElementById('anchorLabelText') as HTMLElement | null;
     const previewTitleValue = shadow.querySelector('[data-preview-value="title"]') as HTMLElement | null;
     const previewEpisodeValue = shadow.querySelector('[data-preview-value="episode"]') as HTMLElement | null;
+    const previewReleaseDateValue = shadow.querySelector('[data-preview-value="releaseDate"]') as HTMLElement | null;
     const previewTitleRow = shadow.querySelector('.mapper-row[data-field="title"]') as HTMLElement | null;
     const previewEpisodeRow = shadow.querySelector('.mapper-row[data-field="episode"]') as HTMLElement | null;
+    const previewReleaseDateRow = shadow.querySelector('.mapper-row[data-field="releaseDate"]') as HTMLElement | null;
     const iconKindRowEl = shadow.querySelector('[data-field="iconKindRow"]') as HTMLElement | null;
 
     const fieldGroups: Record<string, HTMLElement | null> = {
@@ -614,14 +669,6 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       iconText: shadow.querySelector('.mini-field[data-field="iconText"]') as HTMLElement | null,
       padding: shadow.querySelector('.mini-field[data-field="padding"]') as HTMLElement | null,
     };
-
-    // Apply advanced-mode CSS class if user has opted in (reveals raw selectors / regex inputs).
-    void (async () => {
-      try {
-        const advanced = Boolean(await siteMapperAdvancedModeItem.getValue());
-        if (advanced) panel.classList.add('advanced-mode');
-      } catch {}
-    })();
 
     let selectedIconKind: IconDisplayKind = 'text';
     let selectedIconAction: IconDisplayAction = 'popup';
@@ -646,6 +693,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       (anchorInput as any)._hayamiXPath = currentMapping.anchorXPath || '';
       (titleInput as any)._hayamiXPath = currentMapping.titleXPath || '';
       (episodeInput as any)._hayamiXPath = currentMapping.episodeXPath || '';
+      if (releaseDateInput) (releaseDateInput as any)._hayamiXPath = currentMapping.releaseDateXPath || '';
     }
 
     const inputs: Record<string, HTMLInputElement> = {
@@ -653,6 +701,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       anchor: anchorInput,
       title: titleInput,
       episode: episodeInput,
+      ...(releaseDateInput ? { releaseDate: releaseDateInput } : {}),
     };
 
     let pickIndicator: HTMLElement | null = null;
@@ -948,7 +997,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
     };
 
-    const updateStatusPill = (field: 'mount' | 'anchor' | 'title' | 'episode') => {
+    const updateStatusPill = (field: 'mount' | 'anchor' | 'title' | 'episode' | 'releaseDate') => {
       const input = inputsByField(field);
       const value = (input?.value || '').trim();
       const row = shadow.querySelector(`.mapper-row[data-field="${field}"]`) as HTMLElement | null;
@@ -966,6 +1015,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       if (field === 'anchor') return anchorInput;
       if (field === 'title') return titleInput;
       if (field === 'episode') return episodeInput;
+      if (field === 'releaseDate') return releaseDateInput;
       return null;
     };
 
@@ -995,11 +1045,25 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         }
       }
 
+      let finalReleaseDate: string | null = null;
+      if (releaseDateInput?.value) {
+        const rawDate = getRawTextFromSelector(releaseDateInput.value);
+        if (rawDate) {
+          const compact = sanitizePreviewText(rawDate, 160);
+          if (releaseDateRegexInput?.value.trim()) {
+            finalReleaseDate = applyUserRegex(compact, releaseDateRegexInput.value) || compact;
+          } else {
+            finalReleaseDate = compact;
+          }
+        }
+      }
+
       setPreviewRow(previewTitleRow, previewTitleValue, finalTitle);
       setPreviewRow(previewEpisodeRow, previewEpisodeValue, finalEpisode);
+      setPreviewRow(previewReleaseDateRow, previewReleaseDateValue, finalReleaseDate);
 
-      ['mount', 'anchor', 'title', 'episode'].forEach((f) =>
-        updateStatusPill(f as 'mount' | 'anchor' | 'title' | 'episode')
+      (['mount', 'anchor', 'title', 'episode', 'releaseDate'] as const).forEach((f) =>
+        updateStatusPill(f)
       );
     };
 
@@ -1050,39 +1114,42 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       return `${startAnchor}${prefix}(.+?)${suffix}${endAnchor}`;
     };
 
-    const getSourceTextForField = (field: 'title' | 'episode'): string => {
-      const input = field === 'title' ? titleInput : episodeInput;
+    const getSourceTextForField = (field: 'title' | 'episode' | 'releaseDate'): string => {
+      const input = field === 'title' ? titleInput : field === 'episode' ? episodeInput : releaseDateInput;
+      if (!input) return '';
       const el = safeQuerySelector(input.value);
       if (!el) return '';
       const text = ((el as HTMLElement).innerText || el.textContent || '').trim();
       return sanitizePreviewText(text, 500);
     };
 
-    const getPopoverEls = (field: 'title' | 'episode') => ({
+    const getPopoverEls = (field: 'title' | 'episode' | 'releaseDate') => ({
       popover: shadow.querySelector(`.regex-popover[data-regex-popover="${field}"]`) as HTMLElement | null,
       sourceEl: shadow.querySelector(`[data-regex-source="${field}"]`) as HTMLElement | null,
       previewEl: shadow.querySelector(`[data-regex-preview="${field}"]`) as HTMLElement | null,
-      toggleBtn: field === 'title' ? titleRegexToggleBtn : episodeRegexToggleBtn,
-      regexInput: field === 'title' ? titleRegexInput : episodeRegexInput,
+      toggleBtn: field === 'title' ? titleRegexToggleBtn : field === 'episode' ? episodeRegexToggleBtn : releaseDateRegexToggleBtn,
+      regexInput: field === 'title' ? titleRegexInput : field === 'episode' ? episodeRegexInput : releaseDateRegexInput,
     });
 
-    const closeRegexPopover = (field: 'title' | 'episode') => {
+    const closeRegexPopover = (field: 'title' | 'episode' | 'releaseDate') => {
       const { popover, previewEl, toggleBtn } = getPopoverEls(field);
       popover?.classList.remove('is-open');
       if (previewEl) previewEl.textContent = '';
       toggleBtn?.classList.remove('is-active');
     };
 
-    const openRegexPopover = (field: 'title' | 'episode') => {
+    const openRegexPopover = (field: 'title' | 'episode' | 'releaseDate') => {
       const { popover, sourceEl, previewEl, toggleBtn } = getPopoverEls(field);
       if (!popover || !sourceEl) return;
 
-      // Close the other popover if open.
-      closeRegexPopover(field === 'title' ? 'episode' : 'title');
+      // Close any other popovers if open.
+      (['title', 'episode', 'releaseDate'] as const).forEach((other) => {
+        if (other !== field) closeRegexPopover(other);
+      });
 
       const source = getSourceTextForField(field);
       if (!source) {
-        toast.error(`Pick the ${field} element first`);
+        toast.error(`Pick the ${field === 'releaseDate' ? 'release date' : field} element first`);
         return;
       }
       sourceEl.textContent = source;
@@ -1091,11 +1158,13 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       if (previewEl) {
         previewEl.textContent = field === 'episode'
           ? 'Highlight the episode number, then Apply.'
+          : field === 'releaseDate'
+          ? 'Highlight the date portion, then Apply.'
           : 'Highlight the title portion, then Apply.';
       }
     };
 
-    const applyRegexFromPopover = (field: 'title' | 'episode') => {
+    const applyRegexFromPopover = (field: 'title' | 'episode' | 'releaseDate') => {
       const { sourceEl, previewEl, regexInput } = getPopoverEls(field);
       if (!sourceEl || !regexInput) return;
       const fullText = sourceEl.textContent || '';
@@ -1136,7 +1205,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
           toast.success('Episode extractor set');
           return;
         }
-        toast.error('Highlight the title first');
+        toast.error(field === 'releaseDate' ? 'Highlight the date first' : 'Highlight the title first');
         return;
       }
 
@@ -1159,7 +1228,13 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       } catch {}
       closeRegexPopover(field);
       runExtractionPreview();
-      toast.success(field === 'episode' ? 'Episode extractor built' : 'Title extractor built');
+      toast.success(
+        field === 'episode'
+          ? 'Episode extractor built'
+          : field === 'releaseDate'
+          ? 'Release date extractor built'
+          : 'Title extractor built'
+      );
     };
 
     titleRegexToggleBtn?.addEventListener('click', (ev) => {
@@ -1172,29 +1247,13 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
     });
 
-    const mountRawToggleBtn = shadow.getElementById('mountRawToggle') as HTMLButtonElement | null;
-    mountRawToggleBtn?.addEventListener('click', (ev) => {
+    releaseDateRegexToggleBtn?.addEventListener('click', (ev) => {
       ev.preventDefault();
-      const rawRow = shadow.querySelector('.raw-selector-row[data-raw-for="mount"]') as HTMLElement | null;
-      if (!rawRow) return;
-      const isOpen = rawRow.classList.toggle('is-open');
-      mountRawToggleBtn.classList.toggle('is-active', isOpen);
-      if (isOpen) {
-        const input = rawRow.querySelector('input') as HTMLInputElement | null;
-        input?.focus();
-      }
-    });
-
-    const anchorRawToggleBtn = shadow.getElementById('anchorRawToggle') as HTMLButtonElement | null;
-    anchorRawToggleBtn?.addEventListener('click', (ev) => {
-      ev.preventDefault();
-      const rawRow = shadow.querySelector('.raw-selector-row[data-raw-for="anchor"]') as HTMLElement | null;
-      if (!rawRow) return;
-      const isOpen = rawRow.classList.toggle('is-open');
-      anchorRawToggleBtn.classList.toggle('is-active', isOpen);
-      if (isOpen) {
-        const input = rawRow.querySelector('input') as HTMLInputElement | null;
-        input?.focus();
+      const popover = shadow.querySelector('.regex-popover[data-regex-popover="releaseDate"]') as HTMLElement | null;
+      if (popover?.classList.contains('is-open')) {
+        closeRegexPopover('releaseDate');
+      } else {
+        openRegexPopover('releaseDate');
       }
     });
 
@@ -1211,7 +1270,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     shadow.querySelectorAll<HTMLButtonElement>('[data-regex-apply]').forEach((btn) => {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
-        const field = btn.getAttribute('data-regex-apply') as 'title' | 'episode' | null;
+        const field = btn.getAttribute('data-regex-apply') as 'title' | 'episode' | 'releaseDate' | null;
         if (field) applyRegexFromPopover(field);
       });
     });
@@ -1219,7 +1278,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     shadow.querySelectorAll<HTMLButtonElement>('[data-regex-clear]').forEach((btn) => {
       btn.addEventListener('click', (ev) => {
         ev.preventDefault();
-        const field = btn.getAttribute('data-regex-clear') as 'title' | 'episode' | null;
+        const field = btn.getAttribute('data-regex-clear') as 'title' | 'episode' | 'releaseDate' | null;
         if (!field) return;
         const { regexInput, previewEl } = getPopoverEls(field);
         if (regexInput) regexInput.value = '';
@@ -1228,12 +1287,13 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       });
     });
 
-    [titleInput, episodeInput, mountInput, anchorInput].forEach((input) => {
+    [titleInput, episodeInput, mountInput, anchorInput, releaseDateInput].forEach((input) => {
+      if (!input) return;
       input.addEventListener('input', () => runExtractionPreview());
       input.addEventListener('change', () => runExtractionPreview());
     });
 
-    [titleRegexInput, episodeRegexInput].forEach((input) => {
+    [titleRegexInput, episodeRegexInput, releaseDateRegexInput].forEach((input) => {
       if (!input) return;
       input.addEventListener('input', () => runExtractionPreview());
       input.addEventListener('change', () => runExtractionPreview());
@@ -1255,12 +1315,15 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         episodeInput.value = '';
         if (episodeRegexInput) episodeRegexInput.value = '';
         if (titleRegexInput) titleRegexInput.value = '';
+        if (releaseDateInput) releaseDateInput.value = '';
+        if (releaseDateRegexInput) releaseDateRegexInput.value = '';
         if (paddingInput) paddingInput.value = '';
         if (iconDisplayTextInput) iconDisplayTextInput.value = 'Hayami';
         (mountInput as any)._hayamiXPath = '';
         (anchorInput as any)._hayamiXPath = '';
         (titleInput as any)._hayamiXPath = '';
         (episodeInput as any)._hayamiXPath = '';
+        if (releaseDateInput) (releaseDateInput as any)._hayamiXPath = '';
         selectedPlacement = 'below';
         selectedIconKind = 'text';
         selectedIconAction = 'popup';
@@ -1649,7 +1712,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         mountXPath: (mountInput as any)._hayamiXPath || currentMapping?.mountXPath || '',
         titleXPath: (titleInput as any)._hayamiXPath || currentMapping?.titleXPath || '',
         episodeXPath: (episodeInput as any)._hayamiXPath || currentMapping?.episodeXPath || '',
-        releaseDateXPath: currentMapping?.releaseDateXPath || '',
+        releaseDateXPath: (releaseDateInput as any)?._hayamiXPath || currentMapping?.releaseDateXPath || '',
       };
 
       try {
