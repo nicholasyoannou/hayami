@@ -104,8 +104,9 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
     overlay.attachShadow({ mode: 'open' });
     const shadow = overlay.shadowRoot!;
 
-    // Apply the popup's "Show advanced site mapper details" preference; CSS
-    // (`:host(.advanced-mode) .advanced-section`) reveals the Advanced disclosure.
+    // Apply the popup's "Show more advanced options" preference; CSS
+    // (`:host(.advanced-mode) .mapper-row[data-field="releaseDate"]`) reveals
+    // the Release date row when the toggle is on.
     void (async () => {
       try {
         const enabled = await siteMapperAdvancedModeItem.getValue();
@@ -199,6 +200,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         min-width: 0;
       }
       .mapper-row.hidden { display: none; }
+      /* Release date is an advanced row — hidden unless the popup's
+         "Show more advanced options" toggle adds .advanced-mode to the host. */
+      .mapper-row[data-field="releaseDate"] { display: none; }
+      :host(.advanced-mode) .mapper-row[data-field="releaseDate"] { display: flex; }
       .mapper-row .row-label {
         font-size: 13px;
         font-weight: 600;
@@ -339,50 +344,31 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
       .regex-popover .popover-actions .hint { margin-left: auto; }
       .regex-popover .pick-btn { padding: 3px 8px; min-width: 0; }
-      /* Raw inputs are kept in the DOM for the picker/regex machinery to write
-         into, but are never shown to the user. */
-      .raw-selector-row { display: none; }
-
-      .advanced-section {
+      /* Raw selector inputs are hidden by default. Mount / Anchor rows can be
+         revealed individually via the inline pencil (adds .is-open to that row);
+         all other raw inputs stay hidden as machinery written to by the picker
+         and read by the save/extract code. */
+      .raw-selector-row {
+        display: none;
         grid-column: 1 / -1;
-        margin-top: 4px;
-        border-top: 1px solid rgba(255,255,255,0.08);
-        padding-top: 8px;
-      }
-      /* Hidden by default; the popup's "Show advanced site mapper details"
-         toggle adds .advanced-mode to #hayami-site-mapper-overlay to reveal. */
-      .advanced-section { display: none; }
-      :host(.advanced-mode) .advanced-section { display: block; }
-      .advanced-section > summary {
-        cursor: pointer;
-        list-style: none;
-        display: flex;
         align-items: center;
         gap: 6px;
-        font-size: 11px;
-        font-weight: 600;
-        color: rgba(255,255,255,0.72);
-        user-select: none;
-        padding: 2px 0;
+        margin-top: -2px;
       }
-      .advanced-section > summary::-webkit-details-marker { display: none; }
-      .advanced-section > summary::before {
-        content: '';
-        display: inline-block;
-        width: 0;
-        height: 0;
-        border-left: 5px solid rgba(255,255,255,0.6);
-        border-top: 4px solid transparent;
-        border-bottom: 4px solid transparent;
-        transition: transform 120ms ease;
-      }
-      .advanced-section[open] > summary::before { transform: rotate(90deg); }
-      .advanced-section > summary:hover { color: rgba(255,255,255,0.92); }
-      .advanced-section .advanced-hint {
+      .raw-selector-row .raw-label {
         font-size: 10px;
-        color: rgba(255,255,255,0.45);
-        margin: 6px 0 8px 14px;
-        line-height: 1.4;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: rgba(255,255,255,0.4);
+        min-width: 58px;
+      }
+      .raw-selector-row.is-open { display: flex; }
+      .raw-selector-row input {
+        flex: 1;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10px;
+        padding: 5px 8px;
+        border-radius: 6px;
       }
       .inline-inputs {
         display: grid;
@@ -504,44 +490,42 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
           <button class="pick-btn" data-target="mount" data-pick-kind="mount">Pick</button>
           <span class="row-label" id="mountLabelText">Mount selector</span>
           ${tip('Parent container Hayami will mount its comments inside. If left blank, Display target is used.', 'mountInfoTip')}
+          <button class="icon-btn" id="mountRawToggle" type="button" aria-label="Edit raw mount selector" data-hayami-tip="Edit the raw CSS selector manually">${pencilIconSvg}</button>
         </div>
         <div class="mapper-row" data-field="anchor">
           <button class="pick-btn" data-target="anchor" data-pick-kind="anchor">Pick</button>
           <span class="row-label" id="anchorLabelText">Display target</span>
           ${tip("The site's existing comments element. Hayami will append inside it, replace it, or hide it depending on the display mode.", 'anchorInfoTip')}
+          <button class="icon-btn" id="anchorRawToggle" type="button" aria-label="Edit raw anchor selector" data-hayami-tip="Edit the raw CSS selector manually">${pencilIconSvg}</button>
         </div>
 
-        <details class="advanced-section" id="advancedSection">
-          <summary>Advanced</summary>
-          <div class="advanced-hint">Point at an element showing when the episode aired (e.g. "Aired: Jan 9, 2026"). Helps pick the right discussion for multi-season shows.</div>
-          <div class="mapper-row" data-field="releaseDate">
-            <button class="pick-btn" data-target="releaseDate" data-pick-kind="releaseDate">Pick</button>
-            <span class="row-label">Release date</span>
-            ${tip('Optional. The element that shows when the current episode aired.')}
-            <span class="row-value" data-preview-value="releaseDate" data-tip-overflow tabindex="0">Not picked</span>
-            <button class="icon-btn" id="releaseDateRegexToggle" type="button" aria-label="Build release-date extractor" data-hayami-tip="Build a regex to extract just the date">${pencilIconSvg}</button>
+        <div class="mapper-row" data-field="releaseDate">
+          <button class="pick-btn" data-target="releaseDate" data-pick-kind="releaseDate">Pick</button>
+          <span class="row-label">Release date</span>
+          ${tip('Optional. The element that shows when the episode aired (e.g. "Aired: Jan 9, 2026"). Helps pick the right discussion for multi-season shows.')}
+          <span class="row-value" data-preview-value="releaseDate" data-tip-overflow tabindex="0">Not picked</span>
+          <button class="icon-btn" id="releaseDateRegexToggle" type="button" aria-label="Build release-date extractor" data-hayami-tip="Build a regex to extract just the date">${pencilIconSvg}</button>
+        </div>
+        <div class="regex-popover" data-regex-popover="releaseDate">
+          <div class="hint">Highlight just the <b>date</b> portion below, then Apply.</div>
+          <div class="source-text" data-regex-source="releaseDate"></div>
+          <div class="popover-actions">
+            <button class="pick-btn" data-regex-apply="releaseDate" type="button">Apply</button>
+            <button class="icon-btn" data-regex-clear="releaseDate" type="button" aria-label="Clear" title="Clear">✕</button>
+            <span class="hint" data-regex-preview="releaseDate"></span>
           </div>
-          <div class="regex-popover" data-regex-popover="releaseDate">
-            <div class="hint">Highlight just the <b>date</b> portion below, then Apply.</div>
-            <div class="source-text" data-regex-source="releaseDate"></div>
-            <div class="popover-actions">
-              <button class="pick-btn" data-regex-apply="releaseDate" type="button">Apply</button>
-              <button class="icon-btn" data-regex-clear="releaseDate" type="button" aria-label="Clear" title="Clear">✕</button>
-              <span class="hint" data-regex-preview="releaseDate"></span>
-            </div>
-          </div>
-        </details>
+        </div>
 
         <!-- Hidden raw inputs: written to by the picker/regex-popover machinery
              and read by save/extraction code. Never shown to the user. -->
-        <div class="raw-selector-row"><input id="titleSelector" type="text" /></div>
-        <div class="raw-selector-row"><input id="episodeSelector" type="text" /></div>
-        <div class="raw-selector-row"><input id="mountSelector" type="text" /></div>
-        <div class="raw-selector-row"><input id="anchorSelector" type="text" /></div>
-        <div class="raw-selector-row"><input id="titleRegex" type="text" /></div>
-        <div class="raw-selector-row"><input id="episodeRegex" type="text" /></div>
-        <div class="raw-selector-row"><input id="releaseDateSelector" type="text" /></div>
-        <div class="raw-selector-row"><input id="releaseDateRegex" type="text" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Title CSS</span><input id="titleSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Episode CSS</span><input id="episodeSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row" data-raw-for="mount"><span class="raw-label">Mount CSS</span><input id="mountSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row" data-raw-for="anchor"><span class="raw-label">Anchor CSS</span><input id="anchorSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Title regex</span><input id="titleRegex" type="text" placeholder="Title regex" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Episode regex</span><input id="episodeRegex" type="text" placeholder="Episode regex" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Date CSS</span><input id="releaseDateSelector" type="text" placeholder="CSS selector" /></div>
+        <div class="raw-selector-row"><span class="raw-label">Date regex</span><input id="releaseDateRegex" type="text" placeholder="Date regex" /></div>
       </div>
 
       <div class="inline-inputs">
@@ -1264,6 +1248,35 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         closeRegexPopover('episode');
       } else {
         openRegexPopover('episode');
+      }
+    });
+
+    // Inline pencil toggles on Mount / Anchor rows. Reveal the raw CSS
+    // selector input for just that row so the user can refine or paste a
+    // selector directly.
+    const mountRawToggleBtn = shadow.getElementById('mountRawToggle') as HTMLButtonElement | null;
+    mountRawToggleBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const rawRow = shadow.querySelector('.raw-selector-row[data-raw-for="mount"]') as HTMLElement | null;
+      if (!rawRow) return;
+      const isOpen = rawRow.classList.toggle('is-open');
+      mountRawToggleBtn.classList.toggle('is-active', isOpen);
+      if (isOpen) {
+        const input = rawRow.querySelector('input') as HTMLInputElement | null;
+        input?.focus();
+      }
+    });
+
+    const anchorRawToggleBtn = shadow.getElementById('anchorRawToggle') as HTMLButtonElement | null;
+    anchorRawToggleBtn?.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const rawRow = shadow.querySelector('.raw-selector-row[data-raw-for="anchor"]') as HTMLElement | null;
+      if (!rawRow) return;
+      const isOpen = rawRow.classList.toggle('is-open');
+      anchorRawToggleBtn.classList.toggle('is-active', isOpen);
+      if (isOpen) {
+        const input = rawRow.querySelector('input') as HTMLInputElement | null;
+        input?.focus();
       }
     });
 

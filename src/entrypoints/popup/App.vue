@@ -28,6 +28,7 @@ import {
   komentoScriptAutoSyncItem,
   komentoScriptCachedPacksItem,
   komentoScriptEnabledItem,
+  komentoScriptEtagsItem,
   komentoScriptSourceRegistryItem,
   komentoScriptTargetSelectionsItem,
   komentoScriptSyncHistoryItem,
@@ -62,6 +63,12 @@ import {
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
   seriesMappingItem,
+  seriesAnimeIdsItem,
+  customSiteMappingsItem,
+  customSitesSyncCachedItem,
+  customSitesSyncEtagsItem,
+  customSitesSyncHistoryItem,
+  manualOverridesRecentItem,
   malSyncEnabledItem,
   malWrongAnimeTitleFormatItem,
   anilistWrongAnimeTitleFormatItem,
@@ -92,6 +99,8 @@ import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
 import CustomSitesSyncSettingsPanel from './CustomSitesSyncSettingsPanel.vue';
 import PublishCustomSitesPanel from './PublishCustomSitesPanel.vue';
 import CustomOverridesSettingsPanel from './CustomOverridesSettingsPanel.vue';
+import ClearStoragePanel from './ClearStoragePanel.vue';
+import type { ClearableCategoryId } from './clear-storage-categories';
 import {
   loadAllManualOverrides,
   deleteManualOverride,
@@ -144,7 +153,7 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides' | 'clear-storage';
 type SettingsNavItem = {
   id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
   label: string;
@@ -799,13 +808,13 @@ const settingDefinitions: SettingDefinition[] = [
     key: 'siteMapperAdvancedMode',
     type: 'toggle',
     category: 'general',
-    label: 'Show advanced site mapper details',
-    description: 'Reveal advanced fields in the custom-site mapper overlay (e.g. release-date selector for better multi-season matching).',
+    label: 'Show more advanced options',
+    description: 'Reveal advanced rows in the custom-site mapper overlay (currently: Release date, for multi-season matching).',
     fallback: false,
     load: async () => Boolean(await siteMapperAdvancedModeItem.getValue()),
     save: (value) => siteMapperAdvancedModeItem.setValue(Boolean(value)),
-    successMessage: (value) => (value ? 'Advanced site mapper details enabled' : 'Advanced site mapper details disabled'),
-    errorMessage: 'Failed to update advanced site mapper details',
+    successMessage: (value) => (value ? 'Advanced mapper options enabled' : 'Advanced mapper options disabled'),
+    errorMessage: 'Failed to update advanced mapper options',
   },
   {
     key: 'verboseLogging',
@@ -1294,13 +1303,46 @@ async function handleSettingChange(setting: SettingDefinition, value: SettingVal
   }
 }
 
-async function resetAllManualMappingsToDefaults() {
+async function clearStorageCategories(ids: ClearableCategoryId[]) {
+  if (ids.length === 0) return;
+  const tasks: Array<Promise<void>> = [];
+
+  for (const id of ids) {
+    switch (id) {
+      case 'manual-overrides':
+        // clearAllSeriesMappings wipes both seriesMappingItem and manualOverridesRecentItem
+        tasks.push(clearAllSeriesMappings().then(() => {
+          manualOverrides.value = [];
+        }));
+        break;
+      case 'anime-id-cache':
+        tasks.push(seriesAnimeIdsItem.setValue({}));
+        break;
+      case 'custom-sites':
+        tasks.push(customSiteMappingsItem.setValue({}));
+        break;
+      case 'komentoscript-cache':
+        tasks.push(komentoScriptCachedPacksItem.setValue([]));
+        tasks.push(komentoScriptEtagsItem.setValue({}));
+        break;
+      case 'custom-sites-sync-cache':
+        tasks.push(customSitesSyncCachedItem.setValue([]));
+        tasks.push(customSitesSyncEtagsItem.setValue({}));
+        break;
+      case 'sync-history':
+        tasks.push(komentoScriptSyncHistoryItem.setValue([]));
+        tasks.push(customSitesSyncHistoryItem.setValue([]));
+        break;
+    }
+  }
+
   try {
-    await seriesMappingItem.setValue({});
-    showSuccess('All manual mappings reset to defaults');
+    await Promise.all(tasks);
+    const label = ids.length === 1 ? '1 category cleared' : `${ids.length} categories cleared`;
+    showSuccess(label);
   } catch (error) {
-    log.error('Failed to reset manual mappings', error);
-    showError('Failed to reset manual mappings');
+    log.error('Failed to clear selected storage categories', error);
+    showError('Failed to clear some items');
   }
 }
 
@@ -1818,14 +1860,14 @@ function handleRemoveCustomSite(site: any) {
                   <div v-if="activeSettingsCategory.id === 'general'" class="hy-section-card">
                     <div class="hy-row">
                       <div class="flex-1 min-w-0">
-                        <p class="text-sm text-white/85">Reset all manual mappings to defaults</p>
-                        <p class="text-xs text-white/60">Clears all saved episode offset and wrong-anime mappings.</p>
+                        <p class="text-sm text-white/85">Clear storage</p>
+                        <p class="text-xs text-white/60">Choose which caches and user-authored items to wipe from this device.</p>
                       </div>
                       <button
                         class="shrink-0 rounded-lg bg-[#5a2f2f] px-3 py-2 text-sm font-semibold text-[#ffdcdc] hover:bg-[#733838]"
-                        @click="resetAllManualMappingsToDefaults"
+                        @click="settingsScreen = 'clear-storage'"
                       >
-                        Reset
+                        Clear…
                       </button>
                     </div>
                   </div>
@@ -1973,6 +2015,16 @@ function handleRemoveCustomSite(site: any) {
                   :settings-icon="customSitesIcon"
                   :is-large-layout="isLargeLayout"
                   :on-back="() => { settingsScreen = 'custom-sites'; }"
+                />
+              </template>
+
+              <template v-else-if="settingsScreen === 'clear-storage'">
+                <ClearStoragePanel
+                  :back-icon="backIcon"
+                  :settings-icon="settingsIcon"
+                  :is-large-layout="isLargeLayout"
+                  :on-back="() => { settingsScreen = 'category'; }"
+                  :on-clear="clearStorageCategories"
                 />
               </template>
 

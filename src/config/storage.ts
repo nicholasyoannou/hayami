@@ -175,8 +175,8 @@ export const redditDefaultSortItem = storage.defineItem<RedditSortOption>(
   { fallback: 'confidence' }
 );
 
-// Site mapper "Advanced" disclosure: when on, the overlay reveals advanced
-// fields (currently the Release date row inside the <details> section).
+// Site mapper "Show more advanced options" toggle: when on, the overlay reveals
+// advanced rows (currently just Release date).
 export const siteMapperAdvancedModeItem = storage.defineItem<boolean>(
   'local:site_mapper_advanced_mode',
   { fallback: false }
