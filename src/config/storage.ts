@@ -204,6 +204,18 @@ export const seriesMappingItem = storage.defineItem<
   { fallback: {} }
 );
 
+// Platform-agnostic MAL/AniList ID cache keyed by normalized anime name.
+// MAL-Sync resolves these IDs once; every provider (AniList/MAL/Aniwave/YouTube/
+// AnimeCommunity/Reddit/Disqus) then reads them via `getSeriesMapping`'s
+// fallback merge. One flat entry per anime instead of duplicating IDs across
+// every platform bucket in `seriesMappingItem`.
+export const seriesAnimeIdsItem = storage.defineItem<
+  Record<string, { malId?: number; anilistId?: number; updatedAt?: string }>
+>(
+  'local:series_anime_ids',
+  { fallback: {} }
+);
+
 // Up to 10 most-recently-touched manual overrides, mirrored into sync storage so
 // the user's latest tweaks follow them across devices. The full local mapping
 // blob still lives in `seriesMappingItem` (local) because its nested shape can

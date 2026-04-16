@@ -1,5 +1,6 @@
 import {
   seriesMappingItem,
+  seriesAnimeIdsItem,
   manualOverridesRecentItem,
   MANUAL_OVERRIDES_RECENT_LIMIT,
   type ManualOverrideRecentEntry,
@@ -148,6 +149,25 @@ async function getSeriesMappingsBySite(currentSiteKey: string): Promise<SeriesMa
   return {};
 }
 
+/**
+ * Read platform-agnostic MAL/AniList IDs for an anime name from the shared
+ * cache. The cache is populated by MAL-Sync (see `cacheAnimeIds`) so that
+ * every provider can reuse the resolution instead of re-querying AniList.
+ */
+async function readCachedAnimeIds(animeName: string): Promise<{ malId?: number; anilistId?: number } | null> {
+  const key = normalizeKey(animeName);
+  if (!key) return null;
+  try {
+    const cache = (await seriesAnimeIdsItem.getValue()) || {};
+    const hit = cache[key];
+    if (!hit) return null;
+    if (!hit.malId && !hit.anilistId) return null;
+    return { malId: hit.malId, anilistId: hit.anilistId };
+  } catch {
+    return null;
+  }
+}
+
 export async function getSeriesMapping(series: string, platform?: SeriesMappingPlatform): Promise<SeriesMapping | null> {
   const siteKeys = resolveSiteKeyCandidates();
   const siteKey = siteKeys[0] || 'global';
@@ -155,16 +175,35 @@ export async function getSeriesMapping(series: string, platform?: SeriesMappingP
   const mappings = await getSeriesMappingsBySite(siteKey);
   const normalized = normalizeKey(series);
 
+  let platformMapping: SeriesMapping | null = null;
   for (const candidateSiteKey of siteKeys) {
     const siteMappings = mappings[candidateSiteKey] || {};
     const platformMappings = siteMappings[platformKey] || {};
     const byExact = platformMappings[series];
-    if (byExact) return byExact;
+    if (byExact) { platformMapping = byExact; break; }
     const byNormalized = platformMappings[normalized];
-    if (byNormalized) return byNormalized;
+    if (byNormalized) { platformMapping = byNormalized; break; }
   }
 
-  return null;
+  // Merge in MAL/AniList IDs from the shared cache when the platform entry
+  // doesn't already carry them. Use the effective anime name — if the user
+  // redirected this platform to a different anime via `mapperAnimeName`,
+  // that's the name whose IDs we want, not the original series.
+  const hasBothIds = !!(platformMapping?.malId && platformMapping?.anilistId);
+  if (!hasBothIds) {
+    const effectiveName = (platformMapping?.mapperAnimeName?.trim()) || series;
+    const cached = await readCachedAnimeIds(effectiveName);
+    if (cached) {
+      return {
+        episodeOffset: platformMapping?.episodeOffset ?? 0,
+        ...(platformMapping || {}),
+        malId: platformMapping?.malId ?? cached.malId,
+        anilistId: platformMapping?.anilistId ?? cached.anilistId,
+      };
+    }
+  }
+
+  return platformMapping;
 }
 
 async function upsertRecentOverride(entry: ManualOverrideRecentEntry): Promise<void> {
@@ -232,6 +271,34 @@ export async function saveSeriesMapping(
     mapping: merged,
     updatedAt: new Date().toISOString(),
   });
+}
+
+/**
+ * Cache platform-agnostic MAL/AniList IDs for an anime under a single flat
+ * key. `getSeriesMapping` merges these IDs in as a fallback when a
+ * platform-specific mapping lacks them, so every provider can reuse the
+ * resolution (typically from MAL-Sync) without storing duplicates in each
+ * platform bucket.
+ */
+export async function cacheAnimeIds(
+  animeName: string,
+  malId: number | null,
+  anilistId: number | null,
+): Promise<void> {
+  const key = normalizeKey(animeName);
+  if (!key || (!malId && !anilistId)) return;
+
+  const current = (await seriesAnimeIdsItem.getValue()) || {};
+  const existing = current[key] || {};
+  const next: { malId?: number; anilistId?: number; updatedAt?: string } = { ...existing };
+  if (malId) next.malId = malId;
+  if (anilistId) next.anilistId = anilistId;
+
+  if (next.malId === existing.malId && next.anilistId === existing.anilistId) return;
+
+  next.updatedAt = new Date().toISOString();
+  current[key] = next;
+  await seriesAnimeIdsItem.setValue(current);
 }
 
 export async function deleteSeriesMapping(

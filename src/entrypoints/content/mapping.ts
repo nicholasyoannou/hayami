@@ -54,31 +54,7 @@ import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './mapping/
 
 export { SERIES_MAPPING_KEY } from './mapping-keys';
 export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from './storage/series-mapping';
-import { saveSeriesMapping as _saveSeriesMapping, getSeriesMapping as _getSeriesMapping } from './storage/series-mapping';
-import type { SeriesMappingPlatform } from './storage/series-mapping';
-
-/**
- * Persist MAL-Sync-resolved IDs into the local series mapping without
- * overwriting any user-set episodeOffset or mapperAnimeName.
- */
-async function saveMalSyncIds(
-  animeName: string,
-  malId: number | null,
-  anilistId: number | null,
-  platform: SeriesMappingPlatform,
-): Promise<void> {
-  if (!animeName || (!malId && !anilistId)) return;
-  const existing = await _getSeriesMapping(animeName, platform);
-  const update: Record<string, unknown> = {
-    episodeOffset: existing?.episodeOffset ?? 0,
-  };
-  if (malId) update.malId = malId;
-  if (anilistId) update.anilistId = anilistId;
-  // Preserve existing fields the user may have set
-  if (existing?.mapperAnimeName) update.mapperAnimeName = existing.mapperAnimeName;
-  if (existing?.aniwaveIsDub !== undefined) update.aniwaveIsDub = existing.aniwaveIsDub;
-  await _saveSeriesMapping(animeName, update as any, platform);
-}
+import { cacheAnimeIds } from './storage/series-mapping';
 export {
   parseEpisodeFromTitle,
   parseMapperYear,
@@ -466,10 +442,12 @@ export async function tryMapperFailover(
         }
       }
 
-      // Persist MAL-Sync IDs to local series mapping for future lookups
+      // Cache MAL-Sync IDs keyed only by anime name. Every provider picks
+      // these up via `getSeriesMapping`'s fallback merge, so we skip the
+      // duplicate-per-platform storage blow-up.
       if (animeInfo?.animeName && (malSyncMalId || malSyncAnilistId)) {
-        log.log(' Saving MAL-Sync IDs to local mapping:', { malId: malSyncMalId, anilistId: malSyncAnilistId });
-        saveMalSyncIds(animeInfo.animeName, malSyncMalId, malSyncAnilistId, platform === 'disqus' ? 'disqus' : 'reddit').catch(() => {});
+        log.log(' Caching MAL-Sync IDs for anime:', { animeName: animeInfo.animeName, malId: malSyncMalId, anilistId: malSyncAnilistId });
+        cacheAnimeIds(animeInfo.animeName, malSyncMalId, malSyncAnilistId).catch(() => {});
       }
 
       // Determine the best anime name for the mapper query:
@@ -813,10 +791,12 @@ export async function tryMapperFailover(
       log.log(' MAL-Sync data (CR path):', { presence: crMalSyncPresence, dom: crMalSyncDom, malId: crMalSyncMalId, anilistId: crMalSyncAnilistId, malUrl: crMalSyncUrl });
     }
 
-    // Persist MAL-Sync IDs to local series mapping for future lookups
+    // Cache MAL-Sync IDs keyed only by anime name. Every provider picks
+    // these up via `getSeriesMapping`'s fallback merge, so we skip the
+    // duplicate-per-platform storage blow-up.
     if (animeInfo?.animeName && (crMalSyncMalId || crMalSyncAnilistId)) {
-      log.log(' Saving MAL-Sync IDs to local mapping:', { malId: crMalSyncMalId, anilistId: crMalSyncAnilistId });
-      saveMalSyncIds(animeInfo.animeName, crMalSyncMalId, crMalSyncAnilistId, platform === 'disqus' ? 'disqus' : 'reddit').catch(() => {});
+      log.log(' Caching MAL-Sync IDs for anime:', { animeName: animeInfo.animeName, malId: crMalSyncMalId, anilistId: crMalSyncAnilistId });
+      cacheAnimeIds(animeInfo.animeName, crMalSyncMalId, crMalSyncAnilistId).catch(() => {});
     }
 
     let mapperResult: MapperResponse | null = null;
