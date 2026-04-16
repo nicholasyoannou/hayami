@@ -247,10 +247,23 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
   komentoExtractedAnimeInfo = null;
   try {
     const map = (await customSiteMappingsItem.getValue()) || {};
-    const entry = map[location.origin] as CustomSiteMapping | undefined;
-    if (entry && mappingMatchesPath(entry, location.pathname)) {
-      customSiteMapping = entry;
+
+    // Prefer a direct match on the storage key (primary origin).
+    const primaryEntry = map[location.origin] as CustomSiteMapping | undefined;
+    if (primaryEntry && mappingMatchesPath(primaryEntry, location.pathname)) {
+      customSiteMapping = primaryEntry;
       return customSiteMapping;
+    }
+
+    // Otherwise scan for a mapping whose extraDomains list includes us.
+    if (!primaryEntry) {
+      for (const entry of Object.values(map) as CustomSiteMapping[]) {
+        const extras = Array.isArray(entry?.extraDomains) ? entry.extraDomains : [];
+        if (extras.includes(location.origin) && mappingMatchesPath(entry, location.pathname)) {
+          customSiteMapping = entry;
+          return customSiteMapping;
+        }
+      }
     }
 
     // Check synced custom site mappings (manual mappings take priority above)
@@ -259,7 +272,10 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
       const syncedCached = (await customSitesSyncCachedItem.getValue()) || [];
       for (const cachedEntry of syncedCached) {
         for (const mapping of cachedEntry?.mappings || []) {
-          if (mapping?.origin === location.origin) {
+          const extras = Array.isArray(mapping?.extraDomains) ? mapping.extraDomains : [];
+          const matchesOrigin =
+            mapping?.origin === location.origin || extras.includes(location.origin);
+          if (matchesOrigin) {
             const candidate = mapping as CustomSiteMapping;
             if (mappingMatchesPath(candidate, location.pathname)) {
               customSiteMapping = candidate;

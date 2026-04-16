@@ -4,6 +4,13 @@ export type IconDisplayAction = 'popup' | 'replace';
 
 export interface CustomSiteMapping {
   origin: string;
+  /**
+   * Optional list of additional origins this mapping should also match at
+   * runtime (e.g. regional mirrors or alternate domains). The primary
+   * `origin` field above remains the storage key; `extraDomains` plus the
+   * primary may not exceed `MAX_DOMAINS_PER_CUSTOM_SITE` total entries.
+   */
+  extraDomains?: string[];
   display: DisplayPlacement;
   iconDisplayKind?: IconDisplayKind;
   iconDisplayAction?: IconDisplayAction;
@@ -34,3 +41,10 @@ export interface CustomSiteMapping {
 }
 
 export const CUSTOM_SITE_MAPPINGS_KEY = 'custom_site_mappings';
+
+/**
+ * Max number of domains (primary + extras) a single custom site mapping can
+ * target. The mapping's `origin` counts as one; `extraDomains` contributes
+ * the remainder. 10 balances flexibility against UI clutter.
+ */
+export const MAX_DOMAINS_PER_CUSTOM_SITE = 10;

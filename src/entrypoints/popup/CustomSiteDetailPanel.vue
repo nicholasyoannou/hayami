@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { computed, ref, watch } from 'vue';
+import { MAX_DOMAINS_PER_CUSTOM_SITE } from '@/entrypoints/content/ui/site-mapper/types';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
 
 type CustomSiteRawFieldsDraft = {
@@ -24,6 +25,9 @@ type Props = {
   customSiteIncludePathInput: string;
   customSiteExcludePathInput: string;
   customSitePathGlobsSaving: boolean;
+  customSiteExtraDomainsDraft: string[];
+  customSiteDomainInput: string;
+  customSiteDomainsSaving: boolean;
   commentsBackgroundColorDraft: string;
   customSiteRawFieldsSaving?: boolean;
   onBack: () => void;
@@ -37,6 +41,10 @@ type Props = {
   onSetIncludePathInput: (value: string) => void;
   onSetExcludePathInput: (value: string) => void;
   onSavePathGlobs: () => void | Promise<void>;
+  onAddDomain: (rawInput?: string) => void | Promise<void>;
+  onRemoveDomain: (domain: string) => void;
+  onSetDomainInput: (value: string) => void;
+  onSaveDomains: () => void | Promise<void>;
   onSaveRawFields?: (draft: CustomSiteRawFieldsDraft) => void | Promise<void>;
   getFaviconUrl: (origin: string) => string;
   formatOrigin: (origin: string) => string;
@@ -87,6 +95,24 @@ async function submitRawEdit() {
   await props.onSaveRawFields({ ...rawDraft.value });
   rawEditOpen.value = false;
 }
+
+const totalDomainCount = computed(() => 1 + props.customSiteExtraDomainsDraft.length);
+const canAddMoreDomains = computed(() => totalDomainCount.value < MAX_DOMAINS_PER_CUSTOM_SITE);
+const savedExtraDomains = computed(() => props.selectedCustomSite.extraDomains || []);
+const domainsDirty = computed(() => {
+  const a = [...props.customSiteExtraDomainsDraft].sort();
+  const b = [...savedExtraDomains.value].sort();
+  if (a.length !== b.length) return true;
+  return a.some((domain, idx) => domain !== b[idx]);
+});
+
+function formatDomainLabel(origin: string): string {
+  try {
+    return new URL(origin).host || origin;
+  } catch {
+    return origin;
+  }
+}
 </script>
 
 <template>
@@ -127,6 +153,76 @@ async function submitRawEdit() {
       <div class="hy-row">
         <p class="min-w-0 flex-1 text-sm text-white/85">Placement</p>
         <span class="shrink-0 text-xs text-white/60">{{ props.formatPlacementLabel(props.selectedCustomSite.display) }}</span>
+      </div>
+    </div>
+
+    <!-- Domains -->
+    <div class="hy-section-card">
+      <div class="hy-section-header">
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-semibold text-white/90">Domains</p>
+          <p class="text-xs text-white/55">Match this mapping on additional domains (e.g. regional mirrors).</p>
+        </div>
+        <span class="shrink-0 text-[11px] text-white/55">{{ totalDomainCount }} / {{ MAX_DOMAINS_PER_CUSTOM_SITE }}</span>
+      </div>
+
+      <div class="px-4 py-3 space-y-3">
+        <div class="flex flex-wrap gap-2">
+          <span
+            class="inline-flex items-center gap-2 rounded-full bg-cyan-500/15 px-2.5 py-1 text-[11px] text-cyan-100"
+            :title="props.selectedCustomSite.origin"
+          >
+            <span class="font-semibold">{{ formatDomainLabel(props.selectedCustomSite.origin) }}</span>
+            <span class="rounded-full bg-black/25 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-cyan-200/90">Primary</span>
+          </span>
+          <span
+            v-for="domain in props.customSiteExtraDomainsDraft"
+            :key="`extra-domain-${domain}`"
+            class="inline-flex items-center gap-2 rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] text-white/85"
+            :title="domain"
+          >
+            <span>{{ formatDomainLabel(domain) }}</span>
+            <button
+              type="button"
+              class="rounded-full bg-black/25 px-1 text-[10px] leading-none hover:bg-black/40"
+              @click="props.onRemoveDomain(domain)"
+              aria-label="Remove domain"
+            >
+              ×
+            </button>
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <input
+            :value="props.customSiteDomainInput"
+            type="text"
+            class="min-w-0 flex-1 rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/45 focus:outline focus:outline-2 focus:outline-white/30 disabled:opacity-50"
+            :placeholder="canAddMoreDomains ? 'Add domain, e.g. example.com' : `Max ${MAX_DOMAINS_PER_CUSTOM_SITE} domains reached`"
+            :disabled="!canAddMoreDomains"
+            @input="props.onSetDomainInput(($event.target as HTMLInputElement).value)"
+            @keydown.enter.prevent="props.onAddDomain()"
+          />
+          <button
+            type="button"
+            class="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-2 text-[11px] font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!canAddMoreDomains"
+            @click="props.onAddDomain()"
+          >
+            Add
+          </button>
+        </div>
+
+        <div class="flex justify-end">
+          <button
+            type="button"
+            class="rounded-lg bg-cyan-500/20 px-3 py-2 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="props.customSiteDomainsSaving || !domainsDirty"
+            @click="props.onSaveDomains()"
+          >
+            {{ props.customSiteDomainsSaving ? 'Saving...' : 'Save domains' }}
+          </button>
+        </div>
       </div>
     </div>
 

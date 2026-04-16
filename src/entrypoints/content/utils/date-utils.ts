@@ -38,9 +38,43 @@ export function isReleaseDateToday(releaseDate?: string | Date | null): boolean 
 }
 
 /**
- * Parse a wide variety of human-readable date strings into a Date using
- * chrono-node, which handles natural-language formats like
- * "12th August 2025", "Aug 12, 2025", "2025-08-12", "yesterday", etc.
+ * Anime-season shorthand → month (0-indexed) using the industry convention:
+ * Winter = January, Spring = April, Summer = July, Fall/Autumn = October.
+ * Hayami's `episode_date` only needs to land in the right quarter to
+ * disambiguate between seasons that share a base title, so the 1st of the
+ * season's first month is a safe representative date.
+ */
+const ANIME_SEASON_MONTH: Record<string, number> = {
+  winter: 0,
+  spring: 3,
+  summer: 6,
+  fall: 9,
+  autumn: 9,
+};
+
+/**
+ * Parse anime-season shorthand like "Fall 2019", "Summer 2018", "Winter 2022".
+ * Returns the 1st of the season's first month, or null if the text isn't a
+ * recognizable season+year pair. chrono-node ignores the season word entirely
+ * and would misread "Fall 2019" as the bare year 2019 (→ Jan 1), so this must
+ * run before chrono in `parseFlexibleDate`.
+ */
+function parseAnimeSeasonShorthand(text: string): Date | null {
+  const match = /\b(winter|spring|summer|fall|autumn)\s+(\d{4})\b/i.exec(text);
+  if (!match) return null;
+  const season = match[1].toLowerCase();
+  const year = parseInt(match[2], 10);
+  if (!Number.isFinite(year) || year < 1900 || year > 2100) return null;
+  const month = ANIME_SEASON_MONTH[season];
+  if (month === undefined) return null;
+  return new Date(year, month, 1);
+}
+
+/**
+ * Parse a wide variety of human-readable date strings into a Date. Tries
+ * anime-season shorthand first ("Fall 2019" → Oct 1 2019), then falls back to
+ * chrono-node for ordinals, month names, numeric formats, and natural language
+ * ("12th August 2025", "Aug 12, 2025", "2025-08-12", "yesterday", etc.).
  */
 export function parseFlexibleDate(input: string | Date | null | undefined): Date | null {
   if (!input) return null;
@@ -50,7 +84,9 @@ export function parseFlexibleDate(input: string | Date | null | undefined): Date
   const text = input.replace(/\s+/g, ' ').trim();
   if (!text) return null;
 
-  // chrono-node handles ordinals, month names, numeric formats, and natural language.
+  const seasonDate = parseAnimeSeasonShorthand(text);
+  if (seasonDate) return seasonDate;
+
   try {
     const parsed = chrono.parseDate(text);
     return parsed instanceof Date && !Number.isNaN(parsed.getTime()) ? parsed : null;

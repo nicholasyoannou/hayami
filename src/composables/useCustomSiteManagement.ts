@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue';
 import { browser } from 'wxt/browser';
 import { customSiteMappingsItem } from '@/config/storage';
+import { MAX_DOMAINS_PER_CUSTOM_SITE } from '@/entrypoints/content/ui/site-mapper/types';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
 import { con } from '@/utils/logger';
 
@@ -24,6 +25,9 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
   const customSiteAdvancedExpanded = ref(false);
   const commentsBackgroundColorDraft = ref('');
   const customSiteRawFieldsSaving = ref(false);
+  const customSiteExtraDomainsDraft = ref<string[]>([]);
+  const customSiteDomainInput = ref('');
+  const customSiteDomainsSaving = ref(false);
 
   const sortedCustomSiteMappings = computed(() =>
     [...customSiteMappings.value].sort((a, b) => (a.origin || '').localeCompare(b.origin || '')),
@@ -69,6 +73,47 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     });
   }
 
+  // ── Extra domains utilities ──────────────────────────────────────
+
+  /**
+   * Normalize an arbitrary user-typed domain/URL to its canonical `origin`
+   * form (scheme + host + port, no trailing slash). Returns null for any
+   * non-http(s) or malformed value.
+   */
+  function normalizeDomainToOrigin(input: unknown): string | null {
+    const trimmed = String(input || '').trim();
+    if (!trimmed) return null;
+    try {
+      const url = new URL(trimmed.includes('://') ? trimmed : `https://${trimmed}`);
+      if (!/^https?:$/.test(url.protocol)) return null;
+      return url.origin;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Produce a clean extraDomains list: normalize each entry, drop the
+   * primary origin, dedupe, and cap at MAX_DOMAINS_PER_CUSTOM_SITE - 1
+   * (the primary counts as the 10th slot).
+   */
+  function sanitizeExtraDomains(primaryOrigin: string | undefined, input: unknown): string[] {
+    const source = Array.isArray(input) ? input : [];
+    const primary = String(primaryOrigin || '').trim();
+    const normalized: string[] = [];
+    const seen = new Set<string>();
+    if (primary) seen.add(primary);
+    for (const item of source) {
+      const origin = normalizeDomainToOrigin(item);
+      if (!origin) continue;
+      if (seen.has(origin)) continue;
+      seen.add(origin);
+      normalized.push(origin);
+      if (normalized.length >= MAX_DOMAINS_PER_CUSTOM_SITE - 1) break;
+    }
+    return normalized;
+  }
+
   // ── Hydrate / refresh helpers ────────────────────────────────────
 
   function hydrateSelectedCustomSitePathGlobDrafts() {
@@ -77,6 +122,11 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     customSiteIncludePathInput.value = '';
     customSiteExcludePathInput.value = '';
     commentsBackgroundColorDraft.value = selectedCustomSite.value?.commentsBackgroundColor || '';
+    customSiteExtraDomainsDraft.value = sanitizeExtraDomains(
+      selectedCustomSite.value?.origin,
+      selectedCustomSite.value?.extraDomains,
+    );
+    customSiteDomainInput.value = '';
   }
 
   async function loadCustomSiteMappings() {
@@ -90,6 +140,7 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
           ...entry,
           includePathGlobs: normalizePathGlobList(entry?.includePathGlobs),
           excludePathGlobs: normalizePathGlobList(entry?.excludePathGlobs),
+          extraDomains: sanitizeExtraDomains(entry?.origin, entry?.extraDomains),
         }));
     } catch (error) {
       log.warn('Failed to load custom site mappings', error);
@@ -163,6 +214,86 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
       showError('Could not save path globs');
     } finally {
       customSitePathGlobsSaving.value = false;
+    }
+  }
+
+  // ── Extra domains CRUD ───────────────────────────────────────────
+
+  /**
+   * Add a new domain to the extra-domains draft. Normalizes the input,
+   * rejects duplicates / the primary origin / over-limit additions, and
+   * requests host permission so the extension can actually run there. On
+   * denial or failure we surface a toast and leave the draft unchanged.
+   */
+  async function addCustomSiteDomain(rawInput?: string): Promise<void> {
+    const site = selectedCustomSite.value;
+    if (!site?.origin) return;
+
+    const candidate = rawInput ?? customSiteDomainInput.value;
+    const origin = normalizeDomainToOrigin(candidate);
+    if (!origin) {
+      showError('Enter a valid domain (e.g. example.com)');
+      return;
+    }
+
+    if (origin === site.origin) {
+      showError('That domain is already this site');
+      return;
+    }
+    if (customSiteExtraDomainsDraft.value.includes(origin)) {
+      showError('That domain is already in the list');
+      return;
+    }
+    if (customSiteExtraDomainsDraft.value.length + 1 >= MAX_DOMAINS_PER_CUSTOM_SITE) {
+      showError(`A site can have at most ${MAX_DOMAINS_PER_CUSTOM_SITE} domains`);
+      return;
+    }
+
+    const granted = await requestHostPermission(origin);
+    if (!granted) {
+      showError('Host permission is required for this domain');
+      return;
+    }
+
+    customSiteExtraDomainsDraft.value = [...customSiteExtraDomainsDraft.value, origin];
+    customSiteDomainInput.value = '';
+  }
+
+  function removeCustomSiteDomain(domain: string) {
+    customSiteExtraDomainsDraft.value = customSiteExtraDomainsDraft.value.filter(
+      (item) => item !== domain,
+    );
+  }
+
+  async function saveSelectedCustomSiteDomains(): Promise<void> {
+    const site = selectedCustomSite.value;
+    if (!site?.origin || customSiteDomainsSaving.value) return;
+
+    customSiteDomainsSaving.value = true;
+    try {
+      const map = (await customSiteMappingsItem.getValue()) || {};
+      const existing = map[site.origin] as CustomSiteMapping | undefined;
+      if (!existing) {
+        showError('This custom site no longer exists');
+        await refreshSelectedCustomSite();
+        return;
+      }
+
+      const nextExtraDomains = sanitizeExtraDomains(site.origin, customSiteExtraDomainsDraft.value);
+      const next: CustomSiteMapping = { ...existing, extraDomains: nextExtraDomains };
+      map[site.origin] = next;
+      await customSiteMappingsItem.setValue(map);
+      await loadCustomSiteMappings();
+
+      const updated = customSiteMappings.value.find((entry) => entry.origin === site.origin) || next;
+      selectedCustomSite.value = updated;
+      customSiteExtraDomainsDraft.value = sanitizeExtraDomains(updated.origin, updated.extraDomains);
+      showSuccess('Domains saved');
+    } catch (error) {
+      log.warn('Failed to save custom site domains', error);
+      showError('Could not save domains');
+    } finally {
+      customSiteDomainsSaving.value = false;
     }
   }
 
@@ -318,6 +449,7 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
 
     return {
       origin,
+      extraDomains: sanitizeExtraDomains(origin, raw.extraDomains),
       display: normalizedDisplay,
       iconDisplayKind: raw.iconDisplayKind === 'icon' ? 'icon' : 'text',
       iconDisplayAction: raw.iconDisplayAction === 'replace' ? 'replace' : 'popup',
@@ -511,12 +643,14 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
         await customSiteMappingsItem.setValue(map);
       }
 
-      const originPattern = `${site.origin}/*`;
+      const originPatterns = [site.origin, ...(site.extraDomains || [])]
+        .filter((origin): origin is string => Boolean(origin))
+        .map((origin) => `${origin}/*`);
       const permissions = browser.permissions;
-      if (permissions?.remove) {
+      if (permissions?.remove && originPatterns.length > 0) {
         await new Promise<void>((resolve) => {
           try {
-            permissions.remove({ origins: [originPattern] }, () => resolve());
+            permissions.remove({ origins: originPatterns }, () => resolve());
           } catch {
             resolve();
           }
@@ -693,6 +827,9 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     customSiteAdvancedExpanded,
     commentsBackgroundColorDraft,
     customSiteRawFieldsSaving,
+    customSiteExtraDomainsDraft,
+    customSiteDomainInput,
+    customSiteDomainsSaving,
     sortedCustomSiteMappings,
 
     // Actions
@@ -701,6 +838,9 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     addCustomSitePathGlob,
     removeCustomSitePathGlob,
     saveSelectedCustomSitePathGlobs,
+    addCustomSiteDomain,
+    removeCustomSiteDomain,
+    saveSelectedCustomSiteDomains,
     saveCommentsBackgroundColor,
     clearCommentsBackgroundColor,
     saveSelectedCustomSiteRawFields,
