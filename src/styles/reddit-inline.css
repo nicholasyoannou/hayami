@@ -3555,9 +3555,22 @@
 }
 
 #ri-inline-vue-host .ri-nav-subreddit-chip {
-  background: var(--ri-surface-1, #0a0a0a) !important;
+  background: var(--ri-surface-2, #0f0f0f) !important;
   border-color: var(--ri-border-1, #2a2a2a) !important;
   color: var(--ri-subtle-fg, #888888) !important;
+}
+
+/* Thin vertical divider separating the provider logo half and the
+   subreddit half within the single pill-shaped group. */
+#ri-inline-vue-host .ri-nav-subreddit-chip--divider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--ri-border-1, #2a2a2a);
+  pointer-events: none;
 }
 
 #ri-inline-vue-host .ri-nav-menu-btn {

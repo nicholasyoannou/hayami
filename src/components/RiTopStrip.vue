@@ -65,15 +65,10 @@
 
       <div
         v-if="currentProvider === 'reddit'"
-        class="flex items-center gap-[8px] px-[16px] h-[45px] bg-[#0a0a0a] rounded-l-none rounded-br-none rounded-tr-2xl text-[14px] font-semibold text-[#888888] transition-opacity duration-300 relative ri-nav-subreddit-chip"
+        class="flex items-center gap-[8px] px-[16px] h-[45px] bg-[#0f0f0f] rounded-l-none rounded-br-none rounded-tr-2xl text-[14px] font-semibold text-[#888888] transition-opacity duration-300 relative ri-nav-subreddit-chip ri-nav-subreddit-chip--divider"
         :class="{ 'opacity-0 pointer-events-none z-0': menuOpen }"
         :style="{ zIndex: menuOpen ? 0 : 'auto' }"
       >
-        <!-- Byline connector: lighter + smaller so "in r/anime" reads as
-             source-attribution ("in [community]") rather than as part of the
-             label. Kept inline with the existing chip container per user
-             preference. -->
-        <span class="text-[12px] font-normal opacity-70 select-none">in</span>
         <span
           class="flex items-center justify-center w-[28px] h-[28px] rounded-full border border-[#2f2f2f] overflow-hidden flex-shrink-0"
           :style="{ backgroundColor: subredditPrimaryColor || '#1c1c1c' }"
