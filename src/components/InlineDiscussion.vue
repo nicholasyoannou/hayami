@@ -188,12 +188,14 @@ const {
   manualDialogTab, manualEpisodeOptions, manualEpisodeLoading, manualEpisodeError,
   manualEpisodeSelected, manualEpisodeProvider, manualEpisodeContext,
   manualEpisodeResolvedName, manualPreferredMapperResultId, manualPreferredMapperResultName,
+  manualWrongAnimePickedName,
   manualAniwaveIsDub, manualAniwaveEpisodeVariants,
   manualMappingAnimeName, manualMappingLookupAnimeName, manualMappingExists, manualResetInProgress,
   wrongAnimeOpen, wrongAnimeQuery, wrongAnimeResults, wrongAnimeLoading, wrongAnimeError,
   animeCommunityMedia, malManualMedia,
   manualEpisodeProviderLabel, isAniwaveManualMode, hasAniwaveDubOptions, hasAniwaveSubOptions,
-  showAniwaveDubToggle, isAniListEpisodeManualMode, isMalEpisodeManualMode, isEpisodeOnlyManualMode,
+  showAniwaveDubToggle, isAniListEpisodeManualMode, isMalEpisodeManualMode,
+  isYouTubeEpisodeManualMode, isAniListShapedPickerMode, isEpisodeOnlyManualMode,
   selectedEpisodeOffset, redditUrl: rawRedditUrl,
   openManualSearchModal, runManualSearch, loadEpisodeOptions,
   openWrongAnimeForm, searchWrongAnime, selectWrongAnime, setManualDialogTab,
@@ -1812,7 +1814,7 @@ defineExpose({
       <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
           <h3 class="text-lg font-semibold text-white">
-            {{ isAniwaveManualMode ? 'Aniwave episode mapping' : (manualEpisodeProvider === 'animecommunity' ? 'Anime Community episode mapping' : (manualEpisodeProvider === 'anilist' ? 'AniList episode mapping' : (manualEpisodeProvider === 'mal' ? 'MyAnimeList episode mapping' : 'Manual search & episode select'))) }}
+            {{ isAniwaveManualMode ? 'Aniwave episode mapping' : (manualEpisodeProvider === 'animecommunity' ? 'Anime Community episode mapping' : (manualEpisodeProvider === 'anilist' ? 'AniList episode mapping' : (manualEpisodeProvider === 'mal' ? 'MyAnimeList episode mapping' : (manualEpisodeProvider === 'youtube' ? 'YouTube episode mapping' : 'Manual search & episode select')))) }}
           </h3>
           <button
             class="text-[#aaa] hover:text-white"
@@ -1894,8 +1896,8 @@ defineExpose({
           <div class="flex items-center gap-3 rounded-xl border border-[#262626] bg-[#0f0f0f] px-3 py-2.5">
             <div class="min-w-0 flex-1">
               <div class="text-[11px] uppercase tracking-wide text-[#7f8a99]">Series</div>
-              <div class="truncate text-sm font-semibold text-white" :title="manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown'">
-                {{ manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown' }}
+              <div class="truncate text-sm font-semibold text-white" :title="manualWrongAnimePickedName || manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown'">
+                {{ manualWrongAnimePickedName || manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown' }}
               </div>
             </div>
             <button
@@ -1992,7 +1994,7 @@ defineExpose({
           <div>
             <h3 class="text-base font-semibold text-white">Find the correct series</h3>
             <p class="text-[11px] text-[#7f8a99] mt-0.5">
-              {{ isAniListEpisodeManualMode ? 'Searches AniList live as you type.' : (isMalEpisodeManualMode ? 'Searches MyAnimeList live as you type.' : 'Searches the Hayami database live as you type.') }}
+              {{ isAniListShapedPickerMode ? 'Searches AniList live as you type.' : (isMalEpisodeManualMode ? 'Searches MyAnimeList live as you type.' : 'Searches the Hayami database live as you type.') }}
             </p>
           </div>
           <button
@@ -2030,7 +2032,7 @@ defineExpose({
               class="group rounded-lg border border-[#262626] bg-[#0b0b0b] p-3 hover:border-[#2f6feb]/40 transition-colors cursor-pointer"
               @click="selectWrongAnime(item)"
             >
-              <template v-if="isAniListEpisodeManualMode || isMalEpisodeManualMode">
+              <template v-if="isAniListShapedPickerMode || isMalEpisodeManualMode">
                 <div class="flex gap-3">
                   <img
                     v-if="item.coverImage"

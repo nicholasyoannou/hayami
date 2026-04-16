@@ -16,6 +16,11 @@ const props = defineProps<{
   videoTitle: string;
   videoUrl: string;
   initialOrder?: 'relevance' | 'time';
+  wrongAnimeContext?: {
+    animeName?: string;
+    mappingAnimeName?: string;
+    crEpisodeNum?: number;
+  };
 }>();
 
 const emit = defineEmits<{
@@ -146,6 +151,32 @@ watch(() => props.initialOrder, (newOrder) => {
   }
 });
 
+function handleWrongAnimeClick(event: Event) {
+  event.preventDefault();
+  event.stopPropagation();
+  // Match the shape that AniwaveProvider dispatches. `animeInfo.animeName`
+  // MUST be the Crunchyroll storage key (mappingAnimeName), not the mapped
+  // override — otherwise `manualMappingLookupAnimeName` resolves via
+  // `baseAnimeName` to the override and `refreshManualMappingState` misses
+  // the existing mapping. The mapped name is passed via `resolvedAnimeName`
+  // so the modal can seed the picker with the user's prior override.
+  const crName = props.wrongAnimeContext?.mappingAnimeName
+    || props.wrongAnimeContext?.animeName
+    || props.videoTitle;
+  const mappedName = props.wrongAnimeContext?.animeName;
+  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+    detail: {
+      provider: 'youtube',
+      animeInfo: {
+        animeName: crName,
+      },
+      resolvedAnimeName: mappedName && mappedName !== crName ? mappedName : undefined,
+      mappingAnimeName: crName,
+      crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+    },
+  }));
+}
+
 // Expose methods for parent
 defineExpose({
   loadComments,
@@ -162,6 +193,13 @@ defineExpose({
         <a class="ri-link" :href="videoUrl" target="_blank" rel="noopener">
           Open on YouTube
         </a>
+        <button
+          type="button"
+          class="ri-youtube-wrong-anime"
+          @click="handleWrongAnimeClick"
+        >
+          Wrong anime?
+        </button>
       </div>
       <div class="ri-meta">
         <div class="ri-post-actions">
@@ -260,5 +298,20 @@ defineExpose({
 
 .ri-loading-more {
   padding: 1rem 0;
+}
+
+.ri-youtube-wrong-anime {
+  margin-left: 8px;
+  border: none;
+  background: transparent;
+  color: #8cc8ff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0;
+}
+.ri-youtube-wrong-anime:hover {
+  color: #a9d4ff;
 }
 </style>

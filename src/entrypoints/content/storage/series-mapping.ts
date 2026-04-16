@@ -14,6 +14,11 @@ export interface SeriesMapping {
   malId?: number;
   anilistId?: number;
   aniwaveIsDub?: boolean;
+  // Hayami result slug the user explicitly pinned via the Wrong Anime picker.
+  // Needed for Aniwave because Hayami's matched_result can disambiguate to a
+  // different season than the one the user picked (multiple results tied at
+  // priority -1), which otherwise silently reverts the override.
+  aniwaveSlug?: string;
 }
 
 export type { ManualOverrideRecentEntry };

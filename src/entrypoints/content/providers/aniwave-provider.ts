@@ -80,6 +80,7 @@ export class AniwaveProvider extends BaseProvider {
     let mappedAnimeName = animeInfo.animeName;
     let episodeNumber: string | number = rawEpisode;
     let preferDub = false;
+    let preferredSlug: string | null = null;
     this.apiIsDub = null;
 
     try {
@@ -89,6 +90,8 @@ export class AniwaveProvider extends BaseProvider {
         mappedAnimeName = mapperAnimeName;
       }
       preferDub = mapping?.aniwaveIsDub === true;
+      const savedSlug = (mapping?.aniwaveSlug || '').trim();
+      preferredSlug = savedSlug || null;
 
       const rawEpisodeNum = Number(rawEpisode);
       const hasRawEpisode = Number.isFinite(rawEpisodeNum);
@@ -104,7 +107,7 @@ export class AniwaveProvider extends BaseProvider {
     container.innerHTML = this.renderLoading(mappedAnimeName, episodeNumber);
 
     try {
-      const docId = await this.resolveDocId(mappedAnimeName, episodeNumber, preferDub);
+      const docId = await this.resolveDocId(mappedAnimeName, episodeNumber, preferDub, preferredSlug);
       if (!docId) {
         container.innerHTML = this.renderError('Unable to locate Aniwave thread for this episode.');
         return;
@@ -394,6 +397,7 @@ export class AniwaveProvider extends BaseProvider {
     animeName: string,
     episodeNumber: string | number | null,
     preferDub: boolean,
+    preferredSlug?: string | null,
   ): Promise<string | null> {
     try {
       const params = new URLSearchParams({
@@ -406,15 +410,35 @@ export class AniwaveProvider extends BaseProvider {
         return null;
       }
       const data = await resp.json();
-      const matchedTitle = typeof data?.matched_title === 'string' && data.matched_title.trim() ? data.matched_title.trim() : null;
-      if (matchedTitle) {
-        this.apiAnimeName = matchedTitle;
-      }
-      const docId = data?.matched_doc_id || data?.docID || data?.docId || data?.doc_id;
-      if (docId) return String(docId);
-
       const results = Array.isArray(data?.results) ? data.results : [];
-      const primary = results[0];
+
+      // When the user pinned a specific Hayami entry via Wrong Anime, prefer
+      // that slug over the server's matched_result. Hayami can return several
+      // season entries tied at the same priority for ambiguous queries (e.g.
+      // "Ascendance of a Bookworm" returns Part 2 as matched_result), which
+      // would otherwise silently undo the explicit override.
+      const slugPick = preferredSlug
+        ? results.find((r: any) => typeof r?.slug === 'string' && r.slug === preferredSlug) || null
+        : null;
+
+      if (slugPick) {
+        const slugTitle =
+          (typeof slugPick?.matched_title === 'string' && slugPick.matched_title.trim()) ? slugPick.matched_title.trim() :
+          (typeof slugPick?.title === 'string' && slugPick.title.trim()) ? slugPick.title.trim() :
+          null;
+        if (slugTitle) {
+          this.apiAnimeName = slugTitle;
+        }
+      } else {
+        const matchedTitle = typeof data?.matched_title === 'string' && data.matched_title.trim() ? data.matched_title.trim() : null;
+        if (matchedTitle) {
+          this.apiAnimeName = matchedTitle;
+        }
+        const docId = data?.matched_doc_id || data?.docID || data?.docId || data?.doc_id;
+        if (docId) return String(docId);
+      }
+
+      const primary = slugPick || results[0];
       const primaryTitle =
         (typeof primary?.matched_title === 'string' && primary.matched_title.trim()) ? primary.matched_title.trim() :
         (typeof primary?.title === 'string' && primary.title.trim()) ? primary.title.trim() :

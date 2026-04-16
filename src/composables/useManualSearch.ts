@@ -16,7 +16,7 @@ import type { ProviderContext } from '@/entrypoints/content/types/data';
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
-type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'disqus' | 'mal';
+type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'disqus' | 'mal' | 'youtube';
 
 export interface AniListSearchMedia {
   id: number;
@@ -82,6 +82,15 @@ export function useManualSearch(params: {
   const manualEpisodeResolvedName = ref<string | null>(null);
   const manualPreferredMapperResultId = ref<string | null>(null);
   const manualPreferredMapperResultName = ref<string | null>(null);
+  // The anime the user explicitly picked via the Wrong Anime picker. Stays
+  // stable once set — loadEpisodeOptions() and its "best-ranked entry" fallback
+  // must NOT clobber this. Cleared only when the modal (re)opens.
+  const manualWrongAnimePickedName = ref<string | null>(null);
+  // Hayami slug for the aniwave entry explicitly picked via Wrong Anime. Saved
+  // alongside the mapping so the provider can pin that specific entry on the
+  // next Hayami search — without it, Hayami's matched_result ranking can pick a
+  // different season when the query has multiple entries tied at priority -1.
+  const manualPreferredAniwaveSlug = ref<string | null>(null);
 
   const wrongAnimeOpen = ref(false);
   const wrongAnimeQuery = ref('');
@@ -108,6 +117,7 @@ export function useManualSearch(params: {
     if (manualEpisodeProvider.value === 'anilist') return 'AniList';
     if (manualEpisodeProvider.value === 'mal') return 'MyAnimeList';
     if (manualEpisodeProvider.value === 'disqus') return 'Disqus';
+    if (manualEpisodeProvider.value === 'youtube') return 'YouTube';
     return 'Reddit';
   });
 
@@ -131,6 +141,15 @@ export function useManualSearch(params: {
 
   const isMalEpisodeManualMode = computed(() => manualEpisodeProvider.value === 'mal');
 
+  const isYouTubeEpisodeManualMode = computed(() => manualEpisodeProvider.value === 'youtube');
+
+  // YouTube's wrong-anime picker reuses the AniList search UI (covers, episode
+  // counts, romaji/english titles). Grouping it with the AniList-shaped
+  // display lets us share one template branch in the modal.
+  const isAniListShapedPickerMode = computed(
+    () => isAniListEpisodeManualMode.value || isYouTubeEpisodeManualMode.value,
+  );
+
   const isEpisodeOnlyManualMode = computed(() => manualEpisodeProvider.value !== 'reddit');
 
   const selectedEpisodeOffset = computed(() => {
@@ -147,6 +166,7 @@ export function useManualSearch(params: {
     if (provider === 'anilist') return 'anilist';
     if (provider === 'mal') return 'mal';
     if (provider === 'disqus') return 'disqus';
+    if (provider === 'youtube') return 'youtube';
     return 'reddit';
   }
 
@@ -605,9 +625,16 @@ export function useManualSearch(params: {
     }
   }
 
-  function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' {
+  function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube' {
     const provider = manualEpisodeProvider.value;
-    if (provider === 'disqus' || provider === 'aniwave' || provider === 'animecommunity' || provider === 'anilist' || provider === 'mal') {
+    if (
+      provider === 'disqus'
+      || provider === 'aniwave'
+      || provider === 'animecommunity'
+      || provider === 'anilist'
+      || provider === 'mal'
+      || provider === 'youtube'
+    ) {
       return provider;
     }
     return 'reddit';
@@ -678,6 +705,8 @@ export function useManualSearch(params: {
     manualEpisodeResolvedName.value = null;
     manualPreferredMapperResultId.value = null;
     manualPreferredMapperResultName.value = null;
+    manualWrongAnimePickedName.value = null;
+    manualPreferredAniwaveSlug.value = null;
     manualEpisodeProvider.value = resolvedProvider;
     wrongAnimeOpen.value = false;
     wrongAnimeQuery.value = '';
@@ -731,14 +760,25 @@ export function useManualSearch(params: {
     manualEpisodeLoading.value = true;
     manualEpisodeError.value = null;
     manualEpisodeOptions.value = [];
-    manualEpisodeResolvedName.value = null;
+    // If the user already explicitly picked a title via Wrong Anime, keep that
+    // visible in the modal header — don't flash "null" or revert to a mapper
+    // ranking winner below.
+    manualEpisodeResolvedName.value = manualWrongAnimePickedName.value;
     manualAniwaveEpisodeVariants.value = [];
     wrongAnimeError.value = null;
     wrongAnimeResults.value = [];
     try {
       let populatedFromMapper = false;
 
-      if (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist') {
+      if (
+        manualEpisodeProvider.value === 'animecommunity'
+        || manualEpisodeProvider.value === 'anilist'
+        || manualEpisodeProvider.value === 'youtube'
+      ) {
+        // YouTube reuses the AniList search path to discover the correct series
+        // and its episode count. The stored mapping still lives under the
+        // 'youtube' platform; the AniList id is only kept in-modal for the
+        // episode-count lookup and is not saved for YouTube overrides.
         let media = animeCommunityMedia.value;
 
         if (!media && Number.isFinite(Number(manualEpisodeContext.value.anilistId))) {
@@ -756,7 +796,10 @@ export function useManualSearch(params: {
         }
 
         animeCommunityMedia.value = media;
-        manualEpisodeResolvedName.value = media.title;
+        // Respect the user's explicit Wrong-Anime pick when one is set so the
+        // modal keeps showing their choice even if AniList disambiguation
+        // picks a slightly different title.
+        manualEpisodeResolvedName.value = manualWrongAnimePickedName.value || media.title;
         manualEpisodeContext.value.animeName = media.title;
         manualEpisodeContext.value.anilistId = media.id;
         manualEpisodeOptions.value = buildAnimeCommunityEpisodeOptions(media);
@@ -801,7 +844,12 @@ export function useManualSearch(params: {
       }
 
       // Prefer Hayami mapper episodes when we know the anime name.
-      const cleanedSeries = (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist' || manualEpisodeProvider.value === 'mal')
+      const cleanedSeries = (
+        manualEpisodeProvider.value === 'animecommunity'
+        || manualEpisodeProvider.value === 'anilist'
+        || manualEpisodeProvider.value === 'mal'
+        || manualEpisodeProvider.value === 'youtube'
+      )
         ? undefined
         : cleanSeriesForMapper(manualEpisodeContext.value.animeName);
       if (cleanedSeries) {
@@ -873,9 +921,26 @@ export function useManualSearch(params: {
               }
               manualEpisodeOptions.value = options;
               populatedFromMapper = manualEpisodeOptions.value.length > 0;
-              manualEpisodeResolvedName.value = getMapperResultDisplayName(res) || cleanedSeries;
+              // Respect the user's explicit Wrong-Anime pick — don't overwrite
+              // it with the ranking winner's display name (which may be a
+              // different season/entry that just happens to have more episodes).
+              // When no manual pick is set, prefer the picker-rendered name
+              // (romaji/english) over the raw anime_name so the resolved/
+              // preferred strings match what the Wrong-anime picker would
+              // show for this same result.
+              const resMeta = getMapperResultMeta(res);
+              const resPickerName = normalizeMapperDisplayName(resMeta.primaryTitle);
+              const resResolvedName =
+                resPickerName || getMapperResultDisplayName(res);
+              manualEpisodeResolvedName.value =
+                manualWrongAnimePickedName.value
+                || resResolvedName
+                || cleanedSeries;
               manualPreferredMapperResultId.value = String(res?._id ?? res?.id ?? '').trim() || manualPreferredMapperResultId.value;
-              manualPreferredMapperResultName.value = getMapperResultDisplayName(res) || manualPreferredMapperResultName.value;
+              manualPreferredMapperResultName.value =
+                manualWrongAnimePickedName.value
+                || resResolvedName
+                || manualPreferredMapperResultName.value;
               if (populatedFromMapper) {
                 break;
               }
@@ -945,7 +1010,11 @@ export function useManualSearch(params: {
     wrongAnimeError.value = null;
     wrongAnimeResults.value = [];
     try {
-      if (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist') {
+      if (
+        manualEpisodeProvider.value === 'animecommunity'
+        || manualEpisodeProvider.value === 'anilist'
+        || manualEpisodeProvider.value === 'youtube'
+      ) {
         const results = await searchAniListMedia(q);
         wrongAnimeResults.value = results;
         if (results.length === 0) {
@@ -985,11 +1054,19 @@ export function useManualSearch(params: {
   function selectWrongAnime(result: any) {
     if (!result) return;
 
-    if (manualEpisodeProvider.value === 'animecommunity' || manualEpisodeProvider.value === 'anilist') {
+    if (
+      manualEpisodeProvider.value === 'animecommunity'
+      || manualEpisodeProvider.value === 'anilist'
+      || manualEpisodeProvider.value === 'youtube'
+    ) {
       const media = result as AniListSearchMedia;
       animeCommunityMedia.value = media;
       const name = media.title || wrongAnimeQuery.value.trim();
+      manualWrongAnimePickedName.value = name || null;
       manualEpisodeContext.value.animeName = name;
+      // The AniList id is only used to fetch episode counts for the modal.
+      // confirmEpisodeSelection() gates whether it gets persisted — for
+      // 'youtube' it is never written into the saved mapping.
       manualEpisodeContext.value.anilistId = media.id;
       manualEpisodeResolvedName.value = name;
       wrongAnimeOpen.value = false;
@@ -1006,6 +1083,7 @@ export function useManualSearch(params: {
       const media = result as MalSearchMedia;
       malManualMedia.value = media;
       const name = media.title || wrongAnimeQuery.value.trim();
+      manualWrongAnimePickedName.value = name || null;
       manualEpisodeContext.value.animeName = name;
       manualEpisodeContext.value.malId = media.id;
       manualEpisodeResolvedName.value = name;
@@ -1019,12 +1097,34 @@ export function useManualSearch(params: {
       return;
     }
 
-    const name = getMapperResultDisplayName(result) || wrongAnimeQuery.value.trim();
+    // IMPORTANT: pin the SAME string the picker rendered. The picker shows
+    // `getMapperResultMeta(result).primaryTitle` (romaji → english → anime_name
+    // → matched_title), but the legacy save path used `getMapperResultDisplayName`
+    // (anime_name → matched_title → title). Hayami routinely returns entries
+    // where `anime_name` carries a season suffix ("… 2nd Season") while
+    // `romaji_title` is the base name — so the user would pick the row labelled
+    // "Honzuki no Gekokujou" and we'd persist the S2 anime_name into the
+    // mapping, which then drove every subsequent Hayami query to the wrong
+    // season. Prefer the picker-rendered primaryTitle so what's clicked is
+    // what's saved; fall back to the legacy resolution for safety.
+    const meta = getMapperResultMeta(result);
+    const pickerName = normalizeMapperDisplayName(meta.primaryTitle);
+    const name = pickerName || getMapperResultDisplayName(result) || wrongAnimeQuery.value.trim();
     const preferredIdRaw = result?._id ?? result?.id ?? null;
     manualPreferredMapperResultId.value = preferredIdRaw === null || preferredIdRaw === undefined
       ? null
       : String(preferredIdRaw);
     manualPreferredMapperResultName.value = name || null;
+    // Pin the user's explicit pick so neither loadEpisodeOptions nor its
+    // best-ranked-entry fallback can overwrite it before we save.
+    manualWrongAnimePickedName.value = name || null;
+    // Capture the Hayami slug for aniwave picks so the saved mapping can point
+    // the provider at this specific entry — anime name alone is ambiguous when
+    // Hayami returns multiple season entries tied at the same priority.
+    if (manualEpisodeProvider.value === 'aniwave') {
+      const rawSlug = typeof result?.slug === 'string' ? result.slug.trim() : '';
+      manualPreferredAniwaveSlug.value = rawSlug || null;
+    }
     manualEpisodeContext.value.animeName = name;
     manualEpisodeResolvedName.value = name;
     wrongAnimeOpen.value = false;
@@ -1070,7 +1170,15 @@ export function useManualSearch(params: {
   function confirmEpisodeSelection() {
     if (manualEpisodeSelected.value === null) return;
     const chosen = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeSelected.value);
-    const selectedAnimeName = manualEpisodeResolvedName.value || manualEpisodeContext.value.animeName || null;
+    // Prefer the user's explicit Wrong-Anime pick. loadEpisodeOptions can
+    // re-rank mapper entries and silently overwrite manualEpisodeResolvedName
+    // back to a different entry (the "best" one by episode count), which
+    // would cause the save to record the wrong anime name.
+    const selectedAnimeName =
+      manualWrongAnimePickedName.value
+      || manualEpisodeResolvedName.value
+      || manualEpisodeContext.value.animeName
+      || null;
     const provider = manualEpisodeProvider.value;
     try {
       window.dispatchEvent(new CustomEvent('ri-episode-select-override', {
@@ -1080,6 +1188,7 @@ export function useManualSearch(params: {
           provider,
           selectedAnimeName,
           aniwaveIsDub: provider === 'aniwave' ? manualAniwaveIsDub.value : undefined,
+          aniwaveSlug: provider === 'aniwave' ? manualPreferredAniwaveSlug.value || undefined : undefined,
           malId: provider === 'mal' ? malManualMedia.value?.id : undefined,
           anilistId: (provider === 'anilist' || provider === 'animecommunity') ? animeCommunityMedia.value?.id : undefined,
         },
@@ -1393,6 +1502,8 @@ export function useManualSearch(params: {
     manualEpisodeResolvedName,
     manualPreferredMapperResultId,
     manualPreferredMapperResultName,
+    manualWrongAnimePickedName,
+    manualPreferredAniwaveSlug,
     manualAniwaveIsDub,
     manualAniwaveEpisodeVariants,
     manualMappingAnimeName,
@@ -1419,6 +1530,8 @@ export function useManualSearch(params: {
     showAniwaveDubToggle,
     isAniListEpisodeManualMode,
     isMalEpisodeManualMode,
+    isYouTubeEpisodeManualMode,
+    isAniListShapedPickerMode,
     isEpisodeOnlyManualMode,
     selectedEpisodeOffset,
     redditUrl,

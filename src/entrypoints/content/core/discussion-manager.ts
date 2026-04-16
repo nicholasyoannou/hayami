@@ -1507,6 +1507,20 @@ function mountLoadingShell(): void {
     };
 
     const handleShellProviderChange = async (provider: CommentProvider) => {
+      // Re-entry guard: the shell's onProviderChange gets swapped in whenever
+      // `mountLoadingShell` runs during an in-flight provider switch (e.g. the
+      // recovery path in `getExternalCommentsContainer` while `switchTo` is
+      // awaiting a container). If the inline mount subsequently fires
+      // `props.onProviderChange` with the SAME provider that's already active,
+      // re-entering `displayDiscussionDependingOnMode` here loops back into
+      // `displayInlineDiscussion` → `replaceInlineApp` → immediate watcher →
+      // `switchTo` → shell swap → ... ad infinitum. The user-observed
+      // `=== ProviderChangeCallback START ===` cascade on aniwave tab clicks
+      // reproduces exactly that pattern. Bailing on a same-provider call is
+      // safe because there is nothing new to display.
+      if (provider === activeUiProvider && provider === preferredProvider) {
+        return;
+      }
       preferredProvider = provider;
       activeUiProvider = provider;
       const placeholder = buildPlaceholderDiscussion(state().lastAnimeInfo || undefined);
@@ -1867,13 +1881,21 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       });
     }
 
-    if (activeProvider !== 'reddit') {
-      try {
-        providerChangeCallback(activeProvider);
-      } catch (e) {
-        log.warn('Initial provider switch failed', e);
-      }
-    }
+    // Previously we called `providerChangeCallback(activeProvider)` here to
+    // bootstrap the non-reddit provider after mount/replaceInlineApp. That was
+    // redundant — `activeProvider`/`activeUiProvider` are already synced above
+    // (line 1732), `replaceInlineApp` passes `provider: activeProvider` in its
+    // props, and the fresh InlineDiscussion mount's `{ immediate: true }`
+    // watcher over `providerContextRef` (InlineDiscussion.vue ~line 1180)
+    // already invokes `providerHook.changeProvider(prov)` → `switchProvider`
+    // → `provider.switchTo(context)` during setup(). Firing
+    // `providerChangeCallback` on top of that caused the infinite
+    // `=== ProviderChangeCallback START ===` cascade observed when clicking
+    // the aniwave tab on third-party sites: each cycle the in-flight
+    // `switchTo` triggered `mountLoadingShell` (via
+    // `getExternalCommentsContainer`'s recovery path), which swapped
+    // `onProviderChange` on the current mount to `handleShellProviderChange`
+    // and re-entered `displayInlineDiscussion`, re-firing this trigger.
 
     // Use Vue rendering path (legacy DOM rendering removed)
     if (activeProvider === 'reddit') {

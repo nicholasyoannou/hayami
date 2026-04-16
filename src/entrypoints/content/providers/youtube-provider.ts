@@ -9,6 +9,7 @@ import { isYouTubeAuthenticated } from '@/utils/youtubeAuth';
 import { searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { extractEpisodeIdFromUrl, fetchCrunchyrollEpisodeMetadata } from '../mapping';
+import { getSeriesMapping } from '../storage/series-mapping';
 import { createApp } from 'vue';
 import YouTubeCommentList from '@/components/comments/YouTubeCommentList.vue';
 import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
@@ -86,14 +87,35 @@ export class YouTubeProvider extends BaseProvider {
 
       // Extract episode number
       const episodeNumStr = extractEpisodeNumber(animeInfo.episodeName);
-      const episodeNum = episodeNumStr ? parseInt(episodeNumStr, 10) : null;
-      
-      if (!episodeNum) {
+      const rawEpisodeNum = episodeNumStr ? parseInt(episodeNumStr, 10) : null;
+
+      if (!rawEpisodeNum) {
         toast.error('Could not extract episode number', {
           description: 'Unable to determine episode number from episode name.',
         });
         clearLoadingState('YouTube no episode number');
         return;
+      }
+
+      // Apply the user's saved "Wrong anime?" override, if any. The mapping
+      // can redirect the YouTube search to a different series entirely
+      // (mapperAnimeName) and/or offset the episode number (episodeOffset),
+      // which lets viewers correct Hayami misses on a per-series basis.
+      let mappedAnimeName = animeInfo.animeName;
+      let episodeNum = rawEpisodeNum;
+      try {
+        const mapping = animeInfo?.animeName
+          ? await getSeriesMapping(animeInfo.animeName, 'youtube')
+          : null;
+        const overrideName = (mapping?.mapperAnimeName || '').trim();
+        if (overrideName) {
+          mappedAnimeName = overrideName;
+        }
+        if (Number.isFinite(mapping?.episodeOffset as number)) {
+          episodeNum = rawEpisodeNum + Number(mapping!.episodeOffset);
+        }
+      } catch (mappingError) {
+        log.warn('Failed to read YouTube series mapping override:', mappingError);
       }
 
       // Search all YouTube channels via the generic platform
@@ -114,14 +136,22 @@ export class YouTubeProvider extends BaseProvider {
         if (animeInfo.episodeName.includes('Season')) {
           const seasonMatch = animeInfo.episodeName.match(/Season\s*(\d+)/i);
           if (seasonMatch) {
-            seasonTitle = `${animeInfo.animeName} Season ${seasonMatch[1]}`;
+            seasonTitle = `${mappedAnimeName} Season ${seasonMatch[1]}`;
           } else {
-            seasonTitle = `${animeInfo.animeName} Season 1`;
+            seasonTitle = `${mappedAnimeName} Season 1`;
           }
         } else {
-          seasonTitle = `${animeInfo.animeName} Season 1`;
+          seasonTitle = `${mappedAnimeName} Season 1`;
         }
       }
+
+      // Context the "Wrong anime?" button passes to the manual-search modal so
+      // the dispatched event carries the right anime identity + episode #.
+      const wrongAnimeContext = {
+        animeName: mappedAnimeName,
+        mappingAnimeName: animeInfo.animeName,
+        crEpisodeNum: rawEpisodeNum,
+      };
 
       // Check cache first
       if (discussionCache.youtube && (discussionCache.youtube as any).video) {
@@ -150,6 +180,7 @@ export class YouTubeProvider extends BaseProvider {
           videoTitle: cachedVideo.title,
           videoUrl: youtubeUrl,
           initialOrder: currentYouTubeOrder,
+          wrongAnimeContext,
         });
         app.mount(container);
 
@@ -157,9 +188,9 @@ export class YouTubeProvider extends BaseProvider {
         return;
       }
 
-      // Search for YouTube playlist
+      // Search for YouTube playlist using the user's mapped anime name when set.
       const playlist = await searchYouTubePlaylist(
-        animeInfo.animeName,
+        mappedAnimeName,
         seasonTitle,
         platform
       );
@@ -245,6 +276,7 @@ export class YouTubeProvider extends BaseProvider {
         videoTitle: video.title,
         videoUrl: youtubeUrl,
         initialOrder: currentYouTubeOrder,
+        wrongAnimeContext,
       });
       app.mount(commentsSection);
       
@@ -261,15 +293,37 @@ export class YouTubeProvider extends BaseProvider {
   }
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
-    const { discussionCache } = context;
-    
+    const { discussionCache, animeInfo } = context;
+
     const video = discussionCache.youtube && (discussionCache.youtube as any).video as YouTubeVideo;
     if (!video) {
       throw new Error('No YouTube video in cache');
     }
 
     safeClear(container);
-    
+
+    // Rebuild wrongAnimeContext so the manual-search dispatch still has the
+    // same shape when the component is re-mounted from cache.
+    const rawEpisodeNumStr = animeInfo ? extractEpisodeNumber(animeInfo.episodeName) : null;
+    const rawEpisodeNum = rawEpisodeNumStr ? parseInt(rawEpisodeNumStr, 10) : undefined;
+    let mappedAnimeName = animeInfo?.animeName;
+    try {
+      if (animeInfo?.animeName) {
+        const mapping = await getSeriesMapping(animeInfo.animeName, 'youtube');
+        const overrideName = (mapping?.mapperAnimeName || '').trim();
+        if (overrideName) mappedAnimeName = overrideName;
+      }
+    } catch {
+      // Fall back to the CR anime name if the mapping read fails.
+    }
+    const wrongAnimeContext = animeInfo
+      ? {
+          animeName: mappedAnimeName,
+          mappingAnimeName: animeInfo.animeName,
+          crEpisodeNum: Number.isFinite(rawEpisodeNum as number) ? rawEpisodeNum : undefined,
+        }
+      : undefined;
+
     // Mount YouTube comment component
     const youtubeUrl = `https://www.youtube.com/watch?v=${video.video_id}`;
     const app = createApp(YouTubeCommentList, {
@@ -277,6 +331,7 @@ export class YouTubeProvider extends BaseProvider {
       videoTitle: video.title,
       videoUrl: youtubeUrl,
       initialOrder: currentYouTubeOrder,
+      wrongAnimeContext,
     });
     app.mount(container);
   }

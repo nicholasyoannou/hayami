@@ -339,7 +339,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       const selectedEpisode = Number(ev?.detail?.episodeNumber);
       const redditUrl = ev?.detail?.redditUrl as string | undefined;
       const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
-      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist' || providerFromEvent === 'mal')
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist' || providerFromEvent === 'mal' || providerFromEvent === 'youtube')
         ? providerFromEvent
         : 'reddit';
       const selectedAnimeName = typeof ev?.detail?.selectedAnimeName === 'string'
@@ -348,6 +348,9 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       const aniwaveIsDub = ev?.detail?.aniwaveIsDub === true;
       const eventMalId = typeof ev?.detail?.malId === 'number' && Number.isFinite(ev.detail.malId) ? ev.detail.malId : undefined;
       const eventAnilistId = typeof ev?.detail?.anilistId === 'number' && Number.isFinite(ev.detail.anilistId) ? ev.detail.anilistId : undefined;
+      const eventAniwaveSlug = typeof ev?.detail?.aniwaveSlug === 'string' && ev.detail.aniwaveSlug.trim()
+        ? ev.detail.aniwaveSlug.trim()
+        : undefined;
       if (!Number.isFinite(selectedEpisode)) return;
 
       const metadataEpisode = await resolveCurrentCrunchyrollEpisodeForOffset();
@@ -362,13 +365,25 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
       if (getState().lastAnimeInfo?.animeName) {
         const offset = selectedEpisode - currentEp;
-        await saveSeriesMapping(getState().lastAnimeInfo!.animeName, {
+        const mappingPayload: Parameters<typeof saveSeriesMapping>[1] = {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
           malId: mappingPlatform === 'mal' ? eventMalId : undefined,
           anilistId: (mappingPlatform === 'anilist' || mappingPlatform === 'animecommunity') ? eventAnilistId : undefined,
           aniwaveIsDub: mappingPlatform === 'aniwave' ? aniwaveIsDub : undefined,
-        }, mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal');
+        };
+        // Only write aniwaveSlug when the user actually picked a mapper entry
+        // via Wrong Anime. Omitting the key (rather than writing undefined)
+        // lets saveSeriesMapping's spread merge preserve any existing slug
+        // when the user is only adjusting the episode offset.
+        if (mappingPlatform === 'aniwave' && eventAniwaveSlug) {
+          mappingPayload.aniwaveSlug = eventAniwaveSlug;
+        }
+        await saveSeriesMapping(
+          getState().lastAnimeInfo!.animeName,
+          mappingPayload,
+          mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube',
+        );
         toast.success(`Saved episode mapping: current=${currentEp}, ${mappingPlatform}=${selectedEpisode} (offset ${offset >= 0 ? '+' : ''}${offset})`);
       } else {
         toast.error('Could not determine current episode to save mapping');
@@ -379,10 +394,16 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         if (postData) {
           await displayDiscussionDependingOnMode(postData);
         }
-      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity' || mappingPlatform === 'disqus' || mappingPlatform === 'anilist' || mappingPlatform === 'mal') && getState().lastAnimeInfo) {
+      } else if ((mappingPlatform === 'aniwave' || mappingPlatform === 'animecommunity' || mappingPlatform === 'disqus' || mappingPlatform === 'anilist' || mappingPlatform === 'mal' || mappingPlatform === 'youtube') && getState().lastAnimeInfo) {
         // Re-run resolution immediately so the newly saved mapping takes effect.
+        // Clear the cached YouTube playlist/video so the provider re-queries
+        // Hayami with the freshly-saved mapperAnimeName instead of reusing
+        // the cached match for the previous anime.
+        if (mappingPlatform === 'youtube') {
+          getState().discussionCache.youtube = undefined;
+        }
         await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
-          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal',
+          forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal' | 'youtube',
           allowConcurrent: true,
         });
       }
@@ -395,7 +416,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
   ctx.addEventListener(window, 'ri-reset-episode-mapping', async (ev: any) => {
     try {
       const providerFromEvent = String(ev?.detail?.provider || '').toLowerCase();
-      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist' || providerFromEvent === 'mal')
+      const mappingPlatform = (providerFromEvent === 'aniwave' || providerFromEvent === 'disqus' || providerFromEvent === 'animecommunity' || providerFromEvent === 'anilist' || providerFromEvent === 'mal' || providerFromEvent === 'youtube')
         ? providerFromEvent
         : 'reddit';
 
@@ -407,7 +428,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
       const removed = await deleteSeriesMapping(
         animeName,
-        mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal',
+        mappingPlatform as 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube',
       );
 
       if (!removed) {
@@ -421,8 +442,14 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         if (mappingPlatform === 'reddit') {
           await searchAndDisplayDiscussion(getState().lastAnimeInfo!, { allowConcurrent: true });
         } else {
+          // Reset should flush the YouTube cache so the post-reset re-query
+          // re-discovers the default Hayami match instead of reusing the
+          // overridden series's cached playlist.
+          if (mappingPlatform === 'youtube') {
+            getState().discussionCache.youtube = undefined;
+          }
           await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
-            forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal',
+            forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal' | 'youtube',
             allowConcurrent: true,
           });
         }
