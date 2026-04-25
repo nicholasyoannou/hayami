@@ -246,7 +246,7 @@ export interface MapperFailoverOut {
 
 export async function tryMapperFailover(
   animeInfo: AnimeInfo,
-  platform: 'reddit' | 'disqus' = 'reddit',
+  platform: 'reddit' = 'reddit',
   episodeOverride?: number | null,
   out?: MapperFailoverOut,
 ): Promise<string | null> {
@@ -575,7 +575,6 @@ export async function tryMapperFailover(
 
       let mapperUrl: string | null = null;
       let movieFallbackUrl: string | null = null;
-      const isDisqus = platform === 'disqus';
       const keyedCandidates: Array<{ idx: number; url: string; year: number | null; seriesScore: number }> = [];
 
       const sourceAnimeName = String(animeInfo?.animeName || '').trim();
@@ -636,7 +635,7 @@ export async function tryMapperFailover(
             }
           }
           // No specific episode parsed; fall back to first available episode URL.
-          if (!mapperUrl && !(isDisqus && desiredKeys.size > 0)) {
+          if (!mapperUrl) {
             const firstKey = Object.keys(eps)[0];
             if (firstKey && eps[firstKey]) {
               log.log(`Lightweight match via first episode (idx=${idx}, key=${firstKey})`);
@@ -799,30 +798,17 @@ export async function tryMapperFailover(
       cacheAnimeIds(animeInfo.animeName, crMalSyncMalId, crMalSyncAnilistId).catch(() => {});
     }
 
-    let mapperResult: MapperResponse | null = null;
-    if (platform === 'disqus') {
-      log.log(' Querying mapper service with series_name only (disqus)...');
-      mapperResult = await fetchAnimeMapperDataBySeriesName(seriesTitle, platform, {
-        preserveSeasonSuffix: false,
+    log.log(' Querying mapper service with series_name and season_title...');
+    let mapperResult: MapperResponse | null = await fetchAnimeMapperDataBySeriesAndSeason(
+      seriesTitle,
+      seasonTitle,
+      platform,
+      {
         episodeDate: episodeDateForMapper,
         malId: crMalSyncMalId,
         anilistId: crMalSyncAnilistId,
-      });
-      if (mapperResult?.results?.length) {
-        log.log(' Using series-name-only results for disqus:', mapperResult.results.length, 'results');
-      } else {
-        log.log(' No series-name-only results for disqus, trying with season_title...');
-        mapperResult = null;
-      }
-    }
-    if (!mapperResult) {
-      log.log(' Querying mapper service with series_name and season_title...');
-      mapperResult = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, platform, {
-        episodeDate: episodeDateForMapper,
-        malId: crMalSyncMalId,
-        anilistId: crMalSyncAnilistId,
-      });
-    }
+      },
+    );
     log.log(' Mapper service response:', mapperResult);
     if (!mapperResult?.results?.length) {
       // Initial mapper query failed — now it's worth waiting for the full MAL-Sync
@@ -1378,7 +1364,25 @@ export async function tryMapperFailover(
       seasonEpisode = mapEpisodeWithSeasonsData(crEpisodeNumber, sequenceNumber, seasonNumForSlice, seasonsData, matchedSeason, results, matchedIndex);
       const overranCrSeason = currentCrSeasonEpisodes > 0 && (crEpisodeNumber ?? 0) > currentCrSeasonEpisodes;
       const overranMatchedSeason = crEpisodeNumber > Object.keys(matchedSeason?.episodes || {}).length;
-      if (forcedSeasonEpisode !== null && seasonEpisode !== null && (overranCrSeason || overranMatchedSeason)) {
+      // Guard: if the computed seasonEpisode is an actual key in the matched
+      // season's episodes map (including the zero-padded form), trust it over
+      // the slice-derived fallback. This handles sparse mapper data where a
+      // late episode is already mapped but earlier ones aren't yet — e.g.,
+      // mapper has {"3": "..."} for a 3-episode season; crEpisodeNumber=3
+      // triggers overranMatchedSeason (3 > 1 key) but key "3" exists, so we
+      // must not override with forcedSeasonEpisode=1.
+      const episodesMap = (matchedSeason?.episodes || {}) as Record<string, string>;
+      const seasonEpKey = seasonEpisode !== null ? String(seasonEpisode) : null;
+      const seasonEpKeyPadded = seasonEpKey ? seasonEpKey.padStart(2, '0') : null;
+      const seasonEpisodeDirectlyMapped =
+        seasonEpKey !== null &&
+        (seasonEpKey in episodesMap || (seasonEpKeyPadded !== null && seasonEpKeyPadded in episodesMap));
+      if (
+        forcedSeasonEpisode !== null &&
+        seasonEpisode !== null &&
+        (overranCrSeason || overranMatchedSeason) &&
+        !seasonEpisodeDirectlyMapped
+      ) {
         log.log(' Preferring slice-derived episode due to CR overrun', {
           seasonEpisode,
           forcedSeasonEpisode,
@@ -1388,6 +1392,17 @@ export async function tryMapperFailover(
           matchedSeasonCount: Object.keys(matchedSeason?.episodes || {}).length,
         });
         seasonEpisode = forcedSeasonEpisode;
+      } else if (
+        forcedSeasonEpisode !== null &&
+        seasonEpisode !== null &&
+        (overranCrSeason || overranMatchedSeason) &&
+        seasonEpisodeDirectlyMapped
+      ) {
+        log.log(' Skipping CR-overrun slice override; matched season has direct key for episode', {
+          seasonEpisode,
+          forcedSeasonEpisode,
+          matchedSeasonKeys: Object.keys(episodesMap),
+        });
       }
       if (seasonEpisode === null && forcedSeasonEpisode !== null) {
         seasonEpisode = forcedSeasonEpisode;

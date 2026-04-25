@@ -16,7 +16,7 @@ import type { ProviderContext } from '@/entrypoints/content/types/data';
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
-type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'disqus' | 'mal' | 'youtube';
+type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube';
 
 export interface AniListSearchMedia {
   id: number;
@@ -116,7 +116,6 @@ export function useManualSearch(params: {
     if (manualEpisodeProvider.value === 'animecommunity') return 'Anime Community';
     if (manualEpisodeProvider.value === 'anilist') return 'AniList';
     if (manualEpisodeProvider.value === 'mal') return 'MyAnimeList';
-    if (manualEpisodeProvider.value === 'disqus') return 'Disqus';
     if (manualEpisodeProvider.value === 'youtube') return 'YouTube';
     return 'Reddit';
   });
@@ -165,7 +164,6 @@ export function useManualSearch(params: {
     if (provider === 'animecommunity') return 'animecommunity';
     if (provider === 'anilist') return 'anilist';
     if (provider === 'mal') return 'mal';
-    if (provider === 'disqus') return 'disqus';
     if (provider === 'youtube') return 'youtube';
     return 'reddit';
   }
@@ -625,11 +623,10 @@ export function useManualSearch(params: {
     }
   }
 
-  function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube' {
+  function getManualMappingPlatform(): 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube' {
     const provider = manualEpisodeProvider.value;
     if (
-      provider === 'disqus'
-      || provider === 'aniwave'
+      provider === 'aniwave'
       || provider === 'animecommunity'
       || provider === 'anilist'
       || provider === 'mal'
@@ -853,11 +850,7 @@ export function useManualSearch(params: {
         ? undefined
         : cleanSeriesForMapper(manualEpisodeContext.value.animeName);
       if (cleanedSeries) {
-        const mapperPlatform = manualEpisodeProvider.value === 'aniwave'
-          ? 'aniwave'
-          : manualEpisodeProvider.value === 'disqus'
-            ? 'disqus'
-            : 'reddit';
+        const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
         const mapper = await fetchAnimeMapperDataBySeriesName(cleanedSeries, mapperPlatform);
         if (mapper && Array.isArray((mapper as any).results) && (mapper as any).results.length > 0) {
           const results: any[] = (mapper as any).results;
@@ -969,11 +962,6 @@ export function useManualSearch(params: {
         return;
       }
 
-      if (!populatedFromMapper && manualEpisodeProvider.value === 'disqus') {
-        manualEpisodeError.value = 'No Disqus episode map found for this title.';
-        return;
-      }
-
       if (manualEpisodeContext.value.crEpisodeNum && manualEpisodeSelected.value === null) {
         const candidate = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeContext.value.crEpisodeNum);
         manualEpisodeSelected.value = candidate ? candidate.episode : manualEpisodeOptions.value[0]?.episode ?? null;
@@ -1033,11 +1021,7 @@ export function useManualSearch(params: {
       }
 
       const cleaned = cleanSeriesForMapper(q) || q;
-      const mapperPlatform = manualEpisodeProvider.value === 'aniwave'
-        ? 'aniwave'
-        : manualEpisodeProvider.value === 'disqus'
-          ? 'disqus'
-          : 'reddit';
+      const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
       const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, mapperPlatform);
       const results: any[] = (mapper as any)?.results || [];
       wrongAnimeResults.value = Array.isArray(results) ? results : [];
@@ -1264,7 +1248,7 @@ export function useManualSearch(params: {
         ? Number(crEpisodeNum)
         : parseEpisodeNumber(info?.episodeName || null);
 
-      if (!baseAnimeName || !(providerForMapping === 'reddit' || providerForMapping === 'disqus' || providerForMapping === 'aniwave')) {
+      if (!baseAnimeName || !(providerForMapping === 'reddit' || providerForMapping === 'aniwave')) {
         return { crEpisodeNum: inferredEpisode };
       }
 

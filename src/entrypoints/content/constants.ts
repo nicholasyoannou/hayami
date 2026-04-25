@@ -5,7 +5,7 @@
 // ==================== API & URLs ====================
 
 export const REDDIT_BASE_URL = 'https://www.reddit.com';
-export const DISQUS_FORUM_SHORTNAME = 'channel-discussanime';
+export const DISQUS_FORUM_SHORTNAME = 'discussanime';
 export const YOUTUBE_BASE_URL = 'https://www.youtube.com';
 
 // ==================== Timeouts & Delays ====================

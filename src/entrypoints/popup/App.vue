@@ -62,6 +62,8 @@ import {
   aniwaveAutoExpandAllItem,
   aniwaveAutoExpandDepthItem,
   aniwaveHideReplyContextItem,
+  disqusImageResizeEnabledItem,
+  disqusImageMaxWidthItem,
   seriesMappingItem,
   seriesAnimeIdsItem,
   customSiteMappingsItem,
@@ -145,6 +147,8 @@ type SettingValueMap = {
   aniwaveAutoExpandAll: boolean;
   aniwaveAutoExpandDepth: number;
   aniwaveHideReplyContext: boolean;
+  disqusImageResizeEnabled: boolean;
+  disqusImageMaxWidth: number;
   malSyncEnabled: boolean;
   malWrongAnimeTitleFormat: WrongAnimeTitleFormatOption;
   anilistWrongAnimeTitleFormat: WrongAnimeTitleFormatOption;
@@ -702,6 +706,44 @@ const settingDefinitions: SettingDefinition[] = [
     advanced: true,
   },
   {
+    key: 'disqusImageResizeEnabled',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'disqus',
+    label: 'Custom image size',
+    description: 'Resize embedded images in Disqus comments. Useful on ultrawide monitors or narrow split-view layouts. Avatars are unaffected.',
+    fallback: false,
+    load: async () => Boolean(await disqusImageResizeEnabledItem.getValue()),
+    save: (value) => disqusImageResizeEnabledItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Custom image size enabled' : 'Custom image size disabled'),
+    errorMessage: 'Failed to save custom image size setting',
+  },
+  {
+    key: 'disqusImageMaxWidth',
+    type: 'slider',
+    category: 'provider',
+    providerId: 'disqus',
+    label: 'Max image width',
+    description: 'Cap the rendered width of inline images in Disqus comments.',
+    min: 150,
+    max: 1500,
+    step: 50,
+    formatValue: (value) => `${Math.max(150, Math.min(1500, Math.round(Number(value) || 600)))}px`,
+    fallback: 600,
+    load: async () => {
+      const raw = await disqusImageMaxWidthItem.getValue();
+      const num = Math.round(Number(raw));
+      if (!Number.isFinite(num)) return 600;
+      return Math.max(150, Math.min(1500, num));
+    },
+    save: (value) => {
+      const num = Math.max(150, Math.min(1500, Math.round(Number(value) || 600)));
+      return disqusImageMaxWidthItem.setValue(num);
+    },
+    successMessage: (value) => `Max image width set to ${value}px`,
+    errorMessage: 'Failed to save max image width',
+  },
+  {
     key: 'aniwaveAutoExpandAll',
     type: 'toggle',
     category: 'provider',
@@ -920,6 +962,8 @@ const settingValues = reactive<SettingValueMap>({
   aniwaveAutoExpandAll: true,
   aniwaveAutoExpandDepth: 3,
   aniwaveHideReplyContext: false,
+  disqusImageResizeEnabled: false,
+  disqusImageMaxWidth: 600,
   malSyncEnabled: false,
   malWrongAnimeTitleFormat: 'romaji',
   anilistWrongAnimeTitleFormat: 'romaji',
@@ -1395,6 +1439,9 @@ function isSettingVisible(setting: SettingDefinition) {
   }
   if (setting.key === 'redditKeyboardShortcuts') {
     return settingValues.redditCommentLayout === 'compact' || settingValues.redditCommentLayout === 'classic';
+  }
+  if (setting.key === 'disqusImageMaxWidth') {
+    return Boolean(settingValues.disqusImageResizeEnabled);
   }
   return true;
 }

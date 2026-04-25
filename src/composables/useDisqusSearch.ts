@@ -4,7 +4,7 @@
  */
 
 import { ref, computed } from 'vue';
-import { searchThreadsForAnime } from '@/utils/disqusApi';
+import { searchThreads } from '@/utils/discussanimeApi';
 import { con } from '@/utils/logger';
 
 const log = con.m('DisqusSearch');
@@ -16,8 +16,14 @@ export function useDisqusSearch() {
   const disqusSearchError = ref<string | null>(null);
   const disqusSearchAnimeInfo = ref<any | null>(null);
   const disqusSearchFilter = ref('');
+  // True after the user has triggered a server-side search by typing a query.
+  // When set, results are already scoped to the query so client-side filtering
+  // would incorrectly narrow them further (e.g. a thread titled "Episode 5"
+  // wouldn't survive a client filter for the anime name).
+  const disqusIsUserSearch = ref(false);
 
   const filteredDisqusSearchResults = computed(() => {
+    if (disqusIsUserSearch.value) return disqusSearchResults.value;
     const q = disqusSearchFilter.value.trim().toLowerCase();
     if (!q) return disqusSearchResults.value;
     return disqusSearchResults.value.filter((item) => {
@@ -32,13 +38,32 @@ export function useDisqusSearch() {
     disqusSearchLoading.value = true;
     disqusSearchError.value = null;
     try {
-      const results = await searchThreadsForAnime(disqusSearchAnimeInfo.value);
-      disqusSearchResults.value = Array.isArray(results) ? results : [];
-      if (disqusSearchResults.value.length === 0) {
-        disqusSearchError.value = 'No Disqus threads found. Try again later or pick Reddit/YouTube.';
+      const filterText = disqusSearchFilter.value.trim();
+      const info = disqusSearchAnimeInfo.value;
+
+      let results: any[];
+      if (filterText) {
+        // User typed a query — free-text search across all threads on discussanime.moe,
+        // not restricted to the currently detected anime.
+        disqusIsUserSearch.value = true;
+        results = await searchThreads({ query: filterText });
+        if (!results.length) {
+          disqusSearchError.value = 'No threads found for your search.';
+        }
+      } else {
+        // Initial load — fetch threads for the detected anime by MAL id (or name fallback).
+        disqusIsUserSearch.value = false;
+        results = await searchThreads({
+          malId: info?.malId ?? null,
+          query: info?.malId ? undefined : info?.animeName || '',
+        });
+        if (!results.length) {
+          disqusSearchError.value = 'No threads found on Discuss Anime for this series.';
+        }
       }
+      disqusSearchResults.value = Array.isArray(results) ? results : [];
     } catch (e: any) {
-      disqusSearchError.value = e?.message || 'Failed to load Disqus threads.';
+      disqusSearchError.value = e?.message || 'Failed to load Discuss Anime threads.';
     } finally {
       disqusSearchLoading.value = false;
     }
@@ -50,6 +75,7 @@ export function useDisqusSearch() {
     disqusSearchResults.value = [];
     disqusSearchError.value = null;
     disqusSearchFilter.value = '';
+    disqusIsUserSearch.value = false;
     runDisqusSearch();
   }
 

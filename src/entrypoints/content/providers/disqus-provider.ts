@@ -1,14 +1,20 @@
 /**
- * Disqus comment provider implementation
+ * Disqus comment provider.
+ *
+ * Resolves the active episode to a thread on our self-hosted
+ * discussanime.moe forum (MAL id + episode → `thread-{id}` identifier)
+ * and mounts the standard Disqus embed against it. The old path of
+ * scraping Disqus's public `search/threads` API for a channel is gone —
+ * we own the data now, so we just ask our own site.
  */
 
 import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext, DisqusThread } from '../types/data';
 import type { AnimeInfo } from '../types';
-import { findThreadForAnime, findThreadByLink } from '@/utils/disqusApi';
+import { lookupThread } from '@/utils/discussanimeApi';
 import { renderDisqusContainer } from '../templates';
-import { 
-  CONTAINER_RETRY_ATTEMPTS, 
+import {
+  CONTAINER_RETRY_ATTEMPTS,
   CONTAINER_RETRY_DELAY_MS,
   DISQUS_FORUM_SHORTNAME,
   ASSETS,
@@ -16,8 +22,7 @@ import {
 } from '../constants';
 import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { handleProviderError } from '../utils/error-handler';
-import { getSeriesMapping, parseEpisodeFromTitle, tryMapperFailover, fetchAnimeMapperDataBySeriesName, resolveAdapter } from '../mapping';
-import { getCachedAnimeIds } from '@/utils/animeIdResolver';
+import { getSeriesMapping, parseEpisodeFromTitle, tryMapperFailover, type MapperFailoverOut } from '../mapping';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
@@ -47,11 +52,11 @@ function waitForDisqusLoad(container: HTMLElement, callback: () => void): void {
     }
 
     // Check for Disqus-specific elements
-    const hasDisqusContent = disqusThread.children.length > 0 || 
+    const hasDisqusContent = disqusThread.children.length > 0 ||
                              disqusThread.querySelector('[id*="disqus"]') !== null ||
                              disqusThread.querySelector('[class*="disqus"]') !== null ||
                              disqusThread.innerHTML.trim().length > 0;
-    
+
     return hasDisqusContent;
   };
 
@@ -104,31 +109,6 @@ function waitForDisqusLoad(container: HTMLElement, callback: () => void): void {
   }, 12000);
 }
 
-/**
- * Builds a Disqus thread object from a URL
- */
-function buildDisqusThreadFromUrl(threadUrl: string): DisqusThread | undefined {
-  if (!threadUrl) return undefined;
-  const safeUrl = threadUrl.trim();
-  let slug = '';
-  try {
-    slug = new URL(safeUrl).pathname.split('/').filter(Boolean).pop() || '';
-  } catch {
-    slug = safeUrl.split('/').filter(Boolean).pop() || '';
-  }
-  const identifier = slug || safeUrl;
-
-  return {
-    title: '',
-    clean_title: '',
-    link: safeUrl,
-    id: identifier,
-    identifier,
-    forum: DISQUS_FORUM_SHORTNAME,
-    slug,
-  };
-}
-
 function logThreadSnapshot(label: string, thread: DisqusThread | null | undefined): void {
   if (!thread) {
     log.log(`${label} thread=<null>`);
@@ -143,153 +123,6 @@ function logThreadSnapshot(label: string, thread: DisqusThread | null | undefine
     slug: thread.slug,
     forum: thread.forum,
   });
-}
-
-function hasResolvedTitle(thread: DisqusThread | null | undefined): boolean {
-  if (!thread) return false;
-  return !!(String(thread.clean_title || '').trim() || String(thread.title || '').trim());
-}
-
-function normalizeMapperText(value: unknown): string {
-  if (typeof value !== 'string') return '';
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function asNumber(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
-  return null;
-}
-
-function entryEpisodeCount(entry: any): number {
-  if (!entry?.episodes || typeof entry.episodes !== 'object') return 0;
-  return Object.keys(entry.episodes).length;
-}
-
-function mergeEpisodeMaps(...episodeSources: Array<Record<string, string> | null | undefined>): Record<string, string> {
-  const merged: Record<string, string> = {};
-  for (const source of episodeSources) {
-    if (!source || typeof source !== 'object') continue;
-    for (const [key, value] of Object.entries(source)) {
-      if (typeof value !== 'string' || !value) continue;
-      merged[key] = value;
-    }
-  }
-  return merged;
-}
-
-function disqusEntryIdentity(entry: any): string {
-  const name = normalizeMapperText(entry?.anime_name || entry?.title || entry?.name || '');
-  const year = String(entry?.year ?? '').trim();
-  const mal = asNumber(entry?.external_sites?.mal_id);
-  const anilist = asNumber(entry?.external_sites?.anilist_id);
-  return `${name}::${year}::mal:${mal ?? 'x'}::anilist:${anilist ?? 'x'}`;
-}
-
-function collapseDuplicateDisqusEntries(results: any[]): any[] {
-  if (!Array.isArray(results) || results.length <= 1) return Array.isArray(results) ? results : [];
-
-  const byIdentity = new Map<string, any>();
-
-  for (const rawEntry of results) {
-    if (!rawEntry || typeof rawEntry !== 'object') continue;
-    const key = disqusEntryIdentity(rawEntry);
-    const existing = byIdentity.get(key);
-
-    if (!existing) {
-      byIdentity.set(key, {
-        ...rawEntry,
-        episodes: mergeEpisodeMaps(rawEntry?.episodes as Record<string, string> | undefined),
-      });
-      continue;
-    }
-
-    const existingTs = Date.parse(String(existing?.last_updated || ''));
-    const candidateTs = Date.parse(String(rawEntry?.last_updated || ''));
-    const preferIncomingMeta = Number.isFinite(candidateTs) && (!Number.isFinite(existingTs) || candidateTs > existingTs);
-
-    byIdentity.set(key, {
-      ...(preferIncomingMeta ? rawEntry : existing),
-      episodes: mergeEpisodeMaps(existing?.episodes, rawEntry?.episodes),
-    });
-  }
-
-  return [...byIdentity.values()];
-}
-
-function entryHasEpisode(entry: any, epNum: number): boolean {
-  if (!entry?.episodes || typeof entry.episodes !== 'object') return false;
-  return !!(entry.episodes[String(epNum)] || entry.episodes[epNum]);
-}
-
-function scoreDisqusMapperEntry(entry: any, animeInfo: AnimeInfo, epNum: number): number {
-  let score = 0;
-
-  const targetMal = asNumber(animeInfo?.malId);
-  const targetAni = asNumber(animeInfo?.anilistId);
-  const entryMal = asNumber(entry?.external_sites?.mal_id);
-  const entryAni = asNumber(entry?.external_sites?.anilist_id);
-
-  if (targetMal !== null) {
-    score += entryMal === targetMal ? 1200 : -900;
-  }
-  if (targetAni !== null) {
-    score += entryAni === targetAni ? 1200 : -900;
-  }
-
-  if (entryHasEpisode(entry, epNum)) {
-    score += 1000;
-  }
-
-  const targetName = normalizeMapperText(animeInfo?.animeName || '');
-  const entryName = normalizeMapperText(entry?.anime_name || entry?.title || entry?.name || '');
-  if (targetName && entryName) {
-    if (targetName === entryName) {
-      score += 500;
-    } else if (entryName.includes(targetName) || targetName.includes(entryName)) {
-      score += 250;
-    }
-  }
-
-  // Prefer entries with broader episode coverage when duplicates exist.
-  score += Math.min(entryEpisodeCount(entry), 400);
-
-  const ts = Date.parse(String(entry?.last_updated || ''));
-  if (Number.isFinite(ts)) {
-    score += Math.floor(ts / 86400000); // day-level tie-breaker
-  }
-
-  return score;
-}
-
-function rankDisqusMapperEntries(results: any[], animeInfo: AnimeInfo, epNum: number): any[] {
-  const collapsed = collapseDuplicateDisqusEntries(results);
-  if (collapsed.length !== results.length) {
-    log.log('collapsed duplicate mapper entries', {
-      originalCount: results.length,
-      collapsedCount: collapsed.length,
-    });
-  }
-
-  const ranked = collapsed
-    .map((entry, idx) => ({ entry, idx, score: scoreDisqusMapperEntry(entry, animeInfo, epNum) }))
-    .sort((a, b) => b.score - a.score || b.idx - a.idx);
-
-  if (ranked.length > 0) {
-    log.log('ranked candidates', ranked.slice(0, 3).map((r) => ({
-      idx: r.idx,
-      score: r.score,
-      anime_name: r.entry?.anime_name,
-      episodeCount: entryEpisodeCount(r.entry),
-      last_updated: r.entry?.last_updated,
-    })));
-  }
-
-  return ranked.map((r) => r.entry);
 }
 
 async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
@@ -325,13 +158,10 @@ async function renderDisqusThread(
 
   const title = thread.clean_title || thread.title || 'Discussion';
   const threadUrl = thread.link || '';
-  const identifier = String(thread.id || thread.identifier || '');
-  // Disqus API returns forum as an object ref (e.g., "forums.Forum?id=7544809"), not the shortname host.
-  // Force the known channel shortname unless the value already looks like a host.
-  const forumShortname = (typeof thread.forum === 'string' && !thread.forum.startsWith('forums.Forum'))
+  const identifier = String(thread.identifier || thread.id || '');
+  const forumShortname = typeof thread.forum === 'string' && thread.forum
     ? thread.forum
     : DISQUS_FORUM_SHORTNAME;
-  const threadSlug = thread.slug || threadUrl.split('/').filter(Boolean).pop() || '';
 
   log.log('resolved title payload', {
     selectedTitle: title,
@@ -341,7 +171,6 @@ async function renderDisqusThread(
     animeEpisodeName: animeInfo?.episodeName,
     threadUrl,
     identifier,
-    threadSlug,
     forumShortname,
   });
 
@@ -374,13 +203,8 @@ async function renderDisqusThread(
     wrongAnimeBtn.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const crEpisodeNum = parseEpisodeFromTitle(animeInfo?.episodeName || '') ?? undefined;
-      window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-        detail: {
-          provider: 'disqus',
-          animeInfo,
-          crEpisodeNum,
-        },
+      window.dispatchEvent(new CustomEvent('ri-disqus-search-requested', {
+        detail: { animeInfo },
       }));
     };
   }
@@ -393,7 +217,6 @@ async function renderDisqusThread(
   script.setAttribute('data-identifier', identifier);
   script.setAttribute('data-forum', forumShortname);
   script.setAttribute('data-title', title);
-  script.setAttribute('data-slug', threadSlug);
   script.setAttribute('data-target-token', renderToken);
   script.setAttribute('data-ri-disqus-loader', 'true');
   (document.head || document.body).appendChild(script);
@@ -410,13 +233,15 @@ export class DisqusProvider extends BaseProvider {
   async switchTo(context: ProviderContext): Promise<void> {
     const { animeInfo, discussionCache, clearLoadingState, getExternalCommentsContainer } = context;
     const cacheKey = buildDisqusCacheKey(animeInfo);
-    
+
     this.validateAnimeInfo(animeInfo);
 
     log.log('start', {
       animeName: animeInfo?.animeName,
       episodeName: animeInfo?.episodeName,
       releaseDate: animeInfo?.releaseDate,
+      malId: animeInfo?.malId,
+      anilistId: animeInfo?.anilistId,
       cacheKey,
       hasCachedThread: !!discussionCache.disqus?.thread,
       cachedAnimeKey: discussionCache.disqus?.animeKey,
@@ -424,7 +249,6 @@ export class DisqusProvider extends BaseProvider {
 
     // Check cache first
     if (discussionCache.disqus?.thread) {
-      // Drop stale cache when switching series/episodes
       if (cacheKey && discussionCache.disqus.animeKey && discussionCache.disqus.animeKey !== cacheKey) {
         log.log('dropping stale cache', {
           cacheKey,
@@ -432,117 +256,67 @@ export class DisqusProvider extends BaseProvider {
         });
         discussionCache.disqus = undefined;
       } else {
-      log.log('Restoring Disqus from cache');
-      if (!hasResolvedTitle(discussionCache.disqus.thread) && discussionCache.disqus.thread.link) {
-        log.log('cached thread missing title, attempting hydration by link');
-        const hydrated = await findThreadByLink(animeInfo, discussionCache.disqus.thread.link);
-        if (hydrated) {
-          discussionCache.disqus.thread = {
-            ...discussionCache.disqus.thread,
-            ...hydrated,
-            title: String(hydrated?.title || discussionCache.disqus.thread.title || ''),
-            clean_title: String(hydrated?.clean_title || hydrated?.title || discussionCache.disqus.thread.clean_title || ''),
-          } as DisqusThread;
-          logThreadSnapshot('cache-hydrated', discussionCache.disqus.thread);
-        } else {
-          log.log('hydration failed; rendering cached thread as-is');
+        log.log('Restoring Disqus from cache');
+        logThreadSnapshot('cache-restore', discussionCache.disqus.thread);
+        const container = await this.getContainerWithRetry(
+          getExternalCommentsContainer,
+          CONTAINER_RETRY_ATTEMPTS,
+          CONTAINER_RETRY_DELAY_MS
+        );
+        if (await linkOnlyModeItem.getValue() && discussionCache.disqus.thread.link) {
+          this.renderLinkButton(container, discussionCache.disqus.thread.link, 'Disqus', clearLoadingState);
+          return;
         }
-      }
-      logThreadSnapshot('cache-restore', discussionCache.disqus.thread);
-      const container = await this.getContainerWithRetry(
-        getExternalCommentsContainer,
-        CONTAINER_RETRY_ATTEMPTS,
-        CONTAINER_RETRY_DELAY_MS
-      );
-      if (await linkOnlyModeItem.getValue() && discussionCache.disqus.thread.link) {
-        this.renderLinkButton(container, discussionCache.disqus.thread.link, 'Disqus', clearLoadingState);
+        await renderDisqusThread(
+          discussionCache.disqus.thread,
+          container,
+          animeInfo,
+          clearLoadingState
+        );
         return;
-      }
-      await renderDisqusThread(
-        discussionCache.disqus.thread,
-        container,
-        animeInfo,
-        clearLoadingState
-      );
-      return;
       }
     }
 
-    // Fetch thread if not cached
     try {
-      let thread = discussionCache.disqus?.thread;
-
-      // Apply saved episode offset (e.g., from manual override) for all mapper lookups
-      const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName, 'disqus') : null;
+      const mapping = animeInfo?.animeName
+        ? await getSeriesMapping(animeInfo.animeName, 'disqus')
+        : null;
       const episodeOffset = mapping?.episodeOffset ?? 0;
-      const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
-      const animeInfoForMapper = mapperAnimeName !== animeInfo.animeName
-        ? { ...animeInfo, animeName: mapperAnimeName }
-        : animeInfo;
       const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
       const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
 
-      if (!thread) {
-        const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEp ?? rawEp ?? null);
-        log.log('', {
-          mappedDisqusUrl,
-          rawEp,
-          mappedEp,
-          episodeOffset,
-        });
-        if (mappedDisqusUrl) {
-          thread = await findThreadByLink(animeInfo, mappedDisqusUrl);
-          logThreadSnapshot('mapper-url-resolved', thread as DisqusThread | null | undefined);
-          if (!thread) {
-            thread = buildDisqusThreadFromUrl(mappedDisqusUrl);
-            logThreadSnapshot('mapper-url-fallback-object', thread);
-          }
-          if (thread) {
-            log.log('Using mapper Disqus match:', mappedDisqusUrl);
-          }
+      // Resolve season-specific MAL/AniList IDs via the Hayami mapper before
+      // the thread lookup. Without this, switching from another provider uses
+      // whatever IDs the initial page detection found (often the Season 1 MAL
+      // ID), which misses threads filed under the actual season's MAL ID.
+      const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo?.animeName || '';
+      if (mapperAnimeName) {
+        const failoverOut: MapperFailoverOut = {};
+        await tryMapperFailover(
+          { ...animeInfo, animeName: mapperAnimeName },
+          'reddit',
+          mappedEp ?? rawEp ?? null,
+          failoverOut,
+        );
+        const entry = failoverOut.entry;
+        if (entry?.external_sites) {
+          const rawMal = entry.external_sites.mal_id;
+          const rawAni = entry.external_sites.anilist_id;
+          const malId = rawMal != null ? Number(rawMal) : null;
+          const anilistId = rawAni != null ? Number(rawAni) : null;
+          if (malId && Number.isFinite(malId) && malId > 0) animeInfo.malId = malId;
+          if (anilistId && Number.isFinite(anilistId) && anilistId > 0) animeInfo.anilistId = anilistId;
         }
       }
 
-      // Fallback for non-Crunchyroll pages without episode IDs
-      if (!thread && animeInfo.animeName) {
-        const mapperData = await fetchAnimeMapperDataBySeriesName(mapperAnimeName, 'disqus');
-        log.log('result count', mapperData?.results?.length || 0);
-        if (mapperData?.results?.length) {
-          const epNum = mappedEp ?? rawEp ?? 1;
-          log.log('selected episode number', epNum);
-          const rankedEntries = rankDisqusMapperEntries(mapperData.results, animeInfoForMapper, epNum);
-          for (const entry of rankedEntries) {
-            const maybeUrl = entry?.episodes?.[epNum] || entry?.episodes?.[String(epNum)];
-            if (maybeUrl) {
-              log.log('candidate URL', maybeUrl);
-              thread = await findThreadByLink(animeInfo, maybeUrl);
-              logThreadSnapshot('series-mapper-url-resolved', thread as DisqusThread | null | undefined);
-              if (!thread) {
-                thread = buildDisqusThreadFromUrl(maybeUrl);
-                logThreadSnapshot('series-mapper-url-fallback-object', thread);
-              }
-              if (thread) {
-                log.log('Using series-name mapper Disqus match:', maybeUrl);
-                break;
-              }
-            }
-          }
-        }
-      }
-
-      // Avoid season-mismatched grabs if mapper search didn’t return an exact episode hit
-      if (!thread && animeInfo.animeName) {
-        log.log('No exact mapper Disqus episode match; skipping mismatched season threads');
-      }
-
-      if (!thread) {
-        thread = await findThreadForAnime(animeInfo);
-        logThreadSnapshot('findThreadForAnime-result', thread as DisqusThread | null | undefined);
-      }
+      const thread = await lookupThread({
+        malId: animeInfo.malId ?? null,
+        anilistId: animeInfo.anilistId ?? null,
+        episodeNumber: mappedEp ?? rawEp ?? null,
+      });
+      logThreadSnapshot('lookupThread-result', thread);
 
       if (thread) {
-        logThreadSnapshot('pre-cache-render', thread as DisqusThread | null | undefined);
-        // Cache the Disqus thread
         discussionCache.disqus = { thread, animeKey: cacheKey || undefined };
         const container = await this.getContainerWithRetry(
           getExternalCommentsContainer,
@@ -554,48 +328,46 @@ export class DisqusProvider extends BaseProvider {
           return;
         }
         await renderDisqusThread(thread, container, animeInfo, clearLoadingState);
-      } else {
-        // No Disqus thread found, show manual mapping picker entry point
-        const fallbackContainer = await this.getContainerWithRetry(
-          getExternalCommentsContainer,
-          CONTAINER_RETRY_ATTEMPTS,
-          CONTAINER_RETRY_DELAY_MS
-        );
-        fallbackContainer.style.display = 'block';
-        // Render a simple empty state so the area is not blank
-        fallbackContainer.innerHTML = `
-          <div style="padding:12px 0;color:#c9c9c9;font-size:13px;line-height:1.4;text-align:left;">
-            No Disqus thread found for this episode.
-            <button id="ri-disqus-wrong-anime-btn" style="margin-top:8px;display:inline-block;padding:6px 10px;background:#2f6feb;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">
+        return;
+      }
+
+      // No thread exists yet on discussanime.moe for this episode. Offer
+      // a "Wrong anime?" button that reopens the site-backed search modal
+      // so they can pick a different thread.
+      const fallbackContainer = await this.getContainerWithRetry(
+        getExternalCommentsContainer,
+        CONTAINER_RETRY_ATTEMPTS,
+        CONTAINER_RETRY_DELAY_MS
+      );
+      fallbackContainer.style.display = 'block';
+
+      fallbackContainer.innerHTML = `
+        <div style="padding:12px 0;color:#c9c9c9;font-size:13px;line-height:1.4;text-align:left;">
+          No Discuss Anime thread found for this episode.
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+            <button data-disqus-wrong-anime style="padding:6px 10px;background:#2f6feb;color:white;border:none;border-radius:6px;font-size:12px;cursor:pointer;">
               Wrong anime?
             </button>
           </div>
-        `;
+        </div>
+      `;
 
-        // Wire the button to open the manual anime-mapping picker
-        const btn = fallbackContainer.querySelector('#ri-disqus-wrong-anime-btn') as HTMLButtonElement | null;
-        if (btn) {
-          btn.addEventListener('click', (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            const crEpisodeNum = parseEpisodeFromTitle(animeInfo?.episodeName || '') ?? undefined;
-            window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-              detail: {
-                provider: 'disqus',
-                animeInfo,
-                crEpisodeNum,
-              },
-            }));
-          });
-        }
-        clearLoadingState('Disqus fallback');
+      const wrongBtn = fallbackContainer.querySelector<HTMLButtonElement>('[data-disqus-wrong-anime]');
+      if (wrongBtn) {
+        wrongBtn.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          window.dispatchEvent(new CustomEvent('ri-disqus-search-requested', {
+            detail: { animeInfo },
+          }));
+        });
       }
+      clearLoadingState('Disqus fallback');
     } catch (error) {
       handleProviderError(error, 'Disqus', 'switchTo');
       clearLoadingState('Disqus error');
       throw error;
     }
-
   }
 
   cleanup(): void {
@@ -611,7 +383,7 @@ export class DisqusProvider extends BaseProvider {
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
     const { animeInfo, discussionCache, clearLoadingState } = context;
-    
+
     if (!discussionCache.disqus?.thread) {
       throw new Error('No Disqus thread in cache');
     }

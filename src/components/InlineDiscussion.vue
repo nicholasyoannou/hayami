@@ -208,6 +208,19 @@ const {
   normalizeMalMedia, searchMalMedia, fetchMalMediaById, buildMalEpisodeOptions, buildAnimeCommunityEpisodeOptions,
 } = manualSearch;
 
+// Disqus thread search composable
+const {
+  disqusSearchOpen,
+  disqusSearchResults,
+  disqusSearchLoading,
+  disqusSearchError,
+  disqusSearchFilter,
+  filteredDisqusSearchResults,
+  openDisqusSearchModal,
+  closeDisqusSearchModal,
+  selectDisqusThread,
+} = useDisqusSearch();
+
 // Apply the user's link domain preference (reddit.com vs old.reddit.com) to the thread URL
 const redditUrl = computed(() => {
   const url = rawRedditUrl.value;
@@ -2164,14 +2177,15 @@ defineExpose({
               v-model="disqusSearchFilter"
               class="flex-1 bg-[#0f0f0f] border border-[#2f2f2f] rounded-lg px-3 py-2 text-sm text-white outline-none"
               type="text"
-              placeholder="Filter threads by title"
+              placeholder="Search any anime title on Discuss Anime…"
+              @keyup.enter="runDisqusSearch"
             />
             <button
               class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm"
               @click="runDisqusSearch"
               :disabled="disqusSearchLoading"
             >
-              Refresh
+              Search
             </button>
           </div>
           <div v-if="disqusSearchError" class="text-sm text-red-400">

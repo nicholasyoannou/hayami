@@ -15,6 +15,7 @@ import {
   searchAndDisplayDiscussion,
   fetchRedditPostFromUrl,
   displayDiscussionDependingOnMode,
+  embedDisqusThreadDependingOnMode,
 } from './discussion-manager';
 import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
@@ -331,6 +332,18 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
       }
     } catch (e) {
       log.warn('Failed to handle manual search result', e);
+    }
+  });
+
+  ctx.addEventListener(window, 'ri-disqus-thread-selected', async (ev: any) => {
+    try {
+      const thread = ev?.detail?.thread;
+      if (!thread) return;
+      const animeInfo = getState().lastAnimeInfo;
+      if (!animeInfo) return;
+      await embedDisqusThreadDependingOnMode(thread, animeInfo);
+    } catch (e) {
+      log.warn('Failed to handle Disqus thread selection', e);
     }
   });
 

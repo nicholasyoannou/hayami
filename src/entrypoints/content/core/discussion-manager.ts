@@ -94,12 +94,10 @@ let currentRenderIntent: RenderIntent = 'popup';
 
 type RedditApiModule = typeof import('@/utils/redditApi');
 type RedditRuntimeModule = typeof import('./reddit-runtime');
-type DisqusRuntimeModule = typeof import('./disqus-runtime');
 type RedditSearchRuntimeModule = typeof import('./reddit-search-runtime');
 
 let redditApiModulePromise: Promise<RedditApiModule> | null = null;
 let redditRuntimeModulePromise: Promise<RedditRuntimeModule> | null = null;
-let disqusRuntimeModulePromise: Promise<DisqusRuntimeModule> | null = null;
 let redditSearchRuntimeModulePromise: Promise<RedditSearchRuntimeModule> | null = null;
 
 function getRedditApiModule(): Promise<RedditApiModule> {
@@ -114,13 +112,6 @@ function getRedditRuntimeModule(): Promise<RedditRuntimeModule> {
     redditRuntimeModulePromise = import('./reddit-runtime');
   }
   return redditRuntimeModulePromise;
-}
-
-function getDisqusRuntimeModule(): Promise<DisqusRuntimeModule> {
-  if (!disqusRuntimeModulePromise) {
-    disqusRuntimeModulePromise = import('./disqus-runtime');
-  }
-  return disqusRuntimeModulePromise;
 }
 
 function getRedditSearchRuntimeModule(): Promise<RedditSearchRuntimeModule> {
@@ -446,6 +437,42 @@ function setMalIdOnLastAnimeInfo(malId?: number | null): void {
   }
 }
 
+function normalizeIdCandidate(val: unknown): number | null {
+  if (typeof val === 'number' && Number.isFinite(val) && val > 0) return val;
+  if (typeof val === 'string' && /^\d+$/.test(val)) {
+    const parsed = Number(val);
+    return parsed > 0 ? parsed : null;
+  }
+  return null;
+}
+
+/**
+ * Extract season-specific MAL/AniList IDs from a Hayami mapper entry and apply
+ * them to `lastAnimeInfo`, plus mutate the provided animeInfo in place so the
+ * current request's downstream lookups (Disqus, etc.) pick up the corrected
+ * values instead of the pre-mapper, base-title IDs.
+ */
+function applyMapperEntryIdsToAnimeInfo(
+  animeInfo: AnimeInfo,
+  entry: MapperResultEntry | null | undefined,
+): void {
+  const malId = normalizeIdCandidate(entry?.external_sites?.mal_id);
+  const anilistId = normalizeIdCandidate(entry?.external_sites?.anilist_id);
+  if (!malId && !anilistId) return;
+
+  if (malId) animeInfo.malId = malId;
+  if (anilistId) animeInfo.anilistId = anilistId;
+
+  const currentState = state();
+  if (currentState.lastAnimeInfo) {
+    setLastAnimeInfo({
+      ...currentState.lastAnimeInfo,
+      ...(malId ? { malId } : {}),
+      ...(anilistId ? { anilistId } : {}),
+    });
+  }
+}
+
 // =============================================================================
 // API FETCH FUNCTIONS
 // =============================================================================
@@ -573,72 +600,6 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       void getUiManager().showPopupPlaceholder('Loading comments…');
     }
 
-    // New primary search: series name filtered by release date
-    // But first check whether user selected Disqus as comments provider. If so,
-    // attempt to find a Disqus thread for this anime and embed it.
-    try {
-      if (preferredProvider === 'disqus') {
-        try {
-          const mappedDisqusUrl = await tryMapperFailover(animeInfoForMapper, 'disqus', mappedEpisodeNum ?? rawEpisodeNum ?? null);
-          if (mappedDisqusUrl) {
-            const { findMappedDisqusThread } = await getDisqusRuntimeModule();
-            const mappedThread = await findMappedDisqusThread(animeInfo, mappedDisqusUrl);
-            if (mappedThread) {
-              const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
-              cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
-              await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
-              await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
-              return;
-            }
-          }
-
-          // Manual-mapped/third-party sites may not have CR episode metadata.
-          // Explicitly query Hayami's series mapper before any direct Disqus lookup.
-          if (animeInfoForMapper.animeName) {
-            const mapperData = await fetchAnimeMapperDataBySeriesName(animeInfoForMapper.animeName, 'disqus');
-            const mapperEpisode = mappedEpisodeNum ?? rawEpisodeNum;
-            if (mapperData?.results?.length && Number.isFinite(mapperEpisode)) {
-              const desired = String(mapperEpisode);
-              for (const entry of mapperData.results) {
-                const maybeUrl = entry?.episodes?.[desired] || entry?.episodes?.[Number(desired)];
-                if (!maybeUrl) continue;
-                const { findMappedDisqusThread } = await getDisqusRuntimeModule();
-                const mappedThread = await findMappedDisqusThread(animeInfo, maybeUrl);
-                if (mappedThread) {
-                  const disqusCacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
-                  cache.disqus = { thread: mappedThread, animeKey: disqusCacheKey || undefined };
-                  await embedDisqusThreadDependingOnMode(mappedThread, animeInfo);
-                  await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
-                  return;
-                }
-              }
-            }
-          }
-
-          const { findDirectDisqusThread } = await getDisqusRuntimeModule();
-          const thread = await findDirectDisqusThread(animeInfo);
-          if (thread) {
-            await embedDisqusThreadDependingOnMode(thread, animeInfo);
-            await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
-            return;
-          }
-          // No exact match found - offer manual Disqus search UI. If the user
-          // chooses to fallback, they can explicitly switch providers.
-          const disqusResult = await showDisqusSearchUI(animeInfo);
-          if (disqusResult === 'embedded') {
-            return;
-          }
-          // User dismissed - keep the selected provider without falling back to Reddit
-          await displayDiscussionDependingOnMode(buildPlaceholderDiscussion(animeInfo));
-          return;
-        } catch (e) {
-          log.warn('Disqus lookup failed, falling back to Reddit', e);
-        }
-      }
-    } catch (e) {
-      // ignore storage errors and fall back to reddit
-    }
-
     // If the user's preferred provider is not Reddit, do not do any Reddit work
     // in the background. Mount the UI and let the provider manager handle fetching.
     if (preferredProvider !== 'reddit' && guardProviders) {
@@ -672,6 +633,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     }
     if (failoverRedditUrl) {
       log.log('Failover succeeded, found Reddit URL:', failoverRedditUrl);
+      applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
       if (postData) {
         await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
@@ -1325,6 +1287,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
           const failoverOut: MapperFailoverOut = {};
           const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
           if (failoverRedditUrl) {
+            applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry);
             const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
             if (postData) {
               normalizeRedditDiscussion(postData);
@@ -1552,31 +1515,16 @@ function mountLoadingShell(): void {
   }
 }
 
-async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
+export async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
   const currentState = state();
   const cache = currentState.discussionCache;
   const cacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
   activeUiProvider = 'disqus';
 
-  let finalThread = thread;
-  if (finalThread?.link) {
-    try {
-      const { hydrateDisqusThreadTitle } = await getDisqusRuntimeModule();
-      finalThread = await hydrateDisqusThreadTitle(animeInfo, finalThread);
-      if (finalThread && (finalThread.title || finalThread.clean_title)) {
-        log.log('Hydrated cached thread title before render', {
-          title: finalThread?.title,
-          clean_title: finalThread?.clean_title,
-          link: finalThread?.link,
-        });
-      }
-    } catch (e) {
-      log.warn('Failed to hydrate Disqus thread by link before caching', e);
-    }
-  }
-
-  // Cache the thread for Vue-side render
-  cache.disqus = { thread: finalThread, animeKey: cacheKey || undefined };
+  // Cache the thread for Vue-side render. The site's /api/threads/lookup
+  // already returns the title/slug/identifier, so no separate hydration
+  // step is needed before handing off to the provider.
+  cache.disqus = { thread, animeKey: cacheKey || undefined };
 
   try {
     // If Vue app is mounted, switch provider to Disqus so it renders in the external container
@@ -1617,18 +1565,6 @@ async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInf
     return;
   } catch (e) {
     log.warn('Failed to switch provider via Vue exposed handle:', e);
-  }
-}
-
-async function showDisqusSearchUI(animeInfo: AnimeInfo): Promise<'fallback' | 'dismissed' | 'embedded'> {
-  try {
-    const event = new CustomEvent('ri-disqus-search-requested', { detail: { animeInfo } });
-    window.dispatchEvent(event);
-    log.log('Routed manual Disqus search to Vue event');
-    return 'dismissed';
-  } catch (e) {
-    log.warn('Failed to dispatch Vue event', e);
-    return 'fallback';
   }
 }
 
@@ -1809,6 +1745,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
             const failoverOut: MapperFailoverOut = {};
             const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
             if (failoverRedditUrl) {
+              applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry);
               const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
               if (postData) {
                 normalizeRedditDiscussion(postData);

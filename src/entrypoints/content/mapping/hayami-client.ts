@@ -33,13 +33,13 @@ function stripSeasonSuffix(animeName: string): string {
 
 /**
  * Lightweight mapper lookup by series name only (no Crunchyroll metadata).
- * Supports platform hint (reddit|disqus) by forwarding to the search endpoint.
+ * Supports a platform hint (reddit|aniwave) by forwarding to the search endpoint.
  * Automatically strips season suffixes to search for the series title.
  * For third-party sites, includes MAL/AniList IDs to improve matching accuracy.
  */
 export async function fetchAnimeMapperDataBySeriesName(
   seriesName: string,
-  platform: 'reddit' | 'disqus' | 'aniwave' = 'reddit',
+  platform: 'reddit' | 'aniwave' = 'reddit',
   options?: {
     malId?: number | null;
     anilistId?: number | null;
@@ -102,7 +102,7 @@ export async function fetchAnimeMapperDataBySeriesName(
 export async function fetchAnimeMapperDataBySeriesAndSeason(
   seriesName: string,
   seasonTitle: string,
-  platform: 'reddit' | 'disqus' = 'reddit',
+  platform: 'reddit' = 'reddit',
   options?: {
     episodeDate?: string | Date | null;
     malId?: number | null;
@@ -115,7 +115,7 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
   try {
     const encodedSeries = encodeURIComponent(seriesName);
     const encodedSeason = encodeURIComponent(seasonTitle);
-    const platformParam = platform === 'disqus' ? `&platform=${encodeURIComponent(platform)}` : '';
+    const platformParam = '';
     let episodeDateParam = '';
     const normalizedDate = toEpisodeDateParam(options?.episodeDate ?? null);
     if (normalizedDate) {

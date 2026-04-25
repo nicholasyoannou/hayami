@@ -141,5 +141,6 @@ export const hostPermissions = [
       'https://api.hayami.moe/*',
       'https://hayami.moe/*',
       'https://anilist.co/*',
-      'https://graphql.anilist.co/*'
+      'https://graphql.anilist.co/*',
+      'https://discussanime.moe/*'
 ];

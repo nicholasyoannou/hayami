@@ -16,7 +16,8 @@ import type { AnimeInfo } from '@/entrypoints/content/types';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchMalForumTopics, fetchJikanForumTopics, pickEpisodeTopic, searchMalAnimeId, searchJikanAnimeId } from '@/utils/malForums';
 import { fetchAniListThreads } from '@/utils/anilistForums';
-import { findThreadForAnime } from '@/utils/disqusApi';
+import { lookupThread } from '@/utils/discussanimeApi';
+import { parseEpisodeFromTitle } from '@/entrypoints/content/sites/shared';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import { con } from '@/utils/logger';
@@ -184,7 +185,16 @@ async function prefetchDisqus(
     return cache.disqus.thread.posts ?? null;
   }
 
-  const thread = await findThreadForAnime(animeInfo);
+  const mapping = await getSeriesMapping(animeInfo.animeName || '', 'disqus');
+  const episodeOffset = mapping?.episodeOffset ?? 0;
+  const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
+  const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
+
+  const thread = await lookupThread({
+    malId: animeInfo.malId ?? null,
+    anilistId: animeInfo.anilistId ?? null,
+    episodeNumber: mappedEp ?? rawEp ?? null,
+  });
   if (!thread) return null;
 
   const cacheKey = `${animeInfo.animeName || ''}__${animeInfo.episodeName || ''}`.trim();

@@ -123,126 +123,60 @@
   // SECURITY: Validate inputs to prevent injection attacks
   const threadUrl = (scriptTag?.getAttribute('data-thread-url') || '').trim();
   const identifier = (scriptTag?.getAttribute('data-identifier') || '').trim();
-  const forumShortname = (scriptTag?.getAttribute('data-forum') || 'channel-discussanime').trim();
+  const forumShortname = (scriptTag?.getAttribute('data-forum') || 'discussanime').trim();
   const threadTitle = (scriptTag?.getAttribute('data-title') || '').trim();
-  const threadSlug = (scriptTag?.getAttribute('data-slug') || '').trim();
-  
+
   // SECURITY: Validate forum shortname (alphanumeric and hyphens only)
   if (!/^[a-zA-Z0-9-]+$/.test(forumShortname)) {
     console.error('[Disqus] Invalid forum shortname:', forumShortname);
     return;
   }
-  
+
   // SECURITY: Validate URL format if provided
   if (threadUrl && !/^https?:\/\/.+/.test(threadUrl)) {
     console.error('[Disqus] Invalid thread URL format:', threadUrl);
     return;
   }
 
-  // Set up Disqus config
+  // Set up Disqus config. With the new self-hosted forum we give Disqus
+  // the real page URL/title/identifier directly — the old t_s/t_e query
+  // rewrite hack was only needed back when we were piggy-backing on the
+  // channel-discussanime Channel, which couldn't carry our own metadata.
   window.disqus_config = function () {
     this.page.url = threadUrl;
     this.page.identifier = identifier;
     this.page.title = threadTitle;
   };
 
-  // Intercept iframe insertion BEFORE the browser starts navigation.
-  // Disqus embed.js creates an iframe, sets its src, then appends it to the DOM.
-  // By patching appendChild/insertBefore we can fix the URL params while the
-  // iframe is still detached, so the browser only ever navigates once with the
-  // correct URL. This avoids the racy post-insertion src rewrite that broke
-  // Disqus's postMessage channel and caused intermittent image loading failures.
   const POLL_STYLE_OVERRIDE = 'width: 100% !important; border: none !important; overflow: hidden !important; height: 0px !important; transition: height 0.3s !important; min-width: 320px !important; max-width: 620px !important; flex: 1 1 0% !important;';
-  let embedFixed = false;
-
-  const fixDisqusIframeSrc = (node) => {
-    if (!node || node.tagName !== 'IFRAME') return;
-    try {
-      if (node.src && node.src.includes('disqus.com/embed/comments/') && !embedFixed) {
-        const url = new URL(node.src);
-        url.searchParams.delete('t_i');
-        url.searchParams.set('t_s', threadSlug);
-        url.searchParams.set('t_e', threadTitle);
-        url.searchParams.set('t_d', threadTitle + ' \u00b7 Discuss Anime \u00b7 Disqus');
-        url.searchParams.set('t_t', threadTitle);
-        url.searchParams.set('s_o', 'popular');
-        node.src = url.toString();
-        embedFixed = true;
-        console.log('[Disqus] Fixed iframe URL (pre-insert):', url.toString());
-      }
-      if (node.src && node.src.includes('polls.services.disqus.com/poll')) {
-        node.style.cssText = POLL_STYLE_OVERRIDE + ' display: none !important;';
-      }
-    } catch (e) {
-      console.error('[Disqus] Error fixing iframe:', e);
-    }
-  };
-
-  // Patch appendChild and insertBefore on Node.prototype to intercept
-  // Disqus's iframe before it enters the DOM.
-  const origAppendChild = Node.prototype.appendChild;
-  const origInsertBefore = Node.prototype.insertBefore;
-
-  Node.prototype.appendChild = function(child) {
-    fixDisqusIframeSrc(child);
-    const result = origAppendChild.call(this, child);
-    if (embedFixed) restoreInsertMethods();
-    return result;
-  };
-
-  Node.prototype.insertBefore = function(child, ref) {
-    fixDisqusIframeSrc(child);
-    const result = origInsertBefore.call(this, child, ref);
-    if (embedFixed) restoreInsertMethods();
-    return result;
-  };
 
   const flushProxyIntoShadow = () => {
     if (!proxyMoveObserver || !shadowTarget || !renderTarget) return;
-    // MutationObserver.disconnect() empties the record queue, so any iframe
-    // Disqus just appended to the proxy would be dropped. Flush synchronously
-    // into the shadow target before (or instead of) disconnecting.
     while (renderTarget.firstChild) {
       shadowTarget.appendChild(renderTarget.firstChild);
     }
   };
 
-  const restoreInsertMethods = () => {
-    Node.prototype.appendChild = origAppendChild;
-    Node.prototype.insertBefore = origInsertBefore;
-    // Do NOT disconnect proxyMoveObserver here — Disqus continues to append
-    // content (reply widgets, poll iframes, etc.) after the initial embed
-    // iframe, and we need those moved into the shadow target too. The
-    // observer is disconnected on the safety timeout below.
-    flushProxyIntoShadow();
-    restoreCompetingThreadIds();
-  };
-
-  // Safety: restore original methods after 15s even if no iframe was caught,
-  // and tear down the proxy observer after Disqus has had time to settle.
-  setTimeout(() => {
-    if (!embedFixed) {
-      Node.prototype.appendChild = origAppendChild;
-      Node.prototype.insertBefore = origInsertBefore;
-    }
-    restoreCompetingThreadIds();
-  }, 15000);
-
+  // Tear down the proxy observer once Disqus has had time to settle.
+  // Disqus continues to append reply widgets and poll iframes after the
+  // main embed, so we keep the observer live for 30s rather than
+  // disconnecting on first iframe insertion.
   setTimeout(() => {
     flushProxyIntoShadow();
     if (proxyMoveObserver) {
       proxyMoveObserver.disconnect();
       proxyMoveObserver = null;
     }
+    restoreCompetingThreadIds();
   }, 30000);
 
-  // Load Disqus embed script (AFTER patches are in place)
+  // Load Disqus embed script
   var d = document, s = d.createElement('script');
   s.src = 'https://' + forumShortname + '.disqus.com/embed.js';
   s.setAttribute('data-timestamp', +new Date());
   (d.head || d.body).appendChild(s);
 
-  // Still observe for poll iframes that may arrive after the embed iframe
+  // Observe for poll iframes and hide them on insertion.
   const observer = new MutationObserver(function(mutations) {
     mutations.forEach(function(mutation) {
       mutation.addedNodes.forEach(function(node) {

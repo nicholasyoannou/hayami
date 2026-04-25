@@ -689,10 +689,30 @@ async function purgeHostPermissionsForHost(host: string, origin?: string) {
 const POLL_RULE_ID = 99001;
 const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
 
+// Disqus's tempest service injects a monetization iframe into every thread
+// embed. Block it alongside the poll endpoint whenever Hayami is embedding
+// Disqus on a tab so the host page stays free of third-party ad frames.
+const ADS_IFRAME_RULE_ID = 99002;
+const ADS_IFRAME_URL_FILTER = '||tempest.services.disqus.com/ads-iframe';
+
+// Redirect Disqus profile page opens to the chuunime profile page instead.
+// excludedInitiatorDomains keeps the "View Disqus profile" link on our own
+// profile pages working — that click originates from discussanime.moe, so
+// the rule doesn't fire and the user lands on Disqus as expected.
+const DISQUS_PROFILE_REDIRECT_RULE_ID = 99003;
+
 // Rule IDs for rewriting sec-fetch-* headers on Reddit .json API requests so
 // that they look like browser navigations instead of programmatic fetches.
 // Without this, Reddit returns 403 for requests with sec-fetch-mode: cors.
 const REDDIT_NAV_HEADER_RULE_ID = 99010;
+
+// DiscussAnime ↔ Disqus bridge. Rewrites Origin/Referer on outgoing fetches
+// from discussanime.moe → disqus.com so Disqus's server-side origin gate
+// stops 400ing the scraped home api_key, and injects
+// Access-Control-Allow-{Origin,Credentials,Methods,Headers} on the response
+// so the browser's CORS check against the page origin passes with
+// credentials flowing.
+const DISCUSSANIME_DISQUS_BRIDGE_RULE_ID = 99020;
 
 const CONTEXT_MENU_ID = 'hayami-configure-site';
 
@@ -894,28 +914,41 @@ export default defineBackground(() => {
   const setPollBlockForTab = async (tabId: number, enable: boolean) => {
     const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
     if (!dnr) return;
-    const removeRuleIds = [POLL_RULE_ID];
+    const blockedResourceTypes = [
+      'main_frame',
+      'sub_frame',
+      'xmlhttprequest',
+      'script',
+      'image',
+      'media',
+      'object',
+      'ping',
+      'other'
+    ] as const;
+    const removeRuleIds = [POLL_RULE_ID, ADS_IFRAME_RULE_ID];
     const addRules = enable
-      ? [{
-          id: POLL_RULE_ID,
-          priority: 1,
-          action: { type: 'block' as const },
-          condition: {
-            urlFilter: POLL_URL_FILTER,
-            tabIds: [tabId],
-            resourceTypes: [
-              'main_frame',
-              'sub_frame',
-              'xmlhttprequest',
-              'script',
-              'image',
-              'media',
-              'object',
-              'ping',
-              'other'
-            ] as const,
+      ? [
+          {
+            id: POLL_RULE_ID,
+            priority: 1,
+            action: { type: 'block' as const },
+            condition: {
+              urlFilter: POLL_URL_FILTER,
+              tabIds: [tabId],
+              resourceTypes: blockedResourceTypes,
+            }
+          },
+          {
+            id: ADS_IFRAME_RULE_ID,
+            priority: 1,
+            action: { type: 'block' as const },
+            condition: {
+              urlFilter: ADS_IFRAME_URL_FILTER,
+              tabIds: [tabId],
+              resourceTypes: blockedResourceTypes,
+            }
           }
-        }]
+        ]
       : [];
     await dnr.updateSessionRules({ removeRuleIds, addRules: addRules as any });
   };
@@ -1773,31 +1806,78 @@ export default defineBackground(() => {
     try {
       const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
       if (dnr?.updateSessionRules) {
+        const disqusBridgeRequestHeaders = [
+          { header: 'origin', operation: 'set' as const, value: 'https://disqus.com' },
+          { header: 'referer', operation: 'set' as const, value: 'https://disqus.com/' },
+        ];
+        const disqusBridgeResponseHeaders = (pageOrigin: string) => [
+          { header: 'access-control-allow-origin', operation: 'set' as const, value: pageOrigin },
+          { header: 'access-control-allow-credentials', operation: 'set' as const, value: 'true' },
+          { header: 'access-control-allow-methods', operation: 'set' as const, value: 'GET, POST, PUT, DELETE, OPTIONS' },
+          { header: 'access-control-allow-headers', operation: 'set' as const, value: 'content-type, authorization, x-requested-with' },
+        ];
         await dnr.updateSessionRules({
-          removeRuleIds: [POLL_RULE_ID, REDDIT_NAV_HEADER_RULE_ID],
-          addRules: [{
-            id: REDDIT_NAV_HEADER_RULE_ID,
-            priority: 1,
-            action: {
-              type: 'modifyHeaders' as const,
-              requestHeaders: [
-                { header: 'sec-fetch-mode', operation: 'set' as const, value: 'navigate' },
-                { header: 'sec-fetch-dest', operation: 'set' as const, value: 'document' },
-                { header: 'sec-fetch-site', operation: 'set' as const, value: 'none' },
-                { header: 'sec-fetch-user', operation: 'set' as const, value: '?1' },
-                { header: 'accept', operation: 'set' as const, value: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' },
-                { header: 'upgrade-insecure-requests', operation: 'set' as const, value: '1' },
-              ],
+          removeRuleIds: [
+            POLL_RULE_ID,
+            ADS_IFRAME_RULE_ID,
+            DISQUS_PROFILE_REDIRECT_RULE_ID,
+            REDDIT_NAV_HEADER_RULE_ID,
+            DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
+          ],
+          addRules: [
+            {
+              id: REDDIT_NAV_HEADER_RULE_ID,
+              priority: 1,
+              action: {
+                type: 'modifyHeaders' as const,
+                requestHeaders: [
+                  { header: 'sec-fetch-mode', operation: 'set' as const, value: 'navigate' },
+                  { header: 'sec-fetch-dest', operation: 'set' as const, value: 'document' },
+                  { header: 'sec-fetch-site', operation: 'set' as const, value: 'none' },
+                  { header: 'sec-fetch-user', operation: 'set' as const, value: '?1' },
+                  { header: 'accept', operation: 'set' as const, value: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' },
+                  { header: 'upgrade-insecure-requests', operation: 'set' as const, value: '1' },
+                ],
+              },
+              condition: {
+                regexFilter: '.*\\.json(\\?.*)?$',
+                requestDomains: ['www.reddit.com', 'old.reddit.com'],
+                initiatorDomains: [chrome.runtime.id],
+                resourceTypes: ['xmlhttprequest' as const, 'other' as const],
+              },
             },
-            condition: {
-              regexFilter: '.*\\.json(\\?.*)?$',
-              requestDomains: ['www.reddit.com', 'old.reddit.com'],
-              initiatorDomains: [chrome.runtime.id],
-              resourceTypes: ['xmlhttprequest' as const, 'other' as const],
+            {
+              id: DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
+              priority: 1,
+              action: {
+                type: 'modifyHeaders' as const,
+                requestHeaders: disqusBridgeRequestHeaders,
+                responseHeaders: disqusBridgeResponseHeaders('https://discussanime.moe'),
+              },
+              condition: {
+                requestDomains: ['disqus.com'],
+                initiatorDomains: ['discussanime.moe'],
+                resourceTypes: ['xmlhttprequest' as const],
+              },
             },
-          }],
+            {
+              id: DISQUS_PROFILE_REDIRECT_RULE_ID,
+              priority: 1,
+              action: {
+                type: 'redirect' as const,
+                redirect: {
+                  regexSubstitution: 'https://discussanime.moe/api/profile-redirect/\\1',
+                },
+              },
+              condition: {
+                regexFilter: 'https://disqus\\.com/by/([^/?#]+)',
+                excludedInitiatorDomains: ['discussanime.moe'],
+                resourceTypes: ['main_frame' as const],
+              },
+            },
+          ],
         });
-        bg.debug('Registered Reddit nav-header rewrite rule');
+        bg.debug('Registered Reddit nav-header + DiscussAnime/Disqus bridge rules');
       }
     } catch (error) {
       bg.warn('Failed to register Reddit header rewrite / clear stale rules', error);

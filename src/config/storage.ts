@@ -124,6 +124,21 @@ export const linkOnlyModeItem = storage.defineItem<boolean>(
   { fallback: false }
 );
 
+// Disqus inline-image custom sizing. When the toggle is off the content
+// script is a no-op so Disqus's native rendering is untouched. The slider
+// caps the rendered width for embedded comment images (avatars are not
+// affected) — handy on ultrawide monitors where 600px-wide images feel
+// dwarfed, or narrow split-view layouts where they push the column.
+export const disqusImageResizeEnabledItem = storage.defineItem<boolean>(
+  'local:disqus_image_resize_enabled',
+  { fallback: false }
+);
+
+export const disqusImageMaxWidthItem = storage.defineItem<number>(
+  'local:disqus_image_max_width',
+  { fallback: 600 }
+);
+
 export const aniwaveAutoExpandAllItem = storage.defineItem<boolean>(
   'local:aniwave_auto_expand_all',
   { fallback: true }
