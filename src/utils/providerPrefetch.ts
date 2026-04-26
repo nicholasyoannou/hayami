@@ -16,7 +16,7 @@ import type { AnimeInfo } from '@/entrypoints/content/types';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchMalForumTopics, fetchJikanForumTopics, pickEpisodeTopic, searchMalAnimeId, searchJikanAnimeId } from '@/utils/malForums';
 import { fetchAniListThreads } from '@/utils/anilistForums';
-import { lookupThread } from '@/utils/discussanimeApi';
+import { findEpisodeThread } from '@/utils/discussanimeApi';
 import { parseEpisodeFromTitle } from '@/entrypoints/content/sites/shared';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
@@ -190,10 +190,15 @@ async function prefetchDisqus(
   const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
   const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
 
-  const thread = await lookupThread({
+  // No mapper translation here — the prefetch runs in the background
+  // and we want it cheap. `findEpisodeThread`'s closest-match fallback
+  // will still surface a count for popular shows even when the only
+  // candidate we have is the streaming-platform episode number.
+  const thread = await findEpisodeThread({
     malId: animeInfo.malId ?? null,
     anilistId: animeInfo.anilistId ?? null,
-    episodeNumber: mappedEp ?? rawEp ?? null,
+    episodeCandidates: [mappedEp, rawEp],
+    episodeNameHint: animeInfo.episodeName ?? null,
   });
   if (!thread) return null;
 

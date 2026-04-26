@@ -147,6 +147,10 @@ async function migrateLocalToSync(): Promise<void> {
 
 type SupportedProviderAuth = 'youtube' | 'mal' | 'anilist';
 const pendingAuthSourceTabs: Partial<Record<SupportedProviderAuth, number>> = {};
+
+// Per-tab Disqus referrer-strip rules: tabId → session rule ID
+const disqusReferrerStripRules = new Map<number, number>();
+let disqusReferrerStripRuleIdCounter = 99100;
 let komentoSyncInProgress = false;
 let komentoSyncStartedAt = 0;
 let komentoSyncBadgeTimer: number | undefined;
@@ -953,6 +957,37 @@ export default defineBackground(() => {
     await dnr.updateSessionRules({ removeRuleIds, addRules: addRules as any });
   };
 
+  const setDisqusReferrerStripForTab = async (tabId: number, enable: boolean) => {
+    const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
+    if (!dnr) return;
+    const existingRuleId = disqusReferrerStripRules.get(tabId);
+    if (!enable) {
+      if (existingRuleId !== undefined) {
+        await dnr.updateSessionRules({ removeRuleIds: [existingRuleId] });
+        disqusReferrerStripRules.delete(tabId);
+      }
+      return;
+    }
+    if (existingRuleId !== undefined) return; // already active for this tab
+    const ruleId = disqusReferrerStripRuleIdCounter++;
+    disqusReferrerStripRules.set(tabId, ruleId);
+    await dnr.updateSessionRules({
+      addRules: [{
+        id: ruleId,
+        priority: 1,
+        action: {
+          type: 'modifyHeaders' as const,
+          requestHeaders: [{ header: 'referer', operation: 'remove' as const }],
+        },
+        condition: {
+          requestDomains: ['disqus.com'],
+          tabIds: [tabId],
+          resourceTypes: ['sub_frame' as const, 'script' as const, 'image' as const, 'xmlhttprequest' as const, 'ping' as const, 'other' as const],
+        },
+      }],
+    });
+  };
+
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // SECURITY: Validate that messages come from this extension only
     if (sender.id !== browser.runtime.id) {
@@ -1038,6 +1073,24 @@ export default defineBackground(() => {
           sendResponse({ ok: true });
         } catch (error) {
           bg.warn(' Failed to toggle poll block', error);
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
+        }
+      })();
+      return true;
+    }
+
+    if (message.action === 'hayami_disqusReferrerStrip') {
+      (async () => {
+        try {
+          const tabId = sender.tab?.id;
+          if (!tabId) {
+            sendResponse({ ok: false, error: 'no-tab' });
+            return;
+          }
+          await setDisqusReferrerStripForTab(tabId, !!message.enable);
+          sendResponse({ ok: true });
+        } catch (error) {
+          bg.warn(' Failed to toggle Disqus referrer strip', error);
           sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
         }
       })();
@@ -1905,6 +1958,10 @@ export default defineBackground(() => {
   });
   browser.permissions?.onRemoved?.addListener(() => {
     void refreshKomentoBadge();
+  });
+
+  browser.tabs?.onRemoved?.addListener((tabId) => {
+    void setDisqusReferrerStripForTab(tabId, false);
   });
 
   browser.alarms?.onAlarm?.addListener((alarm) => {

@@ -173,6 +173,7 @@
   // Load Disqus embed script
   var d = document, s = d.createElement('script');
   s.src = 'https://' + forumShortname + '.disqus.com/embed.js';
+  s.referrerPolicy = 'no-referrer';
   s.setAttribute('data-timestamp', +new Date());
   (d.head || d.body).appendChild(s);
 

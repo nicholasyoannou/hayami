@@ -11,7 +11,7 @@
 import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext, DisqusThread } from '../types/data';
 import type { AnimeInfo } from '../types';
-import { lookupThread } from '@/utils/discussanimeApi';
+import { findEpisodeThread } from '@/utils/discussanimeApi';
 import { renderDisqusContainer } from '../templates';
 import {
   CONTAINER_RETRY_ATTEMPTS,
@@ -133,6 +133,14 @@ async function toggleDisqusPollBlock(enable: boolean): Promise<void> {
   }
 }
 
+async function toggleDisqusReferrerStrip(enable: boolean): Promise<void> {
+  try {
+    await browser.runtime.sendMessage({ action: 'hayami_disqusReferrerStrip', enable });
+  } catch (e) {
+    log.warn('Failed to toggle Disqus referrer strip', e);
+  }
+}
+
 /**
  * Renders a Disqus thread into the container
  */
@@ -174,8 +182,9 @@ async function renderDisqusThread(
     forumShortname,
   });
 
-  // Block Disqus poll endpoint while rendering
+  // Block Disqus poll endpoint and strip host-page referrer while rendering
   toggleDisqusPollBlock(true);
+  toggleDisqusReferrerStrip(true);
 
   // Render Disqus content into the external container
   container.innerHTML = renderDisqusContainer(identifier, threadUrl, title, forumShortname);
@@ -289,6 +298,12 @@ export class DisqusProvider extends BaseProvider {
       // the thread lookup. Without this, switching from another provider uses
       // whatever IDs the initial page detection found (often the Season 1 MAL
       // ID), which misses threads filed under the actual season's MAL ID.
+      // Hayami mapper translates CR's continuous episode (e.g. E15) into
+      // the season-relative number (e.g. S2 E3) the site files threads
+      // under. We capture both interpretations and feed them into
+      // `findEpisodeThread`, which fans out the lookup against every
+      // approved thread for the anime.
+      let mapperEpisode: number | null = null;
       const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo?.animeName || '';
       if (mapperAnimeName) {
         const failoverOut: MapperFailoverOut = {};
@@ -299,6 +314,12 @@ export class DisqusProvider extends BaseProvider {
           failoverOut,
         );
         const entry = failoverOut.entry;
+        log.log('mapper-resolved entry external_sites', {
+          anime_name: entry?.anime_name,
+          year: entry?.year,
+          external_sites: entry?.external_sites ?? null,
+          episode: failoverOut.episode ?? null,
+        });
         if (entry?.external_sites) {
           const rawMal = entry.external_sites.mal_id;
           const rawAni = entry.external_sites.anilist_id;
@@ -307,14 +328,23 @@ export class DisqusProvider extends BaseProvider {
           if (malId && Number.isFinite(malId) && malId > 0) animeInfo.malId = malId;
           if (anilistId && Number.isFinite(anilistId) && anilistId > 0) animeInfo.anilistId = anilistId;
         }
+        if (typeof failoverOut.episode === 'number' && Number.isFinite(failoverOut.episode)) {
+          mapperEpisode = failoverOut.episode;
+        }
       }
 
-      const thread = await lookupThread({
+      const lookupParams = {
         malId: animeInfo.malId ?? null,
         anilistId: animeInfo.anilistId ?? null,
-        episodeNumber: mappedEp ?? rawEp ?? null,
-      });
-      logThreadSnapshot('lookupThread-result', thread);
+        // Mapper's season-relative answer first (it's almost always how the
+        // bot files threads); fall back to the CR-continuous and offset
+        // numbers so user-posted threads using either scheme still match.
+        episodeCandidates: [mapperEpisode, mappedEp, rawEp],
+        episodeNameHint: animeInfo.episodeName ?? null,
+      };
+      log.log('findEpisodeThread params', lookupParams);
+      const thread = await findEpisodeThread(lookupParams);
+      logThreadSnapshot('findEpisodeThread-result', thread);
 
       if (thread) {
         discussionCache.disqus = { thread, animeKey: cacheKey || undefined };
@@ -372,6 +402,7 @@ export class DisqusProvider extends BaseProvider {
 
   cleanup(): void {
     toggleDisqusPollBlock(false);
+    toggleDisqusReferrerStrip(false);
     removeScripts(ASSETS.DISQUS_LOADER);
     removeIframes('disqus.com');
     const container = document.querySelector(SELECTORS.EXTERNAL_COMMENTS) as HTMLElement | null;
