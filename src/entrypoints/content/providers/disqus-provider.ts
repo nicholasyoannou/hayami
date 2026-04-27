@@ -22,7 +22,7 @@ import {
 } from '../constants';
 import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { handleProviderError } from '../utils/error-handler';
-import { getSeriesMapping, parseEpisodeFromTitle, tryMapperFailover, type MapperFailoverOut } from '../mapping';
+import { getSeriesMapping, parseEpisodeFromTitle, fetchAnimeMeta, extractSeasonTitleFromAnimeName } from '../mapping';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
@@ -298,48 +298,46 @@ export class DisqusProvider extends BaseProvider {
       // the thread lookup. Without this, switching from another provider uses
       // whatever IDs the initial page detection found (often the Season 1 MAL
       // ID), which misses threads filed under the actual season's MAL ID.
-      // Hayami mapper translates CR's continuous episode (e.g. E15) into
-      // the season-relative number (e.g. S2 E3) the site files threads
-      // under. We capture both interpretations and feed them into
-      // `findEpisodeThread`, which fans out the lookup against every
-      // approved thread for the anime.
-      let mapperEpisode: number | null = null;
-      const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo?.animeName || '';
-      if (mapperAnimeName) {
-        const failoverOut: MapperFailoverOut = {};
-        await tryMapperFailover(
-          { ...animeInfo, animeName: mapperAnimeName },
-          'reddit',
-          mappedEp ?? rawEp ?? null,
-          failoverOut,
-        );
-        const entry = failoverOut.entry;
-        log.log('mapper-resolved entry external_sites', {
-          anime_name: entry?.anime_name,
-          year: entry?.year,
-          external_sites: entry?.external_sites ?? null,
-          episode: failoverOut.episode ?? null,
+      // Resolve season-specific MAL/AniList ids before hitting the site.
+      // We only need ids here — not the Reddit/episode-mapping work that
+      // `tryMapperFailover` does for the Reddit provider — so this hits
+      // Hayami's lightweight `/anime/resolve` endpoint, which only
+      // touches the offline anime DB. MAL-Sync usually pre-populates
+      // `animeInfo.malId` / `anilistId` with the right season already;
+      // when both are present we skip the Hayami round-trip entirely.
+      const needsResolve =
+        !(animeInfo.malId && animeInfo.malId > 0) ||
+        !(animeInfo.anilistId && animeInfo.anilistId > 0);
+      if (needsResolve) {
+        const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo?.animeName || '';
+        const seasonTitle = extractSeasonTitleFromAnimeName(mapperAnimeName)
+          ?? extractSeasonTitleFromAnimeName(animeInfo?.animeName || '')
+          ?? null;
+        const meta = await fetchAnimeMeta({
+          seriesName: mapperAnimeName || animeInfo?.animeName || null,
+          seasonTitle,
+          malId: animeInfo.malId ?? null,
+          anilistId: animeInfo.anilistId ?? null,
         });
-        if (entry?.external_sites) {
-          const rawMal = entry.external_sites.mal_id;
-          const rawAni = entry.external_sites.anilist_id;
-          const malId = rawMal != null ? Number(rawMal) : null;
-          const anilistId = rawAni != null ? Number(rawAni) : null;
-          if (malId && Number.isFinite(malId) && malId > 0) animeInfo.malId = malId;
-          if (anilistId && Number.isFinite(anilistId) && anilistId > 0) animeInfo.anilistId = anilistId;
-        }
-        if (typeof failoverOut.episode === 'number' && Number.isFinite(failoverOut.episode)) {
-          mapperEpisode = failoverOut.episode;
+        log.log('anime/resolve meta', meta);
+        if (meta) {
+          const malIdRaw = (meta as Record<string, unknown>).malId;
+          const anilistIdRaw = (meta as Record<string, unknown>).anilistId;
+          const malIdNum = typeof malIdRaw === 'number' ? malIdRaw : Number(malIdRaw);
+          const anilistIdNum = typeof anilistIdRaw === 'number' ? anilistIdRaw : Number(anilistIdRaw);
+          if (Number.isFinite(malIdNum) && malIdNum > 0) animeInfo.malId = malIdNum;
+          if (Number.isFinite(anilistIdNum) && anilistIdNum > 0) animeInfo.anilistId = anilistIdNum;
         }
       }
 
       const lookupParams = {
         malId: animeInfo.malId ?? null,
         anilistId: animeInfo.anilistId ?? null,
-        // Mapper's season-relative answer first (it's almost always how the
-        // bot files threads); fall back to the CR-continuous and offset
-        // numbers so user-posted threads using either scheme still match.
-        episodeCandidates: [mapperEpisode, mappedEp, rawEp],
+        // Hand `findEpisodeThread` every plausible episode interpretation:
+        // the offset-adjusted number (matches user overrides) and the raw
+        // streaming-page number. The site-side matcher fuzzy-picks the
+        // best thread; CR-continuous vs. season-relative is its problem.
+        episodeCandidates: [mappedEp, rawEp],
         episodeNameHint: animeInfo.episodeName ?? null,
       };
       log.log('findEpisodeThread params', lookupParams);

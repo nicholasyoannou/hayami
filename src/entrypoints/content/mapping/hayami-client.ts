@@ -23,12 +23,33 @@ function stripSeasonSuffix(animeName: string): string {
     .replace(/\s+S\d+(\s+Part\s+\d+)?/i, '')
     .replace(/\s+Part\s+\d+/i, '')
     .trim();
-  
+
   if (stripped && stripped !== animeName) {
     log.log('Stripped season suffix:', { original: animeName, stripped });
   }
-  
+
   return stripped || animeName;
+}
+
+/**
+ * Pull a "Season N [Part M]" / "SN" / "Part N" suffix back out of an anime
+ * name so the backend's season-disambiguation code (which keys off a
+ * `season_title` param) can pick the right offline-db entry. Returns null
+ * when the name carries no season marker — callers should treat that as
+ * "single-cour series, just resolve by name".
+ */
+export function extractSeasonTitleFromAnimeName(animeName: string): string | null {
+  if (!animeName) return null;
+  const patterns: RegExp[] = [
+    /\b(Season\s+\d+(?:\s+Part\s+\d+)?)\b/i,
+    /\b(S\d+(?:\s+Part\s+\d+)?)\b/i,
+    /\b(Part\s+\d+)\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = animeName.match(pattern);
+    if (match && match[1]) return match[1].trim();
+  }
+  return null;
 }
 
 /**
@@ -144,6 +165,83 @@ export async function fetchAnimeMapperDataBySeriesAndSeason(
     return data;
   } catch (error) {
     log.error('Error fetching from mapper service:', error);
+    return null;
+  }
+}
+
+/**
+ * Canonical anime metadata returned by `/anime/resolve`. Mirrors the shape
+ * `build_anime_meta` produces on the backend and the `animeMeta` field
+ * attached to `/anime/search` responses.
+ */
+export interface AnimeMeta {
+  /** AniList anime ID, if present in the offline-db sources. */
+  anilistId?: number | null;
+  /** MAL anime ID, if present in the offline-db sources. */
+  malId?: number | null;
+  /** Kitsu, AniDB, etc. — not used today but the backend forwards them. */
+  [extraId: string]: unknown;
+  title?: string | null;
+  type?: string | null;
+  episodes?: number | null;
+  status?: string | null;
+  year?: number | null;
+  season?: string | null;
+  picture?: string | null;
+  thumbnail?: string | null;
+  synonyms?: string[];
+}
+
+/**
+ * Lightweight anime-metadata resolver. Hits the backend's `/anime/resolve`
+ * endpoint, which only consults the offline anime database — no MongoDB,
+ * no Reddit/YouTube search, no per-platform episode arrays. Used by the
+ * Disqus path to translate (series name + season title) or a MAL-Sync id
+ * into season-specific MAL/AniList ids without paying the cost of the
+ * Reddit-oriented `/anime/search` round trip.
+ *
+ * Pass whichever of {anilistId, malId, seriesName, seasonTitle} are
+ * available; the backend prefers ids over names. Returns null when the
+ * backend has no offline-db match for the inputs.
+ */
+export async function fetchAnimeMeta(input: {
+  seriesName?: string | null;
+  seasonTitle?: string | null;
+  malId?: number | string | null;
+  anilistId?: number | string | null;
+}): Promise<AnimeMeta | null> {
+  const params = new URLSearchParams();
+  if (input.anilistId != null && String(input.anilistId).trim()) {
+    params.set('anilist_id', String(input.anilistId));
+  }
+  if (input.malId != null && String(input.malId).trim()) {
+    params.set('mal_id', String(input.malId));
+  }
+  if (input.seriesName) {
+    params.set('series_name', String(input.seriesName));
+  }
+  if (input.seasonTitle) {
+    params.set('season_title', String(input.seasonTitle));
+  }
+  if ([...params.keys()].length === 0) {
+    log.log('fetchAnimeMeta: no inputs, skipping');
+    return null;
+  }
+
+  const url = `https://api.hayami.moe/anime/resolve?${params.toString()}`;
+  try {
+    log.log('Resolving anime meta:', url);
+    const response = await fetchHayami(url);
+    if (!response.ok) {
+      log.log('Anime resolve returned non-OK status:', response.status, response.statusText);
+      return null;
+    }
+    const body = await response.json();
+    const meta = body?.animeMeta as AnimeMeta | undefined;
+    if (!meta) return null;
+    return meta;
+  } catch (error) {
+    log.error('Error resolving anime meta:', error);
     return null;
   }
 }

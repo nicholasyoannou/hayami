@@ -86,6 +86,9 @@ import {
 import {
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
+  fetchAnimeMeta,
+  extractSeasonTitleFromAnimeName,
+  type AnimeMeta,
 } from './mapping/hayami-client';
 
 export {
@@ -94,7 +97,10 @@ export {
   extractEpisodeTableFromRedditSelftext,
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
+  fetchAnimeMeta,
+  extractSeasonTitleFromAnimeName,
 };
+export type { AnimeMeta };
 
 // Re-export extracted submodules
 export { refineMatchedIndexUsingCrunchyrollData } from './mapping/crunchyroll-refiner';

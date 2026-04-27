@@ -124,7 +124,26 @@ interface AnimeThreadRow {
 
 interface ByAnimeResponse {
   threads: AnimeThreadRow[];
+  has_more?: boolean;
+  page?: number;
 }
+
+/**
+ * Server-side paging size (maxes at 100 by API contract). We default the
+ * client to 50 because a single Cloudflare D1 read with a tight episode
+ * window will almost always cover the user's neighborhood — only fully
+ * unfiltered listings (no episode hint) benefit from following pages.
+ */
+const BY_ANIME_PAGE_SIZE = 50;
+/**
+ * ±episode_window forwarded to the server when a candidate episode is
+ * present. Wider than any plausible CR-continuous-vs-season-relative gap
+ * we've observed (typically <30) but tight enough that One Piece's 1100+
+ * episode threads stay off the wire.
+ */
+const BY_ANIME_EPISODE_WINDOW = 30;
+/** Hard ceiling on follow-up pages so a runaway response can't loop. */
+const BY_ANIME_MAX_PAGES = 4;
 
 interface FindEpisodeThreadInput {
   malId?: number | null;
@@ -177,31 +196,61 @@ function threadCoversEpisode(row: AnimeThreadRow, episode: number): boolean {
 export async function findEpisodeThread(
   input: FindEpisodeThreadInput,
 ): Promise<DisqusThread | null> {
-  const params = new URLSearchParams();
+  const baseParams = new URLSearchParams();
   if (input.malId != null && input.malId > 0) {
-    params.set('mal_id', String(input.malId));
+    baseParams.set('mal_id', String(input.malId));
   } else if (input.anilistId != null && input.anilistId > 0) {
-    params.set('anilist_id', String(input.anilistId));
+    baseParams.set('anilist_id', String(input.anilistId));
   } else {
     log.log('findEpisodeThread: no mal/anilist id, skipping');
     return null;
   }
 
-  const url = `${DISCUSSANIME_ORIGIN}/api/threads/by-anime?${params.toString()}`;
-  let body: ByAnimeResponse | null = null;
-  try {
-    const res = await fetch(url, { credentials: 'omit' });
-    if (!res.ok) {
-      log.warn('findEpisodeThread: non-OK response', { status: res.status, url });
-      return null;
+  // Hand the server an episode hint so it can narrow the result set
+  // before paginating. Use the largest plausible candidate so the
+  // window covers both small (season-relative) and large (CR-continuous)
+  // episode numbers in a single shot — e.g. ep 15 with window 30 covers
+  // ep 3 (season) and ep 15 (continuous) without two requests.
+  const hintEpisodeRaw = (input.episodeCandidates ?? [])
+    .map((raw) => (typeof raw === 'number' ? raw : Number(raw)))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const hintEpisode = hintEpisodeRaw.length ? Math.max(...hintEpisodeRaw) : null;
+  if (hintEpisode != null) {
+    baseParams.set('episode', String(hintEpisode));
+    baseParams.set('episode_window', String(BY_ANIME_EPISODE_WINDOW));
+  }
+  baseParams.set('limit', String(BY_ANIME_PAGE_SIZE));
+
+  // Walk pages until the server says `has_more=false` or we hit the
+  // safety ceiling. The first page is almost always sufficient when
+  // we've passed an episode hint; the loop only fires for unfiltered
+  // movie/general lookups against very long-running shows.
+  const threads: AnimeThreadRow[] = [];
+  for (let page = 1; page <= BY_ANIME_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams(baseParams);
+    params.set('page', String(page));
+    const url = `${DISCUSSANIME_ORIGIN}/api/threads/by-anime?${params.toString()}`;
+    let body: ByAnimeResponse | null = null;
+    try {
+      const res = await fetch(url, { credentials: 'omit' });
+      if (!res.ok) {
+        log.warn('findEpisodeThread: non-OK response', { status: res.status, url, page });
+        break;
+      }
+      body = (await res.json()) as ByAnimeResponse;
+    } catch (error) {
+      log.warn('findEpisodeThread: request failed', error);
+      break;
     }
-    body = (await res.json()) as ByAnimeResponse;
-  } catch (error) {
-    log.warn('findEpisodeThread: request failed', error);
-    return null;
+
+    const pageThreads = Array.isArray(body?.threads) ? body!.threads : [];
+    threads.push(...pageThreads);
+    if (!body?.has_more || pageThreads.length === 0) break;
+    // For the windowed query, page 1 sorted by proximity already has the
+    // best candidates — additional pages only help unfiltered listings.
+    if (hintEpisode != null) break;
   }
 
-  const threads = Array.isArray(body?.threads) ? body!.threads : [];
   if (!threads.length) return null;
 
   if (input.isMovie) {
