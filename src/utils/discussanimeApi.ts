@@ -333,6 +333,21 @@ export async function findEpisodeThread(
     }
   }
 
+  // 4) No candidates were parseable AND only one thread exists for this
+  //    anime — return it. Single-episode anime (specials like
+  //    "MHA: More", OVA-only entries, etc.) frequently come from
+  //    streaming-page titles that don't contain a parseable episode
+  //    number ("E-SP - More"), so we can't pass `episodeCandidates` to
+  //    the matcher above. There's no ambiguity to resolve here: the
+  //    anime has exactly one thread, return it.
+  if (!candidates.length && threads.length === 1) {
+    log.log('findEpisodeThread: single thread + no candidates, returning it', {
+      threadId: threads[0].id,
+      episode: threads[0].episode_number,
+    });
+    return rowToDisqusThread(threads[0]);
+  }
+
   return null;
 }
 

@@ -248,6 +248,16 @@ function pickMalSyncIds(
 export interface MapperFailoverOut {
   entry?: MapperResultEntry | null;
   episode?: number | null;
+  /**
+   * Top-level `animeMeta` from the Hayami response, carrying the
+   * canonical resolved MAL/AniList ids for the season-disambiguated
+   * anime. Preferred over `entry.external_sites` because Hayami doesn't
+   * always populate per-entry external_sites for platforms whose results
+   * the entry was built from — animeMeta is built from the offline anime
+   * database and reflects the resolved series regardless of platform
+   * coverage.
+   */
+  animeMeta?: { malId?: number | null; anilistId?: number | null } | null;
 }
 
 export async function tryMapperFailover(
@@ -687,6 +697,11 @@ export async function tryMapperFailover(
         out.entry = pickedEntry;
         // Lightweight path uses raw episodeForKeys in the requested numbering.
         out.episode = episodeForKeys ?? null;
+        // Surface the response's top-level animeMeta so callers can pick
+        // up the canonical MAL/AniList ids even when the picked entry's
+        // `external_sites` is empty (Hayami doesn't always populate it).
+        const meta = (effectiveMapperResult as unknown as { animeMeta?: { malId?: number | null; anilistId?: number | null } | null })?.animeMeta ?? null;
+        out.animeMeta = meta;
       };
 
       if (platform === 'reddit' && mapperUrl && episodeForKeys !== null) {
@@ -705,6 +720,11 @@ export async function tryMapperFailover(
       }
 
       log.log(' Lightweight mapper lookup found no episode match');
+      // Surface the picked entry anyway so non-Reddit consumers (Disqus,
+      // MAL, AniList) can still pick up its season-disambiguated MAL/
+      // AniList ids — Reddit-URL absence doesn't make the entry useless.
+      recordNonCrResolved();
+      writeLightweightOut();
       return null;
     }
     log.log(' Extracted episode ID:', episodeId);
@@ -1168,6 +1188,15 @@ export async function tryMapperFailover(
     try {
       recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
     } catch {}
+
+    // Capture Hayami's top-level `animeMeta` once so every `out.entry`
+    // write below can hand the caller the canonical (post-season-
+    // disambiguation) MAL/AniList ids — even when the matched entry's
+    // own `external_sites` is empty. animeMeta is built from Hayami's
+    // offline anime DB and reflects the resolved anime regardless of
+    // platform-specific entry coverage.
+    const responseAnimeMeta =
+      (mapperResult as unknown as { animeMeta?: { malId?: number | null; anilistId?: number | null } | null })?.animeMeta ?? null;
     let forcedSeasonEpisode: number | null = null; // derived from slice matching
     let clampSeasonEpisode: number | null = null; // last-resort clamp for oversized CR numbering
 
@@ -1243,12 +1272,20 @@ export async function tryMapperFailover(
       if (out) {
         out.entry = matchedSeason;
         out.episode = null;
+        out.animeMeta = responseAnimeMeta;
       }
       return movieUrl;
     }
-    
+
     if (!matchedSeason.episodes || typeof matchedSeason.episodes !== 'object') {
       log.log('Matched season has no episodes');
+      // Even with no episode-URL map on this entry, expose the matched
+      // record so non-Reddit consumers can lift its MAL/AniList ids.
+      if (out) {
+        out.entry = matchedSeason;
+        out.episode = null;
+        out.animeMeta = responseAnimeMeta;
+      }
       return null;
     }
 
@@ -1356,6 +1393,11 @@ export async function tryMapperFailover(
 
         if (!matchedSeason || !matchedSeason.episodes || typeof matchedSeason.episodes !== 'object') {
           log.log(' Slice-derived matched season has no episodes');
+          if (out && matchedSeason) {
+            out.entry = matchedSeason;
+            out.episode = null;
+            out.animeMeta = responseAnimeMeta;
+          }
           return null;
         }
       } else if (sliceMatch && lockMatchedSeason && sliceMatch.idx !== matchedIndex) {
@@ -1578,6 +1620,18 @@ export async function tryMapperFailover(
     if (!mappedUrl) {
       log.log(`No ${platform} URL found for episode ${seasonEpisode} (tried keys: ${keyCandidates.join(', ')}) in matched season`);
       log.log('Available episode keys:', Object.keys(matchedSeason.episodes));
+      // Even though no Reddit thread URL exists for this episode, expose
+      // the matched entry on `out` so non-Reddit consumers (Disqus, MAL,
+      // AniList) can still pick up the season-disambiguated MAL/AniList
+      // ids — without this, switching providers after a URL-less failover
+      // falls back to MAL-Sync's parent-series ids and resolves the wrong
+      // thread (e.g. "MHA: More" vs "MHA S4").
+      recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
+      if (out) {
+        out.entry = matchedSeason;
+        out.episode = seasonEpisode ?? null;
+        out.animeMeta = responseAnimeMeta;
+      }
       return null;
     }
 
@@ -1586,6 +1640,7 @@ export async function tryMapperFailover(
     if (out) {
       out.entry = matchedSeason;
       out.episode = seasonEpisode ?? null;
+      out.animeMeta = responseAnimeMeta;
     }
     return mappedUrl;
   } catch (error) {

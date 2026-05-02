@@ -35,6 +35,7 @@ import {
   fetchAnimeMapperDataBySeriesName,
   type MapperFailoverOut,
 } from '../mapping';
+import { cacheAnimeIds } from '../storage/series-mapping';
 import { collectRedditAlternateThreads } from '../mapping/reddit-alternates';
 import type { AlternateRedditThread, MapperResultEntry } from '../types/data';
 
@@ -451,13 +452,28 @@ function normalizeIdCandidate(val: unknown): number | null {
  * them to `lastAnimeInfo`, plus mutate the provided animeInfo in place so the
  * current request's downstream lookups (Disqus, etc.) pick up the corrected
  * values instead of the pre-mapper, base-title IDs.
+ *
+ * Hayami exposes ids in two places. The matched entry's `external_sites`
+ * carries the *season-disambiguated* ids (e.g. "MHA: More" → MAL 63130),
+ * which is what we want. The response's top-level `animeMeta`, in
+ * contrast, is built from the search inputs — when `mal_id` is passed as
+ * a hint (which the CR failover always does), animeMeta echoes back that
+ * exact id (e.g. MHA S4 → MAL 38408), even when matched_result picked a
+ * different anime. Prefer external_sites over animeMeta for that reason;
+ * fall back to animeMeta only when external_sites is missing entirely.
  */
-function applyMapperEntryIdsToAnimeInfo(
+export function applyMapperEntryIdsToAnimeInfo(
   animeInfo: AnimeInfo,
   entry: MapperResultEntry | null | undefined,
+  animeMeta?: { malId?: number | null; anilistId?: number | null } | null,
 ): void {
-  const malId = normalizeIdCandidate(entry?.external_sites?.mal_id);
-  const anilistId = normalizeIdCandidate(entry?.external_sites?.anilist_id);
+  const entryAny = entry as (MapperResultEntry & { mal_id?: unknown; anilist_id?: unknown }) | null | undefined;
+  const malId = normalizeIdCandidate(
+    entry?.external_sites?.mal_id ?? entryAny?.mal_id ?? animeMeta?.malId,
+  );
+  const anilistId = normalizeIdCandidate(
+    entry?.external_sites?.anilist_id ?? entryAny?.anilist_id ?? animeMeta?.anilistId,
+  );
   if (!malId && !anilistId) return;
 
   if (malId) animeInfo.malId = malId;
@@ -469,6 +485,20 @@ function applyMapperEntryIdsToAnimeInfo(
       ...currentState.lastAnimeInfo,
       ...(malId ? { malId } : {}),
       ...(anilistId ? { anilistId } : {}),
+    });
+  }
+
+  // Overwrite the shared anime-id cache with the season-disambiguated ids
+  // so subsequent `getSeriesMapping` lookups across providers see the
+  // correct series. The CR failover path pre-caches MAL-Sync's parent-
+  // series ids before Hayami runs (so providers have *something* if the
+  // mapper fails); without this overwrite, switching to Disqus after a
+  // URL-less Reddit failover would resolve against MAL-Sync's wrong ids
+  // (e.g. MHA S4 #38408) instead of the matched series (e.g. MHA: More).
+  if (animeInfo.animeName && (malId || anilistId)) {
+    cacheAnimeIds(animeInfo.animeName, malId ?? null, anilistId ?? null).catch(() => {
+      // Best-effort overwrite — failures aren't fatal because the local
+      // animeInfo mutation above already covers the current request.
     });
   }
 }
@@ -631,9 +661,16 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       log.log('User switched providers during search, aborting Reddit search');
       return;
     }
+    // Always apply matched MAL/AniList ids when the failover identified a
+    // season-disambiguated entry — even when no Reddit URL was resolved.
+    // Otherwise switching to Disqus/MAL/AniList after a URL-less failover
+    // falls back to MAL-Sync's parent-series ids and resolves the wrong
+    // thread (e.g. "MHA: More" = season-9 special vs MAL-Sync's S4 38408).
+    if (failoverOut.entry || failoverOut.animeMeta) {
+      applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
+    }
     if (failoverRedditUrl) {
       log.log('Failover succeeded, found Reddit URL:', failoverRedditUrl);
-      applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry);
       const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
       if (postData) {
         await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
@@ -1286,8 +1323,10 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
           const failoverOut: MapperFailoverOut = {};
           const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
+          if (failoverOut.entry || failoverOut.animeMeta) {
+            applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry, failoverOut.animeMeta);
+          }
           if (failoverRedditUrl) {
-            applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry);
             const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
             if (postData) {
               normalizeRedditDiscussion(postData);
@@ -1691,8 +1730,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
             const failoverOut: MapperFailoverOut = {};
             const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
+            if (failoverOut.entry || failoverOut.animeMeta) {
+              applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry, failoverOut.animeMeta);
+            }
             if (failoverRedditUrl) {
-              applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry);
               const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
               if (postData) {
                 normalizeRedditDiscussion(postData);

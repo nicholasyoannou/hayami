@@ -19,7 +19,12 @@ import { fetchAniListThreads } from '@/utils/anilistForums';
 import { findEpisodeThread } from '@/utils/discussanimeApi';
 import { parseEpisodeFromTitle } from '@/entrypoints/content/sites/shared';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { fetchAnimeMeta, extractSeasonTitleFromAnimeName } from '@/entrypoints/content/mapping';
+import {
+  tryMapperFailover,
+  getLastResolvedHayamiName,
+  type MapperFailoverOut,
+} from '@/entrypoints/content/mapping';
+import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/core/discussion-manager';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import { con } from '@/utils/logger';
 
@@ -191,43 +196,51 @@ async function prefetchDisqus(
   const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
   const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
 
-  // Honour the user's "Wrong anime?" pick — its MAL id beats anything
-  // MAL-Sync detected for the original (now-wrong) series.
-  const mappedMalId =
-    typeof mapping?.malId === 'number' && Number.isFinite(mapping.malId) && mapping.malId > 0
+  // PRIORITY 1: a real "Wrong anime?" pick is identifiable by its
+  // `mapperAnimeName` field (set by the modal). The bare `malId` on the
+  // mapping isn't trustworthy on its own — `getSeriesMapping`'s fallback
+  // merges in the shared anime-id cache, which the CR failover seeds
+  // from MAL-Sync (often a wrong parent-series id like MHA S4 38408 for
+  // an MHA: More episode).
+  const hasSavedOverride = !!(mapping?.mapperAnimeName && mapping.mapperAnimeName.trim());
+  const mappedMalId = hasSavedOverride
+    && typeof mapping?.malId === 'number'
+    && Number.isFinite(mapping.malId)
+    && mapping.malId > 0
       ? mapping.malId
+      : null;
+  const mappedAnilistId = hasSavedOverride
+    && typeof mapping?.anilistId === 'number'
+    && Number.isFinite(mapping.anilistId)
+    && mapping.anilistId > 0
+      ? mapping.anilistId
       : null;
   if (mappedMalId) {
     animeInfo.malId = mappedMalId;
+  }
+  if (mappedAnilistId) {
+    animeInfo.anilistId = mappedAnilistId;
+  } else if (mappedMalId) {
     animeInfo.anilistId = null;
   }
 
-  // Mirror DisqusProvider.switchTo: resolve season-specific MAL/AniList ids
-  // via the offline-DB-only `/anime/resolve` endpoint when MAL-Sync only
-  // populated the parent-series ids. Without this, later-season episodes
-  // miss every thread on the site (which files them under the season's id)
-  // and the badge silently never appears.
-  const needsResolve =
-    !(animeInfo.malId && animeInfo.malId > 0) ||
-    !(animeInfo.anilistId && animeInfo.anilistId > 0);
-  if (needsResolve) {
-    const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName || '';
-    const seasonTitle = extractSeasonTitleFromAnimeName(mapperAnimeName)
-      ?? extractSeasonTitleFromAnimeName(animeInfo.animeName || '')
-      ?? null;
-    const meta = await fetchAnimeMeta({
-      seriesName: mapperAnimeName || animeInfo.animeName || null,
-      seasonTitle,
-      malId: animeInfo.malId ?? null,
-      anilistId: animeInfo.anilistId ?? null,
-    });
-    if (meta) {
-      const malIdRaw = (meta as Record<string, unknown>).malId;
-      const anilistIdRaw = (meta as Record<string, unknown>).anilistId;
-      const malIdNum = typeof malIdRaw === 'number' ? malIdRaw : Number(malIdRaw);
-      const anilistIdNum = typeof anilistIdRaw === 'number' ? anilistIdRaw : Number(anilistIdRaw);
-      if (Number.isFinite(malIdNum) && malIdNum > 0) animeInfo.malId = malIdNum;
-      if (Number.isFinite(anilistIdNum) && anilistIdNum > 0) animeInfo.anilistId = anilistIdNum;
+  // PRIORITY 2: no saved override — run the same season-aware Hayami
+  // match Reddit uses so multi-season titles (e.g. "MHA FINAL SEASON" →
+  // "MHA: More") resolve to the right MAL id before we hit the site.
+  // Skip when Reddit's foreground flow already resolved this series —
+  // its `recordLastResolvedHayamiName` write means animeInfo already
+  // carries the disambiguated ids.
+  const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
+  if (!hasSavedOverride && !alreadyResolvedByReddit) {
+    try {
+      const failoverOut: MapperFailoverOut = {};
+      await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);
+      if (failoverOut.entry || failoverOut.animeMeta) {
+        applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
+      }
+    } catch {
+      // Background prefetch — swallow failures, the provider's switchTo
+      // will retry on user click.
     }
   }
 
