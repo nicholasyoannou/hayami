@@ -1964,6 +1964,18 @@ export default defineBackground(() => {
     void setDisqusReferrerStripForTab(tabId, false);
   });
 
+  // Drop the per-tab Disqus referrer-strip rule when the tab navigates to a
+  // new URL. Without this, navigating in-tab from a streaming site (where the
+  // Disqus provider enabled the rule) to e.g. discussanime.moe would leave
+  // the rule active, silently stripping Referer from the destination's own
+  // disqus.com calls. The provider's renderDisqusThread will re-enable the
+  // rule via runtime message if the user lands on Hayami's Disqus tab again.
+  browser.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
+    if (typeof changeInfo.url !== 'string') return;
+    if (!disqusReferrerStripRules.has(tabId)) return;
+    void setDisqusReferrerStripForTab(tabId, false);
+  });
+
   browser.alarms?.onAlarm?.addListener((alarm) => {
     if (!alarm) return;
     if (alarm.name === KOMENTOSCRIPT_WEEKLY_ALARM) {

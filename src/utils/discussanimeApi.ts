@@ -351,65 +351,165 @@ function extractEpisodeNumbersFromTitle(title: string): number[] {
   return Array.from(numbers);
 }
 
-interface SearchThreadsInput {
-  /** Free-text query — passed straight through to `/api/search?q=`. */
-  query?: string;
-  /** Restrict to a given MAL id when known (narrows FTS to that anime). */
-  malId?: number | null;
-  limit?: number;
-}
+/**
+ * Walk every approved thread filed against `malId` and return the
+ * sorted, de-duped list of episode numbers covered. Combined-episode
+ * threads (e.g. ep 1-2) expand to their full inclusive range so a
+ * 1-2 thread surfaces both 1 and 2 in the picker.
+ *
+ * Drives the Disqus "Wrong anime?" picker's episode grid — mirrors
+ * Reddit's "show only what the source actually has" behaviour, so the
+ * grid never offers an episode that has no on-site discussion to land
+ * on. `BY_ANIME_MAX_PAGES * 100` caps the walk for shows like One
+ * Piece; modal callers should rely on the catalog's `episodes` count
+ * as a fallback when this returns empty.
+ */
+export async function fetchAvailableEpisodeNumbers(malId: number): Promise<number[]> {
+  if (!Number.isFinite(malId) || malId <= 0) return [];
+  const PAGE_SIZE = 100;
+  const numbers = new Set<number>();
+  for (let page = 1; page <= BY_ANIME_MAX_PAGES; page += 1) {
+    const params = new URLSearchParams();
+    params.set('mal_id', String(malId));
+    params.set('limit', String(PAGE_SIZE));
+    params.set('page', String(page));
+    const url = `${DISCUSSANIME_ORIGIN}/api/threads/by-anime?${params.toString()}`;
+    let body: ByAnimeResponse | null = null;
+    try {
+      const res = await fetch(url, { credentials: 'omit' });
+      if (!res.ok) {
+        log.warn('fetchAvailableEpisodeNumbers: non-OK response', { status: res.status, url, page });
+        break;
+      }
+      body = (await res.json()) as ByAnimeResponse;
+    } catch (error) {
+      log.warn('fetchAvailableEpisodeNumbers: request failed', error);
+      break;
+    }
 
-interface SearchResultRow {
-  id: number;
-  slug: string;
-  title: string;
-  anime_image_url?: string | null;
-  comment_count?: number | null;
-}
+    const pageThreads = Array.isArray(body?.threads) ? body!.threads : [];
+    for (const row of pageThreads) {
+      const start = row.episode_number;
+      if (start == null || start <= 0) continue;
+      const end = row.episode_number_end ?? start;
+      for (let n = start; n <= end; n += 1) {
+        if (n > 0) numbers.add(n);
+      }
+    }
 
-interface SearchResponse {
-  results: SearchResultRow[];
+    if (!body?.has_more || pageThreads.length === 0) break;
+  }
+  return Array.from(numbers).sort((a, b) => a - b);
 }
 
 /**
- * Feed the "Wrong anime?" picker. Hits `/api/search` on the site with
- * either the anime title or (preferably) its MAL id, so the modal can
- * present a short list of candidate threads for the user to pick from.
- *
- * Shape matches the legacy `searchThreadsForAnime` return value closely
- * enough that the modal can render without a schema change.
+ * Single hit from discussanime.moe's `/api/anime/search` endpoint —
+ * mirror the server's `AnimeSearchHit` so the picker can render
+ * directly without a translation layer.
  */
-export async function searchThreads(
-  input: SearchThreadsInput,
-): Promise<DisqusThread[]> {
-  const params = new URLSearchParams();
-  if (input.query) params.set('q', input.query);
-  if (input.malId != null && input.malId > 0) {
-    params.set('anime', String(input.malId));
-  }
-  params.set('limit', String(input.limit ?? 20));
+export interface DiscussAnimeSearchHit {
+  malId: number;
+  title: string;
+  titleEnglish: string | null;
+  imageUrl: string;
+  year: number | null;
+  episodes: number | null;
+}
 
-  const url = `${DISCUSSANIME_ORIGIN}/api/search?${params.toString()}`;
+/**
+ * Look up a single anime entry on discussanime.moe by MAL id.
+ *
+ * Used by the extension's "Wrong anime?" modal to seed the episode-grid
+ * for the auto-detected series — without a separate search round-trip,
+ * the modal can render the same 1..N picker the user gets after picking
+ * a different anime via the Wrong-anime overlay.
+ */
+export async function fetchAnimeByMalId(malId: number): Promise<DiscussAnimeSearchHit | null> {
+  if (!Number.isFinite(malId) || malId <= 0) return null;
+  const url = `${DISCUSSANIME_ORIGIN}/api/anime/${malId}`;
   try {
     const res = await fetch(url, { credentials: 'omit' });
     if (!res.ok) {
-      log.warn('searchThreads: non-OK response', { status: res.status, url });
+      log.warn('fetchAnimeByMalId: non-OK response', { status: res.status, url });
+      return null;
+    }
+    const body = (await res.json()) as {
+      mal_id: number;
+      title: string;
+      title_english: string | null;
+      image_url: string;
+      year: number | null;
+      episodes: number | null;
+    };
+    if (!body || !Number.isFinite(body.mal_id) || body.mal_id <= 0) return null;
+    return {
+      malId: body.mal_id,
+      title: body.title,
+      titleEnglish: body.title_english,
+      imageUrl: body.image_url,
+      year: body.year,
+      episodes: body.episodes,
+    };
+  } catch (error) {
+    log.warn('fetchAnimeByMalId: request failed', error);
+    return null;
+  }
+}
+
+interface AnimeSearchResponse {
+  results: Array<{
+    mal_id: number;
+    title: string;
+    title_english: string | null;
+    image_url: string;
+    year: number | null;
+    episodes: number | null;
+  }>;
+  has_more?: boolean;
+  page?: number;
+}
+
+/**
+ * Feed the "Wrong anime?" picker with anime-catalog candidates from
+ * discussanime.moe's `/api/anime/search` endpoint. Returns the same
+ * MAL-backed metadata the site itself uses (cover, romaji + english
+ * titles, year, episode count) so the picker can mirror Reddit's
+ * wrong-anime UI: pick a series, persist its MAL id, and let the
+ * existing `findEpisodeThread` re-resolve the right thread.
+ */
+export async function searchAnimeCatalog(input: {
+  query: string;
+  limit?: number;
+  page?: number;
+}): Promise<DiscussAnimeSearchHit[]> {
+  const q = input.query?.trim();
+  if (!q) return [];
+  const params = new URLSearchParams();
+  params.set('q', q);
+  params.set('limit', String(input.limit ?? 25));
+  if (input.page && input.page > 1) params.set('page', String(input.page));
+
+  const url = `${DISCUSSANIME_ORIGIN}/api/anime/search?${params.toString()}`;
+  try {
+    const res = await fetch(url, { credentials: 'omit' });
+    if (!res.ok) {
+      log.warn('searchAnimeCatalog: non-OK response', { status: res.status, url });
       return [];
     }
-    const body = (await res.json()) as SearchResponse;
+    const body = (await res.json()) as AnimeSearchResponse;
     if (!Array.isArray(body?.results)) return [];
-    return body.results.map((row) => ({
-      id: `thread-${row.id}`,
-      identifier: `thread-${row.id}`,
-      title: row.title,
-      clean_title: row.title,
-      link: `${DISCUSSANIME_ORIGIN}/discussion/${row.slug}`,
-      slug: row.slug,
-      forum: 'discussanime',
-      posts: row.comment_count ?? undefined,
-    }));
+    return body.results
+      .filter((row) => Number.isFinite(row?.mal_id) && row.mal_id > 0)
+      .map((row) => ({
+        malId: row.mal_id,
+        title: row.title,
+        titleEnglish: row.title_english,
+        imageUrl: row.image_url,
+        year: row.year,
+        episodes: row.episodes,
+      }));
   } catch (error) {
-    log.warn('searchThreads: request failed', error);
+    log.warn('searchAnimeCatalog: request failed', error);
     return [];
   }
 }

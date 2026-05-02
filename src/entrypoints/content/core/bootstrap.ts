@@ -15,7 +15,6 @@ import {
   searchAndDisplayDiscussion,
   fetchRedditPostFromUrl,
   displayDiscussionDependingOnMode,
-  embedDisqusThreadDependingOnMode,
 } from './discussion-manager';
 import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
@@ -335,18 +334,6 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
     }
   });
 
-  ctx.addEventListener(window, 'ri-disqus-thread-selected', async (ev: any) => {
-    try {
-      const thread = ev?.detail?.thread;
-      if (!thread) return;
-      const animeInfo = getState().lastAnimeInfo;
-      if (!animeInfo) return;
-      await embedDisqusThreadDependingOnMode(thread, animeInfo);
-    } catch (e) {
-      log.warn('Failed to handle Disqus thread selection', e);
-    }
-  });
-
   ctx.addEventListener(window, 'ri-episode-select-override', async (ev: any) => {
     try {
       const selectedEpisode = Number(ev?.detail?.episodeNumber);
@@ -381,7 +368,10 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         const mappingPayload: Parameters<typeof saveSeriesMapping>[1] = {
           episodeOffset: offset,
           mapperAnimeName: selectedAnimeName || undefined,
-          malId: mappingPlatform === 'mal' ? eventMalId : undefined,
+          // Disqus persists `malId` because discussanime.moe's thread API
+          // is keyed on it; without this, the saved Wrong-anime pick has
+          // nothing to translate the streaming-page series → site series.
+          malId: (mappingPlatform === 'mal' || mappingPlatform === 'disqus') ? eventMalId : undefined,
           anilistId: (mappingPlatform === 'anilist' || mappingPlatform === 'animecommunity') ? eventAnilistId : undefined,
           aniwaveIsDub: mappingPlatform === 'aniwave' ? aniwaveIsDub : undefined,
         };
@@ -414,6 +404,12 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         // the cached match for the previous anime.
         if (mappingPlatform === 'youtube') {
           getState().discussionCache.youtube = undefined;
+        }
+        // Drop the cached Disqus thread so the post-override re-query hits
+        // findEpisodeThread with the new MAL id; otherwise the wrong-anime
+        // thread keeps rendering from cache.
+        if (mappingPlatform === 'disqus') {
+          getState().discussionCache.disqus = undefined;
         }
         await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
           forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal' | 'youtube',
@@ -460,6 +456,9 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
           // overridden series's cached playlist.
           if (mappingPlatform === 'youtube') {
             getState().discussionCache.youtube = undefined;
+          }
+          if (mappingPlatform === 'disqus') {
+            getState().discussionCache.disqus = undefined;
           }
           await searchAndDisplayDiscussion(getState().lastAnimeInfo!, {
             forceProvider: mappingPlatform as 'aniwave' | 'animecommunity' | 'disqus' | 'anilist' | 'mal' | 'youtube',

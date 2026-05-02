@@ -142,6 +142,31 @@ async function toggleDisqusReferrerStrip(enable: boolean): Promise<void> {
 }
 
 /**
+ * Open the unified Wrong-anime modal for a Disqus context.
+ *
+ * Routes through `ri-manual-search-requested` so the picker shares the same
+ * series-pill + episode-grid UX as Reddit/MAL/AniList. The picker's data
+ * source is wired to discussanime.moe's catalog (not Hayami) — see the
+ * `disqus` branches in `useManualSearch.ts`.
+ */
+function dispatchDisqusManualSearch(animeInfo: AnimeInfo): void {
+  const ep = parseEpisodeFromTitle(animeInfo.episodeName || '');
+  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
+    detail: {
+      provider: 'disqus',
+      animeInfo: {
+        animeName: animeInfo.animeName,
+        episodeName: animeInfo.episodeName,
+        malId: animeInfo.malId ?? null,
+        anilistId: animeInfo.anilistId ?? null,
+      },
+      mappingAnimeName: animeInfo.animeName,
+      crEpisodeNum: ep ?? undefined,
+    },
+  }));
+}
+
+/**
  * Renders a Disqus thread into the container
  */
 async function renderDisqusThread(
@@ -212,9 +237,7 @@ async function renderDisqusThread(
     wrongAnimeBtn.onclick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      window.dispatchEvent(new CustomEvent('ri-disqus-search-requested', {
-        detail: { animeInfo },
-      }));
+      dispatchDisqusManualSearch(animeInfo);
     };
   }
 
@@ -293,6 +316,23 @@ export class DisqusProvider extends BaseProvider {
       const episodeOffset = mapping?.episodeOffset ?? 0;
       const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
       const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
+
+      // The "Wrong anime?" picker writes the user-confirmed series's MAL id
+      // into the mapping. It overrides whatever MAL-Sync detected for the
+      // original (now-wrong) anime, otherwise the saved pick gets silently
+      // dropped on the next provider switch.
+      const mappedMalId =
+        typeof mapping?.malId === 'number' && Number.isFinite(mapping.malId) && mapping.malId > 0
+          ? mapping.malId
+          : null;
+      if (mappedMalId) {
+        animeInfo.malId = mappedMalId;
+        // Discard the AniList id from the wrong-anime detection — it points
+        // at the original series, and the discussanime.moe lookup prefers
+        // mal_id when both are present, so leaving anilistId alone is safe
+        // but clearing it removes a confusing log line.
+        animeInfo.anilistId = null;
+      }
 
       // Resolve season-specific MAL/AniList IDs via the Hayami mapper before
       // the thread lookup. Without this, switching from another provider uses
@@ -385,9 +425,7 @@ export class DisqusProvider extends BaseProvider {
         wrongBtn.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();
-          window.dispatchEvent(new CustomEvent('ri-disqus-search-requested', {
-            detail: { animeInfo },
-          }));
+          dispatchDisqusManualSearch(animeInfo);
         });
       }
       clearLoadingState('Disqus fallback');

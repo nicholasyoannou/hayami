@@ -1515,59 +1515,6 @@ function mountLoadingShell(): void {
   }
 }
 
-export async function embedDisqusThreadDependingOnMode(thread: any, animeInfo: AnimeInfo): Promise<void> {
-  const currentState = state();
-  const cache = currentState.discussionCache;
-  const cacheKey = `${animeInfo?.animeName || ''}__${animeInfo?.episodeName || ''}`.trim();
-  activeUiProvider = 'disqus';
-
-  // Cache the thread for Vue-side render. The site's /api/threads/lookup
-  // already returns the title/slug/identifier, so no separate hydration
-  // step is needed before handing off to the provider.
-  cache.disqus = { thread, animeKey: cacheKey || undefined };
-
-  try {
-    // If Vue app is mounted, switch provider to Disqus so it renders in the external container
-    const manager = getUiManager();
-    const targetMode: 'popup' | 'inline' =
-      manager.isMounted('popup') || currentRenderIntent === 'popup' || hasPopupInteractionLock()
-        ? 'popup'
-        : 'inline';
-
-    const triggerProviderSwitch = (): boolean => {
-      const exposed = manager.getExposed<InlineDiscussionExposed>(targetMode);
-      if (!exposed?.handleProviderChange) return false;
-      exposed.handleProviderChange('disqus');
-      return true;
-    };
-
-    if (triggerProviderSwitch()) {
-      return;
-    }
-
-    // Popup mount can lag behind Disqus thread discovery; retry briefly so provider handoff
-    // does not depend on a single timing window.
-    let attempts = 0;
-    const maxAttempts = 30;
-    const retryDelayMs = 100;
-    const retry = () => {
-      attempts += 1;
-      if (triggerProviderSwitch()) {
-        return;
-      }
-      if (attempts < maxAttempts) {
-        setTimeout(retry, retryDelayMs);
-      } else {
-        log.log('Vue instance not ready yet; thread remains cached for deferred popup render');
-      }
-    };
-    setTimeout(retry, retryDelayMs);
-    return;
-  } catch (e) {
-    log.warn('Failed to switch provider via Vue exposed handle:', e);
-  }
-}
-
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
   normalizeRedditDiscussion(discussion);
 

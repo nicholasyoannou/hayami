@@ -6,7 +6,6 @@ import RiTopStrip from './RiTopStrip.vue';
 import { RedditCommentList } from './comments';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
 import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/utils/redditApi';
-import { useDisqusSearch } from '@/composables/useDisqusSearch';
 import { useManualSearch, type Provider, type AniListSearchMedia, type MalSearchMedia } from '@/composables/useManualSearch';
 import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/redditAuth';
 import { useProvider } from '@/composables/useProvider';
@@ -192,9 +191,10 @@ const {
   manualAniwaveIsDub, manualAniwaveEpisodeVariants,
   manualMappingAnimeName, manualMappingLookupAnimeName, manualMappingExists, manualResetInProgress,
   wrongAnimeOpen, wrongAnimeQuery, wrongAnimeResults, wrongAnimeLoading, wrongAnimeError,
-  animeCommunityMedia, malManualMedia,
+  animeCommunityMedia, malManualMedia, disqusManualMedia,
   manualEpisodeProviderLabel, isAniwaveManualMode, hasAniwaveDubOptions, hasAniwaveSubOptions,
   showAniwaveDubToggle, isAniListEpisodeManualMode, isMalEpisodeManualMode,
+  isDisqusEpisodeManualMode,
   isYouTubeEpisodeManualMode, isAniListShapedPickerMode, isEpisodeOnlyManualMode,
   selectedEpisodeOffset, redditUrl: rawRedditUrl,
   openManualSearchModal, runManualSearch, loadEpisodeOptions,
@@ -207,19 +207,6 @@ const {
   getAniListPreferredTitle, normalizeAniListMedia, searchAniListMedia, fetchAniListMediaById,
   normalizeMalMedia, searchMalMedia, fetchMalMediaById, buildMalEpisodeOptions, buildAnimeCommunityEpisodeOptions,
 } = manualSearch;
-
-// Disqus thread search composable
-const {
-  disqusSearchOpen,
-  disqusSearchResults,
-  disqusSearchLoading,
-  disqusSearchError,
-  disqusSearchFilter,
-  filteredDisqusSearchResults,
-  openDisqusSearchModal,
-  closeDisqusSearchModal,
-  selectDisqusThread,
-} = useDisqusSearch();
 
 // Apply the user's link domain preference (reddit.com vs old.reddit.com) to the thread URL
 const redditUrl = computed(() => {
@@ -1099,13 +1086,6 @@ onMounted(() => {
     if (ev.key === 'Escape' && manualSearchOpen.value) {
       manualSearchOpen.value = false;
     }
-    if (ev.key === 'Escape' && disqusSearchOpen.value) {
-      closeDisqusSearchModal();
-    }
-  };
-  const disqusSearchHandler = (ev: Event) => {
-    const detail = (ev as CustomEvent)?.detail?.animeInfo || null;
-    openDisqusSearchModal(detail);
   };
   const runtimeMessageHandler = (message: any) => {
     if (!message || typeof message !== 'object') return;
@@ -1161,14 +1141,12 @@ onMounted(() => {
   browser.storage.onChanged.addListener(storageChangeHandler);
 
   window.addEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
-  window.addEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
   window.addEventListener('keydown', escHandler);
   browser.runtime.onMessage.addListener(runtimeMessageHandler);
 
   onUnmounted(() => {
     browser.storage.onChanged.removeListener(storageChangeHandler);
     window.removeEventListener('ri-manual-search-requested', manualSearchHandler as EventListener);
-    window.removeEventListener('ri-disqus-search-requested', disqusSearchHandler as EventListener);
     window.removeEventListener('keydown', escHandler);
     browser.runtime.onMessage.removeListener(runtimeMessageHandler);
   });
@@ -2007,7 +1985,15 @@ defineExpose({
           <div>
             <h3 class="text-base font-semibold text-white">Find the correct series</h3>
             <p class="text-[11px] text-[#7f8a99] mt-0.5">
-              {{ isAniListShapedPickerMode ? 'Searches AniList live as you type.' : (isMalEpisodeManualMode ? 'Searches MyAnimeList live as you type.' : 'Searches the Hayami database live as you type.') }}
+              {{
+                isAniListShapedPickerMode
+                  ? 'Searches AniList live as you type.'
+                  : isMalEpisodeManualMode
+                    ? 'Searches MyAnimeList live as you type.'
+                    : isDisqusEpisodeManualMode
+                      ? 'Searches Discuss Anime live as you type.'
+                      : 'Searches the Hayami database live as you type.'
+              }}
             </p>
           </div>
           <button
@@ -2041,7 +2027,7 @@ defineExpose({
           <ul v-if="wrongAnimeResults.length" class="space-y-2">
             <li
               v-for="(item, idx) in wrongAnimeResults"
-              :key="String(item?._id ?? item?.id ?? `${idx}-${getMapperResultDisplayName(item)}`)"
+              :key="String(item?.malId ?? item?._id ?? item?.id ?? `${idx}-${getMapperResultDisplayName(item)}`)"
               class="group rounded-lg border border-[#262626] bg-[#0b0b0b] p-3 hover:border-[#2f6feb]/40 transition-colors cursor-pointer"
               @click="selectWrongAnime(item)"
             >
@@ -2075,6 +2061,52 @@ defineExpose({
                       <span v-if="item.status" class="rounded-full bg-[#1f1f1f] px-2 py-0.5 text-[#b8c2cf]">
                         {{ item.status }}
                       </span>
+                    </div>
+                  </div>
+                  <button
+                    class="shrink-0 self-center rounded-lg bg-[#2f6feb] hover:bg-[#1f5fcc] px-3 py-1.5 text-xs font-semibold text-white"
+                    @click.stop="selectWrongAnime(item)"
+                  >
+                    Select
+                  </button>
+                </div>
+              </template>
+              <template v-else-if="isDisqusEpisodeManualMode">
+                <div class="flex gap-3">
+                  <img
+                    v-if="item.imageUrl"
+                    :src="item.imageUrl"
+                    alt="Anime cover"
+                    class="h-16 w-12 shrink-0 rounded object-cover bg-[#141414]"
+                    referrerpolicy="no-referrer"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-semibold text-white line-clamp-2 leading-snug">
+                      {{ item.title }}
+                    </div>
+                    <div
+                      v-if="item.titleEnglish && item.titleEnglish !== item.title"
+                      class="mt-0.5 truncate text-[11px] text-[#9aa5b4]"
+                      :title="item.titleEnglish || ''"
+                    >
+                      {{ item.titleEnglish }}
+                    </div>
+                    <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span v-if="item.episodes" class="rounded-full bg-[#1a2332] px-2 py-0.5 text-[#8dd4ff]">
+                        {{ item.episodes }} eps
+                      </span>
+                      <span v-if="item.year" class="rounded-full bg-[#1f1f1f] px-2 py-0.5 text-[#b8c2cf]">
+                        {{ item.year }}
+                      </span>
+                      <a
+                        :href="`https://myanimelist.net/anime/${item.malId}`"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="rounded-full bg-[#1a1f2e] px-2 py-0.5 text-[#8dd4ff] hover:bg-[#243049]"
+                        @click.stop
+                      >
+                        MAL
+                      </a>
                     </div>
                   </div>
                   <button
@@ -2153,87 +2185,6 @@ defineExpose({
       </div>
     </div>
 
-    <!-- Disqus Search Modal -->
-    <div
-      v-if="disqusSearchOpen"
-      class="fixed inset-0 z-[10000] bg-black/70 flex items-center justify-center p-4"
-      @click.self="closeDisqusSearchModal"
-    >
-      <div class="w-full max-w-2xl bg-[#141414] border border-[#2f2f2f] rounded-xl shadow-2xl overflow-hidden">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-[#2f2f2f]">
-          <h3 class="text-lg font-semibold text-white">Select Disqus thread</h3>
-          <button
-            class="text-[#aaa] hover:text-white"
-            @click="closeDisqusSearchModal"
-            aria-label="Close"
-          >✕</button>
-        </div>
-        <div class="p-4 space-y-3">
-          <div class="text-sm text-[#ccc]">
-            Choose a Disqus thread for this episode. Results come from the DiscussAnime channel.
-          </div>
-          <div class="flex gap-2 items-center">
-            <input
-              v-model="disqusSearchFilter"
-              class="flex-1 bg-[#0f0f0f] border border-[#2f2f2f] rounded-lg px-3 py-2 text-sm text-white outline-none"
-              type="text"
-              placeholder="Search any anime title on Discuss Anime…"
-              @keyup.enter="runDisqusSearch"
-            />
-            <button
-              class="px-3 py-2 bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded-lg text-sm"
-              @click="runDisqusSearch"
-              :disabled="disqusSearchLoading"
-            >
-              Search
-            </button>
-          </div>
-          <div v-if="disqusSearchError" class="text-sm text-red-400">
-            {{ disqusSearchError }}
-          </div>
-          <div v-if="disqusSearchLoading" class="text-sm text-[#ccc]">Loading threads...</div>
-          <ul v-else-if="filteredDisqusSearchResults.length > 0" class="space-y-2 max-h-[320px] overflow-y-auto styled-scroll">
-            <li
-              v-for="(item, idx) in filteredDisqusSearchResults"
-              :key="idx"
-              class="p-3 border border-[#262626] rounded-lg bg-[#0f0f0f]"
-            >
-              <div class="text-sm font-semibold text-white whitespace-normal break-words">
-                {{ item.clean_title || item.title }}
-              </div>
-              <div class="text-xs text-[#aaa] flex items-center gap-2 mt-1">
-                <span>{{ item.posts ?? item.num_posts ?? item.comments ?? 0 }} posts</span>
-                <span>•</span>
-                <span>Thread ID: {{ item.id }}</span>
-              </div>
-              <div class="mt-2 flex gap-2">
-                <button
-                  class="px-3 py-1 text-xs bg-[#2f6feb] hover:bg-[#1f5fcc] text-white rounded"
-                  @click="selectDisqusThread(item)"
-                >
-                  Select
-                </button>
-                <a
-                  v-if="item.link || item.url"
-                  class="px-3 py-1 text-xs bg-[#333] hover:bg-[#444] text-white rounded"
-                  :href="item.link || item.url"
-                  target="_blank"
-                  rel="noopener"
-                >
-                  Open
-                </a>
-              </div>
-            </li>
-          </ul>
-          <div
-            v-else
-            class="text-sm text-[#999]"
-          >
-            No Disqus threads available right now.
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 

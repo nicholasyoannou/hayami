@@ -11,12 +11,18 @@ import {
   getLastResolvedHayamiName,
 } from '@/entrypoints/content/mapping';
 import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
+import {
+  searchAnimeCatalog,
+  fetchAnimeByMalId,
+  fetchAvailableEpisodeNumbers,
+  type DiscussAnimeSearchHit,
+} from '@/utils/discussanimeApi';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
-type ManualEpisodeProvider = 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube';
+type ManualEpisodeProvider = 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube';
 
 export interface AniListSearchMedia {
   id: number;
@@ -101,6 +107,11 @@ export function useManualSearch(params: {
 
   const animeCommunityMedia = ref<AniListSearchMedia | null>(null);
   const malManualMedia = ref<MalSearchMedia | null>(null);
+  // Discussanime.moe-backed media for the Disqus picker. Populated from
+  // `/api/anime/[malId]` on open and from `/api/anime/search` after a
+  // Wrong-anime pick — drives the 1..N episode grid for Disqus exactly
+  // like `malManualMedia` does for the MAL provider.
+  const disqusManualMedia = ref<DiscussAnimeSearchHit | null>(null);
   const manualAniwaveIsDub = ref(false);
   const manualAniwaveEpisodeVariants = ref<Array<{ episode: number; subUrl: string; dubUrl: string }>>([]);
 
@@ -117,6 +128,7 @@ export function useManualSearch(params: {
     if (manualEpisodeProvider.value === 'anilist') return 'AniList';
     if (manualEpisodeProvider.value === 'mal') return 'MyAnimeList';
     if (manualEpisodeProvider.value === 'youtube') return 'YouTube';
+    if (manualEpisodeProvider.value === 'disqus') return 'Discuss Anime';
     return 'Reddit';
   });
 
@@ -139,6 +151,8 @@ export function useManualSearch(params: {
   );
 
   const isMalEpisodeManualMode = computed(() => manualEpisodeProvider.value === 'mal');
+
+  const isDisqusEpisodeManualMode = computed(() => manualEpisodeProvider.value === 'disqus');
 
   const isYouTubeEpisodeManualMode = computed(() => manualEpisodeProvider.value === 'youtube');
 
@@ -165,6 +179,7 @@ export function useManualSearch(params: {
     if (provider === 'anilist') return 'anilist';
     if (provider === 'mal') return 'mal';
     if (provider === 'youtube') return 'youtube';
+    if (provider === 'disqus') return 'disqus';
     return 'reddit';
   }
 
@@ -387,6 +402,18 @@ export function useManualSearch(params: {
 
   function buildAnimeCommunityEpisodeOptions(media: AniListSearchMedia): Array<{ episode: number; url: string }> {
     const upperBound = media.episodes ?? media.nextAiringEpisode ?? null;
+    if (!upperBound || upperBound <= 0) return [];
+
+    const safeUpperBound = Math.min(upperBound, 2000);
+    const out: Array<{ episode: number; url: string }> = [];
+    for (let ep = 1; ep <= safeUpperBound; ep += 1) {
+      out.push({ episode: ep, url: '' });
+    }
+    return out;
+  }
+
+  function buildDisqusEpisodeOptions(media: DiscussAnimeSearchHit): Array<{ episode: number; url: string }> {
+    const upperBound = media.episodes ?? null;
     if (!upperBound || upperBound <= 0) return [];
 
     const safeUpperBound = Math.min(upperBound, 2000);
@@ -623,7 +650,7 @@ export function useManualSearch(params: {
     }
   }
 
-  function getManualMappingPlatform(): 'reddit' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube' {
+  function getManualMappingPlatform(): 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube' {
     const provider = manualEpisodeProvider.value;
     if (
       provider === 'aniwave'
@@ -631,6 +658,7 @@ export function useManualSearch(params: {
       || provider === 'anilist'
       || provider === 'mal'
       || provider === 'youtube'
+      || provider === 'disqus'
     ) {
       return provider;
     }
@@ -711,6 +739,7 @@ export function useManualSearch(params: {
     wrongAnimeError.value = null;
     animeCommunityMedia.value = null;
     malManualMedia.value = null;
+    disqusManualMedia.value = null;
     manualAniwaveIsDub.value = false;
     manualAniwaveEpisodeVariants.value = [];
     if (wrongAnimeDebounceHandle) {
@@ -840,12 +869,64 @@ export function useManualSearch(params: {
         populatedFromMapper = true;
       }
 
+      if (manualEpisodeProvider.value === 'disqus') {
+        // Disqus's picker is sourced from discussanime.moe's own data so the
+        // rows show the same MAL-backed metadata that drives thread
+        // resolution. The site's `/api/anime/[malId]` endpoint hydrates a
+        // single record by id (preferred for the auto-detected anime); the
+        // search endpoint covers the no-id case via a name-match fallback.
+        let media = disqusManualMedia.value;
+
+        if (!media && Number.isFinite(Number(manualEpisodeContext.value.malId))) {
+          media = await fetchAnimeByMalId(Number(manualEpisodeContext.value.malId));
+        }
+
+        if (!media && manualEpisodeContext.value.animeName) {
+          const results = await searchAnimeCatalog({ query: manualEpisodeContext.value.animeName, limit: 5 });
+          media = results[0] || null;
+        }
+
+        if (!media) {
+          manualEpisodeError.value = 'No Discuss Anime match found. Try Wrong anime? and search manually.';
+          return;
+        }
+
+        disqusManualMedia.value = media;
+        manualEpisodeResolvedName.value = manualWrongAnimePickedName.value || media.title;
+        manualEpisodeContext.value.animeName = media.title;
+        manualEpisodeContext.value.malId = media.malId;
+
+        // Mirror Reddit's wrong-anime grid — show only the episodes that
+        // already have a thread on discussanime.moe. The catalog's
+        // `total_episodes` count is used as a fallback so brand-new shows
+        // (no threads filed yet) still get a useful 1..N picker instead
+        // of an empty modal.
+        const threadEpisodes = await fetchAvailableEpisodeNumbers(media.malId);
+        if (threadEpisodes.length > 0) {
+          manualEpisodeOptions.value = threadEpisodes.map((ep) => ({ episode: ep, url: '' }));
+        } else {
+          manualEpisodeOptions.value = buildDisqusEpisodeOptions(media);
+        }
+
+        if (manualEpisodeOptions.value.length === 0) {
+          manualEpisodeError.value = 'No discussion threads exist for this series on Discuss Anime yet.';
+          return;
+        }
+
+        populatedFromMapper = true;
+      }
+
       // Prefer Hayami mapper episodes when we know the anime name.
+      // Disqus is excluded because the branch above already populated
+      // `manualEpisodeOptions` from discussanime.moe's catalog — falling
+      // through to Hayami here would clobber those with a Reddit-shaped
+      // result set the Disqus provider can't act on.
       const cleanedSeries = (
         manualEpisodeProvider.value === 'animecommunity'
         || manualEpisodeProvider.value === 'anilist'
         || manualEpisodeProvider.value === 'mal'
         || manualEpisodeProvider.value === 'youtube'
+        || manualEpisodeProvider.value === 'disqus'
       )
         ? undefined
         : cleanSeriesForMapper(manualEpisodeContext.value.animeName);
@@ -1020,6 +1101,15 @@ export function useManualSearch(params: {
         return;
       }
 
+      if (manualEpisodeProvider.value === 'disqus') {
+        const results = await searchAnimeCatalog({ query: q, limit: 25 });
+        wrongAnimeResults.value = results;
+        if (results.length === 0) {
+          wrongAnimeError.value = 'No matches on Discuss Anime.';
+        }
+        return;
+      }
+
       const cleaned = cleanSeriesForMapper(q) || q;
       const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
       const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, mapperPlatform);
@@ -1070,6 +1160,24 @@ export function useManualSearch(params: {
       manualWrongAnimePickedName.value = name || null;
       manualEpisodeContext.value.animeName = name;
       manualEpisodeContext.value.malId = media.id;
+      manualEpisodeResolvedName.value = name;
+      wrongAnimeOpen.value = false;
+      wrongAnimeResults.value = [];
+      wrongAnimeError.value = null;
+      wrongAnimeQuery.value = name;
+      manualMappingAnimeName.value = name;
+      void refreshManualMappingState();
+      void loadEpisodeOptions();
+      return;
+    }
+
+    if (manualEpisodeProvider.value === 'disqus') {
+      const media = result as DiscussAnimeSearchHit;
+      disqusManualMedia.value = media;
+      const name = media.title || wrongAnimeQuery.value.trim();
+      manualWrongAnimePickedName.value = name || null;
+      manualEpisodeContext.value.animeName = name;
+      manualEpisodeContext.value.malId = media.malId;
       manualEpisodeResolvedName.value = name;
       wrongAnimeOpen.value = false;
       wrongAnimeResults.value = [];
@@ -1173,7 +1281,11 @@ export function useManualSearch(params: {
           selectedAnimeName,
           aniwaveIsDub: provider === 'aniwave' ? manualAniwaveIsDub.value : undefined,
           aniwaveSlug: provider === 'aniwave' ? manualPreferredAniwaveSlug.value || undefined : undefined,
-          malId: provider === 'mal' ? malManualMedia.value?.id : undefined,
+          malId: provider === 'mal'
+            ? malManualMedia.value?.id
+            : provider === 'disqus'
+              ? disqusManualMedia.value?.malId
+              : undefined,
           anilistId: (provider === 'anilist' || provider === 'animecommunity') ? animeCommunityMedia.value?.id : undefined,
         },
       }));
@@ -1505,6 +1617,7 @@ export function useManualSearch(params: {
     // Media refs
     animeCommunityMedia,
     malManualMedia,
+    disqusManualMedia,
 
     // Computed
     manualEpisodeProviderLabel,
@@ -1514,6 +1627,7 @@ export function useManualSearch(params: {
     showAniwaveDubToggle,
     isAniListEpisodeManualMode,
     isMalEpisodeManualMode,
+    isDisqusEpisodeManualMode,
     isYouTubeEpisodeManualMode,
     isAniListShapedPickerMode,
     isEpisodeOnlyManualMode,
@@ -1529,8 +1643,12 @@ export function useManualSearch(params: {
     normalizeMalMedia,
     searchMalMedia,
     fetchMalMediaById,
+    searchDisqusAnimeMedia: (query: string) =>
+      searchAnimeCatalog({ query, limit: 25 }),
+    fetchDisqusAnimeMediaById: fetchAnimeByMalId,
     buildMalEpisodeOptions,
     buildAnimeCommunityEpisodeOptions,
+    buildDisqusEpisodeOptions,
     getMapperResultDisplayName,
     getMapperResultMeta,
     normalizeMapperDisplayName,

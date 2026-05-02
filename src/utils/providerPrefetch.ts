@@ -19,6 +19,7 @@ import { fetchAniListThreads } from '@/utils/anilistForums';
 import { findEpisodeThread } from '@/utils/discussanimeApi';
 import { parseEpisodeFromTitle } from '@/entrypoints/content/sites/shared';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
+import { fetchAnimeMeta, extractSeasonTitleFromAnimeName } from '@/entrypoints/content/mapping';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import { con } from '@/utils/logger';
 
@@ -190,10 +191,46 @@ async function prefetchDisqus(
   const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
   const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
 
-  // No mapper translation here — the prefetch runs in the background
-  // and we want it cheap. `findEpisodeThread`'s closest-match fallback
-  // will still surface a count for popular shows even when the only
-  // candidate we have is the streaming-platform episode number.
+  // Honour the user's "Wrong anime?" pick — its MAL id beats anything
+  // MAL-Sync detected for the original (now-wrong) series.
+  const mappedMalId =
+    typeof mapping?.malId === 'number' && Number.isFinite(mapping.malId) && mapping.malId > 0
+      ? mapping.malId
+      : null;
+  if (mappedMalId) {
+    animeInfo.malId = mappedMalId;
+    animeInfo.anilistId = null;
+  }
+
+  // Mirror DisqusProvider.switchTo: resolve season-specific MAL/AniList ids
+  // via the offline-DB-only `/anime/resolve` endpoint when MAL-Sync only
+  // populated the parent-series ids. Without this, later-season episodes
+  // miss every thread on the site (which files them under the season's id)
+  // and the badge silently never appears.
+  const needsResolve =
+    !(animeInfo.malId && animeInfo.malId > 0) ||
+    !(animeInfo.anilistId && animeInfo.anilistId > 0);
+  if (needsResolve) {
+    const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName || '';
+    const seasonTitle = extractSeasonTitleFromAnimeName(mapperAnimeName)
+      ?? extractSeasonTitleFromAnimeName(animeInfo.animeName || '')
+      ?? null;
+    const meta = await fetchAnimeMeta({
+      seriesName: mapperAnimeName || animeInfo.animeName || null,
+      seasonTitle,
+      malId: animeInfo.malId ?? null,
+      anilistId: animeInfo.anilistId ?? null,
+    });
+    if (meta) {
+      const malIdRaw = (meta as Record<string, unknown>).malId;
+      const anilistIdRaw = (meta as Record<string, unknown>).anilistId;
+      const malIdNum = typeof malIdRaw === 'number' ? malIdRaw : Number(malIdRaw);
+      const anilistIdNum = typeof anilistIdRaw === 'number' ? anilistIdRaw : Number(anilistIdRaw);
+      if (Number.isFinite(malIdNum) && malIdNum > 0) animeInfo.malId = malIdNum;
+      if (Number.isFinite(anilistIdNum) && anilistIdNum > 0) animeInfo.anilistId = anilistIdNum;
+    }
+  }
+
   const thread = await findEpisodeThread({
     malId: animeInfo.malId ?? null,
     anilistId: animeInfo.anilistId ?? null,
