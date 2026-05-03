@@ -6,7 +6,7 @@
  * Note: Uses AniList exclusively as it's more reliable and also provides MAL IDs
  */
 
-import { anilistProxyFetch } from './anilistTransport';
+import { searchAniListMedia, type AniListMedia } from './anilistSearch';
 import { con } from '@/utils/logger';
 
 const log = con.m('AnimeResolver');
@@ -31,114 +31,70 @@ export function getLastAnimeIdResolverError(): AnimeIdResolverErrorInfo | null {
   return lastAnimeIdResolverError;
 }
 
-function parseAniListErrorMessage(raw: string): string | undefined {
-  if (!raw) return undefined;
-  try {
-    const parsed = JSON.parse(raw);
-    const msg = parsed?.errors?.[0]?.message;
-    if (typeof msg === 'string' && msg.trim()) {
-      return msg.trim();
-    }
-  } catch {
-    // Keep raw fallback below.
+function mediaToIdResult(media: AniListMedia): AnimeIdResult {
+  // Compare AniList's next-airing timestamp against the local date so the
+  // `isAiringToday` flag matches what the user sees in the streaming-page UI.
+  let isAiringToday = false;
+  const airingAt = media.nextAiringEpisode?.airingAt;
+  if (typeof airingAt === 'number' && Number.isFinite(airingAt)) {
+    const airingDate = new Date(airingAt * 1000);
+    const today = new Date();
+    isAiringToday =
+      airingDate.getFullYear() === today.getFullYear() &&
+      airingDate.getMonth() === today.getMonth() &&
+      airingDate.getDate() === today.getDate();
+    log.log('Next airing episode check:', {
+      anime: media.title?.romaji,
+      airingDate: airingDate.toISOString(),
+      isToday: isAiringToday,
+    });
   }
-  const trimmed = raw.trim();
-  return trimmed || undefined;
+
+  return {
+    anilistId: media.id,
+    malId: media.idMal || null,
+    title: media.title?.romaji || media.title?.english || undefined,
+    startYear: media.startDate?.year || null,
+    episodeCount: media.episodes || null,
+    isAiringToday,
+  };
 }
 
 /**
- * Search for anime on AniList by name
- * AniList is used because:
- * - Public API (no authentication required)
- * - Includes MAL IDs in response
- * - More reliable than MAL API
- * 
- * @param animeName The anime series name to search for
- * @returns AniList ID, MAL ID (if available), and metadata
+ * Search for anime on AniList by name. Uses the shared
+ * {@link searchAniListMedia} primitive so the request, retries, and rate-limit
+ * handling stay aligned with other AniList search consumers.
  */
 export async function searchAniListAnime(animeName: string): Promise<AnimeIdResult | null> {
+  lastAnimeIdResolverError = null;
+
   try {
-    lastAnimeIdResolverError = null;
-
-    const query = `
-      query ($search: String) {
-        Media(search: $search, type: ANIME) {
-          id
-          idMal
-          title {
-            romaji
-            english
-            native
-          }
-          startDate {
-            year
-          }
-          episodes
-          nextAiringEpisode {
-            airingAt
-            episode
-          }
-        }
-      }
-    `;
-
-    const variables = { search: animeName };
-    
-    const response = await anilistProxyFetch({
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({ query, variables }),
+    // perPage:1 — `Media(search:)` used to give the best single match;
+    // `Page { media(sort: SEARCH_MATCH) }` returns the same top-ranked entry
+    // first when limited to one row.
+    const result = await searchAniListMedia({
+      query: animeName,
+      page: 1,
+      perPage: 1,
+      // Resolver previously didn't filter adult titles — preserve that.
+      includeAdult: true,
     });
 
-    if (!response.ok) {
-      const bodyText = await response.text().catch(() => '');
-      const message = parseAniListErrorMessage(bodyText);
+    if (result.error) {
       lastAnimeIdResolverError = {
-        status: response.status,
-        message,
+        status: result.error.status ?? 0,
+        message: result.error.message,
       };
       log.warn('AniList search failed:', {
-        status: response.status,
-        message,
+        status: result.error.status,
+        message: result.error.message,
       });
       return null;
     }
 
-    const data = await response.json();
-    const media = data?.data?.Media;
+    const media = result.results[0];
     if (!media?.id) return null;
-
-    // Check if the latest episode aired today
-    let isAiringToday = false;
-    if (media.nextAiringEpisode?.airingAt) {
-      const airingTimestamp = media.nextAiringEpisode.airingAt * 1000; // Convert to milliseconds
-      const airingDate = new Date(airingTimestamp);
-      const today = new Date();
-      
-      // Check if airing date is today (compare year, month, day)
-      isAiringToday = 
-        airingDate.getFullYear() === today.getFullYear() &&
-        airingDate.getMonth() === today.getMonth() &&
-        airingDate.getDate() === today.getDate();
-      
-      log.log('Next airing episode check:', {
-        anime: media.title?.romaji,
-        airingDate: airingDate.toISOString(),
-        isToday: isAiringToday,
-      });
-    }
-
-    return {
-      anilistId: media.id,
-      malId: media.idMal || null,
-      title: media.title?.romaji || media.title?.english,
-      startYear: media.startDate?.year || null,
-      episodeCount: media.episodes || null,
-      isAiringToday,
-    };
+    return mediaToIdResult(media);
   } catch (err) {
     log.error('AniList search error:', err);
     lastAnimeIdResolverError = {

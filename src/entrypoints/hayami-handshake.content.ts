@@ -7,8 +7,7 @@ import { displayDiscussionDependingOnMode, fetchRedditPostFromUrl } from '@/entr
 import { getUiManager } from '@/entrypoints/content/core/ui-manager'
 import { registerAdapter } from '@/entrypoints/content/mapping'
 import { destroyState, initState, setLastAnimeInfo } from '@/entrypoints/content/state'
-import { getAniListAccessToken } from '@/utils/anilistAuth'
-import { anilistProxyFetch } from '@/utils/anilistTransport'
+import { searchAniListMedia, type AniListSearchErrorCode } from '@/utils/anilistSearch'
 import { wirePreviewHandlers } from '@/utils/previewHandlers'
 
 /**
@@ -101,40 +100,7 @@ type HayamiSiteMessage = {
   payload?: HayamiDiscussionRequest | HayamiSearchRequest
 }
 
-const ANILIST_SEARCH_QUERY = `
-query ($search: String, $page: Int, $perPage: Int) {
-  Page(page: $page, perPage: $perPage) {
-    pageInfo {
-      hasNextPage
-    }
-    media(search: $search, type: ANIME, isAdult: false, sort: SEARCH_MATCH) {
-      id
-      idMal
-      title {
-        romaji
-        english
-        native
-      }
-      synonyms
-      season
-      seasonYear
-      format
-      episodes
-      isAdult
-      coverImage {
-        large
-        medium
-      }
-    }
-  }
-}
-`
-
 const activeSearchRequests = new Map<string, { requestId: string; controller: AbortController }>()
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
 
 function normalizeNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
@@ -173,104 +139,12 @@ function postSearchResponse(payload: HayamiSearchResponsePayload): void {
   )
 }
 
-function parseRetryAfterMs(response: { headers: { get: (name: string) => string | null } }): number {
-  const retryAfterHeader = response.headers.get('Retry-After')
-  if (!retryAfterHeader) return 3000
-  const retrySeconds = Number.parseFloat(retryAfterHeader)
-  if (!Number.isFinite(retrySeconds) || retrySeconds < 0) return 3000
-  return Math.ceil(retrySeconds * 1000)
-}
-
-async function runAniListSearchWithRetry(
-  query: string,
-  page: number,
-  perPage: number,
-  signal: AbortSignal,
-): Promise<{ results: HayamiSearchResult[]; hasNextPage: boolean }> {
-  let lastRateLimitedError: { retryAfterMs: number; message: string } | null = null
-  const accessToken = await getAniListAccessToken().catch(() => null)
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    }
-
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`
-    }
-
-    const response = await anilistProxyFetch({
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        query: ANILIST_SEARCH_QUERY,
-        variables: {
-          search: query,
-          page,
-          perPage,
-        },
-      }),
-      signal,
-    })
-
-    if (response.status === 429) {
-      const retryAfterMs = parseRetryAfterMs(response)
-      lastRateLimitedError = {
-        retryAfterMs,
-        message: 'AniList rate limited',
-      }
-      if (attempt < 1) {
-        await sleep(retryAfterMs)
-        continue
-      }
-      break
-    }
-
-    if (!response.ok) {
-      throw new Error(`AniList request failed (${response.status})`)
-    }
-
-    const body = await response.json()
-    const graphqlErrors = Array.isArray(body?.errors) ? body.errors : []
-    const rateLimitedGraphql = graphqlErrors.find((entry: any) => {
-      const code = String(entry?.extensions?.code || '').toUpperCase()
-      const message = String(entry?.message || '').toLowerCase()
-      return code.includes('RATE') || message.includes('rate limit') || message.includes('too many requests')
-    })
-
-    if (rateLimitedGraphql) {
-      const retryAfterMs = 3000
-      lastRateLimitedError = {
-        retryAfterMs,
-        message: 'AniList rate limited',
-      }
-      if (attempt < 1) {
-        await sleep(retryAfterMs)
-        continue
-      }
-      break
-    }
-
-    if (graphqlErrors.length > 0) {
-      throw new Error(String(graphqlErrors[0]?.message || 'AniList query failed'))
-    }
-
-    const media = Array.isArray(body?.data?.Page?.media) ? body.data.Page.media : []
-    const results = media
-      .filter((entry: any) => Number.isFinite(Number(entry?.id)))
-      .map((entry: any) => normalizeSearchResult(entry))
-
-    return {
-      results,
-      hasNextPage: Boolean(body?.data?.Page?.pageInfo?.hasNextPage),
-    }
-  }
-
-  throw Object.assign(new Error(lastRateLimitedError?.message || 'AniList rate limited'), {
-    code: 'RATE_LIMITED',
-    retryAfterMs: lastRateLimitedError?.retryAfterMs || 3000,
-  })
+// Map the shared primitive's error codes to the on-the-wire `HayamiSearchErrorCode`
+// the host page expects. The primitive doesn't know about hayami-specific codes
+// (`UNSUPPORTED_PROVIDER` is decided here before we ever call it), so the
+// translation is just a small enum widen.
+function toHayamiErrorCode(code: AniListSearchErrorCode): HayamiSearchErrorCode {
+  return code
 }
 
 async function handleSearchRequest(message: HayamiSiteMessage): Promise<void> {
@@ -323,10 +197,37 @@ async function handleSearchRequest(message: HayamiSiteMessage): Promise<void> {
   activeSearchRequests.set(provider, { requestId, controller })
 
   try {
-    const { results, hasNextPage } = await runAniListSearchWithRetry(query, page, perPage, controller.signal)
+    const searchResult = await searchAniListMedia({
+      query,
+      page,
+      perPage,
+      // hayami's host page (PWA) hides adult titles — keep the original behavior.
+      // (The shared primitive defaults to `isAdult: false` when `includeAdult` is
+      // omitted, but we name the intent here so a future default flip is harmless.)
+      includeAdult: false,
+      signal: controller.signal,
+    })
 
     const latest = activeSearchRequests.get(provider)
     if (!latest || latest.requestId !== requestId) {
+      return
+    }
+
+    if (searchResult.error) {
+      postSearchResponse({
+        requestId,
+        ok: false,
+        provider,
+        query,
+        results: [],
+        error: {
+          code: toHayamiErrorCode(searchResult.error.code),
+          message: searchResult.error.message,
+          ...(searchResult.error.retryAfterMs !== undefined
+            ? { retryAfterMs: searchResult.error.retryAfterMs }
+            : {}),
+        },
+      })
       return
     }
 
@@ -337,8 +238,8 @@ async function handleSearchRequest(message: HayamiSiteMessage): Promise<void> {
       query,
       page,
       perPage,
-      hasNextPage,
-      results,
+      hasNextPage: searchResult.hasNextPage,
+      results: searchResult.results.map((media) => normalizeSearchResult(media)),
     })
   } catch (error: any) {
     const latest = activeSearchRequests.get(provider)
@@ -350,7 +251,6 @@ async function handleSearchRequest(message: HayamiSiteMessage): Promise<void> {
       return
     }
 
-    const isRateLimited = String(error?.code || '').toUpperCase() === 'RATE_LIMITED'
     postSearchResponse({
       requestId,
       ok: false,
@@ -358,9 +258,8 @@ async function handleSearchRequest(message: HayamiSiteMessage): Promise<void> {
       query,
       results: [],
       error: {
-        code: isRateLimited ? 'RATE_LIMITED' : 'UNKNOWN_ERROR',
-        message: isRateLimited ? 'AniList rate limited' : String(error?.message || 'AniList search failed'),
-        ...(isRateLimited ? { retryAfterMs: Number(error?.retryAfterMs) || 3000 } : {}),
+        code: 'UNKNOWN_ERROR',
+        message: String(error?.message || 'AniList search failed'),
       },
     })
   } finally {

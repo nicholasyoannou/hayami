@@ -290,6 +290,50 @@ export interface DiscussionCache {
 // ==================== Provider Types ====================
 export type CommentProvider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
 
+/**
+ * Per-provider context dispatched when the user clicks "Wrong anime?" on a
+ * comment view. Convention (matches the documented one in YouTubeCommentList.vue):
+ *  - `animeName` is the storage key (the streaming-page detected anime name).
+ *  - `resolvedAnimeName` is the Hayami-/API-resolved override, when different.
+ *  - IDs are whichever the provider had at dispatch time.
+ *
+ * Always build the dispatched event via `providers/manual-search`'s
+ * `dispatchManualSearchRequest` — providers historically each picked their own
+ * (inconsistent) mapping between these fields and the on-the-wire shape, which
+ * caused storage-mapping lookups to miss when `animeInfo.animeName` was the
+ * resolved name instead of the CR key.
+ */
+export interface WrongAnimeContext {
+  animeName?: string;
+  resolvedAnimeName?: string;
+  malId?: number | null;
+  anilistId?: number | null;
+  crEpisodeNum?: number;
+  episodeName?: string;
+}
+
+/**
+ * Canonical detail shape for the `ri-manual-search-requested` event consumed
+ * by `InlineDiscussion.vue`'s `manualSearchHandler`. `mappingAnimeName` is
+ * kept equal to `animeInfo.animeName` so the handler's existing fallback
+ * chain (`resolvedAnimeName || mappingAnimeName || animeInfo.animeName`)
+ * keeps working without touching the consumer.
+ */
+export interface ManualSearchRequestDetail {
+  provider: CommentProvider;
+  animeInfo: {
+    animeName?: string;
+    episodeName?: string;
+    malId?: number | null;
+    anilistId?: number | null;
+  };
+  mappingAnimeName?: string;
+  resolvedAnimeName?: string;
+  crEpisodeNum?: number;
+  /** Reddit flow only: the post visible when "Wrong anime?" was clicked. */
+  discussion?: { title?: string; permalink?: string };
+}
+
 export interface ProviderContext {
   animeInfo: AnimeInfo | null;
   discussionCache: DiscussionCache;

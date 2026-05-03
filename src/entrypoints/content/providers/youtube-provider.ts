@@ -148,8 +148,8 @@ export class YouTubeProvider extends BaseProvider {
       // Context the "Wrong anime?" button passes to the manual-search modal so
       // the dispatched event carries the right anime identity + episode #.
       const wrongAnimeContext = {
-        animeName: mappedAnimeName,
-        mappingAnimeName: animeInfo.animeName,
+        animeName: animeInfo.animeName,
+        resolvedAnimeName: mappedAnimeName,
         crEpisodeNum: rawEpisodeNum,
       };
 
@@ -318,8 +318,8 @@ export class YouTubeProvider extends BaseProvider {
     }
     const wrongAnimeContext = animeInfo
       ? {
-          animeName: mappedAnimeName,
-          mappingAnimeName: animeInfo.animeName,
+          animeName: animeInfo.animeName,
+          resolvedAnimeName: mappedAnimeName,
           crEpisodeNum: Number.isFinite(rawEpisodeNum as number) ? rawEpisodeNum : undefined,
         }
       : undefined;

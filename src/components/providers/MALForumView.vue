@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import type { MalForumResult, MalPost, MalTopic } from '@/entrypoints/content/types/data';
+import type { MalForumResult, MalPost, MalTopic, WrongAnimeContext } from '@/entrypoints/content/types/data';
+import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
 import { fetchMalTopicPosts } from '@/utils/malForums';
 import MALPost from './MALPost.vue';
 import MALTopicList from './MALTopicList.vue';
@@ -14,12 +15,7 @@ const props = defineProps<{
   result: MalForumResult;
   animeTitle: string;
   topicId?: number | string;
-  wrongAnimeContext?: {
-    animeName?: string;
-    mappingAnimeName?: string;
-    malId?: number | null;
-    crEpisodeNum?: number;
-  };
+  wrongAnimeContext?: WrongAnimeContext;
   bbcodeToHtml: (input: string) => string;
 }>();
 
@@ -64,17 +60,12 @@ const authorText = computed(() => {
 function handleWrongAnimeClick(event: Event) {
   event.preventDefault();
   event.stopPropagation();
-  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-    detail: {
-      provider: 'mal',
-      animeInfo: {
-        animeName: props.wrongAnimeContext?.animeName || props.animeTitle,
-        malId: props.wrongAnimeContext?.malId ?? null,
-      },
-      mappingAnimeName: props.wrongAnimeContext?.mappingAnimeName,
-      crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
-    },
-  }));
+  dispatchManualSearchRequest('mal', {
+    animeName: props.wrongAnimeContext?.animeName || props.animeTitle,
+    resolvedAnimeName: props.wrongAnimeContext?.resolvedAnimeName,
+    malId: props.wrongAnimeContext?.malId,
+    crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+  });
 }
 
 // Infinite scroll

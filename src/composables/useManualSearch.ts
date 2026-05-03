@@ -1,6 +1,7 @@
 import { ref, computed, watch, onScopeDispose } from 'vue';
 import { con } from '@/utils/logger';
 import { anilistProxyFetch } from '@/utils/anilistTransport';
+import { searchAniListMedia as searchAniListMediaPrimitive } from '@/utils/anilistSearch';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
 import { searchCustomPosts } from '@/utils/redditApi';
@@ -18,6 +19,7 @@ import {
   type DiscussAnimeSearchHit,
 } from '@/utils/discussanimeApi';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
+import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -225,47 +227,24 @@ export function useManualSearch(params: {
   }
 
   async function searchAniListMedia(queryText: string): Promise<AniListSearchMedia[]> {
-    const query = `
-      query ($search: String, $page: Int, $perPage: Int) {
-        Page(page: $page, perPage: $perPage) {
-          media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
-            id
-            episodes
-            status
-            startDate { year }
-            nextAiringEpisode { episode }
-            title { romaji english native }
-            coverImage { large medium }
-          }
-        }
-      }
-    `;
-
-    const response = await anilistProxyFetch({
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify({
-        query,
-        variables: {
-          search: queryText,
-          page: 1,
-          perPage: 8,
-        },
-      }),
+    // Pre-refactor this used a trimmed-down inline GraphQL query — the picker
+    // didn't need synonyms/format/etc. We now share the central primitive's
+    // richer query; `normalizeAniListMedia` ignores the extra fields it
+    // doesn't care about, so the picker shape is unchanged.
+    const result = await searchAniListMediaPrimitive({
+      query: queryText,
+      page: 1,
+      perPage: 8,
+      // Preserve the previous "no isAdult filter" behavior — the picker
+      // surfaces whatever AniList returns and lets the user choose.
+      includeAdult: true,
     });
 
-    if (!response.ok) {
-      throw new Error(`AniList search failed (${response.status})`);
+    if (result.error) {
+      throw new Error(result.error.message);
     }
 
-    const payload = await response.json();
-    const medias = payload?.data?.Page?.media;
-    if (!Array.isArray(medias)) return [];
-
-    return medias
+    return result.results
       .map((media) => normalizeAniListMedia(media))
       .filter((entry): entry is AniListSearchMedia => !!entry);
   }
@@ -1503,17 +1482,23 @@ export function useManualSearch(params: {
 
       const resolved = await resolveManualOverrideNames(effectiveAnimeInfo, manualProvider);
 
-      const event = new CustomEvent('ri-manual-search-requested', {
-        detail: {
-          discussion: { title: params.discussionTitle.value, permalink: params.discussionPermalink.value },
-          provider,
-          animeInfo: effectiveAnimeInfo,
+      dispatchManualSearchRequest(
+        provider,
+        {
+          animeName: effectiveAnimeInfo.animeName,
+          episodeName: effectiveAnimeInfo.episodeName,
+          malId: effectiveAnimeInfo.malId,
+          anilistId: effectiveAnimeInfo.anilistId,
           resolvedAnimeName: resolved.resolvedAnimeName,
-          mappingAnimeName: resolved.mappingAnimeName,
-          crEpisodeNum: resolved.crEpisodeNum,
+          crEpisodeNum: resolved.crEpisodeNum ?? undefined,
         },
-      });
-      window.dispatchEvent(event);
+        {
+          discussion: {
+            title: params.discussionTitle.value,
+            permalink: params.discussionPermalink.value,
+          },
+        },
+      );
     };
 
     void dispatchWithResolvedName();

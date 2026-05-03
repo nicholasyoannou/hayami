@@ -186,8 +186,8 @@ export class AniListProvider extends BaseProvider {
         animeTitle: animeInfoForLookup.animeName,
         threadId: threadsResult.selectedThread?.id,
         wrongAnimeContext: {
-          animeName: mappedAnimeName,
-          mappingAnimeName: animeInfo.animeName,
+          animeName: animeInfo.animeName,
+          resolvedAnimeName: mappedAnimeName,
           anilistId,
           crEpisodeNum: episodeParsed ?? undefined,
         },
@@ -248,7 +248,7 @@ export class AniListProvider extends BaseProvider {
       threadId: discussionCache.anilist.selectedThread?.id,
       wrongAnimeContext: {
         animeName: animeInfo.animeName,
-        mappingAnimeName: renderAnimeName,
+        resolvedAnimeName: renderAnimeName,
         anilistId: animeInfo.anilistId ?? null,
         crEpisodeNum: (() => {
           const raw = extractEpisodeNumber(animeInfo.episodeName);

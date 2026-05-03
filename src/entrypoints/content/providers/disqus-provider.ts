@@ -30,6 +30,7 @@ import {
   type MapperFailoverOut,
 } from '../mapping';
 import { applyMapperEntryIdsToAnimeInfo } from '../core/discussion-manager';
+import { dispatchManualSearchRequest } from './manual-search';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
@@ -158,19 +159,13 @@ async function toggleDisqusReferrerStrip(enable: boolean): Promise<void> {
  */
 function dispatchDisqusManualSearch(animeInfo: AnimeInfo): void {
   const ep = parseEpisodeFromTitle(animeInfo.episodeName || '');
-  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-    detail: {
-      provider: 'disqus',
-      animeInfo: {
-        animeName: animeInfo.animeName,
-        episodeName: animeInfo.episodeName,
-        malId: animeInfo.malId ?? null,
-        anilistId: animeInfo.anilistId ?? null,
-      },
-      mappingAnimeName: animeInfo.animeName,
-      crEpisodeNum: ep ?? undefined,
-    },
-  }));
+  dispatchManualSearchRequest('disqus', {
+    animeName: animeInfo.animeName,
+    episodeName: animeInfo.episodeName,
+    malId: animeInfo.malId,
+    anilistId: animeInfo.anilistId,
+    crEpisodeNum: ep ?? undefined,
+  });
 }
 
 /**

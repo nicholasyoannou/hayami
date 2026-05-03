@@ -4,6 +4,7 @@ import type { CommentProvider, ProviderContext } from '../types/data';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds, getLastAnimeIdResolverError } from '@/utils/animeIdResolver';
 import { getSeriesMapping } from '../storage/series-mapping';
+import { dispatchManualSearchRequest } from './manual-search';
 import { safeClear } from '../utils/dom-helpers';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { con } from '@/utils/logger';
@@ -81,17 +82,14 @@ export class AnimeCommunityProvider extends BaseProvider {
       wrongAnimeButton.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-          detail: {
-            provider: 'animecommunity',
-            animeInfo: {
-              ...animeInfo,
-              animeName: mappedAnimeName,
-              anilistId: anilistId ?? animeInfo.anilistId ?? null,
-            },
-            crEpisodeNum: Number.isFinite(numericEpisode) ? numericEpisode : undefined,
-          },
-        }));
+        dispatchManualSearchRequest('animecommunity', {
+          animeName: animeInfo.animeName,
+          episodeName: animeInfo.episodeName,
+          resolvedAnimeName: mappedAnimeName !== animeInfo.animeName ? mappedAnimeName : undefined,
+          malId: animeInfo.malId,
+          anilistId: anilistId ?? animeInfo.anilistId,
+          crEpisodeNum: Number.isFinite(numericEpisode) ? numericEpisode : undefined,
+        });
       });
 
       detectedRow.appendChild(detectedText);

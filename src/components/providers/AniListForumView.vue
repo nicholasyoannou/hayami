@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import type { AniListForumResult, AniListThreadComment } from '@/entrypoints/content/types/data';
+import type { AniListForumResult, AniListThreadComment, WrongAnimeContext } from '@/entrypoints/content/types/data';
+import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
 import { fetchAniListThreadComments } from '@/utils/anilistForums';
 import { escapeHtml } from '@/utils/html-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
@@ -14,12 +15,7 @@ const props = defineProps<{
   result: AniListForumResult;
   animeTitle: string;
   threadId?: number | string;
-  wrongAnimeContext?: {
-    animeName?: string;
-    mappingAnimeName?: string;
-    anilistId?: number | null;
-    crEpisodeNum?: number;
-  };
+  wrongAnimeContext?: WrongAnimeContext;
 }>();
 
 const comments = ref<AniListThreadComment[]>(Array.isArray(props.result.comments) ? props.result.comments : []);
@@ -148,17 +144,12 @@ function shouldShowReplyTo(comment: FlatAniListComment): boolean {
 function handleWrongAnimeClick(event: Event) {
   event.preventDefault();
   event.stopPropagation();
-  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-    detail: {
-      provider: 'anilist',
-      animeInfo: {
-        animeName: props.wrongAnimeContext?.animeName || props.animeTitle,
-        anilistId: props.wrongAnimeContext?.anilistId ?? null,
-      },
-      mappingAnimeName: props.wrongAnimeContext?.mappingAnimeName,
-      crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
-    },
-  }));
+  dispatchManualSearchRequest('anilist', {
+    animeName: props.wrongAnimeContext?.animeName || props.animeTitle,
+    resolvedAnimeName: props.wrongAnimeContext?.resolvedAnimeName,
+    anilistId: props.wrongAnimeContext?.anilistId,
+    crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+  });
 }
 const threadUrl = computed(() => {
   const thread = selectedThread.value;

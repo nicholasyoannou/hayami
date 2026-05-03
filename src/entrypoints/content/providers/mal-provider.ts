@@ -207,7 +207,7 @@ export class MalProvider extends BaseProvider {
         topicId: forumResult.selectedTopic?.id,
         wrongAnimeContext: {
           animeName: animeInfo.animeName,
-          mappingAnimeName: resolveAnimeName,
+          resolvedAnimeName: resolveAnimeName,
           malId,
           crEpisodeNum: parsedEpisode,
         },
@@ -251,7 +251,7 @@ export class MalProvider extends BaseProvider {
       topicId: discussionCache.mal.selectedTopic?.id,
       wrongAnimeContext: {
         animeName: animeInfo.animeName,
-        mappingAnimeName: renderAnimeName,
+        resolvedAnimeName: renderAnimeName,
         malId: animeInfo.malId ?? null,
         crEpisodeNum: (() => {
           const raw = extractEpisodeNumber(animeInfo.episodeName);

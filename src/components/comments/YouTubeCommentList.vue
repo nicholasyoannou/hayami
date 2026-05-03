@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { getVideoComments } from '@/utils/youtubeApi';
-import type { YouTubeComment as YouTubeCommentData } from '@/entrypoints/content/types/data';
+import type { YouTubeComment as YouTubeCommentData, WrongAnimeContext } from '@/entrypoints/content/types/data';
+import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
 import type { YouTubeCommentsResult } from '@/utils/youtubeApi';
 import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube-utils';
 import YouTubeComment from './YouTubeComment.vue';
@@ -16,11 +17,7 @@ const props = defineProps<{
   videoTitle: string;
   videoUrl: string;
   initialOrder?: 'relevance' | 'time';
-  wrongAnimeContext?: {
-    animeName?: string;
-    mappingAnimeName?: string;
-    crEpisodeNum?: number;
-  };
+  wrongAnimeContext?: WrongAnimeContext;
 }>();
 
 const emit = defineEmits<{
@@ -154,27 +151,11 @@ watch(() => props.initialOrder, (newOrder) => {
 function handleWrongAnimeClick(event: Event) {
   event.preventDefault();
   event.stopPropagation();
-  // Match the shape that AniwaveProvider dispatches. `animeInfo.animeName`
-  // MUST be the Crunchyroll storage key (mappingAnimeName), not the mapped
-  // override — otherwise `manualMappingLookupAnimeName` resolves via
-  // `baseAnimeName` to the override and `refreshManualMappingState` misses
-  // the existing mapping. The mapped name is passed via `resolvedAnimeName`
-  // so the modal can seed the picker with the user's prior override.
-  const crName = props.wrongAnimeContext?.mappingAnimeName
-    || props.wrongAnimeContext?.animeName
-    || props.videoTitle;
-  const mappedName = props.wrongAnimeContext?.animeName;
-  window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-    detail: {
-      provider: 'youtube',
-      animeInfo: {
-        animeName: crName,
-      },
-      resolvedAnimeName: mappedName && mappedName !== crName ? mappedName : undefined,
-      mappingAnimeName: crName,
-      crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
-    },
-  }));
+  dispatchManualSearchRequest('youtube', {
+    animeName: props.wrongAnimeContext?.animeName || props.videoTitle,
+    resolvedAnimeName: props.wrongAnimeContext?.resolvedAnimeName,
+    crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+  });
 }
 
 // Expose methods for parent

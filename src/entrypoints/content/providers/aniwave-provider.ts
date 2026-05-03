@@ -5,7 +5,8 @@ import type {
   CommentProvider,
   ProviderContext,
 } from '../types/data';
-import { fetchHayami } from '@/utils/hayamiApi';
+import { fetchAniwaveComments, fetchAniwaveReplies, searchAniwaveAnime } from '@/utils/aniwaveApi';
+import { dispatchManualSearchRequest } from '../providers/manual-search';
 import { escapeHtml } from '@/utils/html-utils';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
@@ -400,16 +401,8 @@ export class AniwaveProvider extends BaseProvider {
     preferredSlug?: string | null,
   ): Promise<string | null> {
     try {
-      const params = new URLSearchParams({
-        series_name: animeName,
-        season_title: animeName,
-        platform: 'aniwave',
-      });
-      const resp = await fetchHayami(`https://api.hayami.moe/anime/search?${params.toString()}`);
-      if (!resp.ok) {
-        return null;
-      }
-      const data = await resp.json();
+      const data = await searchAniwaveAnime(animeName);
+      if (!data) return null;
       const results = Array.isArray(data?.results) ? data.results : [];
 
       // When the user pinned a specific Hayami entry via Wrong Anime, prefer
@@ -493,66 +486,18 @@ export class AniwaveProvider extends BaseProvider {
   }
 
   private async fetchComments(docId: string, page: number, depth?: number): Promise<AniwaveCommentsResponse> {
-    const params = new URLSearchParams({
-      docID: docId,
-      page: String(page),
-    });
-
-    const normalizedDepth = Number.isFinite(depth) && Number(depth) > 0 ? Math.floor(Number(depth)) : null;
-    if (normalizedDepth) {
-      params.set('depth', String(normalizedDepth));
-    }
-
-    const resp = await this.fetchWithRateLimit(`https://api.hayami.moe/anime/comments?${params.toString()}`);
-    if (!resp.ok) {
-      throw new Error(`Aniwave comments request failed: ${resp.status}`);
-    }
-    const json = (await resp.json()) as AniwaveCommentsResponse;
+    const json = await fetchAniwaveComments({ docId, page, depth });
     if (json.episode_number !== undefined) {
       this.setApiEpisodeNumber(json.episode_number);
     }
     return json;
   }
 
-  private async fetchWithRateLimit(url: string): Promise<Response> {
-    const maxWaitMs = 10_000;
-    let attempt = 0;
-
-    while (attempt < 3) {
-      const resp = await fetchHayami(url);
-      if (resp.status !== 429) return resp;
-
-      const retryAfter = resp.headers.get('retry-after');
-      const parsedHeader = retryAfter ? Number.parseFloat(retryAfter) * 1000 : Number.NaN;
-      let waitMs = Number.isNaN(parsedHeader) ? maxWaitMs : Math.min(Math.max(parsedHeader, 0), maxWaitMs);
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-      attempt += 1;
-    }
-
-    return fetchHayami(url);
-  }
-
   private async fetchReplies(parentId: string | number, page: number): Promise<AniwaveCommentsResponse> {
     if (!this.currentDocId) {
       throw new Error('Aniwave replies request missing docId');
     }
-
-    const params = new URLSearchParams({
-      docID: this.currentDocId,
-      page: String(page),
-    });
-
-    const endpoint = `https://api.hayami.moe/anime/comments/${encodeURIComponent(String(parentId))}/replies?${params.toString()}`;
-    const resp = await this.fetchWithRateLimit(endpoint);
-    if (!resp.ok) {
-      throw new Error(`Aniwave replies request failed: ${resp.status}`);
-    }
-    const json = (await resp.json()) as AniwaveCommentsResponse;
-    // Replies endpoint returns `replies`; normalize to `comments` for downstream handling
-    if (!json.comments && Array.isArray(json.replies)) {
-      json.comments = json.replies;
-    }
-    return json;
+    return fetchAniwaveReplies({ docId: this.currentDocId, parentId, page });
   }
 
   private renderLoading(animeName: string, episodeNumber: string | number | null): string {
@@ -726,14 +671,14 @@ export class AniwaveProvider extends BaseProvider {
         const crEpisodeNumStr = extractEpisodeNumber(context.animeInfo?.episodeName || '');
         const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
         const resolvedAnimeName = (this.apiAnimeName || '').trim() || undefined;
-        window.dispatchEvent(new CustomEvent('ri-manual-search-requested', {
-          detail: {
-            provider: 'aniwave',
-            animeInfo: context.animeInfo,
-            crEpisodeNum,
-            resolvedAnimeName,
-          },
-        }));
+        dispatchManualSearchRequest('aniwave', {
+          animeName: context.animeInfo?.animeName,
+          episodeName: context.animeInfo?.episodeName,
+          malId: context.animeInfo?.malId,
+          anilistId: context.animeInfo?.anilistId,
+          resolvedAnimeName,
+          crEpisodeNum,
+        });
       };
     }
 
