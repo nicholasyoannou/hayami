@@ -83,10 +83,10 @@ export function useManualSearch(params: {
   const manualEpisodeProvider = ref<ManualEpisodeProvider>('reddit');
   const manualEpisodeContext = ref<{
     animeName?: string;
-    crEpisodeNum?: number | null;
+    episodeNumber?: number | null;
     anilistId?: number | null;
     malId?: number | null;
-  }>({ animeName: undefined, crEpisodeNum: null, anilistId: null, malId: null });
+  }>({ animeName: undefined, episodeNumber: null, anilistId: null, malId: null });
   const manualEpisodeResolvedName = ref<string | null>(null);
   const manualPreferredMapperResultId = ref<string | null>(null);
   const manualPreferredMapperResultName = ref<string | null>(null);
@@ -169,8 +169,8 @@ export function useManualSearch(params: {
 
   const selectedEpisodeOffset = computed(() => {
     if (manualEpisodeSelected.value === null) return null;
-    if (!manualEpisodeContext.value.crEpisodeNum) return null;
-    return manualEpisodeSelected.value - manualEpisodeContext.value.crEpisodeNum;
+    if (!manualEpisodeContext.value.episodeNumber) return null;
+    return manualEpisodeSelected.value - manualEpisodeContext.value.episodeNumber;
   });
 
   // ── Pure helper functions ────────────────────────────────────────────────
@@ -689,7 +689,7 @@ export function useManualSearch(params: {
     context?: {
       animeName?: string;
       baseAnimeName?: string;
-      crEpisodeNum?: number | null;
+      episodeNumber?: number | null;
       provider?: Provider;
       anilistId?: number | null;
       malId?: number | null;
@@ -727,7 +727,7 @@ export function useManualSearch(params: {
     }
     manualEpisodeContext.value = {
       animeName: context?.animeName,
-      crEpisodeNum: context?.crEpisodeNum ?? null,
+      episodeNumber: context?.episodeNumber ?? null,
       anilistId: context?.anilistId ?? null,
       malId: context?.malId ?? null,
     };
@@ -1022,8 +1022,8 @@ export function useManualSearch(params: {
         return;
       }
 
-      if (manualEpisodeContext.value.crEpisodeNum && manualEpisodeSelected.value === null) {
-        const candidate = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeContext.value.crEpisodeNum);
+      if (manualEpisodeContext.value.episodeNumber && manualEpisodeSelected.value === null) {
+        const candidate = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeContext.value.episodeNumber);
         manualEpisodeSelected.value = candidate ? candidate.episode : manualEpisodeOptions.value[0]?.episode ?? null;
       }
     } catch (e: any) {
@@ -1221,7 +1221,7 @@ export function useManualSearch(params: {
         manualAniwaveEpisodeVariants.value = [];
       }
       manualEpisodeOptions.value = directOptions;
-      const crEp = manualEpisodeContext.value.crEpisodeNum;
+      const crEp = manualEpisodeContext.value.episodeNumber;
       const candidate = crEp ? directOptions.find((opt) => opt.episode === crEp) : null;
       manualEpisodeSelected.value = candidate ? candidate.episode : directOptions[0]?.episode ?? null;
       manualEpisodeLoading.value = false;
@@ -1332,15 +1332,15 @@ export function useManualSearch(params: {
     const resolveManualOverrideNames = async (
       info: any,
       providerForMapping: ManualEpisodeProvider,
-      crEpisodeNum?: number | null,
-    ): Promise<{ resolvedAnimeName?: string; mappingAnimeName?: string; crEpisodeNum?: number | null }> => {
+      episodeNumber?: number | null,
+    ): Promise<{ resolvedAnimeName?: string; mappingAnimeName?: string; episodeNumber?: number | null }> => {
       const baseAnimeName = (info?.animeName || '').trim();
-      const inferredEpisode = Number.isFinite(Number(crEpisodeNum))
-        ? Number(crEpisodeNum)
+      const inferredEpisode = Number.isFinite(Number(episodeNumber))
+        ? Number(episodeNumber)
         : parseEpisodeNumber(info?.episodeName || null);
 
       if (!baseAnimeName || !(providerForMapping === 'reddit' || providerForMapping === 'aniwave')) {
-        return { crEpisodeNum: inferredEpisode };
+        return { episodeNumber: inferredEpisode };
       }
 
       try {
@@ -1353,7 +1353,7 @@ export function useManualSearch(params: {
           return {
             resolvedAnimeName: preferredLookupName,
             mappingAnimeName: preferredLookupName,
-            crEpisodeNum: inferredEpisode,
+            episodeNumber: inferredEpisode,
           };
         }
 
@@ -1366,19 +1366,19 @@ export function useManualSearch(params: {
           return {
             resolvedAnimeName: cachedResolved,
             mappingAnimeName: preferredLookupName,
-            crEpisodeNum: inferredEpisode,
+            episodeNumber: inferredEpisode,
           };
         }
 
         const lookupName = cleanSeriesForMapper(preferredLookupName) || preferredLookupName;
         if (!lookupName) {
-          return { mappingAnimeName: preferredLookupName, crEpisodeNum: inferredEpisode };
+          return { mappingAnimeName: preferredLookupName, episodeNumber: inferredEpisode };
         }
 
         const mapper = await fetchAnimeMapperDataBySeriesName(lookupName, providerForMapping as any, { preserveSeasonSuffix: true } as any);
         const results: any[] = Array.isArray((mapper as any)?.results) ? (mapper as any).results : [];
         if (results.length === 0) {
-          return { mappingAnimeName: preferredLookupName, crEpisodeNum: inferredEpisode };
+          return { mappingAnimeName: preferredLookupName, episodeNumber: inferredEpisode };
         }
 
         const desiredEpisode =
@@ -1461,13 +1461,13 @@ export function useManualSearch(params: {
         return {
           resolvedAnimeName: resolvedAnimeName || undefined,
           mappingAnimeName: preferredLookupName,
-          crEpisodeNum: inferredEpisode,
+          episodeNumber: inferredEpisode,
         };
       } catch (error) {
         log.warn('Failed to resolve Hayami anime title for manual override', error);
         return {
           mappingAnimeName: baseAnimeName,
-          crEpisodeNum: inferredEpisode,
+          episodeNumber: inferredEpisode,
         };
       }
     };
@@ -1490,7 +1490,7 @@ export function useManualSearch(params: {
           malId: effectiveAnimeInfo.malId,
           anilistId: effectiveAnimeInfo.anilistId,
           resolvedAnimeName: resolved.resolvedAnimeName,
-          crEpisodeNum: resolved.crEpisodeNum ?? undefined,
+          episodeNumber: resolved.episodeNumber ?? undefined,
         },
         {
           discussion: {

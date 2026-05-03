@@ -88,7 +88,7 @@ export class AnimeCommunityProvider extends BaseProvider {
           resolvedAnimeName: mappedAnimeName !== animeInfo.animeName ? mappedAnimeName : undefined,
           malId: animeInfo.malId,
           anilistId: anilistId ?? animeInfo.anilistId,
-          crEpisodeNum: Number.isFinite(numericEpisode) ? numericEpisode : undefined,
+          episodeNumber: Number.isFinite(numericEpisode) ? numericEpisode : undefined,
         });
       });
 

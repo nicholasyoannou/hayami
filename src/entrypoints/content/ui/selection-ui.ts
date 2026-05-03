@@ -32,10 +32,10 @@ export function setDisplayHandler(handler: (discussion: any) => Promise<void>): 
 export async function showSelectionUI(
   animeInfo: AnimeInfo, 
   posts: any[], 
-  crEpisodeNum?: number
+  episodeNumber?: number
 ): Promise<void> {
   if (!posts || posts.length === 0) {
-    await showNoDiscussionMessage(animeInfo.animeName || 'this series', crEpisodeNum ? String(crEpisodeNum) : '?');
+    await showNoDiscussionMessage(animeInfo.animeName || 'this series', episodeNumber ? String(episodeNumber) : '?');
     return;
   }
 
@@ -62,11 +62,14 @@ function showNoDiscussionPopup(animeName: string, episodeNumber: string): void {
     onClose: close,
     onWrong: () => {
       const lastInfo = getState().lastAnimeInfo;
-      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
+      // Distinct local name so the inner reference at `episodeName: \`Episode ${episodeNumber}\``
+      // keeps using the parameter (the display label string) rather than this
+      // freshly-extracted page number.
+      const extractedEpisodeNumber = extractEpisodeNumber(lastInfo?.episodeName || '');
       close();
       showManualSearchUI(
         lastInfo || { animeName, episodeName: `Episode ${episodeNumber}` },
-        crEpisodeNum ? Number(crEpisodeNum) : undefined
+        extractedEpisodeNumber ? Number(extractedEpisodeNumber) : undefined
       );
     },
   }));
@@ -119,7 +122,7 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
 /**
  * Dedicated manual search prompt with auto-search-as-you-type
  */
-export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
+export function showManualSearchUI(animeInfo: AnimeInfo, episodeNumber?: number): void {
   const ep = extractEpisodeNumber(animeInfo?.episodeName || '') || '';
   const initialQuery = `${animeInfo?.animeName ?? ''}${ep ? ` - Episode ${ep}` : ''} discussion`.trim();
 
@@ -141,10 +144,10 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
         close();
       },
       onSelect: async (post: RedditPost, index: number) => {
-        if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
+        if (typeof episodeNumber === 'number' && animeInfo?.animeName) {
           const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
-            const offset = redditEp - crEpisodeNum;
+            const offset = redditEp - episodeNumber;
             await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
           }
         }
@@ -161,10 +164,10 @@ export function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number):
       onSearch: async (query: string) => (query ? await searchCustomPosts(query) : []),
       onClose: close,
       onSelect: async (post: RedditPost, index: number) => {
-        if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
+        if (typeof episodeNumber === 'number' && animeInfo?.animeName) {
           const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
-            const offset = redditEp - crEpisodeNum;
+            const offset = redditEp - episodeNumber;
             await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
           }
         }
@@ -189,11 +192,11 @@ export function displayDiscussionPopup(discussion: any): void {
     onClose: close,
     onWrong: () => {
       const lastInfo = getState().lastAnimeInfo;
-      const crEpisodeNum = extractEpisodeNumber(lastInfo?.episodeName || '');
+      const episodeNumber = extractEpisodeNumber(lastInfo?.episodeName || '');
       close();
       showManualSearchUI(
         lastInfo || { animeName: '', episodeName: '' },
-        crEpisodeNum ? Number(crEpisodeNum) : undefined
+        episodeNumber ? Number(episodeNumber) : undefined
       );
     },
   }));

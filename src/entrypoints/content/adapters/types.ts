@@ -30,6 +30,22 @@ export interface PlacementTargets {
   extras?: PlacementTarget[];
 }
 
+/**
+ * Optional series-identity hints a site adapter can expose for downstream
+ * providers (AniList, YouTube, etc.) to seed their lookups without needing
+ * to import site-specific clients. `seriesTitle` is the canonical show name
+ * the streaming page displays; `seasonTitle` is the season-specific label
+ * (e.g. "Demon Slayer: Hashira Training Arc") when the site distinguishes it.
+ *
+ * Sites that don't naturally expose one of these fields should return
+ * `null` for it rather than fabricate a value — providers fall back when
+ * a hint is missing.
+ */
+export interface SiteSeriesHints {
+  seriesTitle?: string | null;
+  seasonTitle?: string | null;
+}
+
 export interface SiteAdapter {
   id: string;
   matches(location: Location): boolean;
@@ -41,4 +57,10 @@ export interface SiteAdapter {
   getMountAnchor?: () => HTMLElement | null;
   /** Optional preferred display mode for this site (fallback when no mapping) */
   defaultDisplay?: 'popup' | 'inline';
+  /**
+   * Optional series-identity hints used by providers that resolve via Hayami
+   * (e.g. AniList, YouTube). Lets providers stay site-agnostic instead of
+   * importing the active site's client directly.
+   */
+  getSeriesHints?: () => Promise<SiteSeriesHints | null>;
 }

@@ -5,7 +5,7 @@ import {
   fetchCrunchyrollSeasons,
   getCrunchyrollAccessToken,
 } from '../net/crunchyroll-client';
-import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata } from '../adapters/types';
+import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata, SiteSeriesHints } from '../adapters/types';
 import type { SiteProviderDefinition } from './provider-definition';
 import { buildLocationMatcher } from './provider-definition';
 import { con } from '@/utils/logger';
@@ -76,6 +76,22 @@ export const crunchyrollAdapter: SiteAdapter = {
   getMappingKey(ctx: DetectedContext): string {
     const key = ctx.seriesId || ctx.seriesTitle || 'unknown';
     return `${this.id}:${key}`;
+  },
+  async getSeriesHints(): Promise<SiteSeriesHints | null> {
+    const episodeId = extractEpisodeIdFromUrl();
+    if (!episodeId) return null;
+    try {
+      const meta = await fetchCrunchyrollEpisodeMetadata(episodeId);
+      if (!meta.ok) return null;
+      const epMeta = (meta.data as any)?.data?.[0]?.episode_metadata;
+      return {
+        seriesTitle: epMeta?.series_title ?? null,
+        seasonTitle: epMeta?.season_title ?? null,
+      };
+    } catch (err) {
+      log.warn('getSeriesHints failed', err);
+      return null;
+    }
   },
 };
 

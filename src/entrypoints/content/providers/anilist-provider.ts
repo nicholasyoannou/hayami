@@ -12,8 +12,7 @@ import { fetchAniListThreads, fetchAniListThreadComments } from '@/utils/anilist
 import AniListForumView from '@/components/providers/AniListForumView.vue';
 import { handleProviderError } from '../utils/error-handler';
 import { CONTAINER_RETRY_ATTEMPTS, CONTAINER_RETRY_DELAY_MS } from '../constants';
-import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason, extractEpisodeIdFromUrl } from '../mapping';
-import { fetchCrunchyrollEpisodeMetadata } from '../net/crunchyroll-client';
+import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason } from '../mapping';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { safeClear } from '../utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
@@ -40,35 +39,31 @@ export class AniListProvider extends BaseProvider {
         ? mapping.anilistId
         : (hasMappedTitleOverride ? null : animeInfo.anilistId);
 
-      // Prefer Hayami mapper for Crunchyroll to get authoritative AniList ID
+      // Prefer Hayami mapper to derive an authoritative AniList ID. The site
+      // adapter exposes its own series-identity hints (Crunchyroll fills both
+      // series + season title; Netflix returns series only) so this branch
+      // doesn't need any site-specific imports.
       const adapter = resolveAdapter();
-      const isCrunchyroll = adapter?.id === 'crunchyroll';
-      if (!anilistId && isCrunchyroll) {
-        let crSeriesTitle: string | null = null;
-        let crSeasonTitle: string | null = null;
-
-        // Try to derive Crunchyroll season title for better mapper hits
-        const episodeId = extractEpisodeIdFromUrl();
-        if (episodeId) {
-          try {
-            const meta = await fetchCrunchyrollEpisodeMetadata(episodeId);
-            const epMeta = meta?.ok ? (meta.data as any)?.data?.[0]?.episode_metadata : null;
-            crSeriesTitle = epMeta?.series_title ?? null;
-            crSeasonTitle = epMeta?.season_title ?? null;
-          } catch (err) {
-            log.warn('Crunchyroll metadata lookup failed', err);
-          }
+      if (!anilistId && adapter?.getSeriesHints) {
+        let seriesTitle: string | null = null;
+        let seasonTitle: string | null = null;
+        try {
+          const hints = await adapter.getSeriesHints();
+          seriesTitle = hints?.seriesTitle ?? null;
+          seasonTitle = hints?.seasonTitle ?? null;
+        } catch (err) {
+          log.warn('Site series hints lookup failed', err);
         }
 
         try {
           let mapper: any = null;
 
-          if (crSeriesTitle && crSeasonTitle) {
-            mapper = await fetchAnimeMapperDataBySeriesAndSeason(crSeriesTitle, crSeasonTitle, 'reddit', { isThirdPartySite: true });
+          if (seriesTitle && seasonTitle) {
+            mapper = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, 'reddit', { isThirdPartySite: true });
           }
 
           if (!mapper) {
-            mapper = await fetchAnimeMapperDataBySeriesName(crSeriesTitle || animeInfoForLookup.animeName, 'reddit', { isThirdPartySite: true });
+            mapper = await fetchAnimeMapperDataBySeriesName(seriesTitle || animeInfoForLookup.animeName, 'reddit', { isThirdPartySite: true });
           }
 
           const fromMapper = extractAnilistIdFromMapper(mapper);
@@ -189,7 +184,7 @@ export class AniListProvider extends BaseProvider {
           animeName: animeInfo.animeName,
           resolvedAnimeName: mappedAnimeName,
           anilistId,
-          crEpisodeNum: episodeParsed ?? undefined,
+          episodeNumber: episodeParsed ?? undefined,
         },
       });
 
@@ -250,7 +245,7 @@ export class AniListProvider extends BaseProvider {
         animeName: animeInfo.animeName,
         resolvedAnimeName: renderAnimeName,
         anilistId: animeInfo.anilistId ?? null,
-        crEpisodeNum: (() => {
+        episodeNumber: (() => {
           const raw = extractEpisodeNumber(animeInfo.episodeName);
           const num = raw ? Number(raw) : NaN;
           return Number.isFinite(num) ? num : undefined;

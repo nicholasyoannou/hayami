@@ -164,7 +164,7 @@ function dispatchDisqusManualSearch(animeInfo: AnimeInfo): void {
     episodeName: animeInfo.episodeName,
     malId: animeInfo.malId,
     anilistId: animeInfo.anilistId,
-    crEpisodeNum: ep ?? undefined,
+    episodeNumber: ep ?? undefined,
   });
 }
 

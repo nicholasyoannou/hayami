@@ -8,7 +8,7 @@ import type { AnimeInfo } from '../types';
 import { isYouTubeAuthenticated } from '@/utils/youtubeAuth';
 import { searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { extractEpisodeIdFromUrl, fetchCrunchyrollEpisodeMetadata } from '../mapping';
+import { resolveAdapter } from '../mapping';
 import { getSeriesMapping } from '../storage/series-mapping';
 import { createApp } from 'vue';
 import YouTubeCommentList from '@/components/comments/YouTubeCommentList.vue';
@@ -121,28 +121,26 @@ export class YouTubeProvider extends BaseProvider {
       // Search all YouTube channels via the generic platform
       const platform = 'youtube' as const;
 
-      // Try to get season title from Crunchyroll metadata
+      // Ask the site adapter for a season-title hint. Sites that don't carry
+      // a per-season label (e.g. Netflix) return null — we then fall back to
+      // parsing the episode name or defaulting to "Season 1".
       let seasonTitle = 'Season 1';
       try {
-        const episodeId = extractEpisodeIdFromUrl();
-        if (episodeId) {
-          const crMetadata = await fetchCrunchyrollEpisodeMetadata(episodeId);
-          if (crMetadata.ok && crMetadata.data?.data?.[0]?.episode_metadata?.season_title) {
-            seasonTitle = crMetadata.data.data[0].episode_metadata.season_title;
-          }
-        }
-      } catch (e) {
-        log.log('Could not fetch season title from Crunchyroll metadata, using fallback:', e);
-        if (animeInfo.episodeName.includes('Season')) {
+        const adapter = resolveAdapter();
+        const hints = await adapter?.getSeriesHints?.();
+        if (hints?.seasonTitle) {
+          seasonTitle = hints.seasonTitle;
+        } else if (animeInfo.episodeName.includes('Season')) {
           const seasonMatch = animeInfo.episodeName.match(/Season\s*(\d+)/i);
-          if (seasonMatch) {
-            seasonTitle = `${mappedAnimeName} Season ${seasonMatch[1]}`;
-          } else {
-            seasonTitle = `${mappedAnimeName} Season 1`;
-          }
+          seasonTitle = seasonMatch
+            ? `${mappedAnimeName} Season ${seasonMatch[1]}`
+            : `${mappedAnimeName} Season 1`;
         } else {
           seasonTitle = `${mappedAnimeName} Season 1`;
         }
+      } catch (e) {
+        log.log('Could not derive season title from site hints, using fallback:', e);
+        seasonTitle = `${mappedAnimeName} Season 1`;
       }
 
       // Context the "Wrong anime?" button passes to the manual-search modal so
@@ -150,7 +148,7 @@ export class YouTubeProvider extends BaseProvider {
       const wrongAnimeContext = {
         animeName: animeInfo.animeName,
         resolvedAnimeName: mappedAnimeName,
-        crEpisodeNum: rawEpisodeNum,
+        episodeNumber: rawEpisodeNum,
       };
 
       // Check cache first
@@ -320,7 +318,7 @@ export class YouTubeProvider extends BaseProvider {
       ? {
           animeName: animeInfo.animeName,
           resolvedAnimeName: mappedAnimeName,
-          crEpisodeNum: Number.isFinite(rawEpisodeNum as number) ? rawEpisodeNum : undefined,
+          episodeNumber: Number.isFinite(rawEpisodeNum as number) ? rawEpisodeNum : undefined,
         }
       : undefined;
 

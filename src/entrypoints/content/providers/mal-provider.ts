@@ -209,7 +209,7 @@ export class MalProvider extends BaseProvider {
           animeName: animeInfo.animeName,
           resolvedAnimeName: resolveAnimeName,
           malId,
-          crEpisodeNum: parsedEpisode,
+          episodeNumber: parsedEpisode,
         },
         bbcodeToHtml,
       });
@@ -253,7 +253,7 @@ export class MalProvider extends BaseProvider {
         animeName: animeInfo.animeName,
         resolvedAnimeName: renderAnimeName,
         malId: animeInfo.malId ?? null,
-        crEpisodeNum: (() => {
+        episodeNumber: (() => {
           const raw = extractEpisodeNumber(animeInfo.episodeName);
           const num = raw ? Number(raw) : NaN;
           return Number.isFinite(num) ? num : undefined;

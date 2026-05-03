@@ -154,7 +154,7 @@ function handleWrongAnimeClick(event: Event) {
   dispatchManualSearchRequest('youtube', {
     animeName: props.wrongAnimeContext?.animeName || props.videoTitle,
     resolvedAnimeName: props.wrongAnimeContext?.resolvedAnimeName,
-    crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+    episodeNumber: props.wrongAnimeContext?.episodeNumber,
   });
 }
 

@@ -1172,9 +1172,9 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
 // Functions for showing Reddit-related UI panels (selection, auth, no-discussion)
 // =============================================================================
 
-async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], crEpisodeNum?: number): Promise<void> {
+async function showSelectionUI(animeInfo: AnimeInfo, posts: any[], episodeNumber?: number): Promise<void> {
   if (!posts || posts.length === 0) {
-    await showNoDiscussionMessage(animeInfo.animeName || 'this series', crEpisodeNum ? String(crEpisodeNum) : '?');
+    await showNoDiscussionMessage(animeInfo.animeName || 'this series', episodeNumber ? String(episodeNumber) : '?');
     return;
   }
 
@@ -1849,15 +1849,15 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 export function handleWrongClick(): void {
   const lastInfo = state().lastAnimeInfo;
   if (!lastInfo) return;
-  const crEpisodeNumStr = extractEpisodeNumberText(lastInfo.episodeName || '');
-  const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
-  showManualSearchUI(lastInfo, crEpisodeNum);
+  const episodeNumberStr = extractEpisodeNumberText(lastInfo.episodeName || '');
+  const episodeNumber = episodeNumberStr ? Number(episodeNumberStr) : undefined;
+  showManualSearchUI(lastInfo, episodeNumber);
 }
 
-function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
+function showManualSearchUI(animeInfo: AnimeInfo, episodeNumber?: number): void {
   try {
     const event = new CustomEvent('ri-manual-search-requested', {
-      detail: { animeInfo, crEpisodeNum },
+      detail: { animeInfo, episodeNumber },
     });
     window.dispatchEvent(event);
     log.log('Routed manual search to Vue event');
@@ -1871,10 +1871,10 @@ function showManualSearchUI(animeInfo: AnimeInfo, crEpisodeNum?: number): void {
         return await searchCustomPosts(query);
       },
       onSelect: async (post: any, index: number) => {
-        if (typeof crEpisodeNum === 'number' && animeInfo?.animeName) {
+        if (typeof episodeNumber === 'number' && animeInfo?.animeName) {
           const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
-            const offset = redditEp - crEpisodeNum;
+            const offset = redditEp - episodeNumber;
             await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
           }
         }

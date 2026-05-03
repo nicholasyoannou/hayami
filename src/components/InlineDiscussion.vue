@@ -1063,19 +1063,19 @@ onMounted(() => {
     const detail = (ev as CustomEvent)?.detail || {};
     const animeInfo = detail.animeInfo;
     const mappingAnimeName = typeof detail?.mappingAnimeName === 'string' ? detail.mappingAnimeName.trim() : '';
-    const crEpisodeNum = detail.crEpisodeNum;
+    const episodeNumber = detail.episodeNumber;
     const resolvedAnimeName = typeof detail?.resolvedAnimeName === 'string' ? detail.resolvedAnimeName.trim() : '';
     const fallbackAnimeName = typeof animeInfo?.animeName === 'string' ? animeInfo.animeName.trim() : '';
     const animeNameForMapper = resolvedAnimeName || mappingAnimeName || fallbackAnimeName;
     const initialParts: string[] = [];
     if (animeNameForMapper) initialParts.push(animeNameForMapper);
-    if (typeof crEpisodeNum === 'number') initialParts.push(`Episode ${crEpisodeNum}`);
+    if (typeof episodeNumber === 'number') initialParts.push(`Episode ${episodeNumber}`);
     const initial = initialParts.join(' ').trim() || props.discussion.title || '';
     const provider = detail?.provider || currentProvider.value;
     openManualSearchModal(initial, {
       animeName: animeNameForMapper || undefined,
       baseAnimeName: fallbackAnimeName || undefined,
-      crEpisodeNum,
+      episodeNumber,
       provider,
       anilistId: animeInfo?.anilistId,
       malId: animeInfo?.malId,

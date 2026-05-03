@@ -1,5 +1,5 @@
 import { resolveNetflixEpisodeInfo, getNetflixAnimeInfo } from '../net/netflix-client';
-import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata } from '../adapters/types';
+import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata, SiteSeriesHints } from '../adapters/types';
 import type { SiteProviderDefinition } from './provider-definition';
 import { buildLocationMatcher } from './provider-definition';
 
@@ -51,6 +51,16 @@ export const netflixAdapter: SiteAdapter = {
   getMappingKey(ctx: DetectedContext): string {
     const key = ctx.seriesId || ctx.seriesTitle || 'unknown';
     return `${this.id}:${key}`;
+  },
+  async getSeriesHints(): Promise<SiteSeriesHints | null> {
+    const resolved = await resolveNetflixEpisodeInfo();
+    if (!resolved) return null;
+    // Netflix doesn't carry a season-specific title alongside the show name —
+    // providers fall back to series-only lookups when seasonTitle is null.
+    return {
+      seriesTitle: resolved.episode.titleName ?? null,
+      seasonTitle: null,
+    };
   },
 };
 

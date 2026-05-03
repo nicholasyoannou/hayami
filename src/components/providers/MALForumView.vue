@@ -64,7 +64,7 @@ function handleWrongAnimeClick(event: Event) {
     animeName: props.wrongAnimeContext?.animeName || props.animeTitle,
     resolvedAnimeName: props.wrongAnimeContext?.resolvedAnimeName,
     malId: props.wrongAnimeContext?.malId,
-    crEpisodeNum: props.wrongAnimeContext?.crEpisodeNum,
+    episodeNumber: props.wrongAnimeContext?.episodeNumber,
   });
 }
 

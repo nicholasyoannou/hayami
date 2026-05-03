@@ -668,8 +668,8 @@ export class AniwaveProvider extends BaseProvider {
       wrongAnimeBtn.onclick = (event) => {
         event.preventDefault();
         event.stopPropagation();
-        const crEpisodeNumStr = extractEpisodeNumber(context.animeInfo?.episodeName || '');
-        const crEpisodeNum = crEpisodeNumStr ? Number(crEpisodeNumStr) : undefined;
+        const episodeNumberStr = extractEpisodeNumber(context.animeInfo?.episodeName || '');
+        const episodeNumber = episodeNumberStr ? Number(episodeNumberStr) : undefined;
         const resolvedAnimeName = (this.apiAnimeName || '').trim() || undefined;
         dispatchManualSearchRequest('aniwave', {
           animeName: context.animeInfo?.animeName,
@@ -677,7 +677,7 @@ export class AniwaveProvider extends BaseProvider {
           malId: context.animeInfo?.malId,
           anilistId: context.animeInfo?.anilistId,
           resolvedAnimeName,
-          crEpisodeNum,
+          episodeNumber,
         });
       };
     }

@@ -308,7 +308,7 @@ export interface WrongAnimeContext {
   resolvedAnimeName?: string;
   malId?: number | null;
   anilistId?: number | null;
-  crEpisodeNum?: number;
+  episodeNumber?: number;
   episodeName?: string;
 }
 
@@ -329,7 +329,7 @@ export interface ManualSearchRequestDetail {
   };
   mappingAnimeName?: string;
   resolvedAnimeName?: string;
-  crEpisodeNum?: number;
+  episodeNumber?: number;
   /** Reddit flow only: the post visible when "Wrong anime?" was clicked. */
   discussion?: { title?: string; permalink?: string };
 }

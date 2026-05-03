@@ -35,7 +35,7 @@ export function buildManualSearchRequestDetail(
     // fallback resolves to the storage key regardless of which branch fires.
     mappingAnimeName: context.animeName,
     resolvedAnimeName: context.resolvedAnimeName,
-    crEpisodeNum: context.crEpisodeNum,
+    episodeNumber: context.episodeNumber,
     discussion: options?.discussion,
   };
 }
