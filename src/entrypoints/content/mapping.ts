@@ -38,9 +38,11 @@ import {
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { resolveAdapter } from './adapters/site-registry';
 
-// Extracted submodules
-import { refineMatchedIndexUsingCrunchyrollData } from './mapping/crunchyroll-refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './mapping/episode-mapper';
+// CR-specific helpers — re-exported here for backward compatibility with the
+// `__mappingTest` debug surface (`scripts/mapping-test.ts`). The implementations
+// live under `sites/` since they only run inside the CR deep-mapping pipeline.
+import { refineMatchedIndexUsingCrunchyrollData } from './sites/crunchyroll-refiner';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './sites/crunchyroll-episode-mapper';
 
 export { SERIES_MAPPING_KEY } from './mapping-keys';
 export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from './storage/series-mapping';
@@ -92,9 +94,10 @@ export {
 };
 export type { AnimeMeta };
 
-// Re-export extracted submodules
-export { refineMatchedIndexUsingCrunchyrollData } from './mapping/crunchyroll-refiner';
-export { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './mapping/episode-mapper';
+// Re-export CR-specific helpers — only kept for the offline test/debug
+// surface; provider/site code should import from `./sites/*` directly.
+export { refineMatchedIndexUsingCrunchyrollData } from './sites/crunchyroll-refiner';
+export { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './sites/crunchyroll-episode-mapper';
 
 export function resolveCurrentAdapter(location: Location = window.location) {
   return resolveAdapter(location);

@@ -36,8 +36,8 @@ import {
   scoreSeasonTitleMatch,
   findSliceEpisodeMatch,
 } from './shared';
-import { refineMatchedIndexUsingCrunchyrollData } from '../mapping/crunchyroll-refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../mapping/episode-mapper';
+import { refineMatchedIndexUsingCrunchyrollData } from './crunchyroll-refiner';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './crunchyroll-episode-mapper';
 import { cacheAnimeIds } from '../storage/series-mapping';
 import {
   fetchAnimeMapperDataBySeriesAndSeason,
