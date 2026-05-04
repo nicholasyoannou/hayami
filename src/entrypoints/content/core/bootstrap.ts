@@ -22,7 +22,7 @@ import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mappe
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
 import { isSupportedLocation } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { fetchCrunchyrollEpisodeMetadata, saveSeriesMapping, deleteSeriesMapping } from '../mapping';
+import { resolveAdapter, saveSeriesMapping, deleteSeriesMapping } from '../mapping';
 import {
   getState,
   initState,
@@ -58,37 +58,11 @@ async function setupSiteMapperHotkeyLazy(ctx: ContentScriptContext, ensureInit?:
   await siteMapperHotkeySetupPromise;
 }
 
-function extractCrunchyrollEpisodeIdFromUrl(url: string): string | null {
-  const host = window.location.hostname.toLowerCase();
-  const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
-  if (!isCrunchyrollHost) return null;
-
-  const match = url.match(/\/watch\/([A-Za-z0-9]+)/);
-  return match?.[1] || null;
-}
-
 function isTopFrameWindow(): boolean {
   try {
     return window.self === window.top;
   } catch {
     return false;
-  }
-}
-
-async function resolveCurrentCrunchyrollEpisodeForOffset(): Promise<number | null> {
-  const episodeId = extractCrunchyrollEpisodeIdFromUrl(window.location.href);
-  if (!episodeId) return null;
-
-  try {
-    const metadataResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
-    if (!metadataResult.ok || !metadataResult.data) return null;
-
-    const metadata = metadataResult.data as any;
-    const value = metadata.episode_number ?? metadata.sequence_number;
-    const parsed = typeof value === 'number' ? value : Number.parseInt(String(value), 10);
-    return Number.isFinite(parsed) ? parsed : null;
-  } catch {
-    return null;
   }
 }
 
@@ -353,10 +327,14 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
         : undefined;
       if (!Number.isFinite(selectedEpisode)) return;
 
-      const metadataEpisode = await resolveCurrentCrunchyrollEpisodeForOffset();
+      // Ask the active site adapter for an authoritative episode number;
+      // sites that don't provide one (or where the lookup fails) fall back
+      // to parsing `episodeName`. Replaces the old CR-only inline helper
+      // that silently always returned null due to a wrong access path.
+      const adapterEpisode = await resolveAdapter()?.getCurrentEpisodeNumber?.() ?? null;
       const fallbackEpisodeStr = extractEpisodeNumber(getState().lastAnimeInfo?.episodeName || '');
       const fallbackEpisode = fallbackEpisodeStr !== null ? Number(fallbackEpisodeStr) : null;
-      const currentEp = Number.isFinite(metadataEpisode) ? metadataEpisode : fallbackEpisode;
+      const currentEp = Number.isFinite(adapterEpisode) ? adapterEpisode : fallbackEpisode;
 
       if (currentEp === null || !Number.isFinite(currentEp)) {
         toast.error('Could not determine current episode to save mapping');

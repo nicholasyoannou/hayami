@@ -63,4 +63,13 @@ export interface SiteAdapter {
    * importing the active site's client directly.
    */
   getSeriesHints?: () => Promise<SiteSeriesHints | null>;
+  /**
+   * Optional authoritative episode number for the page the user is viewing,
+   * used by the Wrong-anime override flow to compute `selectedEpisode -
+   * currentEpisode = offset`. Sites that can answer authoritatively (CR via
+   * its episode metadata API, Netflix via the title metadata) should
+   * implement this; callers fall back to parsing `animeInfo.episodeName`
+   * when undefined.
+   */
+  getCurrentEpisodeNumber?: () => Promise<number | null>;
 }

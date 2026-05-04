@@ -1,34 +1,15 @@
 /**
  * Episode URL parsing utilities
  *
- * Pure functions for extracting episode IDs and numbers from URLs.
- * No API calls or external dependencies beyond browser APIs.
+ * Site-agnostic helpers for extracting episode hints from URLs. The
+ * Crunchyroll-specific `extractEpisodeIdFromUrl` previously lived here but
+ * has moved to `sites/crunchyroll.ts` since it's CR-only by necessity (it
+ * hardcodes the CR hostname and watch-URL shape).
  */
 
 import { con } from '@/utils/logger';
 
 const log = con.m('EpisodeDetection');
-
-/**
- * Extract episode ID from Crunchyroll watch URL
- * e.g., https://www.crunchyroll.com/watch/G0DUN9VD2/the-last-one -> G0DUN9VD2
- */
-export function extractEpisodeIdFromUrl(): string | null {
-  try {
-    const host = window.location.hostname.toLowerCase();
-    const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
-    if (!isCrunchyrollHost) {
-      return null;
-    }
-
-    const url = window.location.href;
-    const match = url.match(/\/watch\/([A-Z0-9]+)/i);
-    return match ? match[1] : null;
-  } catch (error) {
-    log.error('Error extracting episode ID from URL:', error);
-    return null;
-  }
-}
 
 function parseEpisodeNumberFromHint(value: string | null | undefined): number | null {
   const trimmed = String(value || '').trim();

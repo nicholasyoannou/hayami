@@ -62,6 +62,10 @@ export const netflixAdapter: SiteAdapter = {
       seasonTitle: null,
     };
   },
+  async getCurrentEpisodeNumber(): Promise<number | null> {
+    const resolved = await resolveNetflixEpisodeInfo();
+    return resolved?.episode.episodeSeq ?? null;
+  },
 };
 
 export async function detectNetflixAnimeInfo() {

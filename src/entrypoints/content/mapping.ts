@@ -75,10 +75,11 @@ export type { DetectedContext, SiteAdapter, SiteEpisodeMetadata, PlacementTarget
 export { resolveAdapter, getRegisteredAdapters, registerAdapter } from './adapters/site-registry';
 
 // Extracted submodules — import for internal use and re-export for consumers
-import {
-  extractEpisodeIdFromUrl,
-  extractEpisodeNumberFromUrlHints,
-} from './mapping/url-parsing';
+import { extractEpisodeNumberFromUrlHints } from './mapping/url-parsing';
+// `extractEpisodeIdFromUrl` is CR-only by necessity (hardcodes the CR
+// hostname/URL shape), so it lives with the CR adapter; import it from
+// there to feed the still-CR-coupled deep-mapping path below.
+import { extractEpisodeIdFromUrl } from './sites/crunchyroll';
 import {
   extractEpisodeTableFromRedditSelftext,
   maybeCorrectRedditEpisodeViaSelftext,
@@ -92,7 +93,6 @@ import {
 } from './mapping/hayami-client';
 
 export {
-  extractEpisodeIdFromUrl,
   extractEpisodeNumberFromUrlHints,
   extractEpisodeTableFromRedditSelftext,
   fetchAnimeMapperDataBySeriesName,
