@@ -72,4 +72,54 @@ export interface SiteAdapter {
    * when undefined.
    */
   getCurrentEpisodeNumber?: () => Promise<number | null>;
+  /**
+   * Optional eager fetch of everything the Hayami episode-mapping pipeline
+   * needs from the streaming page (series + season titles, season list,
+   * episode number, air date, etc.). Sites that can't answer return null
+   * and the mapper falls back to its lightweight (series-name-only)
+   * Hayami query path.
+   *
+   * Today only Crunchyroll implements this — its API exposes seasons +
+   * per-episode metadata that the mapping pipeline relies on. Netflix has
+   * the basics but not the season-listing shape the current mapper
+   * consumes; it returns null so the lightweight path runs.
+   */
+  resolveDeepMapping?: () => Promise<SiteDeepMappingContext | null>;
+}
+
+/**
+ * Everything the deep episode-mapping pipeline needs from the streaming
+ * page in one round of adapter calls. The fields below split into:
+ *   - **Generic** (`seriesTitle`, `seasonTitle`, `episodeNumber`,
+ *     `seasonNumber`, `airDate`, `isAirDateReliable`) — every site can
+ *     plausibly populate these.
+ *   - **CR-shaped** (`sequenceNumber`, `seasonSequenceNumber`,
+ *     `effectiveSeasonNumber`, `seasonsData`) — encode CR's continuous-vs-
+ *     season-relative numbering quirks. Other sites should leave these
+ *     undefined; the mapper degrades gracefully when they're absent.
+ *
+ * `seasonsData` stays `any[]` for now — the mapper still consumes its
+ * CR-shaped form directly. Phase C will move that consumer into a
+ * CR-private file at which point this can become a real typed shape.
+ */
+export interface SiteDeepMappingContext {
+  seriesTitle: string;
+  seasonTitle: string;
+  episodeNumber: number;
+  sequenceNumber?: number | null;
+  seasonNumber?: number | null;
+  seasonSequenceNumber?: number | null;
+  effectiveSeasonNumber?: number | null;
+  seriesId?: string | null;
+  airDate?: Date | null;
+  isAirDateReliable?: boolean;
+  seasonsData?: any[];
+  /**
+   * Raw site-shaped episode metadata blob. Today the mapper still reads
+   * specific fields off this directly (`refineMatchedIndexUsingCrunchyrollData`,
+   * `getEpisodeAirYear`, raw-zero checks for specials) — opaque to the
+   * adapter contract until Phase C decomposes those consumers into
+   * site-private code.
+   */
+  rawEpisodeMetadata?: any;
 }

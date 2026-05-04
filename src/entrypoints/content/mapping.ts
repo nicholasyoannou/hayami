@@ -22,10 +22,7 @@ import type {
   MapperResponse,
   MapperResultEntry,
   MapperMatchedMeta,
-  CrunchyrollEpisodeMetadata,
-  CrunchyrollContentResponse,
   CrunchyrollSeason,
-  CrunchyrollSeasonsResponse,
 } from './types/data';
 
 const log = con.m('Mapper');
@@ -40,11 +37,6 @@ import {
   buildMapperSlicesForCrSeasons,
   findSliceEpisodeMatch,
 } from './sites/shared';
-import {
-  fetchCrunchyrollEpisodeMetadata,
-  fetchCrunchyrollSeasons,
-  getCrunchyrollAccessToken,
-} from './net/crunchyroll-client';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { resolveAdapter } from './adapters/site-registry';
 
@@ -66,11 +58,6 @@ export {
   buildMapperSlicesForCrSeasons,
   findSliceEpisodeMatch,
 } from './sites/shared';
-export {
-  fetchCrunchyrollEpisodeMetadata,
-  fetchCrunchyrollSeasons,
-  getCrunchyrollAccessToken,
-} from './net/crunchyroll-client';
 export type { DetectedContext, SiteAdapter, SiteEpisodeMetadata, PlacementTargets, PlacementTarget } from './adapters/types';
 export { resolveAdapter, getRegisteredAdapters, registerAdapter } from './adapters/site-registry';
 
@@ -729,52 +716,40 @@ export async function tryMapperFailover(
     }
     log.log(' Extracted episode ID:', episodeId);
 
-    log.log(' Fetching Crunchyroll episode metadata...');
-    const crMetadataResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
-    const crContent = crMetadataResult.data as CrunchyrollContentResponse | undefined;
-    if (!crMetadataResult.ok || !crContent?.data?.[0]) {
-      log.log(' Could not fetch Crunchyroll episode metadata. Response:', crMetadataResult);
-      return null;
-    }
-    log.log(' Successfully fetched Crunchyroll metadata');
-
-    const episodeData = crContent.data[0];
-    const episodeMetadata = episodeData.episode_metadata;
-
-    if (!episodeMetadata) {
-      log.log('No episode_metadata in Crunchyroll response');
-      return null;
-    }
-
-    const seriesTitle = episodeMetadata.series_title;
-    const seasonTitle = episodeMetadata.season_title;
-    const seriesId = episodeMetadata.series_id;
-    const crEpisodeNumber = episodeMetadata.episode_number ?? episodeMetadata.sequence_number;
-    const sequenceNumber = episodeMetadata.sequence_number;
-    const seasonNumber = episodeMetadata.season_number;
-    const seasonSequenceNumber = episodeMetadata.season_sequence_number;
-    const effectiveSeasonNumber = seasonSequenceNumber ?? seasonNumber;
-    const rawAirDate =
-      episodeMetadata.episode_air_date ||
-      episodeMetadata.upload_date ||
-      episodeMetadata.available_date;
-    const parsedAirDate = rawAirDate ? new Date(rawAirDate) : null;
-    const isAirDateReliable =
-      parsedAirDate instanceof Date &&
-      !Number.isNaN(parsedAirDate.getTime()) &&
-      parsedAirDate >= new Date('2022-03-01T00:00:00Z');
-
-    // Allow episode_number = 0 (specials). Only fail when undefined/null.
-    if (!seriesTitle || !seasonTitle || crEpisodeNumber === undefined || crEpisodeNumber === null) {
-      log.log('Missing required fields in Crunchyroll metadata:', { seriesTitle, seasonTitle, crEpisodeNumber });
+    // Delegate the fetch + extract to the active site adapter. Today only
+    // Crunchyroll implements `resolveDeepMapping`; other sites take the
+    // lightweight path above (gated by `episodeId === null`). When the
+    // adapter is present but its lookup fails (CR API outage, missing
+    // required fields), we return null to match the prior behavior — the
+    // lightweight path has already been considered and skipped.
+    const deepMappingAdapter = resolveAdapter(window.location);
+    const deepMapping = deepMappingAdapter?.resolveDeepMapping
+      ? await deepMappingAdapter.resolveDeepMapping()
+      : null;
+    if (!deepMapping) {
+      log.log(' Could not resolve deep mapping context; aborting deep path');
       return null;
     }
 
-    if (!seriesId) {
-      log.log(' No series_id in metadata, cannot fetch seasons data');
-    }
+    const {
+      seriesTitle,
+      seasonTitle,
+      episodeNumber: crEpisodeNumber,
+      seriesId,
+      airDate: parsedAirDate,
+      isAirDateReliable,
+      rawEpisodeMetadata: episodeMetadata,
+    } = deepMapping;
+    // Coerce `number | null | undefined` from the adapter contract back to
+    // the `number | undefined` shape the downstream mapper functions expect
+    // (they were authored against CR's raw fields, not the generic context).
+    const sequenceNumber = deepMapping.sequenceNumber ?? undefined;
+    const seasonNumber = deepMapping.seasonNumber ?? undefined;
+    const seasonSequenceNumber = deepMapping.seasonSequenceNumber ?? undefined;
+    const effectiveSeasonNumber = deepMapping.effectiveSeasonNumber ?? undefined;
+    const seasonsData: CrunchyrollSeason[] = (deepMapping.seasonsData as CrunchyrollSeason[] | undefined) ?? [];
 
-    log.log(' Crunchyroll metadata:', {
+    log.log(' Deep mapping context:', {
       seriesTitle,
       seasonTitle,
       seriesId,
@@ -783,20 +758,8 @@ export async function tryMapperFailover(
       seasonNumber,
       seasonSequenceNumber,
       effectiveSeasonNumber,
+      seasonsCount: seasonsData.length,
     });
-
-    let seasonsData: CrunchyrollSeason[] = [];
-    if (seriesId) {
-      const accessToken = await getCrunchyrollAccessToken();
-      if (accessToken.ok) {
-        const seasonsResponse = await fetchCrunchyrollSeasons(seriesId, accessToken.data);
-        const seasonsContent = seasonsResponse.data as CrunchyrollSeasonsResponse | undefined;
-        if (seasonsResponse.ok && Array.isArray(seasonsContent?.data)) {
-          seasonsData = seasonsContent!.data!;
-          log.log(' Fetched seasons data, found', seasonsData.length, 'seasons');
-        }
-      }
-    }
 
     // For disqus, the season_title parameter causes the API to return many unrelated anime
     // (e.g., "Season 2" matches 48 random shows). The API also never provides matched_result

@@ -4,7 +4,7 @@ import {
   fetchCrunchyrollSeasons,
   getCrunchyrollAccessToken,
 } from '../net/crunchyroll-client';
-import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata, SiteSeriesHints } from '../adapters/types';
+import { DetectedContext, PlacementTargets, SiteAdapter, SiteDeepMappingContext, SiteEpisodeMetadata, SiteSeriesHints } from '../adapters/types';
 import type { SiteProviderDefinition } from './provider-definition';
 import { buildLocationMatcher } from './provider-definition';
 import { con } from '@/utils/logger';
@@ -132,6 +132,83 @@ export const crunchyrollAdapter: SiteAdapter = {
       log.warn('getCurrentEpisodeNumber failed', err);
       return null;
     }
+  },
+  async resolveDeepMapping(): Promise<SiteDeepMappingContext | null> {
+    const episodeId = extractEpisodeIdFromUrl();
+    if (!episodeId) return null;
+
+    log.log('resolveDeepMapping: fetching CR episode metadata for', episodeId);
+    const metaResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
+    if (!metaResult.ok) {
+      log.log('resolveDeepMapping: episode metadata fetch failed', metaResult);
+      return null;
+    }
+    const epData = (metaResult.data as any)?.data?.[0];
+    const epMeta = epData?.episode_metadata;
+    if (!epMeta) {
+      log.log('resolveDeepMapping: no episode_metadata in CR response');
+      return null;
+    }
+
+    const seriesTitle: string | undefined = epMeta.series_title;
+    const seasonTitle: string | undefined = epMeta.season_title;
+    const episodeNumber = epMeta.episode_number ?? epMeta.sequence_number;
+
+    // Match the prior gate: allow episodeNumber=0 (specials), only fail when undefined/null.
+    if (!seriesTitle || !seasonTitle || episodeNumber === undefined || episodeNumber === null) {
+      log.log('resolveDeepMapping: missing required CR fields', { seriesTitle, seasonTitle, episodeNumber });
+      return null;
+    }
+
+    const seriesId: string | null = epMeta.series_id ?? null;
+    const sequenceNumber: number | null = epMeta.sequence_number ?? null;
+    const seasonNumber: number | null = epMeta.season_number ?? null;
+    const seasonSequenceNumber: number | null = epMeta.season_sequence_number ?? null;
+    const effectiveSeasonNumber = seasonSequenceNumber ?? seasonNumber;
+
+    const rawAirDate =
+      epMeta.episode_air_date || epMeta.upload_date || epMeta.available_date;
+    const parsedAirDate = rawAirDate ? new Date(rawAirDate) : null;
+    // CR backfilled pre-2022-03 dates incorrectly; treat anything older as
+    // unreliable so the mapper doesn't pin a wrong season from a bogus date.
+    const isAirDateReliable =
+      parsedAirDate instanceof Date &&
+      !Number.isNaN(parsedAirDate.getTime()) &&
+      parsedAirDate >= new Date('2022-03-01T00:00:00Z');
+
+    let seasonsData: any[] = [];
+    if (seriesId) {
+      const accessToken = await getCrunchyrollAccessToken();
+      if (accessToken.ok) {
+        const seasonsResponse = await fetchCrunchyrollSeasons(seriesId, accessToken.data);
+        // Narrow the discriminated `Result<T>` via `.ok` first so the `.data`
+        // access type-checks (the err variant has no `data` property).
+        if (seasonsResponse.ok) {
+          const seasonsContent = (seasonsResponse.data as any)?.data;
+          if (Array.isArray(seasonsContent)) {
+            seasonsData = seasonsContent;
+            log.log('resolveDeepMapping: fetched', seasonsData.length, 'seasons');
+          }
+        }
+      }
+    } else {
+      log.log('resolveDeepMapping: no series_id, skipping seasons fetch');
+    }
+
+    return {
+      seriesTitle,
+      seasonTitle,
+      episodeNumber,
+      sequenceNumber,
+      seasonNumber,
+      seasonSequenceNumber,
+      effectiveSeasonNumber,
+      seriesId,
+      airDate: parsedAirDate,
+      isAirDateReliable,
+      seasonsData,
+      rawEpisodeMetadata: epMeta,
+    };
   },
 };
 
