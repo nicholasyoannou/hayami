@@ -131,6 +131,88 @@ async function postReaction(
   return { ok: true, needsLogin: false, counts: body?.counts };
 }
 
+/**
+ * Open the discussanime.moe Disqus-OAuth popup and resolve to a
+ * boolean indicating whether the user successfully signed in.
+ * Mirrors the on-site `loginPopup.ts` flow but adapted for our
+ * iframe context (origin: disqus.com):
+ *
+ *  - The popup completes at `/auth/disqus/complete` which postMessages
+ *    `{ type: 'disqus-login', ok: <bool> }` to its opener with
+ *    targetOrigin `'*'` (the site change that makes that work was
+ *    landed alongside this script — older site builds posted only to
+ *    discussanime.moe origin and the message would have been dropped).
+ *
+ *  - We accept the message only when `ev.origin === 'https://discussanime.moe'`
+ *    so a hostile site that somehow opens our login popup can't
+ *    confuse the iframe into thinking the user signed in.
+ *
+ *  - If the popup is blocked, we fall back to opening a foreground
+ *    tab (`_blank`) — the user can finish login there and click the
+ *    reaction again on their next visit; we don't try to retry the
+ *    POST automatically because the postMessage channel is broken
+ *    in that path.
+ */
+function openLoginPopup(): Promise<boolean> {
+  // Sized to match the on-site popup. The OAuth consent form needs
+  // ~520x680 to render without forcing Disqus's mobile layout.
+  const w = 520;
+  const h = 680;
+  const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+  const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+  const features = `popup=1,width=${w},height=${h},left=${left},top=${top}`;
+  const popupUrl = `${DISCUSSANIME_ORIGIN}/auth/disqus/login?popup=1&next=/`;
+
+  let popup: Window | null = null;
+  try {
+    popup = window.open(popupUrl, 'hayami-disqus-login', features);
+  } catch {
+    popup = null;
+  }
+  if (!popup) {
+    // Popup blocked by the browser. Open a foreground tab so the user
+    // can still complete login — they'll need to click the reaction
+    // again when they come back, but at least we don't dead-end them.
+    try {
+      window.open(popupUrl, '_blank', 'noopener,noreferrer');
+    } catch {
+      /* noop */
+    }
+    return Promise.resolve(false);
+  }
+
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const settle = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('message', onMessage);
+      clearInterval(closedTimer);
+      resolve(ok);
+    };
+
+    function onMessage(ev: MessageEvent) {
+      // Only trust messages from our login popup. The popup is at
+      // discussanime.moe; the iframe context this code runs in is at
+      // disqus.com, so a strict origin check on the SENDER side is
+      // the security boundary.
+      if (ev.origin !== DISCUSSANIME_ORIGIN) return;
+      const data = ev.data as { type?: string; ok?: boolean } | null;
+      if (!data || data.type !== 'disqus-login') return;
+      settle(Boolean(data.ok));
+    }
+
+    window.addEventListener('message', onMessage);
+
+    // Detect popup close-without-completion. Polling `.closed` is the
+    // only cross-browser signal we have — there's no `unload` event
+    // we can listen to from the opener side on a cross-origin window.
+    const closedTimer = setInterval(() => {
+      if (popup && popup.closed) settle(false);
+    }, 500);
+  });
+}
+
 function buildStyle(): HTMLStyleElement {
   const style = document.createElement('style');
   style.id = STYLE_ID;
@@ -231,20 +313,6 @@ function buildStyle(): HTMLStyleElement {
       color: inherit;
       font-weight: 400;
     }
-    #${STRIP_ID} .h-rx-login-tip {
-      margin: 12px auto 0;
-      font-size: 12px;
-      opacity: 0.7;
-      text-align: center;
-      max-width: 360px;
-    }
-    #${STRIP_ID} .h-rx-login-tip a {
-      color: #2e9fff;
-      text-decoration: none;
-    }
-    #${STRIP_ID} .h-rx-login-tip a:hover {
-      text-decoration: underline;
-    }
     @media (max-width: 614px) {
       #${STRIP_ID} .h-rx-row { width: min(100%, 300px); }
     }
@@ -297,7 +365,6 @@ function renderStrip(
   let counts: Record<ReactionKey, number> = { ...payload.counts };
   let selected: ReactionKey | null = payload.selectedKey;
   let pending = false;
-  let loginTip: HTMLElement | null = null;
 
   const buttons = new Map<ReactionKey, HTMLButtonElement>();
   const numEls = new Map<ReactionKey, HTMLSpanElement>();
@@ -355,16 +422,27 @@ function renderStrip(
     }
   };
 
-  const showLoginTip = () => {
-    if (loginTip) return;
-    loginTip = document.createElement('p');
-    loginTip.className = 'h-rx-login-tip';
-    loginTip.innerHTML =
-      'Sign in at <a href="' +
-      DISCUSSANIME_ORIGIN +
-      '/auth/disqus/login" target="_blank" rel="noopener">discussanime.moe</a> to react.';
-    section.appendChild(loginTip);
-  };
+  /** Attempt the POST with up to a few short retries when the server
+   *  reports 401 immediately after the popup closed. Cookies set by
+   *  the popup's Set-Cookie response are committed atomically by the
+   *  network layer, but in practice we've seen the very next BG-worker
+   *  fetch race that commit on some browsers — the cookie isn't there
+   *  yet, the server returns 401, and the optimistic click is rolled
+   *  back even though login succeeded. Backing off briefly and trying
+   *  again clears it without forcing the user to click a second time. */
+  async function postWithCookieSettle(
+    next: ReactionKey | null
+  ): Promise<{ ok: boolean; counts?: Record<ReactionKey, number> }> {
+    const delays = [0, 150, 400];
+    for (const delay of delays) {
+      if (delay) await new Promise((r) => setTimeout(r, delay));
+      const res = await postReaction(identifier, next);
+      if (res.ok) return { ok: true, counts: res.counts };
+      if (!res.needsLogin) return { ok: false };
+      // 401 again — cookie may still be propagating. Try once more.
+    }
+    return { ok: false };
+  }
 
   async function onClick(key: ReactionKey) {
     if (pending) return;
@@ -372,29 +450,59 @@ function renderStrip(
     const prevCounts = { ...counts };
     const next: ReactionKey | null = prevSelected === key ? null : key;
 
+    // Optimistic update — apply the swap before the network round-trip.
     if (prevSelected !== null) counts[prevSelected] = Math.max(0, counts[prevSelected] - 1);
     if (next !== null) counts[next] = (counts[next] || 0) + 1;
     selected = next;
     pending = true;
     repaint();
 
-    const res = await postReaction(identifier, next);
-    pending = false;
-    if (res.needsLogin) {
-      counts = prevCounts;
-      selected = prevSelected;
-      showLoginTip();
+    try {
+      const initial = await postReaction(identifier, next);
+
+      if (initial.ok) {
+        if (initial.counts) counts = { ...counts, ...initial.counts };
+        // selected was set optimistically to `next`; leave it alone —
+        // the server confirmed.
+        return;
+      }
+
+      if (!initial.needsLogin) {
+        // Hard failure (5xx, malformed response, etc.) — roll back.
+        counts = prevCounts;
+        selected = prevSelected;
+        return;
+      }
+
+      // 401: open the OAuth popup, wait for completion, then replay.
+      const ok = await openLoginPopup();
+      if (!ok) {
+        // Popup was dismissed / login failed / popup blocked. Roll
+        // back so the strip reflects reality. The user can click
+        // again after they've signed in via the fallback tab.
+        counts = prevCounts;
+        selected = prevSelected;
+        return;
+      }
+
+      const retry = await postWithCookieSettle(next);
+      if (!retry.ok) {
+        counts = prevCounts;
+        selected = prevSelected;
+        return;
+      }
+
+      // Auth succeeded and the reaction landed. Pin the visual state
+      // explicitly — the closure variable `selected` should already be
+      // `next` from the optimistic update, but writing it again is
+      // cheap insurance against future refactors that might intercept
+      // the variable across the popup roundtrip.
+      if (retry.counts) counts = { ...counts, ...retry.counts };
+      selected = next;
+    } finally {
+      pending = false;
       repaint();
-      return;
     }
-    if (!res.ok) {
-      counts = prevCounts;
-      selected = prevSelected;
-      repaint();
-      return;
-    }
-    if (res.counts) counts = { ...counts, ...res.counts };
-    repaint();
   }
 
   repaint();
