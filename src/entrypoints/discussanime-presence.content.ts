@@ -20,6 +20,19 @@ export default defineContentScript({
       if (!root) return
       root.dataset.hayami = 'installed'
       root.dataset.hayamiVersion = version
+      // Capability flags. Each one names a feature that *this* build of
+      // the extension provides, so the site can CSS-gate UI it should
+      // hide because the extension takes it over. We use feature
+      // attributes (rather than a min-version comparison) because CSS
+      // can't compare semver strings — a `[data-hayami-version=...]`
+      // selector would only match one exact build and need editing on
+      // every release.
+      //
+      // `iframe-reactions` (added in 0.0.94): the disqus-reactions
+      // content script renders our reactions strip inside the Disqus
+      // iframe. The site hides its own on-page strip when this is
+      // present so they don't duplicate.
+      root.dataset.hayamiIframeReactions = '1'
     }
 
     const announce = () => {

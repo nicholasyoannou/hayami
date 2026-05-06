@@ -1,5 +1,5 @@
 /**
- * Tests for src/entrypoints/content/mapping/episode-mapper.ts
+ * Tests for src/entrypoints/content/sites/crunchyroll-episode-mapper.ts
  *
  * Covers: mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode
  *
@@ -10,7 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   mapEpisodeWithSeasonsData,
   mapEpisodeToSeasonEpisode,
-} from '@/entrypoints/content/mapping/episode-mapper';
+} from '@/entrypoints/content/sites/crunchyroll-episode-mapper';
 import type { MapperResultEntry, CrunchyrollSeason } from '@/entrypoints/content/types/data';
 
 // ---------------------------------------------------------------------------
