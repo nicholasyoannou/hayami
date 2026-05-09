@@ -227,11 +227,15 @@ async function prefetchDisqus(
   // PRIORITY 2: no saved override — run the same season-aware Hayami
   // match Reddit uses so multi-season titles (e.g. "MHA FINAL SEASON" →
   // "MHA: More") resolve to the right MAL id before we hit the site.
-  // Skip when Reddit's foreground flow already resolved this series —
-  // its `recordLastResolvedHayamiName` write means animeInfo already
-  // carries the disambiguated ids.
+  // Skip when Reddit's foreground flow already resolved this series AND
+  // the disambiguated ids are still on `animeInfo`. The cache hit alone
+  // isn't enough — `lastResolvedHayami` is module-scoped and outlives
+  // the original `animeInfo`, so on SPA navigation between episodes of
+  // the same series the new `animeInfo` arrives without the prior
+  // episode's id mutations and we still need the failover to run.
   const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
-  if (!hasSavedOverride && !alreadyResolvedByReddit) {
+  const hasResolvedIds = !!animeInfo.malId || !!animeInfo.anilistId;
+  if (!hasSavedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
     try {
       const failoverOut: MapperFailoverOut = {};
       await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);

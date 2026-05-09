@@ -364,12 +364,16 @@ export class DisqusProvider extends BaseProvider {
       // `out.entry` even when no Reddit URL is available, so we lift the
       // disambiguated ids without caring about Reddit's URL outcome.
       //
-      // Skip when Reddit's foreground flow already resolved this series —
-      // its `recordLastResolvedHayamiName` cache hit means animeInfo's
-      // ids have already been overwritten with the disambiguated values,
-      // so a second CR-metadata round-trip is redundant.
+      // Skip when Reddit's foreground flow already resolved this series
+      // AND the disambiguated ids are still on `animeInfo`. The cache hit
+      // alone isn't enough — `lastResolvedHayami` is module-scoped and
+      // outlives the original `animeInfo`, so on SPA navigation between
+      // episodes of the same series the new `animeInfo` arrives without
+      // the prior episode's id mutations and we still need the failover
+      // to populate `malId`/`anilistId` before `findEpisodeThread`.
       const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
-      if (!hasSavedOverride && !alreadyResolvedByReddit) {
+      const hasResolvedIds = !!animeInfo.malId || !!animeInfo.anilistId;
+      if (!hasSavedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
         try {
           const failoverOut: MapperFailoverOut = {};
           await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);
