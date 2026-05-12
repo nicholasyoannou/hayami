@@ -37,6 +37,7 @@ import {
 } from './sites/shared';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { resolveAdapter } from './adapters/site-registry';
+import { getCustomEpisodeListOffset } from './ui/site-mapper/site-mapper-utils';
 
 // CR-specific helpers — re-exported here for backward compatibility with the
 // `__mappingTest` debug surface (`scripts/mapping-test.ts`). The implementations
@@ -501,12 +502,37 @@ export async function tryMapperFailover(
       const preferredIdx = typeof effectiveMapperResult.matched_result?.index === 'number' ? effectiveMapperResult.matched_result.index : 0;
       const order = Array.from(new Set([preferredIdx, ...results.map((_, i) => i)]));
       const desiredKeys = new Set<string | number>();
+      // Detect a custom-mapped site that exposes an episode list. When the
+      // page labels its episodes cumulatively (e.g. animepahe shows 25–30
+      // for "Dr.STONE Cour 3" while Hayami stores threads 1–12), the offset
+      // is `min(visible) - 1` and we apply it before building the desired
+      // keys so the lookup hits the right thread on the first try. Passing
+      // `effectiveEpisode` covers sites that hide the active episode behind
+      // a play-icon affordance (Miruro), which would otherwise leave the
+      // smallest visible number one above the true start.
+      const siteEpisodeOffset = getCustomEpisodeListOffset(effectiveEpisode ?? null);
       // Use effective episode (which includes MAL-Sync fallback)
-      const episodeForKeys = effectiveEpisode;
+      const episodeForKeys = effectiveEpisode !== null && siteEpisodeOffset > 0
+        ? effectiveEpisode - siteEpisodeOffset
+        : effectiveEpisode;
       if (episodeForKeys !== null) {
         desiredKeys.add(String(episodeForKeys));
         desiredKeys.add(episodeForKeys);
         if (episodeForKeys < 10) desiredKeys.add(`0${episodeForKeys}`);
+      }
+      // Keep the un-adjusted episode as a fallback candidate so sites whose
+      // list selector grabs the wrong container don't lock us out.
+      if (siteEpisodeOffset > 0 && effectiveEpisode !== null && effectiveEpisode !== episodeForKeys) {
+        desiredKeys.add(String(effectiveEpisode));
+        desiredKeys.add(effectiveEpisode);
+        if (effectiveEpisode < 10) desiredKeys.add(`0${effectiveEpisode}`);
+      }
+      if (siteEpisodeOffset > 0) {
+        log.log(' Applied site episode offset from list selector:', {
+          offset: siteEpisodeOffset,
+          original: effectiveEpisode,
+          adjusted: episodeForKeys,
+        });
       }
       log.log(' Desired mapper keys:', Array.from(desiredKeys));
 

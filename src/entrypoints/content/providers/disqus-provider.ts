@@ -33,6 +33,7 @@ import { applyMapperEntryIdsToAnimeInfo } from '../core/discussion-manager';
 import { dispatchManualSearchRequest } from './manual-search';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { linkOnlyModeItem } from '@/config/storage';
+import { getCustomEpisodeListOffset } from '../ui/site-mapper/site-mapper-utils';
 import { con } from '@/utils/logger';
 const log = con.m('Disqus');
 
@@ -385,14 +386,34 @@ export class DisqusProvider extends BaseProvider {
         }
       }
 
+      // Custom-mapped sites (animepahe et al.) can expose the page's
+      // episode list; when they do, derive a "site offset" from its min
+      // visible episode and feed the adjusted candidate to the matcher
+      // first so cumulative-numbered Cour pages resolve to the right
+      // sub-cour thread. Pass `rawEp` so the active episode (often hidden
+      // behind a play icon on grid-style sites like Miruro) is folded into
+      // the min calculation.
+      const siteEpisodeOffset = getCustomEpisodeListOffset(rawEp);
+      const siteAdjustedEp = rawEp !== null && siteEpisodeOffset > 0
+        ? rawEp - siteEpisodeOffset
+        : null;
+      if (siteEpisodeOffset > 0) {
+        log.log('site-derived episode offset', {
+          offset: siteEpisodeOffset,
+          rawEp,
+          siteAdjustedEp,
+        });
+      }
+
       const lookupParams = {
         malId: animeInfo.malId ?? null,
         anilistId: animeInfo.anilistId ?? null,
         // Hand `findEpisodeThread` every plausible episode interpretation:
-        // the offset-adjusted number (matches user overrides) and the raw
-        // streaming-page number. The site-side matcher fuzzy-picks the
-        // best thread; CR-continuous vs. season-relative is its problem.
-        episodeCandidates: [mappedEp, rawEp],
+        // the site-list-derived adjustment first (best for sub-cour pages),
+        // the user-override-adjusted number, and the raw streaming-page
+        // number. The site-side matcher fuzzy-picks the best thread;
+        // CR-continuous vs. season-relative is its problem.
+        episodeCandidates: [siteAdjustedEp, mappedEp, rawEp],
         episodeNameHint: animeInfo.episodeName ?? null,
       };
       log.log('findEpisodeThread params', lookupParams);

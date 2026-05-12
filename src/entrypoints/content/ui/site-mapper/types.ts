@@ -31,6 +31,24 @@ export interface CustomSiteMapping {
    */
   releaseDateSelector?: string;
   releaseDateRegex?: string;
+  /**
+   * Optional: CSS selector pointing at the container that holds the page's
+   * episode list (the dropdown / sidebar / grid the site uses to navigate
+   * between episodes). When present, descendant elements with text containing
+   * an episode number are enumerated to derive the site's currently-visible
+   * episode range — used to compute an offset for sites that label sub-cour
+   * episodes with their cumulative number (e.g. animepahe shows episodes
+   * 25-30 for "Dr.STONE Cour 3" but Hayami stores threads 1-12). The offset
+   * is `max(0, min(visible) - 1)`, applied to the current episode before
+   * looking up the discussion thread. Absent ⇒ no offset, current behavior.
+   */
+  episodeListSelector?: string;
+  /**
+   * Optional regex applied to each enumerated episode-list item to extract
+   * just the episode number. Defaults to matching common patterns
+   * ("Episode 5", "EP 5", "Ep. 5", or a bare number).
+   */
+  episodeListItemRegex?: string;
   sidePadding?: number;
   commentsBackgroundColor?: string;
   anchorXPath?: string;
@@ -38,6 +56,7 @@ export interface CustomSiteMapping {
   titleXPath?: string;
   episodeXPath?: string;
   releaseDateXPath?: string;
+  episodeListXPath?: string;
 }
 
 export const CUSTOM_SITE_MAPPINGS_KEY = 'custom_site_mappings';

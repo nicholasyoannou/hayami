@@ -684,6 +684,125 @@ export function getCustomAnimeInfo(): {
   return null;
 }
 
+/** Default patterns used to parse a number out of episode-list item text. */
+const DEFAULT_EPISODE_LIST_PATTERNS: RegExp[] = [
+  /\b(?:Episode|Ep\.?|EP)\s*[:#-]?\s*(\d{1,4})\b/i,
+  /^\s*(\d{1,4})\s*$/,
+];
+
+/**
+ * Enumerate the page's episode list (when the user has configured an
+ * `episodeListSelector` / `episodeListXPath`) and return the parsed episode
+ * numbers, sorted ascending and de-duped. Returns an empty array when the
+ * selector is absent, doesn't resolve, or yields no numeric matches.
+ *
+ * Used to detect cumulative-vs-cour numbering: sites like animepahe label
+ * "Dr.STONE Cour 3" episodes 25–30, but discussion platforms key those
+ * threads as 1–6. Comparing the page's min visible episode to 1 reveals the
+ * offset that needs to be applied to the current episode before lookup.
+ */
+export function getCustomEpisodeNumbers(): number[] {
+  if (!customSiteMapping) return [];
+  const sel = String(customSiteMapping.episodeListSelector || "").trim();
+  const xpath = String(customSiteMapping.episodeListXPath || "").trim();
+  if (!sel && !xpath) return [];
+
+  const evaluateXPath = (expr: string): Element | null => {
+    try {
+      const result = document.evaluate(
+        expr,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null,
+      );
+      return (result.singleNodeValue as Element) || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const container = sel ? safeQuerySelector(sel) : evaluateXPath(xpath);
+  if (!container) return [];
+
+  // Build the regex set: user override (if any) + defaults. The user override
+  // is tried first so they can target awkward patterns like "S2 E3".
+  const patterns: RegExp[] = [];
+  const userPattern = String(customSiteMapping.episodeListItemRegex || "").trim();
+  if (userPattern) {
+    try {
+      patterns.push(new RegExp(userPattern, "i"));
+    } catch {
+      log.warn("Invalid episodeListItemRegex; falling back to defaults", userPattern);
+    }
+  }
+  patterns.push(...DEFAULT_EPISODE_LIST_PATTERNS);
+
+  const parseNumber = (text: string): number | null => {
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (!m) continue;
+      const captured = m[1] ?? m[0];
+      const parsed = Number.parseInt(String(captured).trim(), 10);
+      if (Number.isFinite(parsed) && parsed > 0 && parsed <= 9999) return parsed;
+    }
+    return null;
+  };
+
+  const found = new Set<number>();
+
+  // The container itself might be a leaf (e.g. user picked the dropdown menu
+  // wrapper but it has no text-bearing children) — try its own text first.
+  const containerText = (container.textContent || "").trim();
+  const directNum = parseNumber(containerText);
+  if (directNum !== null && containerText.length < 20) found.add(directNum);
+
+  // Walk all descendant elements without children that look like a single
+  // episode entry (link, list item, button, span, or div). Multi-line text
+  // containers are skipped to avoid grabbing unrelated copy that happens to
+  // mention an episode number.
+  const candidates = container.querySelectorAll(
+    "a, li, button, span, div, p",
+  );
+  for (const el of Array.from(candidates)) {
+    if (el.children.length > 0 && el.tagName !== "A" && el.tagName !== "BUTTON" && el.tagName !== "LI") {
+      // For nested elements, only trust anchors / list items / buttons —
+      // they're the conventional episode-link wrappers.
+      continue;
+    }
+    const text = (el.textContent || "").trim();
+    if (!text || text.length > 60) continue;
+    const num = parseNumber(text);
+    if (num !== null) found.add(num);
+  }
+
+  return Array.from(found).sort((a, b) => a - b);
+}
+
+/**
+ * Compute the "site offset" between the page's currently-visible episode
+ * numbers and the canonical 1-based numbering used by discussion platforms.
+ * Returns 0 when no episode list is configured or when the page already
+ * starts at episode 1 (no offset needed).
+ *
+ * Example: animepahe "Dr.STONE Cour 3" shows episodes 25–30 in its dropdown.
+ * `min(visible) = 25` ⇒ offset = 24 ⇒ episode 30 maps to thread 6.
+ *
+ * Pass `currentEpisode` (the episode number scraped from the page header /
+ * URL via the regular extractor) so the active episode is always included
+ * in the min calculation. Some sites render the active episode as a play
+ * icon instead of its number (Miruro), which would otherwise inflate the
+ * offset by 1 because the list's first numeric entry is episode 2.
+ */
+export function getCustomEpisodeListOffset(currentEpisode?: number | null): number {
+  const numbers = getCustomEpisodeNumbers();
+  if (!numbers.length) return 0;
+  const min = currentEpisode != null && currentEpisode > 0
+    ? Math.min(numbers[0], currentEpisode)
+    : numbers[0];
+  return min > 1 ? min - 1 : 0;
+}
+
 /**
  * Read the optional release-date selector/xpath/regex from a custom site
  * mapping and return a trimmed raw date string (e.g. "Jan 9, 2026"). The
