@@ -219,14 +219,25 @@ function buildStyle(): HTMLStyleElement {
   // Geometry is copied from the discussanime.moe site CSS so the
   // strip lines up pixel-for-pixel with what readers see on the
   // host site: 95.78px per tile, fit-content row, Helvetica Neue
-  // / Arial fallback to match Disqus's body font.
+  // / Arial fallback to match Disqus's body font. Colours mirror the
+  // on-site reactions widget in the DISQUS site project; the Disqus
+  // iframe adds body.dark when the host page asks it to render dark.
   style.textContent = `
     #${STRIP_ID} {
+      --h-rx-accent: #2e9fff;
+      --h-rx-text: #2a2a35;
+      --h-rx-heading: #29246a;
+      --h-rx-hover-bg: #edeff5;
       box-sizing: border-box;
       text-align: center;
       margin: 16px 0 24px;
       font-family: 'Helvetica Neue', arial, sans-serif;
-      color: rgba(255, 255, 255, 0.85);
+      color: var(--h-rx-text);
+    }
+    body.dark #${STRIP_ID} {
+      --h-rx-text: #e6e8ee;
+      --h-rx-heading: #f5f6fa;
+      --h-rx-hover-bg: #1d2028;
     }
     #${STRIP_ID} *, #${STRIP_ID} *::before, #${STRIP_ID} *::after {
       box-sizing: inherit;
@@ -236,14 +247,14 @@ function buildStyle(): HTMLStyleElement {
       font-weight: 700;
       line-height: 20px;
       margin: 0 0 5px;
-      color: #fff;
+      color: var(--h-rx-heading);
     }
     #${STRIP_ID} .h-rx-count {
       font-size: 15px;
       font-weight: 400;
       line-height: 20px;
       margin: 0 0 15px;
-      opacity: 0.9;
+      color: var(--h-rx-text);
     }
     #${STRIP_ID} .h-rx-row {
       display: flex;
@@ -276,19 +287,19 @@ function buildStyle(): HTMLStyleElement {
       cursor: default;
     }
     #${STRIP_ID} .h-rx-btn:not(:disabled):hover {
-      background: rgba(255, 255, 255, 0.06);
-      color: #2e9fff;
+      background: var(--h-rx-hover-bg);
+      color: var(--h-rx-accent);
     }
     #${STRIP_ID} .h-rx-btn:not(:disabled):hover .h-rx-label {
-      color: #2e9fff;
+      color: var(--h-rx-accent);
     }
     #${STRIP_ID} .h-rx-btn--selected {
-      border-color: #2e9fff;
+      border-color: var(--h-rx-accent);
       border-radius: 6px;
     }
     #${STRIP_ID} .h-rx-btn--selected .h-rx-num,
     #${STRIP_ID} .h-rx-btn--selected .h-rx-label {
-      color: #2e9fff;
+      color: var(--h-rx-accent);
     }
     #${STRIP_ID} .h-rx-btn--selected .h-rx-label {
       font-weight: 700;
@@ -310,7 +321,7 @@ function buildStyle(): HTMLStyleElement {
       font-size: 12px;
       line-height: 16px;
       letter-spacing: 0.02em;
-      color: inherit;
+      color: var(--h-rx-text);
       font-weight: 400;
     }
     @media (max-width: 614px) {
