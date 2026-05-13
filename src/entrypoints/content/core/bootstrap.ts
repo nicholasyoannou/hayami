@@ -13,9 +13,9 @@ import { useWatchPageDetection } from '@/composables/useAnimeInfo';
 import { DEBOUNCE_DELAY_MS } from '../constants';
 import {
   searchAndDisplayDiscussion,
-  fetchRedditPostFromUrl,
   displayDiscussionDependingOnMode,
 } from './discussion-manager';
+import { fetchRedditPostFromUrl } from './reddit-runtime';
 import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mapper/site-mapper-utils';

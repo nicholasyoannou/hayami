@@ -31,16 +31,13 @@ import {
   getSeriesMapping,
   parseEpisodeFromTitle,
   saveSeriesMapping,
-  tryMapperFailover,
-  type MapperFailoverOut,
 } from '../mapping';
-import { collectRedditAlternateThreads } from '../mapping/reddit-alternates';
 import {
-  resolveRedditUrlFromMapperResults,
-  resolveRedditUrlForMovieEntry,
-} from '../mapping/reddit-url-resolver';
-import { applyMapperEntryIdsToAnimeInfo } from '../mapping/apply-ids';
-import type { MapperResultEntry } from '../types/data';
+  enrichRedditDiscussion,
+  handleRedditTabChange,
+  activateRedditOnDemand,
+  runRedditSearchPipeline,
+} from './reddit-discussion';
 
 // Template renderers
 // UI utilities
@@ -65,7 +62,6 @@ import {
 
 // DOM & utility helpers
 import { getExternalCommentsContainer as getExternalContainerUtil, getWatchPageWrapper } from '../utils/dom-helpers';
-import { findExactDateMatch } from '../utils/date-utils';
 import { resolveAdapter } from '../mapping';
 
 // Site mapper
@@ -77,8 +73,6 @@ import {
   loadCustomMappingForOrigin,
 } from '../ui/site-mapper/site-mapper-utils';
 
-// MAL utilities
-import { extractSeasonNumber } from '../utils/mal-utils';
 import { normalizeForMatch } from '../sites/shared';
 
 // =============================================================================
@@ -88,7 +82,6 @@ import { normalizeForMatch } from '../sites/shared';
 const VALID_DISPLAY_MODES = new Set<DisplayMode>(displayModeOptions.map((opt) => opt.value));
 const INLINE_DISPLAY_MODES = new Set<DisplayMode>(['below', 'insert', 'replace']);
 const VALID_PROVIDERS = new Set<CommentProvider>(commentProviderOptions.map((opt) => opt.value as CommentProvider));
-const FALLBACK_SUB_ICON = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';
 type EffectiveDisplayMode = DisplayMode | 'icon';
 type RenderIntent = 'inline' | 'popup';
 
@@ -96,12 +89,12 @@ let preferredProvider: CommentProvider = 'reddit';
 let activeUiProvider: CommentProvider | null = null;
 let currentRenderIntent: RenderIntent = 'popup';
 
+// Lazy loader for the Reddit API module — used only by the date-based
+// search fallback below; other Reddit imports come in eagerly via
+// `./reddit-runtime` / `./reddit-discussion`, so this is the only path
+// that still benefits from on-demand loading.
 type RedditApiModule = typeof import('@/utils/redditApi');
-type RedditRuntimeModule = typeof import('./reddit-runtime');
-
 let redditApiModulePromise: Promise<RedditApiModule> | null = null;
-let redditRuntimeModulePromise: Promise<RedditRuntimeModule> | null = null;
-
 function getRedditApiModule(): Promise<RedditApiModule> {
   if (!redditApiModulePromise) {
     redditApiModulePromise = import('@/utils/redditApi');
@@ -109,161 +102,11 @@ function getRedditApiModule(): Promise<RedditApiModule> {
   return redditApiModulePromise;
 }
 
-function getRedditRuntimeModule(): Promise<RedditRuntimeModule> {
-  if (!redditRuntimeModulePromise) {
-    redditRuntimeModulePromise = import('./reddit-runtime');
-  }
-  return redditRuntimeModulePromise;
-}
-
 function extractEpisodeNumberText(input: string): string | null {
   const parsed = parseEpisodeFromTitle(input || '');
   return Number.isFinite(parsed) ? String(parsed) : null;
 }
 
-function extractPostIdFromSource(source: string): string | null {
-  const commentsMatch = source.match(/\/comments\/([a-z0-9]+)/i);
-  if (commentsMatch?.[1]) return commentsMatch[1];
-  // redd.it short links: https://redd.it/<id>
-  try {
-    const urlObj = new URL(source);
-    if (urlObj.hostname === 'redd.it' || urlObj.hostname === 'www.redd.it') {
-      const id = urlObj.pathname.replace(/^\/+|\/+$/g, '');
-      if (/^[a-z0-9]{4,10}$/i.test(id)) return id;
-    }
-  } catch { /* not a valid URL */ }
-  return null;
-}
-
-function normalizeRedditDiscussion(discussion: any): void {
-  if (!discussion) return;
-  const permalink = typeof discussion.permalink === 'string' ? discussion.permalink : '';
-  const url = typeof discussion.url === 'string' ? discussion.url : '';
-  const source = permalink || url;
-  const fullname = typeof discussion.fullname === 'string' ? discussion.fullname : '';
-  const extractedId = extractPostIdFromSource(source);
-  const fullnameId = fullname.startsWith('t3_') ? fullname.slice(3) : '';
-  const id = extractedId || discussion.id || fullnameId;
-  if (!discussion.permalink && url) {
-    // For redd.it short links, construct a permalink from the post ID
-    if (url.includes('redd.it/') && !url.includes('reddit.com')) {
-      discussion.permalink = id ? `/comments/${id}` : url;
-    } else {
-      discussion.permalink = url.replace(/^https?:\/\/[^/]*reddit\.com/, '');
-    }
-  }
-  if (id && !discussion.id) {
-    discussion.id = id;
-  }
-  if (id && !discussion.fullname) {
-    discussion.fullname = id.startsWith('t3_') ? id : `t3_${id}`;
-  }
-
-  // Ensure score is populated even when Reddit omits it (use ups fallback)
-  if (typeof discussion.score !== 'number' && typeof discussion.ups === 'number') {
-    discussion.score = discussion.ups;
-  }
-}
-
-/**
- * Attach alternate Reddit threads to the given discussion object.
- *
- * Uses the matched mapper entry + resolved episode captured by
- * `tryMapperFailover` to extract every sub-specific / dub / anime-only /
- * rewatch / manga thread for the same episode, and stashes them as
- * `discussion.alternateThreads` so `InlineDiscussion` can render them as
- * additional `RiTopStrip` tabs.
- *
- * The main (currently displayed) thread URL is passed as `mainUrl` and
- * excluded from the alternates list to avoid duplication.
- */
-async function attachRedditAlternates(
-  discussion: any,
-  failoverOut: MapperFailoverOut,
-  mainUrl: string | null,
-): Promise<void> {
-  if (!discussion) return;
-  // Gate behind user setting (off by default)
-  const { redditMultiSubredditItem } = await import('@/config/storage');
-  const enabled = await redditMultiSubredditItem.getValue();
-  if (!enabled) return;
-  const entry = failoverOut.entry as MapperResultEntry | null | undefined;
-  const episode = failoverOut.episode ?? null;
-  if (!entry || episode === null) return;
-  try {
-    const exclude: string[] = [];
-    if (mainUrl) exclude.push(mainUrl);
-    const alternates = collectRedditAlternateThreads(entry, episode, exclude);
-    if (alternates.length > 0) {
-      discussion.alternateThreads = alternates;
-      // Stash the original main thread URL so tab identity survives swaps.
-      if (mainUrl && !discussion.mainThreadUrl) {
-        discussion.mainThreadUrl = mainUrl;
-      }
-      log.log('Collected Reddit alternate threads:', alternates.length, alternates);
-    }
-  } catch (err) {
-    log.warn('Failed to collect reddit alternate threads', err);
-  }
-}
-
-/**
- * Preserve alternates + main thread metadata onto a newly fetched discussion,
- * so switching Reddit tabs keeps the full tab list (and stable main identity)
- * rather than collapsing back to a single thread.
- */
-function carryOverAlternates(target: any, source: any): void {
-  if (!target || !source) return;
-  if (Array.isArray(source.alternateThreads) && source.alternateThreads.length > 0 && !target.alternateThreads) {
-    target.alternateThreads = source.alternateThreads;
-  }
-  if (source.mainThreadUrl && !target.mainThreadUrl) {
-    target.mainThreadUrl = source.mainThreadUrl;
-  }
-}
-
-/**
- * Load a specific Reddit thread URL (from a tab click in `RiTopStrip`) and
- * swap the currently displayed discussion in place. Preserves the alternates
- * list and main-thread metadata so the tab strip stays intact through the
- * swap — only the active tab indicator and visible content change.
- *
- * Shared between popup and inline mount paths; the mount site passes the
- * matching uiManager mode as `mode`.
- */
-async function handleRedditTabChange(mode: 'popup' | 'inline', url: string): Promise<void> {
-  if (!url) return;
-  const manager = getUiManager();
-  const currentState = state();
-  const cache = currentState.discussionCache;
-  const inlineStore = useDiscussionStore();
-  inlineStore.startLoading();
-  try {
-    const postData = await fetchRedditPostFromUrl(url);
-    if (!postData) {
-      log.warn('Tab-change fetch returned no post data', url);
-      return;
-    }
-    normalizeRedditDiscussion(postData);
-    carryOverAlternates(postData, cache.reddit);
-    cache.reddit = { ...postData };
-
-    const key = Date.now();
-    manager.updateProps(mode, {
-      discussion: postData,
-      provider: 'reddit',
-      redditCommentsKey: key,
-    });
-    const exposed = manager.getExposed<InlineDiscussionExposed>(mode);
-    if (exposed?.handleProviderChange) {
-      exposed.handleProviderChange('reddit');
-    }
-  } catch (err) {
-    log.warn('Failed to switch Reddit tab', err);
-  } finally {
-    inlineStore.clearLoading();
-  }
-}
 
 // Accessor helper to always use the current state instance
 const state = () => useContentState();
@@ -420,85 +263,9 @@ function clearInlineNoDiscussionHost(): void {
   }
 }
 
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
-
-/**
- * Resolve a Reddit post on-demand for an in-flight provider switch.
- *
- * The popup's and inline's `providerChangeCallback` both have the same
- * problem: the active discussion came from a non-Reddit provider (placeholder
- * or external), so when the user toggles to Reddit there's no `id`/`fullname`
- * on `cache.reddit` for `RedditCommentList` to load. They both fix it the
- * same way — run the mapper failover, fetch the matched Reddit URL,
- * normalize + attach alternates — and then differ only in how they push the
- * result into their respective UI mount (`popup` vs `inline`).
- *
- * This helper owns the resolution; the caller handles the mode-specific UI
- * wiring (cache assignment, `updateProps`, `clearInlineNoDiscussionHost`,
- * etc.). Returns `null` when no Reddit URL could be resolved, so the caller
- * can fall through to the full `searchAndDisplayDiscussion` pipeline.
- */
-async function resolveRedditPostOnDemand(info: AnimeInfo): Promise<{
-  postData: any;
-  failoverOut: MapperFailoverOut;
-  url: string;
-} | null> {
-  if (!info?.animeName) return null;
-
-  const mapping = await getSeriesMapping(info.animeName, 'reddit');
-  const episodeOffset = mapping?.episodeOffset ?? 0;
-  const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || info.animeName;
-  const infoForMapper = mapperAnimeName !== info.animeName
-    ? { ...info, animeName: mapperAnimeName }
-    : info;
-  const rawEpisodeStr = extractEpisodeNumberText(info.episodeName || '');
-  const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
-  const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum)
-    ? rawEpisodeNum + episodeOffset
-    : null;
-
-  const failoverOut: MapperFailoverOut = {};
-  const failoverRedditUrl = await tryMapperFailover(
-    infoForMapper,
-    'reddit',
-    mappedEpisodeNum ?? rawEpisodeNum ?? null,
-    failoverOut,
-  );
-  if (failoverOut.entry || failoverOut.animeMeta) {
-    applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry, failoverOut.animeMeta);
-  }
-  if (!failoverRedditUrl) return null;
-
-  const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
-  if (!postData) return null;
-
-  normalizeRedditDiscussion(postData);
-  await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
-  return { postData, failoverOut, url: failoverRedditUrl };
-}
 
 // =============================================================================
 // API FETCH FUNCTIONS
-// =============================================================================
-
-/**
- * Extract Reddit post ID from a Reddit URL and fetch post data
- */
-export async function fetchRedditPostFromUrl(redditUrl: string): Promise<any | null> {
-  const { fetchRedditPostFromUrl: fetchPost } = await getRedditRuntimeModule();
-  return fetchPost(redditUrl);
-}
-
-/**
- * Fetch subreddit icon and primary color from subreddit's about endpoint if missing
- */
-async function fetchSubredditInfo(subreddit: string): Promise<{ iconUrl: string | null; primaryColor: string | null }> {
-  const { fetchSubredditInfo: fetchSubreddit } = await getRedditRuntimeModule();
-  return fetchSubreddit(subreddit);
-}
-
 // =============================================================================
 // MAIN SEARCH AND ORCHESTRATION FUNCTIONS
 // Core search logic that determines which provider to use and handles fallbacks
@@ -607,149 +374,34 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       return;
     }
 
-    // Check if user is authenticated. If not, continue using the public
-    // fallback paths (we added unauthenticated search/comments/morechildren)
-    // so the UI won't force the user to log in just to view threads. Keep
-    // the auth prompt available for actions that require OAuth (posting/voting).
-    const { isAuthenticated } = await import('@/utils/redditAuth');
-    const authenticated = await isAuthenticated();
-    if (!authenticated) {
-      log.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
-      // do not show auth prompt here; allow unauthenticated browsing
-    }
+    // Hand the Reddit-specific search pipeline off to its own module. The
+    // pipeline returns a tagged result; the orchestrator dispatches to the
+    // right UI surface (display, selection UI, no-discussion).
+    const isCancelled = () => activeUiProvider !== null && activeUiProvider !== 'reddit';
+    const pipelineResult = await runRedditSearchPipeline({
+      animeInfo,
+      animeInfoForMapper,
+      mapperAnimeName,
+      rawEpisodeNum,
+      mappedEpisodeNum,
+      isCancelled,
+    });
 
-    // Helper: bail out if user switched away from Reddit during async search
-    const userSwitchedAway = () => activeUiProvider !== null && activeUiProvider !== 'reddit';
-
-    // NEW FAILOVER: Try mapper service with series_name and season_title from Crunchyroll API
-    log.log('Attempting new mapper failover...');
-    const failoverOut: MapperFailoverOut = {};
-    const failoverRedditUrl = await tryMapperFailover(animeInfoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
-    if (userSwitchedAway()) {
-      log.log('User switched providers during search, aborting Reddit search');
+    if (pipelineResult?.kind === 'cancelled') return;
+    if (pipelineResult?.kind === 'discussion') {
+      await displayDiscussionDependingOnMode(pipelineResult.discussion);
       return;
     }
-    // Always apply matched MAL/AniList ids when the failover identified a
-    // season-disambiguated entry — even when no Reddit URL was resolved.
-    // Otherwise switching to Disqus/MAL/AniList after a URL-less failover
-    // falls back to MAL-Sync's parent-series ids and resolves the wrong
-    // thread (e.g. "MHA: More" = season-9 special vs MAL-Sync's S4 38408).
-    if (failoverOut.entry || failoverOut.animeMeta) {
-      applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
-    }
-    if (failoverRedditUrl) {
-      log.log('Failover succeeded, found Reddit URL:', failoverRedditUrl);
-      const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
-      if (postData) {
-        await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
-        await displayDiscussionDependingOnMode(postData);
-        return;
-      }
-    } else {
-      log.log('Failover did not find a match, continuing to original mapper method...');
-    }
-
-    // Year-group / collapsed-part / per-season URL resolution against the
-    // failover's own results — no second Hayami fetch. Previously this
-    // stage re-queried `/anime/${name}` (the legacy endpoint), reasoned
-    // against that response, and ran a 340-line inline `tryMapperDirect`.
-    // Both endpoints return the same shape, so we just hand the failover's
-    // `allResults` to the extracted resolver.
-    const mapperResults = failoverOut.allResults ?? null;
-    const targetMalId = currentState.lastAnimeInfo?.malId || null;
-    const targetSeason = extractSeasonNumber(animeInfo.animeName);
-    const releaseYearMatch = animeInfo.releaseDate?.match(/(\d{4})/);
-    const releaseYear = releaseYearMatch ? Number(releaseYearMatch[1]) : null;
-    const epNumForResolver = mappedEpisodeNum ?? rawEpisodeNum;
-
-    if (mapperResults?.length) {
-      // Single-entry movie short-circuit.
-      const movieHit = resolveRedditUrlForMovieEntry(mapperResults, targetMalId, targetSeason);
-      if (movieHit) {
-        log.log('Resolved via movie short-circuit:', movieHit.url);
-        const postData = await fetchRedditPostFromUrl(movieHit.url);
-        if (postData) {
-          const movieOut: MapperFailoverOut = { entry: movieHit.entry, episode: null };
-          await attachRedditAlternates(postData, movieOut, movieHit.url);
-          await displayDiscussionDependingOnMode(postData);
-          return;
-        }
-      }
-
-      // Year-group / collapsed-part / per-season URL resolution.
-      if (epNumForResolver !== null && epNumForResolver > 0) {
-        const hit = resolveRedditUrlFromMapperResults({
-          results: mapperResults,
-          matchedResultIdx: failoverOut.matchedResultIdx ?? null,
-          animeName: mapperAnimeName,
-          malId: targetMalId,
-          season: targetSeason,
-          releaseYear,
-          episodeNum: epNumForResolver,
-        });
-        if (hit) {
-          log.log('Resolved via reddit-url-resolver:', { via: hit.via, url: hit.url });
-          const postData = await fetchRedditPostFromUrl(hit.url);
-          if (postData) {
-            const hitOut: MapperFailoverOut = { entry: hit.entry, episode: hit.episode };
-            await attachRedditAlternates(postData, hitOut, hit.url);
-            await displayDiscussionDependingOnMode(postData);
-            return;
-          }
-        }
-      }
-    }
-
-    if (userSwitchedAway()) {
-      log.log('User switched providers during search, aborting Reddit search');
-      return;
-    }
-    const { searchSeriesDiscussionsByDate } = await getRedditApiModule();
-    const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
-    if (userSwitchedAway()) {
-      log.log('User switched providers during search, aborting Reddit search');
+    if (pipelineResult?.kind === 'multipleResults') {
+      // Selection UI is itself a fallback that picks the first result today;
+      // routed through `showSelectionUI` to preserve any future picker logic.
+      await showSelectionUI(animeInfo, pipelineResult.results, mappedEpisodeNum ?? (rawEpisodeNum ?? undefined));
       return;
     }
 
-    // Check if any result matches the exact release date (same day)
-    const exactDateMatch = findExactDateMatch(results, animeInfo.releaseDate);
-    
-    if (exactDateMatch) {
-      // Auto-select the post that matches the exact release date
-      log.log('Auto-selected post matching exact release date:', exactDateMatch.title);
-      await displayDiscussionDependingOnMode(exactDateMatch);
-      return;
-    }
-
-    const episodeFromInfo = mappedEpisodeNum;
-    log.log('Extracted episode number from animeInfo:', { episodeName: animeInfo.episodeName, episodeFromInfo, offset: episodeOffset });
-    if (typeof episodeFromInfo === 'number') {
-      const epMatches = results.filter((r) => parseEpisodeFromTitle(r.title) === episodeFromInfo);
-      if (epMatches.length === 1) {
-        log.log('Auto-selected post by episode match:', epMatches[0].title);
-        await displayDiscussionDependingOnMode(epMatches[0]);
-        return;
-      }
-      if (epMatches.length > 1) {
-        const autoLovepon = epMatches.find((r) => (r.author || '').toLowerCase() === 'autolovepon');
-        if (autoLovepon) {
-          log.log('Auto-selected AutoLovepon post by episode match:', autoLovepon.title);
-          await displayDiscussionDependingOnMode(autoLovepon);
-          return;
-        }
-      }
-    }
-
-    if (results.length === 1) {
-      // Auto-pick the only candidate
-      const discussion = results[0];
-      log.log('Auto-selected discussion:', discussion.title);
-      await displayDiscussionDependingOnMode(discussion);
-      return;
-    }
-
-    // Multiple candidates: show selection UI (respects inline no-comments mode fallback)
-    await showSelectionUI(animeInfo, results, mappedEpisodeNum ?? (rawEpisodeNum ?? undefined));
+    // No match found.
+    const epStr = extractEpisodeNumberText(animeInfo?.episodeName || '') || '?';
+    await showNoDiscussionMessage(animeInfo?.animeName || 'this series', String(epStr));
   } catch (error) {
     log.error('Error searching for discussion:', error);
     try {
@@ -841,29 +493,12 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
 }
 
 async function displayDiscussion(discussion: any): Promise<void> {
-  normalizeRedditDiscussion(discussion);
+  await enrichRedditDiscussion(discussion);
   const currentState = state();
   const cache = currentState.discussionCache;
   const discussionStore = useDiscussionStore();
   // Cache the discussion data (not comments)
   cache.reddit = { ...discussion };
-
-  // Fetch subreddit icon and primary color if missing
-  const needsSubredditInfo = discussion.subreddit && (
-    !discussion.subreddit_icon_url ||
-    discussion.subreddit_icon_url === FALLBACK_SUB_ICON ||
-    !discussion.subreddit_primary_color
-  );
-
-  if (needsSubredditInfo) {
-    const { iconUrl, primaryColor } = await fetchSubredditInfo(discussion.subreddit);
-    if (iconUrl && !discussion.subreddit_icon_url) {
-      discussion.subreddit_icon_url = iconUrl;
-    }
-    if (primaryColor && !discussion.subreddit_primary_color) {
-      discussion.subreddit_primary_color = primaryColor;
-    }
-  }
 
   const uiManager = getUiManager();
   uiManager.unmount('inline');
@@ -909,38 +544,15 @@ async function displayDiscussion(discussion: any): Promise<void> {
     // If the user switches to Reddit while we only have a placeholder discussion,
     // resolve the Reddit post on-demand so the Vue RedditCommentList has an id/fullname.
     if (provider === 'reddit' && (!cache.reddit?.id || cache.reddit.id === '')) {
-      discussionStore.startLoading();
-      void (async () => {
-        try {
-          const info = currentState.lastAnimeInfo;
-          if (!info?.animeName) return;
-          const resolved = await resolveRedditPostOnDemand(info);
-          if (resolved) {
-            cache.reddit = { ...resolved.postData };
-            const key = Date.now();
-            log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
-            const manager = getUiManager();
-            manager.updateProps('popup', {
-              discussion: resolved.postData,
-              provider: 'reddit',
-              redditCommentsKey: key,
-            });
-            const exposed = manager.getExposed<InlineDiscussionExposed>('popup');
-            if (exposed?.handleProviderChange) {
-              exposed.handleProviderChange('reddit');
-            }
-            return;
-          }
-          // Full Reddit search pipeline (mapper + searches) when on-demand resolve didn't find a thread.
-          await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
-        } catch (e) {
-          log.warn('Failed to resolve Reddit discussion on-demand', e);
-        } finally {
-          if (activeProvider === 'reddit') {
-            discussionStore.clearLoading();
-          }
-        }
-      })();
+      void activateRedditOnDemand({
+        mode: 'popup',
+        isStillActive: () => activeProvider === 'reddit',
+        runFullSearch: (info) => searchAndDisplayDiscussion(info, {
+          forceProvider: 'reddit',
+          skipProviderGuard: true,
+          allowConcurrent: true,
+        }),
+      });
     }
   };
 
@@ -1059,7 +671,8 @@ function mountLoadingShell(): void {
 }
 
 export async function displayDiscussionDependingOnMode(discussion: any): Promise<void> {
-  normalizeRedditDiscussion(discussion);
+  // `displayDiscussion` / `displayInlineDiscussion` both run `enrichRedditDiscussion`
+  // (which normalizes), so we don't need to do it here.
 
   // Preserve popup rendering only when popup is actually mounted or interaction-locked.
   // This avoids stale render intent forcing popup on hosts that default to inline.
@@ -1116,7 +729,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
     const popupManager = getUiManager();
     popupManager.unmount('popup');
-    normalizeRedditDiscussion(discussion);
     const currentState = state();
     const cache = currentState.discussionCache;
     
@@ -1140,21 +752,9 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
     
     // Cache the discussion data (not comments)
     cache.reddit = { ...discussion };
-    
-    // Fetch subreddit icon and primary color if missing
-    if (discussion.subreddit && (
-      !discussion.subreddit_icon_url ||
-      discussion.subreddit_icon_url === FALLBACK_SUB_ICON ||
-      !discussion.subreddit_primary_color
-    )) {
-      const { iconUrl, primaryColor } = await fetchSubredditInfo(discussion.subreddit);
-      if (iconUrl && !discussion.subreddit_icon_url) {
-        discussion.subreddit_icon_url = iconUrl;
-      }
-      if (primaryColor && !discussion.subreddit_primary_color) {
-        discussion.subreddit_primary_color = primaryColor;
-      }
-    }
+
+    // Reddit-specific enrichment (subreddit icon/color). No-op for non-Reddit discussions.
+    await enrichRedditDiscussion(discussion);
 
     if (discussion?.id || discussion?.permalink) {
       clearInlineNoDiscussionHost();
@@ -1217,39 +817,20 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       // resolve the Reddit post on-demand so the Vue RedditCommentList has an id/fullname.
       if (provider === 'reddit' && !resolvingReddit && (!cache.reddit?.id || cache.reddit.id === '')) {
         resolvingReddit = true;
-        inlineDiscussionStore.startLoading();
         void (async () => {
           try {
-            const info = currentState.lastAnimeInfo;
-            if (!info?.animeName) return;
-            const resolved = await resolveRedditPostOnDemand(info);
-            if (resolved) {
-              cache.reddit = { ...resolved.postData };
-              const key = Date.now();
-              log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
-              const manager = getUiManager();
-              manager.updateProps('inline', {
-                discussion: resolved.postData,
-                provider: 'reddit',
-                redditCommentsKey: key,
-              });
-              clearInlineNoDiscussionHost();
-              // Ensure the current Vue app processes the new discussion (handles potential app replacement)
-              const exposedCurrent = manager.getExposed<InlineDiscussionExposed>('inline');
-              if (exposedCurrent?.handleProviderChange) {
-                exposedCurrent.handleProviderChange('reddit');
-              }
-              return;
-            }
-            await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
-          } catch (e) {
-            log.warn('Failed to resolve Reddit discussion on-demand', e);
+            await activateRedditOnDemand({
+              mode: 'inline',
+              isStillActive: () => activeProvider === 'reddit',
+              runFullSearch: (info) => searchAndDisplayDiscussion(info, {
+                forceProvider: 'reddit',
+                skipProviderGuard: true,
+                allowConcurrent: true,
+              }),
+              onPostMounted: clearInlineNoDiscussionHost,
+            });
           } finally {
             resolvingReddit = false;
-            // Only clear loading if the user is still on Reddit
-            if (activeProvider === 'reddit') {
-              inlineDiscussionStore.clearLoading();
-            }
           }
         })();
       } else if (provider === 'reddit' && cache.reddit?.id) {
