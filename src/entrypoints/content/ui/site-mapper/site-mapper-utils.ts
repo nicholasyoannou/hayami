@@ -684,11 +684,35 @@ export function getCustomAnimeInfo(): {
   return null;
 }
 
-/** Default patterns used to parse a number out of episode-list item text. */
+/**
+ * Default patterns used to parse a number out of episode-list item text.
+ * Patterns are tried in order; the first hit wins. Inputs are whitespace-
+ * compacted before matching, so newlines/indentation between the number
+ * and the title (Anikai's "1 \n      \n   Episode 1") collapses to "1
+ * Episode 1" first.
+ *
+ * Supported formats:
+ *  1. `Episode N` / `Ep N` / `EP N` / `Ep. N` (most reliable — explicit prefix)
+ *  2. `N. Episode Title` (Re:ANIME style: "1. Episode 1", "2. My Childhood Friend Cooks")
+ *  3. Whole text is just a number (Miruro-style grid cells, play icons)
+ *  4. Leading number followed by whitespace/punctuation (AniZone: "1 Black Cat & Spica")
+ *  5. `EP N` with dashes (Anidap: "EP 1", "EP 2", "EP --")
+ */
 const DEFAULT_EPISODE_LIST_PATTERNS: RegExp[] = [
   /\b(?:Episode|Ep\.?|EP)\s*[:#-]?\s*(\d{1,4})\b/i,
+  /^\s*(\d{1,4})\.\s+/,
   /^\s*(\d{1,4})\s*$/,
+  /^\s*(\d{1,4})(?=\s|-|:|\.|\||$)/,
 ];
+
+/**
+ * Maximum length (after whitespace compaction) of an element's text before
+ * we treat it as too noisy to be a single episode-list item. Generous
+ * enough to fit "12 - The Heroes Gather to Fight the Demon Lord" but
+ * narrow enough to reject paragraph text that happens to start with a
+ * number.
+ */
+const EPISODE_LIST_ITEM_MAX_TEXT_LENGTH = 140;
 
 /**
  * Enumerate the page's episode list (when the user has configured an
@@ -738,6 +762,9 @@ export function getCustomEpisodeNumbers(): number[] {
   }
   patterns.push(...DEFAULT_EPISODE_LIST_PATTERNS);
 
+  const compactWhitespace = (raw: string): string =>
+    raw.replace(/\s+/g, " ").trim();
+
   const parseNumber = (text: string): number | null => {
     for (const re of patterns) {
       const m = text.match(re);
@@ -753,25 +780,49 @@ export function getCustomEpisodeNumbers(): number[] {
 
   // The container itself might be a leaf (e.g. user picked the dropdown menu
   // wrapper but it has no text-bearing children) — try its own text first.
-  const containerText = (container.textContent || "").trim();
-  const directNum = parseNumber(containerText);
-  if (directNum !== null && containerText.length < 20) found.add(directNum);
+  const containerText = compactWhitespace(container.textContent || "");
+  if (containerText.length > 0 && containerText.length < 20) {
+    const directNum = parseNumber(containerText);
+    if (directNum !== null) found.add(directNum);
+  }
 
-  // Walk all descendant elements without children that look like a single
-  // episode entry (link, list item, button, span, or div). Multi-line text
-  // containers are skipped to avoid grabbing unrelated copy that happens to
-  // mention an episode number.
+  // Walk all descendant elements that look like a single episode entry.
+  // Episode items typically appear as:
+  // - Links (<a>) - most common (animepahe, Re:ANIME, AniZone)
+  // - List items (<li>) - semantic lists
+  // - Buttons (<button>) - interactive selectors
+  // - Divs/spans with specific classes (grid layouts like Miruro)
+  // - Option elements (<option>) - dropdown selects
+  //
+  // For non-leaf elements (divs, spans with children), we skip them to avoid
+  // double-counting — episode entries are typically the leaf nodes themselves.
   const candidates = container.querySelectorAll(
-    "a, li, button, span, div, p",
+    "a, li, button, option, span, div, p, article, [class*='episode'], [class*='ep-'], [data-episode], [data-ep]",
   );
+
   for (const el of Array.from(candidates)) {
-    if (el.children.length > 0 && el.tagName !== "A" && el.tagName !== "BUTTON" && el.tagName !== "LI") {
-      // For nested elements, only trust anchors / list items / buttons —
-      // they're the conventional episode-link wrappers.
-      continue;
+    // Skip wrapper elements that have children (unless they're semantic containers)
+    const isSemanticContainer = el.tagName === "A" || el.tagName === "BUTTON" || el.tagName === "LI" || el.tagName === "OPTION";
+    const hasChildren = el.children.length > 0;
+
+    if (hasChildren && !isSemanticContainer) {
+      // Allow divs/spans with episode-related classes even if they have children
+      const classList = Array.from(el.classList || []).join(" ").toLowerCase();
+      const hasEpisodeClass = /\b(episode|ep-item|ep_item|episode-item|episode_item)\b/.test(classList);
+      if (!hasEpisodeClass) {
+        continue;
+      }
     }
-    const text = (el.textContent || "").trim();
-    if (!text || text.length > 60) continue;
+
+    // Compact whitespace before length-checking so episode rows that lay out
+    // their parts on multiple indented lines (Anikai: "1 \n  \n  Episode 1"
+    // = 150 chars raw, 11 chars compact) aren't filtered out as noise.
+    const text = compactWhitespace(el.textContent || "");
+    if (!text || text.length > EPISODE_LIST_ITEM_MAX_TEXT_LENGTH) continue;
+
+    // Skip placeholder text (Anidap: "EP --", "Episode --")
+    if (/\bEP\s*--\b/i.test(text) || /\bEpisode\s*--\b/i.test(text)) continue;
+
     const num = parseNumber(text);
     if (num !== null) found.add(num);
   }

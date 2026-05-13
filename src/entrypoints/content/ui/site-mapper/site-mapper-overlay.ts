@@ -512,7 +512,7 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
         <div class="mapper-row" data-field="episodeList">
           <button class="pick-btn" data-target="episodeList" data-pick-kind="episodeList">Pick</button>
           <span class="row-label">Episode list</span>
-          ${tip('Optional. The container holding the page’s episode list (dropdown / sidebar / grid). Lets Hayami spot when a sub-cour page labels episodes cumulatively (e.g. "Episode 25–30" for Cour 3) and offset them to the right discussion thread.')}
+          ${tip('Optional. The container holding all episodes (dropdown menu, sidebar list, or grid). For dropdowns: click the button to open it, then click the menu container. Helps map cumulative episode numbers (e.g. "25–30" for Cour 3) to discussion threads (1–6).')}
           <span class="row-value" data-preview-value="episodeList" data-tip-overflow tabindex="0">Not picked</span>
           <button class="icon-btn" id="episodeListRegexToggle" type="button" aria-label="Build episode-list item extractor" data-hayami-tip="Build a regex to pull the episode number out of each list item">${pencilIconSvg}</button>
         </div>
@@ -959,7 +959,10 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       patterns.push(
         /\b(?:Episode|Ep\.?|EP)\s*[:#-]?\s*(\d{1,4})\b/i,
         /^\s*(\d{1,4})\s*$/,
+        /^\s*(\d{1,4})(?=\s|-|:|\.|\||$)/,
       );
+
+      const compactWhitespace = (raw: string): string => raw.replace(/\s+/g, ' ').trim();
 
       const parseNumber = (text: string): number | null => {
         for (const re of patterns) {
@@ -973,8 +976,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       };
 
       const found = new Set<number>();
-      const containerText = (container.textContent || '').trim();
-      if (containerText.length < 20) {
+      const containerText = compactWhitespace(container.textContent || '');
+      if (containerText.length > 0 && containerText.length < 20) {
         const direct = parseNumber(containerText);
         if (direct !== null) found.add(direct);
       }
@@ -982,8 +985,8 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       const candidates = container.querySelectorAll('a, li, button, span, div, p');
       for (const el of Array.from(candidates)) {
         if (el.children.length > 0 && el.tagName !== 'A' && el.tagName !== 'BUTTON' && el.tagName !== 'LI') continue;
-        const text = (el.textContent || '').trim();
-        if (!text || text.length > 60) continue;
+        const text = compactWhitespace(el.textContent || '');
+        if (!text || text.length > 140) continue;
         const num = parseNumber(text);
         if (num !== null) found.add(num);
       }
@@ -1778,9 +1781,59 @@ export function openSiteMapperOverlay(ctx: ContentScriptContext, toast: any, que
       }
       const target = resolveDeepTarget(ev.clientX, ev.clientY) || (ev.target as HTMLElement | null);
       const picking = (document.body as any)._hayamiPickingTarget as string | undefined;
+
+      if (!target || !picking || !inputs[picking]) {
+        cleanupPickers();
+        delete (document.body as any)._hayamiPickingTarget;
+        return;
+      }
+
+      // Smart handling for interactive elements (dropdowns, buttons, etc.)
+      // When picking episode list containers, detect if the user clicked on a
+      // dropdown toggle or button that needs to be opened first.
+      if (picking === 'episodeList') {
+        const isInteractive = target.matches('button, [role="button"], [data-toggle], .dropdown-toggle, summary, [aria-expanded]');
+        const hasDropdown = target.closest('.dropdown, .dropup, details, [data-toggle]');
+
+        if (isInteractive || hasDropdown) {
+          const expandedAttr = target.getAttribute('aria-expanded');
+          const isExpanded = expandedAttr === 'true';
+
+          // If the dropdown is closed, open it and wait for next click
+          if (!isExpanded) {
+            // Mark that we're waiting for the dropdown to open
+            (document.body as any)._hayamiDropdownOpening = true;
+
+            // Let the click through to open the dropdown
+            const shield = clickShield;
+            if (shield) {
+              shield.style.pointerEvents = 'none';
+            }
+
+            // Simulate the click on the actual element to trigger dropdown
+            target.click();
+
+            // Re-enable the shield after a short delay
+            setTimeout(() => {
+              if (shield) {
+                shield.style.pointerEvents = 'auto';
+              }
+              delete (document.body as any)._hayamiDropdownOpening;
+
+              // Update the pick indicator to guide the user
+              if (pickIndicator) {
+                pickIndicator.textContent = `Dropdown opened! Now click the episodes container (Esc to cancel)`;
+                pickIndicator.style.background = '#10b981';
+              }
+            }, 150);
+
+            return; // Don't complete the pick yet
+          }
+        }
+      }
+
       cleanupPickers();
       delete (document.body as any)._hayamiPickingTarget;
-      if (!target || !picking || !inputs[picking]) return;
 
       if (picking === 'episode') {
         const resolved = buildEpisodeActiveSelector(target);

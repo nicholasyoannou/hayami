@@ -84,6 +84,7 @@ import {
   extractSeasonTitleFromAnimeName,
   type AnimeMeta,
 } from './mapping/hayami-client';
+import { inferCourRelativeEpisode, inferPlannedCountEpisode } from './mapping/episode-numbering';
 
 export {
   extractEpisodeNumberFromUrlHints,
@@ -399,7 +400,13 @@ export async function tryMapperFailover(
       const currentAdapter = resolveAdapter(window.location);
       const isThirdPartySite = !currentAdapter || currentAdapter.id !== 'crunchyroll';
       
-      let mapperOptions: { malId?: number | null; anilistId?: number | null; isThirdPartySite?: boolean; maxEpisodeCount?: number | null } | undefined;
+      let mapperOptions: {
+        malId?: number | null;
+        anilistId?: number | null;
+        isThirdPartySite?: boolean;
+        maxEpisodeCount?: number | null;
+        anilistEpisodeCount?: number | null;
+      } | undefined;
       
       // For Reddit, extract episode table in parallel to inform Hayami about episode count
       let episodeTablePromise: Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> | null = null;
@@ -419,6 +426,9 @@ export async function tryMapperFailover(
             isThirdPartySite: true,
           };
           log.log(' Resolved anime IDs:', animeIds);
+          if (animeIds.episodeCount && animeIds.episodeCount > 0) {
+            mapperOptions.anilistEpisodeCount = animeIds.episodeCount;
+          }
         }
       }
       
@@ -467,11 +477,13 @@ export async function tryMapperFailover(
       // we'll retry with the MAL-Sync title below.
       const primaryAnimeName = animeInfo?.animeName || null;
       const effectiveEpisode = episodeFromInfo ?? malSyncEpisode;
+      const mapperMalId = malSyncMalId ?? mapperOptions?.malId ?? null;
+      const mapperAnilistId = malSyncAnilistId ?? mapperOptions?.anilistId ?? null;
 
       const mapperResult = primaryAnimeName ? await fetchAnimeMapperDataBySeriesName(primaryAnimeName, platform, {
         ...(mapperOptions || {}),
-        malId: malSyncMalId,
-        anilistId: malSyncAnilistId,
+        malId: mapperMalId,
+        anilistId: mapperAnilistId,
         // Keep explicit season/part markers to avoid broad matches (e.g., S2 vs S2 Part 2).
         preserveSeasonSuffix: true,
         episodeDate: animeInfo?.releaseDate ?? null,
@@ -487,8 +499,8 @@ export async function tryMapperFailover(
         log.log(' Primary name yielded no results; retrying with MAL-Sync title:', malSyncAnimeName);
         effectiveMapperResult = await fetchAnimeMapperDataBySeriesName(malSyncAnimeName, platform, {
           ...(mapperOptions || {}),
-          malId: malSyncMalId,
-          anilistId: malSyncAnilistId,
+          malId: mapperMalId,
+          anilistId: mapperAnilistId,
           preserveSeasonSuffix: true,
           episodeDate: animeInfo?.releaseDate ?? null,
         });
@@ -511,10 +523,37 @@ export async function tryMapperFailover(
       // a play-icon affordance (Miruro), which would otherwise leave the
       // smallest visible number one above the true start.
       const siteEpisodeOffset = getCustomEpisodeListOffset(effectiveEpisode ?? null);
+      const availableEpisodeKeys = new Set<string | number>();
+      for (const res of results) {
+        const eps = res?.episodes;
+        if (!eps || typeof eps !== 'object') continue;
+        for (const key of Object.keys(eps)) {
+          availableEpisodeKeys.add(key);
+        }
+      }
+      const courRelativeEpisode = siteEpisodeOffset === 0
+        ? inferCourRelativeEpisode({
+            episode: effectiveEpisode,
+            titles: [
+              primaryAnimeName,
+              malSyncAnimeName,
+              effectiveMapperResult.matched_result?.anime_name,
+              ...results.map((r) => r?.anime_name),
+            ],
+            availableEpisodeKeys,
+          })
+        : null;
+      const plannedCountEpisode = siteEpisodeOffset === 0 && !courRelativeEpisode
+        ? inferPlannedCountEpisode({
+            episode: effectiveEpisode,
+            plannedEpisodeCount: mapperOptions?.anilistEpisodeCount ?? null,
+            availableEpisodeKeys,
+          })
+        : null;
       // Use effective episode (which includes MAL-Sync fallback)
       const episodeForKeys = effectiveEpisode !== null && siteEpisodeOffset > 0
         ? effectiveEpisode - siteEpisodeOffset
-        : effectiveEpisode;
+        : courRelativeEpisode?.episode ?? plannedCountEpisode?.episode ?? effectiveEpisode;
       if (episodeForKeys !== null) {
         desiredKeys.add(String(episodeForKeys));
         desiredKeys.add(episodeForKeys);
@@ -532,6 +571,24 @@ export async function tryMapperFailover(
           offset: siteEpisodeOffset,
           original: effectiveEpisode,
           adjusted: episodeForKeys,
+        });
+      }
+      if (courRelativeEpisode) {
+        log.log(' Inferred title-relative episode from title marker:', {
+          original: effectiveEpisode,
+          adjusted: courRelativeEpisode.episode,
+          markerKind: courRelativeEpisode.kind,
+          markerNumber: courRelativeEpisode.number,
+          assumedSpan: courRelativeEpisode.span,
+          offset: courRelativeEpisode.offset,
+        });
+      }
+      if (plannedCountEpisode) {
+        log.log(' Inferred episode from AniList planned episode count:', {
+          original: effectiveEpisode,
+          adjusted: plannedCountEpisode.episode,
+          plannedEpisodeCount: plannedCountEpisode.plannedEpisodeCount,
+          offset: plannedCountEpisode.offset,
         });
       }
       log.log(' Desired mapper keys:', Array.from(desiredKeys));
@@ -598,7 +655,11 @@ export async function tryMapperFailover(
             cumulative += entry.episodeCount;
           }
 
-          // If episode number is beyond all known seasons, no match possible
+          // If the episode number is beyond all known mapper seasons, do not
+          // guess a season-relative episode from AniList's season length alone.
+          // That count only tells us the season maximum, not the streaming
+          // site's cumulative offset. Custom sites can opt into a reliable
+          // offset with `episodeListSelector`/`episodeListXPath` above.
           if (episodeForKeys > cumulative) {
             log.log(' Episode number exceeds all available seasons:', {
               episodeForKeys,
@@ -672,7 +733,9 @@ export async function tryMapperFailover(
             }
           }
           // No specific episode parsed; fall back to first available episode URL.
-          if (!mapperUrl) {
+          // If we did parse an episode and none of the desired keys matched,
+          // returning episode 1 is a false positive.
+          if (desiredKeys.size === 0 && !mapperUrl) {
             const firstKey = Object.keys(eps)[0];
             if (firstKey && eps[firstKey]) {
               log.log(`Lightweight match via first episode (idx=${idx}, key=${firstKey})`);

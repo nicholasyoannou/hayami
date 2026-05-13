@@ -69,9 +69,9 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
   lastAnimeIdResolverError = null;
 
   try {
-    // perPage:1 — `Media(search:)` used to give the best single match;
-    // `Page { media(sort: SEARCH_MATCH) }` returns the same top-ranked entry
-    // first when limited to one row.
+    // perPage:1 — AniList's `Page.media(search:)` orders by search relevance
+    // by default, so the first entry matches what the old `Media(search:)`
+    // call returned for ID resolution.
     const result = await searchAniListMedia({
       query: animeName,
       page: 1,

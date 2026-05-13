@@ -77,8 +77,6 @@ export interface AniListSearchInput {
   query: string;
   page?: number;
   perPage?: number;
-  /** When true, allow adult titles (default: false — picker calls want SFW only). */
-  includeAdult?: boolean;
   signal?: AbortSignal;
 }
 
@@ -101,10 +99,10 @@ const MAX_ATTEMPTS = 2;
 // keeps a single round-trip serving all three consumers without per-caller
 // query branching. AniList's rate-limit cost is per-request, not per-field.
 const SEARCH_QUERY = `
-query ($search: String, $page: Int, $perPage: Int, $isAdult: Boolean) {
+query ($search: String, $page: Int, $perPage: Int) {
   Page(page: $page, perPage: $perPage) {
     pageInfo { hasNextPage }
-    media(search: $search, type: ANIME, isAdult: $isAdult, sort: SEARCH_MATCH) {
+    media(search: $search, type: ANIME, sort: SEARCH_MATCH) {
       id
       idMal
       title { romaji english native }
@@ -172,9 +170,6 @@ export async function searchAniListMedia(input: AniListSearchInput): Promise<Ani
   const query = (input.query || '').trim();
   const page = clampPage(input.page);
   const perPage = clampPerPage(input.perPage);
-  // Pass `null` (rather than `true`) when the caller wants adult titles — the
-  // GraphQL omits the filter entirely so AniList returns the natural mix.
-  const isAdult = input.includeAdult ? null : false;
 
   if (!query) {
     return {
@@ -203,7 +198,7 @@ export async function searchAniListMedia(input: AniListSearchInput): Promise<Ani
         headers,
         body: JSON.stringify({
           query: SEARCH_QUERY,
-          variables: { search: query, page, perPage, isAdult },
+          variables: { search: query, page, perPage },
         }),
         signal: input.signal,
       } as RequestInit);

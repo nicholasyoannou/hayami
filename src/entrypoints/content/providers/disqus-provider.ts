@@ -374,12 +374,16 @@ export class DisqusProvider extends BaseProvider {
       // to populate `malId`/`anilistId` before `findEpisodeThread`.
       const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
       const hasResolvedIds = !!animeInfo.malId || !!animeInfo.anilistId;
+      let mapperResolvedEp: number | null = null;
       if (!hasSavedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
         try {
           const failoverOut: MapperFailoverOut = {};
           await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);
           if (failoverOut.entry || failoverOut.animeMeta) {
             applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
+          }
+          if (typeof failoverOut.episode === 'number' && Number.isFinite(failoverOut.episode) && failoverOut.episode > 0) {
+            mapperResolvedEp = failoverOut.episode;
           }
         } catch (e) {
           log.warn('Hayami season-aware match failed; falling back to detected ids', e);
@@ -402,6 +406,7 @@ export class DisqusProvider extends BaseProvider {
           offset: siteEpisodeOffset,
           rawEp,
           siteAdjustedEp,
+          mapperResolvedEp,
         });
       }
 
@@ -410,10 +415,11 @@ export class DisqusProvider extends BaseProvider {
         anilistId: animeInfo.anilistId ?? null,
         // Hand `findEpisodeThread` every plausible episode interpretation:
         // the site-list-derived adjustment first (best for sub-cour pages),
+        // the Hayami mapper's season-relative answer,
         // the user-override-adjusted number, and the raw streaming-page
         // number. The site-side matcher fuzzy-picks the best thread;
         // CR-continuous vs. season-relative is its problem.
-        episodeCandidates: [siteAdjustedEp, mappedEp, rawEp],
+        episodeCandidates: [siteAdjustedEp, mapperResolvedEp, mappedEp, rawEp],
         episodeNameHint: animeInfo.episodeName ?? null,
       };
       log.log('findEpisodeThread params', lookupParams);

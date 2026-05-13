@@ -186,8 +186,7 @@ function threadCoversEpisode(row: AnimeThreadRow, episode: number): boolean {
  * the same "fetch all, fuzzy-match client-side" shape as the MAL/AniList
  * forum providers. Tries each `episodeCandidates` value against every
  * approved thread for the anime; if no candidate hits an exact span,
- * falls back to the closest lower-or-equal episode and finally the
- * numerically nearest thread.
+ * falls back to the closest lower-or-equal episode.
  *
  * Replaces the strict `(mal_id, episode_number) -> thread` lookup in
  * `lookupThread`, which couldn't bridge CR's continuous numbering and
@@ -207,14 +206,14 @@ export async function findEpisodeThread(
   }
 
   // Hand the server an episode hint so it can narrow the result set
-  // before paginating. Use the largest plausible candidate so the
-  // window covers both small (season-relative) and large (CR-continuous)
-  // episode numbers in a single shot — e.g. ep 15 with window 30 covers
-  // ep 3 (season) and ep 15 (continuous) without two requests.
+  // before paginating. The actual hint below uses the first plausible candidate
+  // because mapper/site-adjusted season-relative values come before raw
+  // streaming episode numbers.
   const hintEpisodeRaw = (input.episodeCandidates ?? [])
     .map((raw) => (typeof raw === 'number' ? raw : Number(raw)))
     .filter((n) => Number.isFinite(n) && n > 0);
-  const hintEpisode = hintEpisodeRaw.length ? Math.max(...hintEpisodeRaw) : null;
+  // Use the first candidate because the caller orders candidates by confidence.
+  const hintEpisode = hintEpisodeRaw.length ? hintEpisodeRaw[0] : null;
   if (hintEpisode != null) {
     baseParams.set('episode', String(hintEpisode));
     baseParams.set('episode_window', String(BY_ANIME_EPISODE_WINDOW));
@@ -294,7 +293,9 @@ export async function findEpisodeThread(
 
   // 3) Fall back to the highest-numbered thread that's <= the smallest
   //    candidate (handles "you're on a fresh episode that hasn't been
-  //    posted yet"), and finally the numerically closest thread overall.
+  //    posted yet"). Do not fall forward to the nearest later thread:
+  //    when only episodes 4/5 exist, episode 1 should stay unresolved
+  //    instead of opening episode 4.
   const numbered = threads.filter((row) => row.episode_number != null) as Array<AnimeThreadRow & { episode_number: number }>;
   if (numbered.length && candidates.length) {
     const smallestCandidate = Math.min(...candidates);
@@ -312,24 +313,6 @@ export async function findEpisodeThread(
         episode: lowerOrEqual[0].episode_number,
       });
       return rowToDisqusThread(lowerOrEqual[0]);
-    }
-
-    const closest = numbered
-      .map((row) => {
-        const end = row.episode_number_end ?? row.episode_number;
-        const distance = Math.min(
-          ...candidates.map((cand) => Math.min(Math.abs(cand - row.episode_number), Math.abs(cand - end))),
-        );
-        return { row, distance };
-      })
-      .sort((a, b) => a.distance - b.distance);
-    if (closest.length) {
-      log.log('findEpisodeThread: matched by closest', {
-        candidates,
-        threadId: closest[0].row.id,
-        episode: closest[0].row.episode_number,
-      });
-      return rowToDisqusThread(closest[0].row);
     }
   }
 

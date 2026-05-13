@@ -10,6 +10,10 @@ type CustomSiteRawFieldsDraft = {
   titleRegex: string;
   episodeSelector: string;
   episodeRegex: string;
+  releaseDateSelector: string;
+  releaseDateRegex: string;
+  episodeListSelector: string;
+  episodeListItemRegex: string;
   sidePadding: number;
 };
 
@@ -65,6 +69,10 @@ function buildDraftFromSite(): CustomSiteRawFieldsDraft {
     titleRegex: s?.titleRegex || '',
     episodeSelector: s?.episodeSelector || '',
     episodeRegex: s?.episodeRegex || '',
+    releaseDateSelector: s?.releaseDateSelector || '',
+    releaseDateRegex: s?.releaseDateRegex || '',
+    episodeListSelector: s?.episodeListSelector || '',
+    episodeListItemRegex: s?.episodeListItemRegex || '',
     sidePadding: Number(s?.sidePadding) || 0,
   };
 }
@@ -290,6 +298,30 @@ function formatDomainLabel(origin: string): string {
         </div>
         <div class="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 last:border-b-0">
           <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-white/80">Release date selector</div>
+            <div class="truncate text-xs text-white/55">{{ props.selectedCustomSite.releaseDateSelector || '—' }}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 last:border-b-0">
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-white/80">Release date regex</div>
+            <div class="truncate text-xs text-white/55">{{ props.selectedCustomSite.releaseDateRegex || '—' }}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 last:border-b-0">
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-white/80">Episode list selector</div>
+            <div class="truncate text-xs text-white/55">{{ props.selectedCustomSite.episodeListSelector || '—' }}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 last:border-b-0">
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-semibold text-white/80">Episode list item regex</div>
+            <div class="truncate text-xs text-white/55">{{ props.selectedCustomSite.episodeListItemRegex || '—' }}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 border-b border-white/[0.06] px-4 py-3 last:border-b-0">
+          <div class="min-w-0 flex-1">
             <div class="text-xs font-semibold text-white/80">Side padding</div>
             <div class="truncate text-xs text-white/55">{{ props.selectedCustomSite.sidePadding ?? 0 }}px</div>
           </div>
@@ -356,6 +388,42 @@ function formatDomainLabel(origin: string): string {
             <span class="block text-[11px] font-semibold text-white/75">Episode regex</span>
             <input
               v-model="rawDraft.episodeRegex"
+              type="text"
+              placeholder="/pattern/flags or pattern"
+              class="mt-1 w-full rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30"
+            />
+          </label>
+          <label class="block">
+            <span class="block text-[11px] font-semibold text-white/75">Release date selector</span>
+            <input
+              v-model="rawDraft.releaseDateSelector"
+              type="text"
+              placeholder="CSS selector"
+              class="mt-1 w-full rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30"
+            />
+          </label>
+          <label class="block">
+            <span class="block text-[11px] font-semibold text-white/75">Release date regex</span>
+            <input
+              v-model="rawDraft.releaseDateRegex"
+              type="text"
+              placeholder="/pattern/flags or pattern"
+              class="mt-1 w-full rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30"
+            />
+          </label>
+          <label class="block">
+            <span class="block text-[11px] font-semibold text-white/75">Episode list selector</span>
+            <input
+              v-model="rawDraft.episodeListSelector"
+              type="text"
+              placeholder="CSS selector"
+              class="mt-1 w-full rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30"
+            />
+          </label>
+          <label class="block">
+            <span class="block text-[11px] font-semibold text-white/75">Episode list item regex</span>
+            <input
+              v-model="rawDraft.episodeListItemRegex"
               type="text"
               placeholder="/pattern/flags or pattern"
               class="mt-1 w-full rounded-lg border border-white/15 bg-transparent px-3 py-2 text-xs text-white placeholder:text-white/40 focus:outline focus:outline-2 focus:outline-white/30"
