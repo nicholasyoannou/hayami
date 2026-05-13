@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   inferCourRelativeEpisode,
   inferPlannedCountEpisode,
+  inferPreviousEpisodeCountEpisode,
 } from '@/entrypoints/content/mapping/episode-numbering';
 
 describe('inferCourRelativeEpisode', () => {
@@ -152,6 +153,37 @@ describe('inferPlannedCountEpisode', () => {
       episode: 12,
       plannedEpisodeCount: 13,
       availableEpisodeKeys: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13'],
+    });
+
+    expect(result).toBeNull();
+  });
+});
+
+describe('inferPreviousEpisodeCountEpisode', () => {
+  it('maps Re:ZERO Season 4 cumulative episode 71 using AniList prequel totals', () => {
+    const result = inferPreviousEpisodeCountEpisode({
+      episode: 71,
+      previousEpisodeCount: 66,
+      titles: [
+        'Re:ZERO -Starting Life in Another World- Season 4',
+        'Re:Zero kara Hajimeru Isekai Seikatsu 4th Season',
+      ],
+      availableEpisodeKeys: ['1', '2', '3', '4', '5'],
+    });
+
+    expect(result).toEqual({
+      episode: 5,
+      previousEpisodeCount: 66,
+      offset: 66,
+    });
+  });
+
+  it('does not apply full prequel totals to explicit cour or part markers', () => {
+    const result = inferPreviousEpisodeCountEpisode({
+      episode: 28,
+      previousEpisodeCount: 82,
+      titles: ['Dr.STONE SCIENCE FUTURE Cour 3'],
+      availableEpisodeKeys: ['1', '2', '3', '4', '5'],
     });
 
     expect(result).toBeNull();

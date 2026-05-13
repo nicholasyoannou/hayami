@@ -84,7 +84,7 @@ import {
   extractSeasonTitleFromAnimeName,
   type AnimeMeta,
 } from './mapping/hayami-client';
-import { inferCourRelativeEpisode, inferPlannedCountEpisode } from './mapping/episode-numbering';
+import { inferCourRelativeEpisode, inferPlannedCountEpisode, inferPreviousEpisodeCountEpisode } from './mapping/episode-numbering';
 
 export {
   extractEpisodeNumberFromUrlHints,
@@ -406,6 +406,7 @@ export async function tryMapperFailover(
         isThirdPartySite?: boolean;
         maxEpisodeCount?: number | null;
         anilistEpisodeCount?: number | null;
+        anilistPreviousEpisodeCount?: number | null;
       } | undefined;
       
       // For Reddit, extract episode table in parallel to inform Hayami about episode count
@@ -428,6 +429,9 @@ export async function tryMapperFailover(
           log.log(' Resolved anime IDs:', animeIds);
           if (animeIds.episodeCount && animeIds.episodeCount > 0) {
             mapperOptions.anilistEpisodeCount = animeIds.episodeCount;
+          }
+          if (animeIds.previousEpisodeCount && animeIds.previousEpisodeCount > 0) {
+            mapperOptions.anilistPreviousEpisodeCount = animeIds.previousEpisodeCount;
           }
         }
       }
@@ -531,19 +535,28 @@ export async function tryMapperFailover(
           availableEpisodeKeys.add(key);
         }
       }
-      const courRelativeEpisode = siteEpisodeOffset === 0
-        ? inferCourRelativeEpisode({
+      const titleHints = [
+        primaryAnimeName,
+        malSyncAnimeName,
+        effectiveMapperResult.matched_result?.anime_name,
+        ...results.map((r) => r?.anime_name),
+      ];
+      const previousCountEpisode = siteEpisodeOffset === 0
+        ? inferPreviousEpisodeCountEpisode({
             episode: effectiveEpisode,
-            titles: [
-              primaryAnimeName,
-              malSyncAnimeName,
-              effectiveMapperResult.matched_result?.anime_name,
-              ...results.map((r) => r?.anime_name),
-            ],
+            previousEpisodeCount: mapperOptions?.anilistPreviousEpisodeCount ?? null,
+            titles: titleHints,
             availableEpisodeKeys,
           })
         : null;
-      const plannedCountEpisode = siteEpisodeOffset === 0 && !courRelativeEpisode
+      const courRelativeEpisode = siteEpisodeOffset === 0 && !previousCountEpisode
+        ? inferCourRelativeEpisode({
+            episode: effectiveEpisode,
+            titles: titleHints,
+            availableEpisodeKeys,
+          })
+        : null;
+      const plannedCountEpisode = siteEpisodeOffset === 0 && !previousCountEpisode && !courRelativeEpisode
         ? inferPlannedCountEpisode({
             episode: effectiveEpisode,
             plannedEpisodeCount: mapperOptions?.anilistEpisodeCount ?? null,
@@ -553,7 +566,7 @@ export async function tryMapperFailover(
       // Use effective episode (which includes MAL-Sync fallback)
       const episodeForKeys = effectiveEpisode !== null && siteEpisodeOffset > 0
         ? effectiveEpisode - siteEpisodeOffset
-        : courRelativeEpisode?.episode ?? plannedCountEpisode?.episode ?? effectiveEpisode;
+        : previousCountEpisode?.episode ?? courRelativeEpisode?.episode ?? plannedCountEpisode?.episode ?? effectiveEpisode;
       if (episodeForKeys !== null) {
         desiredKeys.add(String(episodeForKeys));
         desiredKeys.add(episodeForKeys);
@@ -581,6 +594,14 @@ export async function tryMapperFailover(
           markerNumber: courRelativeEpisode.number,
           assumedSpan: courRelativeEpisode.span,
           offset: courRelativeEpisode.offset,
+        });
+      }
+      if (previousCountEpisode) {
+        log.log(' Inferred episode from AniList previous-season count:', {
+          original: effectiveEpisode,
+          adjusted: previousCountEpisode.episode,
+          previousEpisodeCount: previousCountEpisode.previousEpisodeCount,
+          offset: previousCountEpisode.offset,
         });
       }
       if (plannedCountEpisode) {

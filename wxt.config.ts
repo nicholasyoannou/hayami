@@ -8,8 +8,8 @@ const SANDBOX_CSP = [
 ].join(' ');
 
 process.env.NODE_ENV = 'production';
-const filteredEntrypoints = process.env.NODE_ENV === 'production'
-  ? [
+const filteredEntrypointSet = process.env.NODE_ENV === 'production'
+  ? new Set([
       'background',
       'content',
       'discussanime-presence',
@@ -19,14 +19,13 @@ const filteredEntrypoints = process.env.NODE_ENV === 'production'
       'onboarding',
       'popup',
       'pwa',
-    ]
+    ])
   : undefined;
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
-  filterEntrypoints: filteredEntrypoints,
   manifest: {
     name: 'Hayami: Anime comments & discussions',
     icons: {
@@ -76,7 +75,7 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    version: '0.0.95',
+    version: '0.0.96',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
@@ -109,6 +108,14 @@ export default defineConfig({
   },
 
   hooks: {
+    "entrypoints:found": (_wxt, infos) => {
+      if (!filteredEntrypointSet) return;
+      for (let i = infos.length - 1; i >= 0; i -= 1) {
+        if (!filteredEntrypointSet.has(infos[i].name)) {
+          infos.splice(i, 1);
+        }
+      }
+    },
     "build:manifestGenerated": (wxt, manifest) => {
       if (wxt.config.command === "serve") {
         // "webext-dynamic-content-scripts" handles other manual site additions

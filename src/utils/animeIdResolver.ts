@@ -7,6 +7,8 @@
  */
 
 import { searchAniListMedia, type AniListMedia } from './anilistSearch';
+import { getAniListAccessToken } from './anilistAuth';
+import { anilistProxyFetch } from './anilistTransport';
 import { con } from '@/utils/logger';
 
 const log = con.m('AnimeResolver');
@@ -17,6 +19,7 @@ export interface AnimeIdResult {
   title?: string;
   startYear?: number | null;
   episodeCount?: number | null;
+  previousEpisodeCount?: number | null;
   isAiringToday?: boolean; // If the latest episode aired today
 }
 
@@ -56,8 +59,142 @@ function mediaToIdResult(media: AniListMedia): AnimeIdResult {
     title: media.title?.romaji || media.title?.english || undefined,
     startYear: media.startDate?.year || null,
     episodeCount: media.episodes || null,
+    previousEpisodeCount: null,
     isAiringToday,
   };
+}
+
+interface AniListPrequelMedia {
+  id?: number | null;
+  type?: string | null;
+  format?: string | null;
+  episodes?: number | null;
+  relations?: {
+    edges?: Array<{
+      relationType?: string | null;
+      node?: AniListPrequelMedia | null;
+    }> | null;
+  } | null;
+}
+
+const PREQUEL_CHAIN_QUERY = `
+query ($id: Int) {
+  Media(id: $id, type: ANIME) {
+    id
+    type
+    format
+    episodes
+    relations {
+      edges {
+        relationType(version: 2)
+        node {
+          id
+          type
+          format
+          episodes
+        }
+      }
+    }
+  }
+}
+`;
+
+const prequelEpisodeCountCache = new Map<number, number | null>();
+const COUNTABLE_PREQUEL_FORMATS = new Set(['TV', 'TV_SHORT', 'ONA']);
+
+function hasSeasonContinuationMarker(...titles: Array<string | null | undefined>): boolean {
+  return titles.some((title) => {
+    const text = String(title || '');
+    return /\bseason\s*\d{1,2}\b/i.test(text) ||
+      /\b\d{1,2}(?:st|nd|rd|th)\s*season\b/i.test(text);
+  });
+}
+
+function shouldCountPrequel(media: AniListPrequelMedia | null | undefined): boolean {
+  const format = String(media?.format || '').toUpperCase();
+  return COUNTABLE_PREQUEL_FORMATS.has(format);
+}
+
+function pickPrequel(media: AniListPrequelMedia | null): AniListPrequelMedia | null {
+  const edges = Array.isArray(media?.relations?.edges) ? media!.relations!.edges! : [];
+  const prequels = edges
+    .filter((edge) => String(edge?.relationType || '').toUpperCase() === 'PREQUEL')
+    .map((edge) => edge.node)
+    .filter((node): node is AniListPrequelMedia => !!node?.id && String(node.type || '').toUpperCase() === 'ANIME');
+  if (!prequels.length) return null;
+
+  return prequels.sort((a, b) => {
+    const aCountable = shouldCountPrequel(a) ? 1 : 0;
+    const bCountable = shouldCountPrequel(b) ? 1 : 0;
+    if (aCountable !== bCountable) return bCountable - aCountable;
+
+    const aEpisodes = Number.isFinite(a.episodes) ? Number(a.episodes) : 0;
+    const bEpisodes = Number.isFinite(b.episodes) ? Number(b.episodes) : 0;
+    return bEpisodes - aEpisodes;
+  })[0] ?? null;
+}
+
+async function fetchAniListPrequelMedia(id: number): Promise<AniListPrequelMedia | null> {
+  const accessToken = await getAniListAccessToken().catch(() => null);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+
+  const response = await anilistProxyFetch({
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      query: PREQUEL_CHAIN_QUERY,
+      variables: { id },
+    }),
+  } as RequestInit);
+
+  if (!response.ok) {
+    log.warn('AniList prequel-chain request failed:', { status: response.status, id });
+    return null;
+  }
+
+  const body = await response.json().catch(() => null);
+  return body?.data?.Media ?? null;
+}
+
+async function getPreviousMainlineEpisodeCount(anilistId: number): Promise<number | null> {
+  if (!Number.isFinite(anilistId) || anilistId <= 0) return null;
+  if (prequelEpisodeCountCache.has(anilistId)) {
+    return prequelEpisodeCountCache.get(anilistId) ?? null;
+  }
+
+  let total = 0;
+  let currentId = anilistId;
+  const visited = new Set<number>([anilistId]);
+
+  try {
+    for (let depth = 0; depth < 12; depth += 1) {
+      const media = await fetchAniListPrequelMedia(currentId);
+      const prequel = pickPrequel(media);
+      const prequelId = Number(prequel?.id);
+      if (!Number.isFinite(prequelId) || prequelId <= 0 || visited.has(prequelId)) break;
+
+      visited.add(prequelId);
+      if (shouldCountPrequel(prequel)) {
+        const episodes = Number(prequel.episodes);
+        if (Number.isFinite(episodes) && episodes > 0) {
+          total += episodes;
+        }
+      }
+      currentId = prequelId;
+    }
+  } catch (error) {
+    log.warn('AniList prequel-chain lookup failed:', error);
+    prequelEpisodeCountCache.set(anilistId, null);
+    return null;
+  }
+
+  const result = total > 0 ? total : null;
+  prequelEpisodeCountCache.set(anilistId, result);
+  return result;
 }
 
 /**
@@ -94,7 +231,15 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
 
     const media = result.results[0];
     if (!media?.id) return null;
-    return mediaToIdResult(media);
+    const idResult = mediaToIdResult(media);
+    if (hasSeasonContinuationMarker(
+      animeName,
+      media.title?.romaji,
+      media.title?.english,
+    )) {
+      idResult.previousEpisodeCount = await getPreviousMainlineEpisodeCount(media.id);
+    }
+    return idResult;
   } catch (err) {
     log.error('AniList search error:', err);
     lastAnimeIdResolverError = {

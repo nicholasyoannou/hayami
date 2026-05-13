@@ -15,6 +15,12 @@ export type PlannedCountEpisodeInference = {
   offset: number;
 };
 
+export type PreviousEpisodeCountInference = {
+  episode: number;
+  previousEpisodeCount: number;
+  offset: number;
+};
+
 function compareByHighestEpisodeThenSmallestSpan(
   a: CourRelativeEpisodeInference,
   b: CourRelativeEpisodeInference,
@@ -95,6 +101,32 @@ export function inferPlannedCountEpisode(input: {
     episode: plannedEpisodeCount,
     plannedEpisodeCount,
     offset: episode - plannedEpisodeCount,
+  };
+}
+
+export function inferPreviousEpisodeCountEpisode(input: {
+  episode: number | null | undefined;
+  previousEpisodeCount: number | null | undefined;
+  titles: Array<string | null | undefined>;
+  availableEpisodeKeys: Iterable<string | number>;
+}): PreviousEpisodeCountInference | null {
+  const episode = input.episode ?? null;
+  const previousEpisodeCount = input.previousEpisodeCount ?? null;
+  if (!Number.isFinite(episode) || episode == null || episode <= 0) return null;
+  if (!Number.isFinite(previousEpisodeCount) || previousEpisodeCount == null || previousEpisodeCount <= 0) return null;
+  if (episode <= previousEpisodeCount) return null;
+
+  const marker = extractCourPartMarker(input.titles);
+  if (marker?.kind !== 'season') return null;
+
+  const adjustedEpisode = episode - previousEpisodeCount;
+  const available = normalizeAvailableEpisodeKeys(input.availableEpisodeKeys);
+  if (!available.has(adjustedEpisode)) return null;
+
+  return {
+    episode: adjustedEpisode,
+    previousEpisodeCount,
+    offset: previousEpisodeCount,
   };
 }
 
