@@ -251,6 +251,21 @@ export interface MapperFailoverOut {
    * coverage.
    */
   animeMeta?: { malId?: number | null; anilistId?: number | null } | null;
+  /**
+   * The full `results` array from the Hayami response — every candidate
+   * the mapper considered, not just the picked entry. Reddit's
+   * `tryMapperDirect`-style year-group / collapsed-part fallback reads
+   * across all results, so surfacing them here lets that fallback run
+   * against the same fetch instead of issuing a second `/anime/${name}`
+   * request.
+   */
+  allResults?: MapperResultEntry[] | null;
+  /**
+   * Mapper's own preferred result index from `matched_result.index`,
+   * when present. Lets downstream resolvers carry the mapper's choice
+   * into year-proximity tie-breaks.
+   */
+  matchedResultIdx?: number | null;
 }
 
 /**
@@ -818,6 +833,13 @@ export async function tryMapperFailover(
         // `external_sites` is empty (Hayami doesn't always populate it).
         const meta = (effectiveMapperResult as unknown as { animeMeta?: { malId?: number | null; anilistId?: number | null } | null })?.animeMeta ?? null;
         out.animeMeta = meta;
+        // Surface every candidate so the Reddit-URL fallback (year-group /
+        // collapsed-part resolution in `reddit-url-resolver`) can run
+        // against this fetch instead of re-querying Hayami.
+        out.allResults = results;
+        out.matchedResultIdx = typeof effectiveMapperResult.matched_result?.index === 'number'
+          ? effectiveMapperResult.matched_result.index
+          : null;
       };
 
       if (platform === 'reddit' && !skipRedditExtras && mapperUrl && episodeForKeys !== null) {

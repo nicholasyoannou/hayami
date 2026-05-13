@@ -28,7 +28,7 @@ import {
 } from '../mapping';
 import { resolveAnimeIdentity } from '../mapping/identity-resolver';
 import { getSavedIds } from '../mapping/trust-policy';
-import { applyMapperEntryIdsToAnimeInfo } from '../core/discussion-manager';
+import { applyMapperEntryIdsToAnimeInfo } from '../mapping/apply-ids';
 import { dispatchManualSearchRequest } from './manual-search';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { linkOnlyModeItem } from '@/config/storage';

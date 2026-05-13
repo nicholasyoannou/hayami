@@ -498,6 +498,19 @@ export async function runCrunchyrollDeepPipeline(
     // platform-specific entry coverage.
     const responseAnimeMeta =
       (mapperResult as unknown as { animeMeta?: { malId?: number | null; anilistId?: number | null } | null })?.animeMeta ?? null;
+    // Surface every candidate so Reddit's year-group / collapsed-part
+    // fallback can run against this same fetch when our pick yields no
+    // episode URL — see `writeOutCommon` below.
+    const responseAllResults = Array.isArray(results) ? results : null;
+    const responseMatchedIdx = typeof matchedResult?.index === 'number' ? matchedResult.index : null;
+    const writeOutCommon = (entry: MapperResultEntry | null, episode: number | null) => {
+      if (!out) return;
+      out.entry = entry;
+      out.episode = episode;
+      out.animeMeta = responseAnimeMeta;
+      out.allResults = responseAllResults;
+      out.matchedResultIdx = responseMatchedIdx;
+    };
     let forcedSeasonEpisode: number | null = null; // derived from slice matching
     let clampSeasonEpisode: number | null = null; // last-resort clamp for oversized CR numbering
 
@@ -570,11 +583,7 @@ export async function runCrunchyrollDeepPipeline(
       const movieUrl = matchedSeason.movies[0];
       log.log(`Found ${platform} thread via failover (movie):`, movieUrl);
       recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
-      if (out) {
-        out.entry = matchedSeason;
-        out.episode = null;
-        out.animeMeta = responseAnimeMeta;
-      }
+      writeOutCommon(matchedSeason, null);
       return movieUrl;
     }
 
@@ -582,11 +591,7 @@ export async function runCrunchyrollDeepPipeline(
       log.log('Matched season has no episodes');
       // Even with no episode-URL map on this entry, expose the matched
       // record so non-Reddit consumers can lift its MAL/AniList ids.
-      if (out) {
-        out.entry = matchedSeason;
-        out.episode = null;
-        out.animeMeta = responseAnimeMeta;
-      }
+      writeOutCommon(matchedSeason, null);
       return null;
     }
 
@@ -694,10 +699,8 @@ export async function runCrunchyrollDeepPipeline(
 
         if (!matchedSeason || !matchedSeason.episodes || typeof matchedSeason.episodes !== 'object') {
           log.log(' Slice-derived matched season has no episodes');
-          if (out && matchedSeason) {
-            out.entry = matchedSeason;
-            out.episode = null;
-            out.animeMeta = responseAnimeMeta;
+          if (matchedSeason) {
+            writeOutCommon(matchedSeason, null);
           }
           return null;
         }
@@ -928,21 +931,13 @@ export async function runCrunchyrollDeepPipeline(
       // falls back to MAL-Sync's parent-series ids and resolves the wrong
       // thread (e.g. "MHA: More" vs "MHA S4").
       recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
-      if (out) {
-        out.entry = matchedSeason;
-        out.episode = seasonEpisode ?? null;
-        out.animeMeta = responseAnimeMeta;
-      }
+      writeOutCommon(matchedSeason, seasonEpisode ?? null);
       return null;
     }
 
     log.log(`Found ${platform} thread via failover:`, mappedUrl);
     recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
-    if (out) {
-      out.entry = matchedSeason;
-      out.episode = seasonEpisode ?? null;
-      out.animeMeta = responseAnimeMeta;
-    }
+    writeOutCommon(matchedSeason, seasonEpisode ?? null);
     return mappedUrl;
   } catch (error) {
     log.error('Error in CR pipeline:', error);

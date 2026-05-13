@@ -32,12 +32,15 @@ import {
   parseEpisodeFromTitle,
   saveSeriesMapping,
   tryMapperFailover,
-  fetchAnimeMapperDataBySeriesName,
   type MapperFailoverOut,
 } from '../mapping';
-import { cacheAnimeIds } from '../storage/series-mapping';
 import { collectRedditAlternateThreads } from '../mapping/reddit-alternates';
-import type { AlternateRedditThread, MapperResultEntry } from '../types/data';
+import {
+  resolveRedditUrlFromMapperResults,
+  resolveRedditUrlForMovieEntry,
+} from '../mapping/reddit-url-resolver';
+import { applyMapperEntryIdsToAnimeInfo } from '../mapping/apply-ids';
+import type { MapperResultEntry } from '../types/data';
 
 // Template renderers
 // UI utilities
@@ -75,7 +78,7 @@ import {
 } from '../ui/site-mapper/site-mapper-utils';
 
 // MAL utilities
-import { extractMalIdFromMapperResult, extractSeasonNumber } from '../utils/mal-utils';
+import { extractSeasonNumber } from '../utils/mal-utils';
 import { normalizeForMatch } from '../sites/shared';
 
 // =============================================================================
@@ -95,11 +98,9 @@ let currentRenderIntent: RenderIntent = 'popup';
 
 type RedditApiModule = typeof import('@/utils/redditApi');
 type RedditRuntimeModule = typeof import('./reddit-runtime');
-type RedditSearchRuntimeModule = typeof import('./reddit-search-runtime');
 
 let redditApiModulePromise: Promise<RedditApiModule> | null = null;
 let redditRuntimeModulePromise: Promise<RedditRuntimeModule> | null = null;
-let redditSearchRuntimeModulePromise: Promise<RedditSearchRuntimeModule> | null = null;
 
 function getRedditApiModule(): Promise<RedditApiModule> {
   if (!redditApiModulePromise) {
@@ -113,13 +114,6 @@ function getRedditRuntimeModule(): Promise<RedditRuntimeModule> {
     redditRuntimeModulePromise = import('./reddit-runtime');
   }
   return redditRuntimeModulePromise;
-}
-
-function getRedditSearchRuntimeModule(): Promise<RedditSearchRuntimeModule> {
-  if (!redditSearchRuntimeModulePromise) {
-    redditSearchRuntimeModulePromise = import('./reddit-search-runtime');
-  }
-  return redditSearchRuntimeModulePromise;
 }
 
 function extractEpisodeNumberText(input: string): string | null {
@@ -430,90 +424,64 @@ function clearInlineNoDiscussionHost(): void {
 // HELPER FUNCTIONS
 // =============================================================================
 
-function setMalIdOnLastAnimeInfo(malId?: number | null): void {
-  if (!malId) return;
-  const currentState = state();
-  if (currentState.lastAnimeInfo) {
-    setLastAnimeInfo({ ...currentState.lastAnimeInfo, malId });
-  }
-}
-
-function normalizeIdCandidate(val: unknown): number | null {
-  if (typeof val === 'number' && Number.isFinite(val) && val > 0) return val;
-  if (typeof val === 'string' && /^\d+$/.test(val)) {
-    const parsed = Number(val);
-    return parsed > 0 ? parsed : null;
-  }
-  return null;
-}
-
 /**
- * Extract season-specific MAL/AniList IDs from a Hayami mapper entry and apply
- * them to `lastAnimeInfo`, plus mutate the provided animeInfo in place so the
- * current request's downstream lookups (Disqus, etc.) pick up the corrected
- * values instead of the pre-mapper, base-title IDs.
+ * Resolve a Reddit post on-demand for an in-flight provider switch.
  *
- * Hayami exposes ids in two places. The matched entry's `external_sites`
- * carries the *season-disambiguated* ids (e.g. "MHA: More" → MAL 63130),
- * which is what we want. The response's top-level `animeMeta`, in
- * contrast, is built from the search inputs — when `mal_id` is passed as
- * a hint (which the CR failover always does), animeMeta echoes back that
- * exact id (e.g. MHA S4 → MAL 38408), even when matched_result picked a
- * different anime. Prefer external_sites over animeMeta for that reason;
- * fall back to animeMeta only when external_sites is missing entirely.
+ * The popup's and inline's `providerChangeCallback` both have the same
+ * problem: the active discussion came from a non-Reddit provider (placeholder
+ * or external), so when the user toggles to Reddit there's no `id`/`fullname`
+ * on `cache.reddit` for `RedditCommentList` to load. They both fix it the
+ * same way — run the mapper failover, fetch the matched Reddit URL,
+ * normalize + attach alternates — and then differ only in how they push the
+ * result into their respective UI mount (`popup` vs `inline`).
+ *
+ * This helper owns the resolution; the caller handles the mode-specific UI
+ * wiring (cache assignment, `updateProps`, `clearInlineNoDiscussionHost`,
+ * etc.). Returns `null` when no Reddit URL could be resolved, so the caller
+ * can fall through to the full `searchAndDisplayDiscussion` pipeline.
  */
-export function applyMapperEntryIdsToAnimeInfo(
-  animeInfo: AnimeInfo,
-  entry: MapperResultEntry | null | undefined,
-  animeMeta?: { malId?: number | null; anilistId?: number | null } | null,
-): void {
-  const entryAny = entry as (MapperResultEntry & { mal_id?: unknown; anilist_id?: unknown }) | null | undefined;
-  const malId = normalizeIdCandidate(
-    entry?.external_sites?.mal_id ?? entryAny?.mal_id ?? animeMeta?.malId,
+async function resolveRedditPostOnDemand(info: AnimeInfo): Promise<{
+  postData: any;
+  failoverOut: MapperFailoverOut;
+  url: string;
+} | null> {
+  if (!info?.animeName) return null;
+
+  const mapping = await getSeriesMapping(info.animeName, 'reddit');
+  const episodeOffset = mapping?.episodeOffset ?? 0;
+  const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || info.animeName;
+  const infoForMapper = mapperAnimeName !== info.animeName
+    ? { ...info, animeName: mapperAnimeName }
+    : info;
+  const rawEpisodeStr = extractEpisodeNumberText(info.episodeName || '');
+  const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
+  const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum)
+    ? rawEpisodeNum + episodeOffset
+    : null;
+
+  const failoverOut: MapperFailoverOut = {};
+  const failoverRedditUrl = await tryMapperFailover(
+    infoForMapper,
+    'reddit',
+    mappedEpisodeNum ?? rawEpisodeNum ?? null,
+    failoverOut,
   );
-  const anilistId = normalizeIdCandidate(
-    entry?.external_sites?.anilist_id ?? entryAny?.anilist_id ?? animeMeta?.anilistId,
-  );
-  if (!malId && !anilistId) return;
-
-  if (malId) animeInfo.malId = malId;
-  if (anilistId) animeInfo.anilistId = anilistId;
-
-  const currentState = state();
-  if (currentState.lastAnimeInfo) {
-    setLastAnimeInfo({
-      ...currentState.lastAnimeInfo,
-      ...(malId ? { malId } : {}),
-      ...(anilistId ? { anilistId } : {}),
-    });
+  if (failoverOut.entry || failoverOut.animeMeta) {
+    applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry, failoverOut.animeMeta);
   }
+  if (!failoverRedditUrl) return null;
 
-  // Overwrite the shared anime-id cache with the season-disambiguated ids
-  // so subsequent `getSeriesMapping` lookups across providers see the
-  // correct series. The CR failover path pre-caches MAL-Sync's parent-
-  // series ids before Hayami runs (so providers have *something* if the
-  // mapper fails); without this overwrite, switching to Disqus after a
-  // URL-less Reddit failover would resolve against MAL-Sync's wrong ids
-  // (e.g. MHA S4 #38408) instead of the matched series (e.g. MHA: More).
-  if (animeInfo.animeName && (malId || anilistId)) {
-    cacheAnimeIds(animeInfo.animeName, malId ?? null, anilistId ?? null).catch(() => {
-      // Best-effort overwrite — failures aren't fatal because the local
-      // animeInfo mutation above already covers the current request.
-    });
-  }
+  const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
+  if (!postData) return null;
+
+  normalizeRedditDiscussion(postData);
+  await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
+  return { postData, failoverOut, url: failoverRedditUrl };
 }
 
 // =============================================================================
 // API FETCH FUNCTIONS
 // =============================================================================
-
-/**
- * Fetch anime data from r-anime-wiki-mapper service
- */
-async function fetchAnimeMapperData(animeName: string): Promise<any | null> {
-  const { fetchAnimeMapperData: fetchMapper } = await getRedditSearchRuntimeModule();
-  return fetchMapper(animeName);
-}
 
 /**
  * Extract Reddit post ID from a Reddit URL and fetch post data
@@ -681,420 +649,55 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       log.log('Failover did not find a match, continuing to original mapper method...');
     }
 
-    // Before showing selection/no discussion, check r-anime-wiki-mapper service (original method)
-    const mapperResult = await fetchAnimeMapperData(mapperAnimeName);
-    if (userSwitchedAway()) {
-      log.log('User switched providers during search, aborting Reddit search');
-      return;
-    }
-    setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, mapperResult?.matched_result?.index));
-
-    const epNum = mappedEpisodeStr;
+    // Year-group / collapsed-part / per-season URL resolution against the
+    // failover's own results — no second Hayami fetch. Previously this
+    // stage re-queried `/anime/${name}` (the legacy endpoint), reasoned
+    // against that response, and ran a 340-line inline `tryMapperDirect`.
+    // Both endpoints return the same shape, so we just hand the failover's
+    // `allResults` to the extracted resolver.
+    const mapperResults = failoverOut.allResults ?? null;
     const targetMalId = currentState.lastAnimeInfo?.malId || null;
     const targetSeason = extractSeasonNumber(animeInfo.animeName);
-    const normalizeMal = (val: unknown): number | null => {
-      if (typeof val === 'number') return val;
-      if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
-      return null;
-    };
-    const entryMal = (entry: any): number | null => normalizeMal(entry?.mal_id ?? entry?.malId ?? entry?.external_sites?.mal_id);
-    // Helper: look up an episode URL with fallback for zero-padded keys
-    // (e.g., "2" → "02"). Some older entries use "01", "02", etc.
-    const lookupEpisodeUrl = (episodes: Record<string, string> | undefined, key: string | number): string | undefined => {
-      if (!episodes) return undefined;
-      const str = String(key);
-      if (str in episodes) return episodes[str];
-      const padded = str.padStart(2, '0');
-      if (padded !== str && padded in episodes) return episodes[padded];
-      return undefined;
-    };
+    const releaseYearMatch = animeInfo.releaseDate?.match(/(\d{4})/);
+    const releaseYear = releaseYearMatch ? Number(releaseYearMatch[1]) : null;
+    const epNumForResolver = mappedEpisodeNum ?? rawEpisodeNum;
 
-    const tryMapperDirect = async (): Promise<boolean> => {
-      if (!mapperResult?.results?.length || !epNum) return false;
-
-      const candidates = mapperResult.results;
-      const malPreferred = targetMalId ? candidates
-        .map((c: any, i: number) => ({ c, i, mid: entryMal(c) }))
-        .filter((x: { mid: number | null }) => x.mid === targetMalId)
-        .map((x: { i: number }) => x.i) : [];
-      const matchedIdx = typeof mapperResult.matched_result?.index === 'number' ? mapperResult.matched_result.index : null;
-
-      // Parse release year early so pickOrder can sort by year proximity
-      const releaseYearMatch = animeInfo.releaseDate?.match(/(\d{4})/);
-      const releaseYear = releaseYearMatch ? Number(releaseYearMatch[1]) : null;
-
-      // Sort remaining candidates by year proximity to releaseYear so that
-      // e.g. Tensura S1 (2018) is checked before Coleus no Yume (2023) when
-      // watching S1E1 released in 2018.
-      const remainingByYear = candidates.map((_entry: any, i: number) => i).sort((a: number, b: number) => {
-        if (!releaseYear) return 0;
-        const yearA = candidates[a]?.year && candidates[a].year !== 'movies' ? Number(candidates[a].year) : null;
-        const yearB = candidates[b]?.year && candidates[b].year !== 'movies' ? Number(candidates[b].year) : null;
-        const distA = yearA !== null && !isNaN(yearA) ? Math.abs(yearA - releaseYear) : Infinity;
-        const distB = yearB !== null && !isNaN(yearB) ? Math.abs(yearB - releaseYear) : Infinity;
-        return distA - distB;
-      });
-      const pickOrder = [
-        ...(malPreferred.length ? malPreferred : []),
-        ...(matchedIdx !== null ? [matchedIdx] : []),
-        ...remainingByYear,
-      ].filter((v: number, i: number, arr: number[]) => arr.indexOf(v) === i);
-
-      // Tokenize the target anime name to filter out completely unrelated entries
-      const stopWords = new Set(['season', 'part', 'the', 'and', 'of', 'no', 'wa', 'ga', 'ni', 'wo', 'mo', 'to', 'de', 'ha']);
-      const tokenize = (name: string): Set<string> => {
-        return new Set(
-          normalizeForMatch(name)
-            .split(' ')
-            .filter((t) => t.length >= 3 && !stopWords.has(t) && !/^\d+$/.test(t)),
-        );
-      };
-      const targetTokens = tokenize(mapperAnimeName);
-
-      // Helper: check if an entry's year (or merge_years) matches releaseYear
-      const entryYearMatchesRelease = (entry: any): boolean => {
-        if (!releaseYear) return false;
-        const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
-        if (entryYear && entryYear === releaseYear) return true;
-        // Also check merge_years (e.g., AoT S3 has year "2018" but merge_years ["2018","2019"])
-        const mergeYears: string[] | undefined = entry?.merge_years;
-        if (Array.isArray(mergeYears)) {
-          for (const my of mergeYears) {
-            if (Number(my) === releaseYear) return true;
-          }
-        }
-        return false;
-      };
-
-      // Helper: check if an entry passes MAL, season, year, and token-overlap filters
-      const isEntryRelevant = (entry: any, idx: number): boolean => {
-        if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) return false;
-        const entrySeason = extractSeasonNumber(entry?.title || entry?.anime_name || entry?.name || entry?.alt_title);
-        if (entrySeason && targetSeason && entrySeason !== targetSeason) return false;
-        if (entrySeason && !targetSeason && entrySeason > 1) {
-          if (!entryYearMatchesRelease(entry)) return false;
-        }
-        // Skip token overlap check for the mapper-matched entry — the mapper service
-        // already determined it's the best match. This prevents entries like
-        // "Shingeki no Kyojin: The Final Season Kanketsu-hen" from being excluded
-        // when mapperAnimeName is "Attack on Titan" (Japanese vs English title).
-        if (idx === matchedIdx) return true;
-        // If the entry's year exactly matches the release year, treat it as
-        // relevant even without token overlap.  This handles Japanese-only titles
-        // like "Shingeki no Kyojin: The Final Season Kanketsu-hen" that share
-        // zero tokens with the English mapper name "Attack on Titan".
-        if (entryYearMatchesRelease(entry)) return true;
-        if (targetTokens.size > 0) {
-          const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
-          const entryTokens = tokenize(entryName);
-          let overlap = 0;
-          for (const t of entryTokens) {
-            if (targetTokens.has(t)) overlap++;
-          }
-          if (overlap === 0) return false;
-        }
-        return true;
-      };
-
-      // Helper: relaxed relevance check for franchise-wide entry collection.
-      // Unlike isEntryRelevant, this does NOT filter by season number — it only
-      // checks MAL ID and token overlap. This is needed for per-season episode
-      // computation which must see ALL seasons of the franchise (e.g., AoT S1, S2,
-      // S3) to correctly compute cumulative episode counts.
-      const isEntryInFranchise = (entry: any): boolean => {
-        if (targetMalId && entryMal(entry) && entryMal(entry) !== targetMalId) {
-          // MAL ID mismatch — but still allow if tokens overlap (different MAL IDs
-          // for different seasons of the same franchise is common)
-        }
-        // Year-match bypass for franchise collection too — entries whose year
-        // matches releaseYear belong to the same franchise even if the title is
-        // in a different language.
-        if (entryYearMatchesRelease(entry)) return true;
-        if (targetTokens.size > 0) {
-          const entryName = String(entry?.anime_name || entry?.title || entry?.name || entry?.alt_title || '');
-          const entryTokens = tokenize(entryName);
-          let overlap = 0;
-          for (const t of entryTokens) {
-            if (targetTokens.has(t)) overlap++;
-          }
-          if (overlap === 0) return false;
-        }
-        return true;
-      };
-
-      // Collect all relevant entries with their year and max episode key.
-      // Uses isEntryRelevant for the main lookup candidates, but also builds a
-      // broader franchise-wide collection for per-season episode computation.
-      const epNumInt = Number(epNum);
-      const allRelated: { entry: any; idx: number; epCount: number; year: string }[] = [];
-      const allFranchise: { entry: any; idx: number; epCount: number; year: string }[] = [];
-      if (!isNaN(epNumInt) && epNumInt > 0) {
-        for (const idx of pickOrder) {
-          const entry: any = candidates[idx];
-          if (!entry?.episodes || entry?.year === 'movies') continue;
-          const epKeys = Object.keys(entry.episodes).filter((k: string) => /^\d+$/.test(k)).map(Number);
-          if (epKeys.length === 0) continue;
-          const yr = entry.year && entry.year !== 'movies' ? String(entry.year) : 'unknown';
-          if (isEntryRelevant(entry, idx) && !allRelated.some((r) => r.idx === idx)) {
-            allRelated.push({ entry, idx, epCount: Math.max(...epKeys), year: yr });
-          }
-          if (isEntryInFranchise(entry) && !allFranchise.some((r) => r.idx === idx)) {
-            allFranchise.push({ entry, idx, epCount: Math.max(...epKeys), year: yr });
-          }
+    if (mapperResults?.length) {
+      // Single-entry movie short-circuit.
+      const movieHit = resolveRedditUrlForMovieEntry(mapperResults, targetMalId, targetSeason);
+      if (movieHit) {
+        log.log('Resolved via movie short-circuit:', movieHit.url);
+        const postData = await fetchRedditPostFromUrl(movieHit.url);
+        if (postData) {
+          const movieOut: MapperFailoverOut = { entry: movieHit.entry, episode: null };
+          await attachRedditAlternates(postData, movieOut, movieHit.url);
+          await displayDiscussionDependingOnMode(postData);
+          return;
         }
       }
 
-      // Group by year — allRelated for collapsed detection, allFranchise for per-season
-      const yearGroups = new Map<string, typeof allRelated>();
-      for (const r of allRelated) {
-        const group = yearGroups.get(r.year) || [];
-        group.push(r);
-        yearGroups.set(r.year, group);
-      }
-      const franchiseYearGroups = new Map<string, typeof allFranchise>();
-      for (const r of allFranchise) {
-        const group = franchiseYearGroups.get(r.year) || [];
-        group.push(r);
-        franchiseYearGroups.set(r.year, group);
-      }
-
-      // Compute per-season episode number from mapper data when epNum looks like
-      // continuous numbering (e.g., AoT S2E37 = 25 (S1) + 12 (S2) → per-season 12).
-      // Sum the max episode count per year group for years before releaseYear.
-      // Uses franchiseYearGroups (broader collection) so that ALL earlier seasons
-      // are counted, even if isEntryRelevant would exclude them due to season-number
-      // mismatch (e.g., AoT S3E39: S2 entry excluded from allRelated because
-      // entrySeason=2, targetSeason=null, entryYear(2017) ≠ releaseYear(2018)).
-      let perSeasonEpNum: number | null = null;
-      if (releaseYear && !isNaN(epNumInt) && epNumInt > 0) {
-        let previousEpisodes = 0;
-        for (const [yr, group] of franchiseYearGroups) {
-          const yrNum = yr !== 'unknown' ? Number(yr) : null;
-          if (yrNum !== null && yrNum < releaseYear) {
-            // Skip this year group if any entry has merge_years spanning releaseYear
-            // (e.g., AoT S3 has year "2018" but merge_years ["2018","2019"] — when
-            // releaseYear is 2019, S3 is the current season, not a previous one)
-            const spansReleaseYear = group.some((r) => {
-              const mergeYears: string[] | undefined = r.entry?.merge_years;
-              return Array.isArray(mergeYears) && mergeYears.some((my: string) => Number(my) === releaseYear);
-            });
-            if (spansReleaseYear) continue;
-
-            // Take the max epCount among entries in this year group (thread variants
-            // like anime-only/manga-readers share the same episodes, don't sum them)
-            const maxInGroup = Math.max(...group.map((r) => r.epCount));
-            previousEpisodes += maxInGroup;
-          }
-        }
-        if (previousEpisodes > 0 && epNumInt > previousEpisodes) {
-          perSeasonEpNum = epNumInt - previousEpisodes;
-          log.log('Computed per-season episode number', { epNumInt, previousEpisodes, perSeasonEpNum, releaseYear });
-        }
-      }
-
-      // Track which indices belong to multi-entry (collapsed) year groups
-      const collapsedIndices = new Set<number>();
-      for (const [, group] of yearGroups) {
-        if (group.length >= 2) {
-          for (const r of group) collapsedIndices.add(r.idx);
-        }
-      }
-
-      // Check if collapsed entries include an entry whose year is close to
-      // releaseYear.  When true, the direct key lookup below must not match
-      // distant-year non-collapsed entries — collapsed-part resolution (later)
-      // should handle the closer entries instead.  This prevents e.g. AoT
-      // Final Season (2021, idx 2) matching ep "3" when the user is watching
-      // AoT S1E3 (2013) and the 2013 entries are collapsed.
-      const hasCloseCollapsed = releaseYear
-        ? [...collapsedIndices].some((ci) => {
-            const e = candidates[ci];
-            const ey = e?.year && e.year !== 'movies' ? Number(e.year) : null;
-            if (ey !== null && Math.abs(ey - releaseYear) <= 1) return true;
-            // Also check merge_years
-            const my: string[] | undefined = e?.merge_years;
-            return Array.isArray(my) && my.some((m: string) => Math.abs(Number(m) - releaseYear) <= 1);
-          })
-        : false;
-
-      // Direct key lookup with raw epNum — only for entries NOT in collapsed year
-      // groups (to avoid matching the wrong part in collapsed-season scenarios like
-      // Mushoku Tensei where Part 2 has key "12" but ep 12 is actually Part 2 Ep 1).
-      for (const idx of pickOrder) {
-        if (collapsedIndices.has(idx)) continue;
-        const entry: any = candidates[idx];
-        if (!isEntryRelevant(entry, idx)) continue;
-        const url = lookupEpisodeUrl(entry?.episodes, epNum);
-        if (url) {
-          // Skip distant-year matches when closer collapsed entries exist —
-          // collapsed-part resolution will handle those correctly.
-          if (hasCloseCollapsed && releaseYear) {
-            const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
-            if (entryYear !== null && Math.abs(entryYear - releaseYear) > 1) {
-              log.log('Skipping distant-year direct match; closer collapsed entries exist', { idx, epNum, entryYear, releaseYear });
-              continue;
-            }
-          }
-          log.log('Using mapped episode URL (direct)', { idx, epNum, url });
-          const postData = await fetchRedditPostFromUrl(url);
-          if (postData) {
-            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: Number(epNum) };
-            await attachRedditAlternates(postData, directOut, url);
-            await displayDiscussionDependingOnMode(postData);
-            return true;
-          }
-        }
-      }
-
-      // Per-season episode lookup: when epNum is continuous numbering across
-      // seasons (e.g., AoT S2E37 = S1(25) + S2(12)), try the computed per-season
-      // episode number against entries sorted by year proximity. This catches
-      // cases where the raw epNum doesn't exist in the target season's entry.
-      if (perSeasonEpNum !== null) {
-        for (const idx of pickOrder) {
-          if (collapsedIndices.has(idx)) continue;
-          const entry: any = candidates[idx];
-          if (!isEntryRelevant(entry, idx)) continue;
-          const url = lookupEpisodeUrl(entry?.episodes, perSeasonEpNum);
-          if (url) {
-            // Same distant-year guard as in the direct key lookup above
-            if (hasCloseCollapsed && releaseYear) {
-              const entryYear = entry?.year && entry.year !== 'movies' ? Number(entry.year) : null;
-              if (entryYear !== null && Math.abs(entryYear - releaseYear) > 1) {
-                log.log('Skipping distant-year per-season match; closer collapsed entries exist', { idx, perSeasonEpNum, entryYear, releaseYear });
-                continue;
-              }
-            }
-            log.log('Using mapped episode URL (per-season)', { idx, epNum: perSeasonEpNum, rawEpNum: epNum, url });
-            const postData = await fetchRedditPostFromUrl(url);
-            if (postData) {
-              const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: perSeasonEpNum };
-              await attachRedditAlternates(postData, directOut, url);
-              await displayDiscussionDependingOnMode(postData);
-              return true;
-            }
-          }
-        }
-      }
-
-      // Collapsed-part resolution: when CR merges multiple parts into one season
-      // (e.g., Mushoku Tensei Part 1 = 11 eps + Part 2 = 13 eps = 24 total),
-      // episode keys only go up to each part's count. Group related entries by
-      // year, then walk each year-group to compute the offset episode.
-      // Only apply to the releaseYear group (or within ±1 year) to avoid
-      // incorrectly treating thread variants from a different season as
-      // collapsed parts (e.g., AoT 2013 anime-only + manga-reader threads).
-      if (!isNaN(epNumInt) && epNumInt > 0) {
-        // Sort year groups: prefer the closest year to releaseYear, then descending
-        const sortedYears = [...yearGroups.keys()].sort((a, b) => {
-          if (releaseYear) {
-            const da = a === 'unknown' ? Infinity : Math.abs(Number(a) - releaseYear);
-            const db = b === 'unknown' ? Infinity : Math.abs(Number(b) - releaseYear);
-            if (da !== db) return da - db;
-          }
-          return Number(b) - Number(a);
+      // Year-group / collapsed-part / per-season URL resolution.
+      if (epNumForResolver !== null && epNumForResolver > 0) {
+        const hit = resolveRedditUrlFromMapperResults({
+          results: mapperResults,
+          matchedResultIdx: failoverOut.matchedResultIdx ?? null,
+          animeName: mapperAnimeName,
+          malId: targetMalId,
+          season: targetSeason,
+          releaseYear,
+          episodeNum: epNumForResolver,
         });
-
-        for (const yr of sortedYears) {
-          // Only try collapsed-part resolution for the year matching releaseYear
-          // (or within 1 year). This prevents e.g., 2013 S1 thread variants from
-          // being treated as collapsed parts when watching a 2017 S2 episode.
-          if (releaseYear && yr !== 'unknown') {
-            const yrNum = Number(yr);
-            if (Math.abs(yrNum - releaseYear) > 1) continue;
-          }
-          const group = yearGroups.get(yr)!;
-          if (group.length < 2) continue; // Need multiple parts
-          group.sort((a, b) => a.idx - b.idx);
-          let cumulative = 0;
-          for (const { entry, idx, epCount } of group) {
-            cumulative += epCount;
-            if (epNumInt <= cumulative) {
-              const offsetEp = epNumInt - (cumulative - epCount);
-              const url = lookupEpisodeUrl(entry?.episodes, offsetEp);
-              if (url) {
-                log.log('Using collapsed-part mapping', { idx, epNum, offsetEp, year: yr, url });
-                const postData = await fetchRedditPostFromUrl(url);
-                if (postData) {
-                  const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: offsetEp };
-                  await attachRedditAlternates(postData, directOut, url);
-                  await displayDiscussionDependingOnMode(postData);
-                  return true;
-                }
-              }
-              break;
-            }
-          }
-        }
-      }
-
-      // Final fallback: try direct key lookup including collapsed entries
-      // (in case none of the above matched)
-      for (const idx of pickOrder) {
-        const entry: any = candidates[idx];
-        if (!isEntryRelevant(entry, idx)) continue;
-        let url = lookupEpisodeUrl(entry?.episodes, epNum);
-        let usedEp = Number(epNum);
-        if (!url && perSeasonEpNum !== null) {
-          url = lookupEpisodeUrl(entry?.episodes, perSeasonEpNum);
-          usedEp = perSeasonEpNum;
-        }
-        if (url) {
-          log.log('Using mapped episode URL (final fallback)', { idx, epNum: usedEp, url });
-          const postData = await fetchRedditPostFromUrl(url);
+        if (hit) {
+          log.log('Resolved via reddit-url-resolver:', { via: hit.via, url: hit.url });
+          const postData = await fetchRedditPostFromUrl(hit.url);
           if (postData) {
-            const directOut: MapperFailoverOut = { entry: entry as MapperResultEntry, episode: usedEp };
-            await attachRedditAlternates(postData, directOut, url);
-            await displayDiscussionDependingOnMode(postData);
-            return true;
-          }
-        }
-      }
-
-      return false;
-    };
-
-    if (mapperResult && mapperResult.count === 1 && mapperResult.results && mapperResult.results.length > 0) {
-      setMalIdOnLastAnimeInfo(extractMalIdFromMapperResult(mapperResult, 0));
-      const animeData = mapperResult.results[0];
-
-      const mapperSeason = extractSeasonNumber(animeData?.title || animeData?.anime_name || animeData?.name || animeData?.alt_title);
-      if (targetMalId && entryMal(animeData) && entryMal(animeData) !== targetMalId) {
-        log.log('Skipping single-result mismatch by MAL id', { targetMalId, mapperMal: entryMal(animeData) });
-      } else if ((mapperSeason && targetSeason && mapperSeason !== targetSeason) || (mapperSeason && !targetSeason && mapperSeason > 1)) {
-        log.log('Skipping single-result mismatch by season', { targetSeason, mapperSeason });
-      } else {
-
-        // Handle both episodes (dictionary) and movies (array)
-        let redditUrl: string | undefined;
-
-        if (epNum && animeData.episodes) {
-          redditUrl = lookupEpisodeUrl(animeData.episodes, epNum);
-        } else if (animeData.year === 'movies' && Array.isArray(animeData.movies) && animeData.movies.length > 0) {
-          // For movies, use the first (and typically only) movie URL
-          redditUrl = animeData.movies[0];
-        }
-
-        if (redditUrl) {
-          log.log('Found exact match in mapper service:', redditUrl);
-
-          // Extract post ID from Reddit URL and fetch post data
-          const postData = await fetchRedditPostFromUrl(redditUrl);
-          if (postData) {
-            // Attach alternates from the single-result mapper entry
-            const singleOut: MapperFailoverOut = {
-              entry: animeData as MapperResultEntry,
-              episode: epNum ? Number(epNum) : null,
-            };
-            await attachRedditAlternates(postData, singleOut, redditUrl);
+            const hitOut: MapperFailoverOut = { entry: hit.entry, episode: hit.episode };
+            await attachRedditAlternates(postData, hitOut, hit.url);
             await displayDiscussionDependingOnMode(postData);
             return;
           }
         }
       }
-    } else {
-      const used = await tryMapperDirect();
-      if (used) return;
     }
 
     if (userSwitchedAway()) {
@@ -1311,45 +914,24 @@ async function displayDiscussion(discussion: any): Promise<void> {
         try {
           const info = currentState.lastAnimeInfo;
           if (!info?.animeName) return;
-          const mapping = await getSeriesMapping(info.animeName, 'reddit');
-          const episodeOffset = mapping?.episodeOffset ?? 0;
-          const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || info.animeName;
-          const infoForMapper = mapperAnimeName !== info.animeName
-            ? { ...info, animeName: mapperAnimeName }
-            : info;
-          const rawEpisodeStr = extractEpisodeNumberText(info.episodeName || '');
-          const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
-          const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
-
-          const failoverOut: MapperFailoverOut = {};
-          const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
-          if (failoverOut.entry || failoverOut.animeMeta) {
-            applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry, failoverOut.animeMeta);
-          }
-          if (failoverRedditUrl) {
-            const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
-            if (postData) {
-              normalizeRedditDiscussion(postData);
-              await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
-              cache.reddit = { ...postData };
-
-              const key = Date.now();
-              log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
-              const manager = getUiManager();
-              manager.updateProps('popup', {
-                discussion: postData,
-                provider: 'reddit',
-                redditCommentsKey: key,
-              });
-              const exposed = manager.getExposed<InlineDiscussionExposed>('popup');
-              if (exposed?.handleProviderChange) {
-                exposed.handleProviderChange('reddit');
-              }
-              return;
+          const resolved = await resolveRedditPostOnDemand(info);
+          if (resolved) {
+            cache.reddit = { ...resolved.postData };
+            const key = Date.now();
+            log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
+            const manager = getUiManager();
+            manager.updateProps('popup', {
+              discussion: resolved.postData,
+              provider: 'reddit',
+              redditCommentsKey: key,
+            });
+            const exposed = manager.getExposed<InlineDiscussionExposed>('popup');
+            if (exposed?.handleProviderChange) {
+              exposed.handleProviderChange('reddit');
             }
+            return;
           }
-
-          // Full Reddit search pipeline (mapper + searches) when we didn't have a cached discussion
+          // Full Reddit search pipeline (mapper + searches) when on-demand resolve didn't find a thread.
           await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
         } catch (e) {
           log.warn('Failed to resolve Reddit discussion on-demand', e);
@@ -1640,46 +1222,25 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
           try {
             const info = currentState.lastAnimeInfo;
             if (!info?.animeName) return;
-            const mapping = await getSeriesMapping(info.animeName, 'reddit');
-            const episodeOffset = mapping?.episodeOffset ?? 0;
-            const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || info.animeName;
-            const infoForMapper = mapperAnimeName !== info.animeName
-              ? { ...info, animeName: mapperAnimeName }
-              : info;
-            const rawEpisodeStr = extractEpisodeNumberText(info.episodeName || '');
-            const rawEpisodeNum = rawEpisodeStr !== null ? Number(rawEpisodeStr) : null;
-            const mappedEpisodeNum = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum) ? rawEpisodeNum + episodeOffset : null;
-
-            const failoverOut: MapperFailoverOut = {};
-            const failoverRedditUrl = await tryMapperFailover(infoForMapper, 'reddit', mappedEpisodeNum ?? rawEpisodeNum ?? null, failoverOut);
-            if (failoverOut.entry || failoverOut.animeMeta) {
-              applyMapperEntryIdsToAnimeInfo(info, failoverOut.entry, failoverOut.animeMeta);
-            }
-            if (failoverRedditUrl) {
-              const postData = await fetchRedditPostFromUrl(failoverRedditUrl);
-              if (postData) {
-                normalizeRedditDiscussion(postData);
-                await attachRedditAlternates(postData, failoverOut, failoverRedditUrl);
-                cache.reddit = { ...postData };
-
-                const key = Date.now();
-                log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
-                const manager = getUiManager();
-                manager.updateProps('inline', {
-                  discussion: postData,
-                  provider: 'reddit',
-                  redditCommentsKey: key,
-                });
-                clearInlineNoDiscussionHost();
-                // Ensure the current Vue app processes the new discussion (handles potential app replacement)
-                const exposedCurrent = manager.getExposed<InlineDiscussionExposed>('inline');
-                if (exposedCurrent?.handleProviderChange) {
-                  exposedCurrent.handleProviderChange('reddit');
-                }
-                return;
+            const resolved = await resolveRedditPostOnDemand(info);
+            if (resolved) {
+              cache.reddit = { ...resolved.postData };
+              const key = Date.now();
+              log.log('Updating props with resolved Reddit post and redditCommentsKey:', key);
+              const manager = getUiManager();
+              manager.updateProps('inline', {
+                discussion: resolved.postData,
+                provider: 'reddit',
+                redditCommentsKey: key,
+              });
+              clearInlineNoDiscussionHost();
+              // Ensure the current Vue app processes the new discussion (handles potential app replacement)
+              const exposedCurrent = manager.getExposed<InlineDiscussionExposed>('inline');
+              if (exposedCurrent?.handleProviderChange) {
+                exposedCurrent.handleProviderChange('reddit');
               }
+              return;
             }
-
             await searchAndDisplayDiscussion(info, { forceProvider: 'reddit', skipProviderGuard: true, allowConcurrent: true });
           } catch (e) {
             log.warn('Failed to resolve Reddit discussion on-demand', e);

@@ -286,7 +286,7 @@ async function persistMediaKeys() {
             <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
         </div>
-        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-chip-row">
+        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-chip-row" role="group" aria-label="Built-in sites">
           <button
             v-for="site in builtinSiteOptions"
             :key="site.id"
@@ -299,7 +299,10 @@ async function persistMediaKeys() {
             :disabled="sitesSaving"
             @click="toggleSite(site.id)"
           >
-            {{ site.label }}
+            <svg class="site-chip-check" viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M3 8.5l3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="site-chip-label">{{ site.label }}</span>
           </button>
         </div>
 
@@ -938,50 +941,75 @@ async function persistMediaKeys() {
   padding-left: 4px;
 }
 
-/* Built-in sites step */
+/* Built-in sites step — Material 3 filter-chip pattern */
 .sites-chip-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 0 0 14px 0;
+  margin: 2px 0 16px 0;
 }
 
 .site-chip {
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13.5px;
+  font-weight: 500;
+  font-family: inherit;
   cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.05s ease;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.site-chip:hover {
-  border-color: rgba(255, 255, 255, 0.22);
-  color: rgba(255, 255, 255, 0.85);
+.site-chip:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.92);
 }
 
-.site-chip:active {
-  transform: scale(0.97);
-}
-
-.site-chip--on {
-  background: rgba(91, 168, 255, 0.55);
-  border-color: rgba(91, 168, 255, 0.75);
-  color: #ffffff;
-}
-
-.site-chip--on:hover {
-  background: rgba(91, 168, 255, 0.65);
-  border-color: rgba(91, 168, 255, 0.85);
-  color: #ffffff;
+.site-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(91, 168, 255, 0.55);
 }
 
 .site-chip:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.site-chip-check {
+  width: 0;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0;
+  margin-right: 0;
+  overflow: hidden;
+  transition: width 0.18s ease, opacity 0.18s ease, margin-right 0.18s ease;
+}
+
+.site-chip-label {
+  white-space: nowrap;
+}
+
+.site-chip--on {
+  background: rgba(91, 168, 255, 0.14);
+  border-color: rgba(91, 168, 255, 0.5);
+  color: #ffffff;
+}
+
+.site-chip--on:hover:not(:disabled) {
+  background: rgba(91, 168, 255, 0.2);
+  border-color: rgba(91, 168, 255, 0.65);
+}
+
+.site-chip--on .site-chip-check {
+  width: 14px;
+  opacity: 1;
+  margin-right: 6px;
 }
 </style>

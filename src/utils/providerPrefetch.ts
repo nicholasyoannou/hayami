@@ -24,7 +24,7 @@ import {
   getLastResolvedHayamiName,
   type MapperFailoverOut,
 } from '@/entrypoints/content/mapping';
-import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/core/discussion-manager';
+import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import { con } from '@/utils/logger';
 
