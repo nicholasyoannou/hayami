@@ -468,6 +468,34 @@ export class DisqusProvider extends BaseProvider {
     }
   }
 
+  /**
+   * Clear stale Hayami-owned Disqus artifacts before a new episode search
+   * mounts a fresh thread. Different from `cleanup()`: this runs once per
+   * episode-search regardless of which provider is active, because the
+   * old Disqus embed's iframe + global `window.DISQUS` singleton would
+   * conflict with whichever provider mounts next. Site-native Disqus
+   * embeds (those without our `data-ri-disqus-*` marker) are untouched.
+   */
+  static clearStaleArtifacts(): void {
+    document.querySelectorAll('script[data-ri-disqus-loader="true"]').forEach((el) => el.remove());
+    document
+      .querySelectorAll('.ri-external-comments iframe[src*="disqus"], #disqus_thread[data-ri-disqus-target] iframe[src*="disqus"]')
+      .forEach((el) => el.remove());
+    const oldDisqus = document.querySelector('#disqus_thread[data-ri-disqus-target]') as HTMLElement | null;
+    if (oldDisqus) {
+      oldDisqus.remove();
+    }
+    // Clear the global DISQUS singleton so the embed script reinitializes cleanly.
+    const windowAny = window as Window & { DISQUS?: unknown };
+    if (windowAny.DISQUS) {
+      try {
+        delete windowAny.DISQUS;
+      } catch {
+        windowAny.DISQUS = undefined;
+      }
+    }
+  }
+
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
     const { animeInfo, discussionCache, clearLoadingState } = context;
 

@@ -254,10 +254,9 @@ export interface MapperFailoverOut {
   /**
    * The full `results` array from the Hayami response — every candidate
    * the mapper considered, not just the picked entry. Reddit's
-   * `tryMapperDirect`-style year-group / collapsed-part fallback reads
-   * across all results, so surfacing them here lets that fallback run
-   * against the same fetch instead of issuing a second `/anime/${name}`
-   * request.
+   * `resolveRedditUrlFromMapperResults` (year-group / collapsed-part fallback)
+   * reads across all results, so surfacing them here lets that fallback run
+   * against the same fetch instead of issuing a second Hayami request.
    */
   allResults?: MapperResultEntry[] | null;
   /**

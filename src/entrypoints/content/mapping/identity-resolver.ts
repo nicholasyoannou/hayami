@@ -153,7 +153,11 @@ export async function resolveAnimeIdentity(
   // discussion-manager for the rationale.
   const malId = pickEntryId(entry, 'mal_id') ?? pickAnimeMetaId(animeMeta, 'malId') ?? saved.malId;
   const anilistId = pickEntryId(entry, 'anilist_id') ?? pickAnimeMetaId(animeMeta, 'anilistId') ?? saved.anilistId;
-  const resolvedEpisode = typeof failoverOut.episode === 'number' && Number.isFinite(failoverOut.episode) && failoverOut.episode > 0
+  // Accept `episode === 0` — pilots / specials / episode 0 entries are legitimate
+  // (Re:Zero Director's Cut etc.). The lightweight path in `mapping.ts` writes
+  // `out.episode = episodeForKeys ?? null` without a positivity filter, so
+  // matching its semantics keeps callers consistent.
+  const resolvedEpisode = typeof failoverOut.episode === 'number' && Number.isFinite(failoverOut.episode)
     ? failoverOut.episode
     : (opts.episode ?? null);
 

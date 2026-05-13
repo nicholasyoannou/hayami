@@ -10,7 +10,6 @@ import { searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { resolveAdapter } from '../mapping';
 import { getSeriesMapping } from '../storage/series-mapping';
-import { createApp } from 'vue';
 import YouTubeCommentList from '@/components/comments/YouTubeCommentList.vue';
 import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
 import { handleProviderError } from '../utils/error-handler';
@@ -66,11 +65,10 @@ export class YouTubeProvider extends BaseProvider {
       container.style.display = 'block';
       safeClear(container);
 
-      const app = createApp(ProviderAuthRequired, {
+      this.mountVueApp(ProviderAuthRequired, {
         provider: 'youtube',
         providerLabel: 'YouTube',
-      });
-      app.mount(container);
+      }, container);
       clearLoadingState('YouTube not authenticated');
       return;
     }
@@ -154,14 +152,13 @@ export class YouTubeProvider extends BaseProvider {
         safeClear(container);
 
         // Mount YouTube comment component
-        const app = createApp(YouTubeCommentList, {
+        this.mountVueApp(YouTubeCommentList, {
           videoId: cachedVideo.video_id,
           videoTitle: cachedVideo.title,
           videoUrl: youtubeUrl,
           initialOrder: currentYouTubeOrder,
           wrongAnimeContext,
-        });
-        app.mount(container);
+        }, container);
 
         clearLoadingState('YouTube render complete');
         return;
@@ -250,15 +247,14 @@ export class YouTubeProvider extends BaseProvider {
 
       // Mount YouTube comment component
       const youtubeUrl = `https://www.youtube.com/watch?v=${video.video_id}`;
-      const app = createApp(YouTubeCommentList, {
+      this.mountVueApp(YouTubeCommentList, {
         videoId: video.video_id,
         videoTitle: video.title,
         videoUrl: youtubeUrl,
         initialOrder: currentYouTubeOrder,
         wrongAnimeContext,
-      });
-      app.mount(commentsSection);
-      
+      }, commentsSection);
+
       clearLoadingState('YouTube render complete');
     } catch (error) {
       handleProviderError(error, 'YouTube', 'switchTo');
@@ -269,6 +265,7 @@ export class YouTubeProvider extends BaseProvider {
 
   cleanup(): void {
     teardownYouTubeInfiniteScroll();
+    super.cleanup();
   }
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
@@ -305,13 +302,12 @@ export class YouTubeProvider extends BaseProvider {
 
     // Mount YouTube comment component
     const youtubeUrl = `https://www.youtube.com/watch?v=${video.video_id}`;
-    const app = createApp(YouTubeCommentList, {
+    this.mountVueApp(YouTubeCommentList, {
       videoId: video.video_id,
       videoTitle: video.title,
       videoUrl: youtubeUrl,
       initialOrder: currentYouTubeOrder,
       wrongAnimeContext,
-    });
-    app.mount(container);
+    }, container);
   }
 }

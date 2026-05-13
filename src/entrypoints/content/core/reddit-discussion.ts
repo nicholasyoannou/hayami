@@ -137,7 +137,7 @@ export async function attachRedditAlternates(
  * so switching Reddit tabs keeps the full tab list (and stable main identity)
  * rather than collapsing back to a single thread.
  */
-export function carryOverAlternates(target: any, source: any): void {
+function carryOverAlternates(target: any, source: any): void {
   if (!target || !source) return;
   if (Array.isArray(source.alternateThreads) && source.alternateThreads.length > 0 && !target.alternateThreads) {
     target.alternateThreads = source.alternateThreads;

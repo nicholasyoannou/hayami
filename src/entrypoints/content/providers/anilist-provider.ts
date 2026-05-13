@@ -2,7 +2,6 @@
  * AniList forum provider implementation
  */
 
-import { createApp } from 'vue';
 import { toast } from 'vue-sonner';
 import { BaseProvider } from './base-provider';
 import type { CommentProvider, ProviderContext, AniListForumResult } from '../types/data';
@@ -167,7 +166,7 @@ export class AniListProvider extends BaseProvider {
       const appRoot = document.createElement('div');
       container.appendChild(appRoot);
 
-      const app = createApp(AniListForumView, {
+      this.mountVueApp(AniListForumView, {
         result: {
           ...threadsResult,
           status,
@@ -182,9 +181,7 @@ export class AniListProvider extends BaseProvider {
           anilistId,
           episodeNumber: episodeParsed ?? undefined,
         },
-      });
-
-      app.mount(appRoot);
+      }, appRoot);
       clearLoadingState('AniList fetch complete');
     } catch (error) {
       try {
@@ -218,9 +215,7 @@ export class AniListProvider extends BaseProvider {
     container.appendChild(box);
   }
 
-  cleanup(): void {
-    // AniList does not need explicit cleanup; container lifecycle is handled by caller
-  }
+  // Default cleanup (BaseProvider.cleanup) unmounts the tracked Vue app.
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
     const { animeInfo, discussionCache } = context;
@@ -233,7 +228,7 @@ export class AniListProvider extends BaseProvider {
     const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'anilist');
     const renderAnimeName = (renderMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
 
-    const app = createApp(AniListForumView, {
+    this.mountVueApp(AniListForumView, {
       result: discussionCache.anilist as AniListForumResult,
       animeTitle: renderAnimeName,
       threadId: discussionCache.anilist.selectedThread?.id,
@@ -247,9 +242,7 @@ export class AniListProvider extends BaseProvider {
           return Number.isFinite(num) ? num : undefined;
         })(),
       },
-    });
-
-    app.mount(container);
+    }, container);
   }
 }
 

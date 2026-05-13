@@ -39,6 +39,7 @@ import {
   activateRedditOnDemand,
   runRedditSearchPipeline,
 } from './reddit-discussion';
+import { DisqusProvider } from '../providers/disqus-provider';
 
 // Template renderers
 // UI utilities
@@ -74,7 +75,6 @@ import {
   loadCustomMappingForOrigin,
 } from '../ui/site-mapper/site-mapper-utils';
 
-import { normalizeForMatch } from '../sites/shared';
 
 // =============================================================================
 // OPTION REGISTRY HELPERS
@@ -178,7 +178,7 @@ async function getPreferredProvider(): Promise<CommentProvider> {
 }
 
 // =============================================================================
-// TYPES & INTERFACES
+// CONTAINER / HOST RESOLUTION
 // =============================================================================
 
 /**
@@ -287,7 +287,6 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
 
   try {
     const discussionStore = useDiscussionStore();
-    const cache = currentState.discussionCache;
 
     if (searchAlreadyRunning && !allowConcurrent) {
       log.log('Search already in progress, skipping');
@@ -338,24 +337,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
     clearDiscussionCache(currentState);
     clearInlineNoDiscussionHost();
 
-    // Hard-clear only Hayami-owned Disqus artifacts before mounting the new episode.
-    // Never remove site-native Disqus embeds from the host page.
-    document.querySelectorAll('script[data-ri-disqus-loader="true"]').forEach((el) => el.remove());
-    document
-      .querySelectorAll('.ri-external-comments iframe[src*="disqus"], #disqus_thread[data-ri-disqus-target] iframe[src*="disqus"]')
-      .forEach((el) => el.remove());
-    const oldDisqus = document.querySelector('#disqus_thread[data-ri-disqus-target]') as HTMLElement | null;
-    if (oldDisqus) {
-      oldDisqus.remove();
-    }
-    // Clear the global DISQUS singleton so the embed script reinitializes cleanly.
-    if ((window as any).DISQUS) {
-      try {
-        delete (window as any).DISQUS;
-      } catch {
-        (window as any).DISQUS = undefined;
-      }
-    }
+    DisqusProvider.clearStaleArtifacts();
     
     // Keep inline host mounted between episodes; we'll show loading state instead
     
@@ -598,11 +580,6 @@ async function displayDiscussion(discussion: any): Promise<void> {
 
   await uiManager.showPopupContent();
 }
-
-// Disqus is owned by `DisqusProvider`; its own `waitForDisqusLoad` (in
-// `providers/disqus-provider.ts`) is the live implementation. The duplicate
-// that used to live here was unreachable after the inline render's early
-// `return;` below — see the `LEGACY DOM RENDERING CODE REMOVED` marker.
 
 function mountLoadingShell(): void {
   try {
@@ -866,39 +843,29 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       });
     }
 
-    // Previously we called `providerChangeCallback(activeProvider)` here to
-    // bootstrap the non-reddit provider after mount/replaceInlineApp. That was
-    // redundant — `activeProvider`/`activeUiProvider` are already synced above
-    // (line 1732), `replaceInlineApp` passes `provider: activeProvider` in its
-    // props, and the fresh InlineDiscussion mount's `{ immediate: true }`
-    // watcher over `providerContextRef` (InlineDiscussion.vue ~line 1180)
-    // already invokes `providerHook.changeProvider(prov)` → `switchProvider`
-    // → `provider.switchTo(context)` during setup(). Firing
-    // `providerChangeCallback` on top of that caused the infinite
-    // `=== ProviderChangeCallback START ===` cascade observed when clicking
-    // the aniwave tab on third-party sites: each cycle the in-flight
-    // `switchTo` triggered `mountLoadingShell` (via
-    // `getExternalCommentsContainer`'s recovery path), which swapped
-    // `onProviderChange` on the current mount to `handleShellProviderChange`
-    // and re-entered `displayInlineDiscussion`, re-firing this trigger.
+    // We deliberately do NOT call `providerChangeCallback(activeProvider)`
+    // here. `activeProvider` / `activeUiProvider` are already synced earlier
+    // in this function; `replaceInlineApp` / mount both pass
+    // `provider: activeProvider` in their props; and the freshly-mounted
+    // `InlineDiscussion` has an `{ immediate: true }` watcher over
+    // `providerContextRef` that runs `providerHook.changeProvider(prov)` →
+    // `switchProvider` → `provider.switchTo(context)` during `setup()`.
+    // Firing the callback on top of that triggered an infinite
+    // `=== ProviderChangeCallback START ===` cascade on tab clicks for
+    // third-party sites: each cycle the in-flight `switchTo` re-entered
+    // `mountLoadingShell` via `getExternalCommentsContainer`'s recovery
+    // path, which swapped `onProviderChange` on the current mount to
+    // `handleShellProviderChange` and re-entered `displayInlineDiscussion`.
 
     // Use Vue rendering path (legacy DOM rendering removed)
     if (activeProvider === 'reddit') {
       log.log('Using Vue-based Reddit comment rendering');
     }
-    // Set up cleanup for the mounted app
-    // IMPORTANT: Do NOT unmount the Vue app when switching providers; external providers still need it mounted
-    setRedditCommentsCleanup(() => {
-      // no-op: keep Vue app alive; provider switching handled via exposed callbacks
-    });
-    return; // Skip all DOM-based comment rendering below
-
-    // ========== LEGACY DOM RENDERING CODE REMOVED ==========
-    // All legacy DOM-based comment rendering code has been removed.
-    // This code was unreachable due to the early return above and has been replaced
-    // by Vue components (RedditCommentList, RedditComment).
-    // The local renderComments() function and all its usages have been removed.
-    // ========================================================
+    // Provider switching is handled via the exposed `handleProviderChange`
+    // callback on the mounted InlineDiscussion app — the Vue tree stays
+    // alive so external providers can render into its `.ri-external-comments`
+    // slot without losing the host.
+    setRedditCommentsCleanup(() => { /* no-op */ });
   } catch (e) {
     log.error('Inline display error:', e);
     // Fallback to popup

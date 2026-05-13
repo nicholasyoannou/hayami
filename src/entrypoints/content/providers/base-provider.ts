@@ -2,12 +2,16 @@
  * Base provider interface and utilities
  */
 
+import { createApp, type App, type Component } from 'vue';
 import type { CommentProvider, ProviderContext } from '../types/data';
 import type { AnimeInfo } from '../types';
 import { safeClear } from '../utils/dom-helpers';
 import { getSeriesMapping, type SeriesMapping, type SeriesMappingPlatform } from '../storage/series-mapping';
 import { parseEpisodeFromTitle } from '../sites/shared';
 import { hasUserPickedOverride } from '../mapping/trust-policy';
+import { con } from '@/utils/logger';
+
+const baseProviderLog = con.m('BaseProvider');
 
 /**
  * Base interface for all comment providers
@@ -58,9 +62,59 @@ export interface ProviderResolutionContext {
 export abstract class BaseProvider implements ICommentProvider {
   abstract readonly name: CommentProvider;
 
+  /**
+   * Currently-mounted Vue app, when the provider renders via Vue.
+   * Tracked here so we can unmount the previous app before mounting a new
+   * one (otherwise switching providers / re-rendering leaks the prior
+   * instance — `safeClear(container)` only wipes innerHTML, leaving the
+   * reactive graph dangling).
+   */
+  private mountedVueApp: App | null = null;
+
   abstract switchTo(context: ProviderContext): Promise<void>;
-  abstract cleanup(): void;
   abstract render(container: HTMLElement, context: ProviderContext): Promise<void>;
+
+  /**
+   * Default cleanup unmounts any tracked Vue app. Subclasses that override
+   * cleanup must call `super.cleanup()` (or invoke `unmountVueApp` themselves)
+   * to avoid the leak.
+   */
+  cleanup(): void {
+    this.unmountVueApp();
+  }
+
+  /**
+   * Mount a Vue component into the container, unmounting any previously
+   * tracked app first. Use this instead of calling `createApp(...).mount(...)`
+   * directly — the manual pattern leaks the previous instance on every
+   * re-render or provider switch.
+   */
+  protected mountVueApp<P extends Record<string, unknown>>(
+    component: Component,
+    props: P,
+    container: HTMLElement,
+  ): App {
+    this.unmountVueApp();
+    const app = createApp(component, props as Record<string, unknown>);
+    app.mount(container);
+    this.mountedVueApp = app;
+    return app;
+  }
+
+  /**
+   * Unmount the tracked Vue app, if any. Swallows unmount errors because a
+   * partially-torn-down container (e.g. SPA nav already cleared the host)
+   * is the common case and shouldn't block subsequent provider switches.
+   */
+  protected unmountVueApp(): void {
+    if (!this.mountedVueApp) return;
+    try {
+      this.mountedVueApp.unmount();
+    } catch (err) {
+      baseProviderLog.warn('Vue app unmount failed', err);
+    }
+    this.mountedVueApp = null;
+  }
 
   /**
    * Validates that anime info is available

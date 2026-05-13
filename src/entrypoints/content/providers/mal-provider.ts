@@ -7,7 +7,6 @@ import type { CommentProvider, ProviderContext, MalForumResult } from '../types/
 import type { AnimeInfo } from '../types';
 import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId, searchJikanAnimeId, pickEpisodeTopic } from '@/utils/malForums';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { createApp } from 'vue';
 import MALForumView from '@/components/providers/MALForumView.vue';
 import { bbcodeToHtml } from '../parsers/bbcode';
 import { handleProviderError, handleApiError } from '../utils/error-handler';
@@ -187,7 +186,7 @@ export class MalProvider extends BaseProvider {
         return Number.isFinite(num) ? num : undefined;
       })();
 
-      const app = createApp(MALForumView, {
+      this.mountVueApp(MALForumView, {
         result: {
           ...forumResult,
           status: effectiveStatus,
@@ -203,20 +202,14 @@ export class MalProvider extends BaseProvider {
           episodeNumber: parsedEpisode,
         },
         bbcodeToHtml,
-      });
-      app.mount(container);
-      
+      }, container);
+
       clearLoadingState('MAL fetch complete');
     } catch (error) {
       handleProviderError(error, 'MAL', 'switchTo');
       clearLoadingState('MAL error');
       throw error;
     }
-  }
-
-  cleanup(): void {
-    // MAL doesn't require special cleanup
-    // The container is managed by the external comments system
   }
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
@@ -236,7 +229,7 @@ export class MalProvider extends BaseProvider {
     const renderAnimeName = (renderMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
 
     // Mount MAL forum component
-    const app = createApp(MALForumView, {
+    this.mountVueApp(MALForumView, {
       result: discussionCache.mal as MalForumResult,
       animeTitle: renderAnimeName,
       topicId: discussionCache.mal.selectedTopic?.id,
@@ -251,7 +244,6 @@ export class MalProvider extends BaseProvider {
         })(),
       },
       bbcodeToHtml,
-    });
-    app.mount(container);
+    }, container);
   }
 }
