@@ -34,7 +34,8 @@ import {
 } from '../mapping';
 import {
   enrichRedditDiscussion,
-  handleRedditTabChange,
+  cacheRedditDiscussion,
+  makeRedditTabChangeCallback,
   activateRedditOnDemand,
   runRedditSearchPipeline,
 } from './reddit-discussion';
@@ -494,11 +495,10 @@ function showInlineNoCommentsUI(animeName: string, episodeNumber: string): void 
 
 async function displayDiscussion(discussion: any): Promise<void> {
   await enrichRedditDiscussion(discussion);
+  cacheRedditDiscussion(discussion);
   const currentState = state();
   const cache = currentState.discussionCache;
   const discussionStore = useDiscussionStore();
-  // Cache the discussion data (not comments)
-  cache.reddit = { ...discussion };
 
   const uiManager = getUiManager();
   uiManager.unmount('inline');
@@ -564,7 +564,7 @@ async function displayDiscussion(discussion: any): Promise<void> {
     }
   }
 
-  const popupTabChangeCallback = (url: string) => { void handleRedditTabChange('popup', url); };
+  const popupTabChangeCallback = makeRedditTabChangeCallback('popup');
   if (uiManager.isMounted('popup')) {
     uiManager.updateProps('popup', {
       discussion,
@@ -750,11 +750,10 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       log.warn('Failed to load Reddit default sort, using confidence:', error);
     }
     
-    // Cache the discussion data (not comments)
-    cache.reddit = { ...discussion };
-
-    // Reddit-specific enrichment (subreddit icon/color). No-op for non-Reddit discussions.
+    // Enrich first (normalize + fetch subreddit info) so the snapshot we cache
+    // is the post-enriched copy that the Vue mount will render.
     await enrichRedditDiscussion(discussion);
+    cacheRedditDiscussion(discussion);
 
     if (discussion?.id || discussion?.permalink) {
       clearInlineNoDiscussionHost();
@@ -774,9 +773,6 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
 
   // If the host was torn down by SPA nav, re-create it before touching the app
   ensureInlineHost();
-
-    // Cache the discussion data (not comments) for faster switching
-    cache.reddit = { ...discussion };
 
     const clearLoadingState = (_context?: string) => {
       const exposed = manager.getExposed<InlineDiscussionExposed>('inline');
@@ -840,7 +836,7 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
       }
     };
     
-    const inlineTabChangeCallback = (url: string) => { void handleRedditTabChange('inline', url); };
+    const inlineTabChangeCallback = makeRedditTabChangeCallback('inline');
     if (manager.isMounted('inline')) {
       const discussionStore = useDiscussionStore();
       discussionStore.startLoading();

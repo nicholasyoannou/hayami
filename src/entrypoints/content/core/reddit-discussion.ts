@@ -449,6 +449,27 @@ export async function runRedditSearchPipeline(
 // =============================================================================
 
 /**
+ * Snapshot a prepared Reddit discussion into `discussionCache.reddit`. The
+ * cache key is conventionally named `reddit` because that's the primary
+ * provider whose thread metadata drives the UI shell; this helper centralizes
+ * the `{ ...discussion }` spread so the orchestrator doesn't reach into the
+ * cache's internal shape.
+ */
+export function cacheRedditDiscussion(discussion: any): void {
+  if (!discussion) return;
+  const cache = useContentState().discussionCache;
+  cache.reddit = { ...discussion };
+}
+
+/**
+ * Build a tab-change handler bound to a specific mount mode. Used in the
+ * popup/inline display functions so the call sites stay one line.
+ */
+export function makeRedditTabChangeCallback(mode: 'popup' | 'inline'): (url: string) => void {
+  return (url: string) => { void handleRedditTabChange(mode, url); };
+}
+
+/**
  * Prepare a Reddit discussion for display: normalize its shape and, when the
  * subreddit icon / primary color are missing (or Reddit returned its generic
  * fallback favicon), fetch the real ones from the subreddit's about endpoint.
