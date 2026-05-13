@@ -50,6 +50,7 @@ function runCase(crEpisodeNumber: number, sequenceNumber: number, expected: numb
     seasonsData,
     mapperResults[2],
     mapperResults,
+    2,
   );
   assertEqual(`CR ep ${crEpisodeNumber} seq ${sequenceNumber}`, result, expected);
 }

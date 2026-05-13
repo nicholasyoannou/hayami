@@ -202,10 +202,6 @@ async function handleSearchRequest(message: HayamiSiteMessage): Promise<void> {
       query,
       page,
       perPage,
-      // hayami's host page (PWA) hides adult titles — keep the original behavior.
-      // (The shared primitive defaults to `isAdult: false` when `includeAdult` is
-      // omitted, but we name the intent here so a future default flip is harmless.)
-      includeAdult: false,
       signal: controller.signal,
     })
 

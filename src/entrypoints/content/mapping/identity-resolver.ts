@@ -31,6 +31,7 @@ import type { MapperResultEntry } from '../types/data';
 import type { SeriesMapping } from '../storage/series-mapping';
 import { tryMapperFailover, type MapperFailoverOut } from '../mapping';
 import { getSavedIds, type SavedIdsPolicy } from './trust-policy';
+import { toFiniteNumber, toPositiveInt } from '@/utils/numbers';
 
 export interface AnimeIdentity {
   /** Resolved MAL id (override or Hayami-disambiguated). */
@@ -82,21 +83,14 @@ const NULL_IDENTITY: AnimeIdentity = {
 };
 
 function pickEntryId(entry: MapperResultEntry | null | undefined, key: 'mal_id' | 'anilist_id'): number | null {
-  const value = entry?.external_sites?.[key];
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
-  if (typeof value === 'string' && /^\d+$/.test(value)) {
-    const parsed = Number(value);
-    return parsed > 0 ? parsed : null;
-  }
-  return null;
+  return toPositiveInt(entry?.external_sites?.[key]);
 }
 
 function pickAnimeMetaId(
   meta: { malId?: number | null; anilistId?: number | null } | null | undefined,
   key: 'malId' | 'anilistId',
 ): number | null {
-  const value = meta?.[key];
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  return toPositiveInt(meta?.[key]);
 }
 
 /**
@@ -157,9 +151,7 @@ export async function resolveAnimeIdentity(
   // (Re:Zero Director's Cut etc.). The lightweight path in `mapping.ts` writes
   // `out.episode = episodeForKeys ?? null` without a positivity filter, so
   // matching its semantics keeps callers consistent.
-  const resolvedEpisode = typeof failoverOut.episode === 'number' && Number.isFinite(failoverOut.episode)
-    ? failoverOut.episode
-    : (opts.episode ?? null);
+  const resolvedEpisode = toFiniteNumber(failoverOut.episode) ?? opts.episode ?? null;
 
   return {
     malId,

@@ -16,6 +16,7 @@
 import type { MapperResultEntry } from '../types/data';
 import { normalizeForMatch } from '../sites/shared';
 import { extractSeasonNumber } from '../utils/mal-utils';
+import { toPositiveInt } from '@/utils/numbers';
 import { con } from '@/utils/logger';
 
 const log = con.m('RedditUrlResolver');
@@ -68,18 +69,20 @@ function tokenize(name: string): Set<string> {
   );
 }
 
-function normalizeMalId(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
-  return null;
-}
-
 function entryMalId(entry: MapperResultEntry | undefined | null): number | null {
   if (!entry) return null;
-  const anyEntry = entry as MapperResultEntry & { mal_id?: unknown; malId?: unknown };
-  return normalizeMalId(
-    anyEntry.external_sites?.mal_id ?? anyEntry.mal_id ?? anyEntry.malId,
-  );
+  return toPositiveInt(entry.external_sites?.mal_id ?? entry.mal_id);
+}
+
+/**
+ * Get a best-effort display name from a Hayami mapper entry. Hayami's response
+ * uses `anime_name` canonically, but legacy entries / cross-language matches
+ * sometimes only populate `title` / `name` / `alt_title`. Returns `''` when
+ * nothing is set so callers can safely call `.toLowerCase()` etc.
+ */
+function entryDisplayName(entry: MapperResultEntry | undefined | null): string {
+  if (!entry) return '';
+  return entry.anime_name ?? entry.title ?? entry.name ?? entry.alt_title ?? '';
 }
 
 /** Look up an episode URL with fallback for zero-padded keys ("2" → "02"). */
@@ -147,9 +150,8 @@ export function resolveRedditUrlFromMapperResults(
     if (!releaseYear || !entry) return false;
     const entryYear = entry.year !== 'movies' ? Number(entry.year) : NaN;
     if (Number.isFinite(entryYear) && entryYear === releaseYear) return true;
-    const mergeYears = (entry as MapperResultEntry & { merge_years?: unknown }).merge_years;
-    if (Array.isArray(mergeYears)) {
-      for (const my of mergeYears) if (Number(my) === releaseYear) return true;
+    if (Array.isArray(entry.merge_years)) {
+      for (const my of entry.merge_years) if (Number(my) === releaseYear) return true;
     }
     return false;
   };
@@ -161,12 +163,7 @@ export function resolveRedditUrlFromMapperResults(
   const isEntryRelevant = (entry: MapperResultEntry | undefined, idx: number): boolean => {
     if (!entry) return false;
     if (targetMalId && entryMalId(entry) && entryMalId(entry) !== targetMalId) return false;
-    const entrySeason = extractSeasonNumber(
-      (entry as MapperResultEntry & { title?: string; name?: string; alt_title?: string }).title
-        ?? entry.anime_name
-        ?? (entry as MapperResultEntry & { name?: string }).name
-        ?? (entry as MapperResultEntry & { alt_title?: string }).alt_title,
-    );
+    const entrySeason = extractSeasonNumber(entryDisplayName(entry));
     if (entrySeason && targetSeason && entrySeason !== targetSeason) return false;
     if (entrySeason && !targetSeason && entrySeason > 1) {
       if (!entryYearMatchesRelease(entry)) return false;
@@ -178,14 +175,7 @@ export function resolveRedditUrlFromMapperResults(
     if (idx === matchedResultIdx) return true;
     if (entryYearMatchesRelease(entry)) return true;
     if (targetTokens.size > 0) {
-      const entryName = String(
-        entry.anime_name
-        ?? (entry as MapperResultEntry & { title?: string }).title
-        ?? (entry as MapperResultEntry & { name?: string }).name
-        ?? (entry as MapperResultEntry & { alt_title?: string }).alt_title
-        ?? '',
-      );
-      const entryTokens = tokenize(entryName);
+      const entryTokens = tokenize(entryDisplayName(entry));
       let overlap = 0;
       for (const t of entryTokens) if (targetTokens.has(t)) overlap += 1;
       if (overlap === 0) return false;
@@ -200,14 +190,7 @@ export function resolveRedditUrlFromMapperResults(
     if (!entry) return false;
     if (entryYearMatchesRelease(entry)) return true;
     if (targetTokens.size > 0) {
-      const entryName = String(
-        entry.anime_name
-        ?? (entry as MapperResultEntry & { title?: string }).title
-        ?? (entry as MapperResultEntry & { name?: string }).name
-        ?? (entry as MapperResultEntry & { alt_title?: string }).alt_title
-        ?? '',
-      );
-      const entryTokens = tokenize(entryName);
+      const entryTokens = tokenize(entryDisplayName(entry));
       let overlap = 0;
       for (const t of entryTokens) if (targetTokens.has(t)) overlap += 1;
       if (overlap === 0) return false;
@@ -258,7 +241,7 @@ export function resolveRedditUrlFromMapperResults(
       const yrNum = yr !== 'unknown' ? Number(yr) : null;
       if (yrNum === null || yrNum >= releaseYear) continue;
       const spansReleaseYear = group.some((r) => {
-        const my = (r.entry as MapperResultEntry & { merge_years?: unknown }).merge_years;
+        const my = r.entry.merge_years;
         return Array.isArray(my) && my.some((y) => Number(y) === releaseYear);
       });
       if (spansReleaseYear) continue;
@@ -290,7 +273,7 @@ export function resolveRedditUrlFromMapperResults(
         const e = candidates[ci];
         const ey = e?.year !== 'movies' && e?.year !== undefined ? Number(e.year) : NaN;
         if (Number.isFinite(ey) && Math.abs(ey - releaseYear) <= 1) return true;
-        const my = (e as MapperResultEntry & { merge_years?: unknown } | undefined)?.merge_years;
+        const my = e?.merge_years;
         return Array.isArray(my) && my.some((y) => Math.abs(Number(y) - releaseYear) <= 1);
       })
     : false;
@@ -399,12 +382,7 @@ export function resolveRedditUrlForMovieEntry(
   const entry = results[0];
   if (entry.year !== 'movies' || !Array.isArray(entry.movies) || entry.movies.length === 0) return null;
   if (malId && entryMalId(entry) && entryMalId(entry) !== malId) return null;
-  const entrySeason = extractSeasonNumber(
-    (entry as MapperResultEntry & { title?: string; name?: string; alt_title?: string }).title
-      ?? entry.anime_name
-      ?? (entry as MapperResultEntry & { name?: string }).name
-      ?? (entry as MapperResultEntry & { alt_title?: string }).alt_title,
-  );
+  const entrySeason = extractSeasonNumber(entryDisplayName(entry));
   if ((entrySeason && season && entrySeason !== season) || (entrySeason && !season && entrySeason > 1)) {
     return null;
   }

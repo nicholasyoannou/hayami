@@ -12,6 +12,13 @@ import type { MapperResultEntry, CrunchyrollSeason } from '../types/data';
 
 const log = con.m('Mapper');
 
+/** Sort sentinel for year comparisons — movies (and unparseable years) sort last. */
+function yearSortKey(year: string | number | undefined): number {
+  if (year === 'movies') return 9999;
+  const parsed = parseMapperYear(year);
+  return parsed ?? 0;
+}
+
 /**
  * Map CR episode number to mapper season episode using Crunchyroll seasons data
  * and mapper results. Handles multi-season shows with complex numbering.
@@ -90,7 +97,7 @@ export function mapEpisodeWithSeasonsData(
   }
 
   let totalPreviousMapperEpisodes = 0;
-  const matchedYear = matchedSeason.year === 'movies' ? 9999 : parseInt(matchedSeason.year || '0', 10);
+  const matchedYear = yearSortKey(matchedSeason.year);
   const matchedName = matchedSeason.anime_name;
   const tokenizeFranchise = (name: string | undefined): Set<string> => {
     if (!name) return new Set();
@@ -128,15 +135,15 @@ export function mapEpisodeWithSeasonsData(
   };
 
   const sortedMapperSeasons = [...mapperResults].sort((a, b) => {
-    const yearA = a.year === 'movies' ? 9999 : parseInt(a.year || '0', 10);
-    const yearB = b.year === 'movies' ? 9999 : parseInt(b.year || '0', 10);
+    const yearA = yearSortKey(a.year);
+    const yearB = yearSortKey(b.year);
     return yearA - yearB;
   });
 
   const orderedMapperForBaseline = (mapperResults || [])
     .map((r: MapperResultEntry, idx: number) => ({
       idx,
-      year: r?.year === 'movies' ? 9999 : parseInt(String(r?.year || '0'), 10),
+      year: yearSortKey(r?.year),
       name: r?.anime_name,
       hasEpisodes: r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0,
       episodeCount: r?.episodes ? Object.keys(r.episodes).length : 0,
@@ -211,7 +218,7 @@ export function mapEpisodeWithSeasonsData(
   };
 
   for (const season of sortedMapperSeasons) {
-    const seasonYear = season.year === 'movies' ? 9999 : parseInt(season.year || '0', 10);
+    const seasonYear = yearSortKey(season.year);
 
     if (season === matchedSeason || (seasonYear === matchedYear && season.anime_name === matchedName)) {
       break;
@@ -268,12 +275,13 @@ export function mapEpisodeWithSeasonsData(
       if (episodeNumberToUse >= start && episodeNumberToUse <= end) {
         const seasonEpisode = episodeNumberToUse - cumulative;
         const targetSeason = mapperResults?.[entry.idx];
-        const targetHasEpisode = targetSeason?.episodes && Object.prototype.hasOwnProperty.call(targetSeason.episodes, String(seasonEpisode));
+        const targetEpisodes = targetSeason?.episodes;
+        const targetHasEpisode = targetEpisodes && Object.prototype.hasOwnProperty.call(targetEpisodes, String(seasonEpisode));
 
-        if (targetSeason && targetHasEpisode) {
+        if (targetSeason && targetEpisodes && targetHasEpisode) {
           matchedSeason = targetSeason;
           matchedIdx = entry.idx;
-          mapperEpisodeCount = Object.keys(targetSeason.episodes).length;
+          mapperEpisodeCount = Object.keys(targetEpisodes).length;
           log.log(' Collapsed CR season: remapped season via ordinal timeline', {
             episodeNumberToUse,
             start,
@@ -540,16 +548,16 @@ export function mapEpisodeToSeasonEpisode(
   let previousEpisodes = 0;
   if (seasonNumber > 1) {
     const sortedSeasons = [...allSeasons].sort((a, b) => {
-      const yearA = a.year === 'movies' ? 9999 : parseInt(a.year || '0', 10);
-      const yearB = b.year === 'movies' ? 9999 : parseInt(b.year || '0', 10);
+      const yearA = yearSortKey(a.year);
+      const yearB = yearSortKey(b.year);
       return yearA - yearB;
     });
 
-    const matchedYear = matchedSeason.year === 'movies' ? 9999 : parseInt(matchedSeason.year || '0', 10);
+    const matchedYear = yearSortKey(matchedSeason.year);
     const matchedName = matchedSeason.anime_name;
 
     for (const season of sortedSeasons) {
-      const seasonYear = season.year === 'movies' ? 9999 : parseInt(season.year || '0', 10);
+      const seasonYear = yearSortKey(season.year);
 
       if (seasonYear === matchedYear && season.anime_name === matchedName) {
         break;

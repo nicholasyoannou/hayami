@@ -486,9 +486,7 @@ export async function runCrunchyrollDeepPipeline(
     let matchedSeason = results[matchedIndex];
     // Record the mapped anime name early so the manual-search "?" UI can display
     // the correct series even if episode lookup later fails (e.g., episode not in season).
-    try {
-      recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
-    } catch {}
+    recordLastResolvedHayamiName(animeInfo?.animeName, matchedSeason?.anime_name);
 
     // Capture Hayami's top-level `animeMeta` once so every `out.entry`
     // write below can hand the caller the canonical (post-season-
@@ -497,7 +495,7 @@ export async function runCrunchyrollDeepPipeline(
     // offline anime DB and reflects the resolved anime regardless of
     // platform-specific entry coverage.
     const responseAnimeMeta =
-      (mapperResult as unknown as { animeMeta?: { malId?: number | null; anilistId?: number | null } | null })?.animeMeta ?? null;
+      mapperResult?.animeMeta ?? null;
     // Surface every candidate up front so Reddit's year-group / collapsed-
     // part fallback (`reddit-url-resolver`) can run against this same fetch
     // even when the pipeline gives up before picking an entry (e.g. the
@@ -628,13 +626,16 @@ export async function runCrunchyrollDeepPipeline(
 
       const ordered: OrderedSliceMeta[] = results
         .filter((r: MapperResultEntry) => r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0 && r?.year !== 'movies')
-        .map((r: MapperResultEntry, idx: number) => ({
-          idx,
-          episodeCount: Object.keys(r.episodes).length,
-          name: r.anime_name,
-          year: parseMapperYear(r.year),
-          hasZero: Object.prototype.hasOwnProperty.call(r.episodes, '0'),
-        }))
+        .map((r: MapperResultEntry, idx: number): OrderedSliceMeta => {
+          const episodes = r.episodes ?? {};
+          return {
+            idx,
+            episodeCount: Object.keys(episodes).length,
+            name: r.anime_name ?? '',
+            year: parseMapperYear(r.year),
+            hasZero: Object.prototype.hasOwnProperty.call(episodes, '0'),
+          };
+        })
         .sort((a: OrderedSliceMeta, b: OrderedSliceMeta) => {
           const yearDiff = (a.year ?? 9999) - (b.year ?? 9999);
           if (yearDiff !== 0) return yearDiff;

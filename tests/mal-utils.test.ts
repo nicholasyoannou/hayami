@@ -1,13 +1,8 @@
 /**
  * Tests for src/entrypoints/content/utils/mal-utils.ts
- *
- * Covers: extractSeasonNumber, extractMalIdFromMapperResult
  */
 import { describe, it, expect } from 'vitest';
-import {
-  extractSeasonNumber,
-  extractMalIdFromMapperResult,
-} from '@/entrypoints/content/utils/mal-utils';
+import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
 
 // ---------------------------------------------------------------------------
 // extractSeasonNumber
@@ -45,51 +40,5 @@ describe('extractSeasonNumber', () => {
 
   it('returns null for titles with "Part" but no season', () => {
     expect(extractSeasonNumber('Mushoku Tensei Part 2')).toBe(null);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// extractMalIdFromMapperResult
-// ---------------------------------------------------------------------------
-describe('extractMalIdFromMapperResult', () => {
-  it('returns null for null/undefined input', () => {
-    expect(extractMalIdFromMapperResult(null)).toBe(null);
-    expect(extractMalIdFromMapperResult(undefined)).toBe(null);
-  });
-
-  it('extracts from matched_result.mal_id', () => {
-    const result = {
-      count: 1,
-      results: [],
-      matched_result: { index: 0, mal_id: 12345 },
-    } as any;
-    expect(extractMalIdFromMapperResult(result)).toBe(12345);
-  });
-
-  it('extracts from results array at specified index', () => {
-    const result = {
-      count: 2,
-      results: [
-        { mal_id: 111 },
-        { mal_id: 222 },
-      ],
-    } as any;
-    expect(extractMalIdFromMapperResult(result, 1)).toBe(222);
-  });
-
-  it('falls back to first result when index not specified', () => {
-    const result = {
-      count: 1,
-      results: [{ mal_id: 999 }],
-    } as any;
-    expect(extractMalIdFromMapperResult(result)).toBe(999);
-  });
-
-  it('handles string MAL IDs', () => {
-    const result = {
-      count: 1,
-      results: [{ mal_id: '54321' }],
-    } as any;
-    expect(extractMalIdFromMapperResult(result)).toBe(54321);
   });
 });

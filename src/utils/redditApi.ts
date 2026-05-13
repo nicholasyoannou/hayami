@@ -16,9 +16,6 @@ import { con } from '@/utils/logger';
 
 const log = con.m('RedditApi');
 
-const devDebug = (...args: any[]) => { log.debug(...args); };
-const devLog = (...args: any[]) => { log.log(...args); };
-
 /**
  * Perform fetch via the extension background to avoid CORS from content scripts.
  * If messaging fails, fall back to window.fetch.
@@ -125,6 +122,13 @@ interface RedditSearchResult {
   };
 }
 
+// Time boundaries (in seconds since epoch UTC) for the r/anime maintainer
+// switch — shadoxfix posted episode discussions from 2014-03-24 through
+// 2015-12-31, and autolovepon took over starting 2018-04-07.
+const SHADOXFIX_START_UTC = Date.parse('2014-03-24T00:00:00Z') / 1000;
+const SHADOXFIX_END_UTC = Date.parse('2015-12-31T23:59:59Z') / 1000;
+const AUTOLOVEPON_START_UTC = Date.parse('2018-04-07T00:00:00Z') / 1000;
+
 /**
  * Searches r/anime for episode discussion threads posted by known maintainers.
  * Historically the discussion poster changed over time:
@@ -138,10 +142,6 @@ export async function searchAnimeDiscussion(
   animeName: string,
   episodeNumber: string
 ): Promise<RedditPost[]> {
-  // time boundaries (in seconds since epoch UTC)
-  const SHADOXFIX_START = Date.parse('2014-03-24T00:00:00Z') / 1000;
-  const SHADOXFIX_END = Date.parse('2015-12-31T23:59:59Z') / 1000;
-  const AUTOLOVEPON_START = Date.parse('2018-04-07T00:00:00Z') / 1000;
   try {
     // Build search query in format: "<AnimeName> - Episode <Number>"
     const query = `"${animeName} - Episode ${episodeNumber}"`;
@@ -185,7 +185,7 @@ export async function searchAnimeDiscussion(
             limit: '100',
           });
           const url = `https://www.reddit.com/r/anime/search.json?${params.toString()}`;
-          const resp = await extensionFetch(url, { credentials: 'include' } as any);
+          const resp = await extensionFetch(url, { credentials: 'include' });
           if (!resp.ok) continue;
           const j = await resp.json();
           if (j && j.data && Array.isArray(j.data.children)) {
@@ -206,8 +206,8 @@ export async function searchAnimeDiscussion(
         const created = Number(post.created_utc) || 0;
 
         const isKnownAuthor = (
-          (author === 'shadoxfix' && created >= SHADOXFIX_START && created <= SHADOXFIX_END) ||
-          (author === 'autolovepon' && created >= AUTOLOVEPON_START)
+          (author === 'shadoxfix' && created >= SHADOXFIX_START_UTC && created <= SHADOXFIX_END_UTC) ||
+          (author === 'autolovepon' && created >= AUTOLOVEPON_START_UTC)
         );
 
         const title = post.title || '';
@@ -318,7 +318,7 @@ export async function getUserAvatar(username: string): Promise<string | null> {
       try {
         const resp = await extensionFetch(
           `https://www.reddit.com/user/${encodeURIComponent(normalizedUsername)}/about.json?raw_json=1`,
-          { credentials: 'include' } as any,
+          { credentials: 'include' },
         );
         if (resp.ok) {
           const data = await resp.json();
@@ -387,7 +387,7 @@ export async function getUserProfile(username: string): Promise<RedditUserProfil
       } else {
         const resp = await extensionFetch(
           `https://www.reddit.com/user/${encodeURIComponent(normalized)}/about.json?raw_json=1`,
-          { credentials: 'include' } as any,
+          { credentials: 'include' },
         );
         if (resp.ok) {
           const json = await resp.json();
@@ -513,16 +513,16 @@ export async function getModhash(): Promise<{ modhash: string | null; voteHash: 
   try {
     // Use the old.reddit homepage to avoid 404/redirect issues with hardcoded posts
     const pageUrl = 'https://old.reddit.com/';
-    devLog('[getModhash] Fetching Reddit page to extract modhash:', pageUrl);
+    log.log('[getModhash] Fetching Reddit page to extract modhash:', pageUrl);
 
     const resp = await extensionFetch(pageUrl, { credentials: 'include' });
     if (!resp.ok) {
-      devLog('[getModhash] Failed to fetch Reddit page:', resp.status);
+      log.log('[getModhash] Failed to fetch Reddit page:', resp.status);
       return { modhash: null, voteHash: null, username: null };
     }
 
     const html = await resp.text();
-    devLog('[getModhash] Successfully fetched Reddit page HTML');
+    log.log('[getModhash] Successfully fetched Reddit page HTML');
     
     // Extract modhash from the page's JavaScript config
     const modhashMatch = html.match(/"modhash":\s*"([^"]+)"/);
@@ -580,7 +580,7 @@ export async function submitCommentDirect(
     if (voteHash) formData.append('vh', voteHash);
     formData.append('renderstyle', 'html');
 
-    devLog('[submitCommentDirect] Posting to old.reddit.com with:', {
+    log.log('[submitCommentDirect] Posting to old.reddit.com with:', {
       parentFullname,
       text: text.substring(0, 100) + '...',
       subreddit,
@@ -594,7 +594,7 @@ export async function submitCommentDirect(
       },
       body: formData.toString(),
       credentials: 'include',
-    } as any);
+    });
 
     if (!resp.ok) {
       const responseText = await resp.text();
@@ -603,7 +603,7 @@ export async function submitCommentDirect(
     }
 
     const responseText = await resp.text();
-    devLog('[submitCommentDirect] Response:', responseText.substring(0, 500));
+    log.log('[submitCommentDirect] Response:', responseText.substring(0, 500));
 
     // old.reddit can return HTML or a JSON-with-jquery payload; try both
     // 1) HTML pattern
@@ -678,7 +678,7 @@ export async function submitComment(
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: formData.toString(),
-      } as any);
+      });
 
       if (!resp.ok) {
         let msg = `Request failed: ${resp.status}`;
@@ -741,7 +741,7 @@ export async function editComment(
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       },
       body: form.toString(),
-    } as any);
+    });
 
     const raw = await resp.text();
     if (!resp.ok) {
@@ -784,7 +784,7 @@ export async function deleteComment(
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       },
       body: form.toString(),
-    } as any);
+    });
 
     const raw = await resp.text();
     if (!resp.ok) {
@@ -825,9 +825,9 @@ export async function deleteCommentOld(fullname: string, subreddit: string): Pro
     const resp = await extensionFetch('https://old.reddit.com/api/del', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-      credentials: 'include' as any,
+      credentials: 'include',
       body: form.toString(),
-    } as any);
+    });
 
     if (!resp.ok) {
       const txt = await resp.text();
@@ -858,9 +858,9 @@ export async function editCommentOld(fullname: string, text: string, subreddit: 
     const resp = await extensionFetch('https://old.reddit.com/api/editusertext', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
-      credentials: 'include' as any,
+      credentials: 'include',
       body: form.toString(),
-    } as any);
+    });
 
     if (!resp.ok) {
       const txt = await resp.text();
@@ -891,7 +891,7 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1, subredd
           'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         },
         body: form.toString()
-      } as any);
+      });
       const responseText = await resp.text();
       if (!resp.ok) {
         return { success: false, error: `Vote failed: ${resp.status} ${responseText}` };
@@ -946,9 +946,9 @@ export async function voteThing(fullname: string, direction: 1 | 0 | -1, subredd
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
       },
-      credentials: 'include' as any,
+      credentials: 'include',
       body: fallbackBody.toString()
-    } as any);
+    });
     
     const responseText = await resp.text();
     if (!resp.ok) {
@@ -983,7 +983,7 @@ export async function saveThing(fullname: string, unsave = false): Promise<{ suc
       },
       credentials: 'include',
       body: form.toString()
-    } as any);
+    });
     if (!resp.ok) {
       const text = await resp.text();
       return { success: false, error: `Save failed: ${resp.status} ${text}` };
@@ -1070,7 +1070,7 @@ export async function searchCustomPosts(query: string): Promise<RedditPost[]> {
         limit: '25',
       });
       const url = `https://www.reddit.com/r/anime/search.json?${params.toString()}`;
-  const resp = await extensionFetch(url, { credentials: 'include' } as any);
+  const resp = await extensionFetch(url, { credentials: 'include' });
   if (!resp.ok) return [];
   const j = await resp.json();
   if (!j || !j.data || !Array.isArray(j.data.children)) return [];
@@ -1156,7 +1156,7 @@ export async function searchSeriesDiscussionsByDate(
       // Use CORS proxy for unauthenticated requests
       try {
         const url = `https://www.reddit.com/r/anime/search.json?${searchParams.toString()}`;
-        const resp = await extensionFetch(url, { credentials: 'include' } as any);
+        const resp = await extensionFetch(url, { credentials: 'include' });
         if (resp.ok) {
           result = await resp.json();
         }

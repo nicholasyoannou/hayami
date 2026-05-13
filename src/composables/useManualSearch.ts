@@ -235,9 +235,6 @@ export function useManualSearch(params: {
       query: queryText,
       page: 1,
       perPage: 8,
-      // Preserve the previous "no isAdult filter" behavior — the picker
-      // surfaces whatever AniList returns and lets the user choose.
-      includeAdult: true,
     });
 
     if (result.error) {

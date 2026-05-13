@@ -20,15 +20,7 @@ import type { AnimeInfo } from '../types';
 import type { MapperResultEntry } from '../types/data';
 import { useContentState, setLastAnimeInfo } from '../state';
 import { cacheAnimeIds } from '../storage/series-mapping';
-
-function normalizeIdCandidate(val: unknown): number | null {
-  if (typeof val === 'number' && Number.isFinite(val) && val > 0) return val;
-  if (typeof val === 'string' && /^\d+$/.test(val)) {
-    const parsed = Number(val);
-    return parsed > 0 ? parsed : null;
-  }
-  return null;
-}
+import { toPositiveInt } from '@/utils/numbers';
 
 /**
  * Extract season-specific MAL/AniList IDs from a Hayami mapper entry and apply
@@ -49,10 +41,10 @@ export function applyMapperEntryIdsToAnimeInfo(
   animeMeta?: { malId?: number | null; anilistId?: number | null } | null,
 ): void {
   const entryAny = entry as (MapperResultEntry & { mal_id?: unknown; anilist_id?: unknown }) | null | undefined;
-  const malId = normalizeIdCandidate(
+  const malId = toPositiveInt(
     entry?.external_sites?.mal_id ?? entryAny?.mal_id ?? animeMeta?.malId,
   );
-  const anilistId = normalizeIdCandidate(
+  const anilistId = toPositiveInt(
     entry?.external_sites?.anilist_id ?? entryAny?.anilist_id ?? animeMeta?.anilistId,
   );
   if (!malId && !anilistId) return;

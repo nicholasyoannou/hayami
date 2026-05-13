@@ -128,8 +128,8 @@ function pickPrequel(media: AniListPrequelMedia | null): AniListPrequelMedia | n
     const bCountable = shouldCountPrequel(b) ? 1 : 0;
     if (aCountable !== bCountable) return bCountable - aCountable;
 
-    const aEpisodes = Number.isFinite(a.episodes) ? Number(a.episodes) : 0;
-    const bEpisodes = Number.isFinite(b.episodes) ? Number(b.episodes) : 0;
+    const aEpisodes = a.episodes ?? 0;
+    const bEpisodes = b.episodes ?? 0;
     return bEpisodes - aEpisodes;
   })[0] ?? null;
 }
@@ -174,7 +174,8 @@ async function getPreviousMainlineEpisodeCount(anilistId: number): Promise<numbe
     for (let depth = 0; depth < 12; depth += 1) {
       const media = await fetchAniListPrequelMedia(currentId);
       const prequel = pickPrequel(media);
-      const prequelId = Number(prequel?.id);
+      if (!prequel) break;
+      const prequelId = Number(prequel.id);
       if (!Number.isFinite(prequelId) || prequelId <= 0 || visited.has(prequelId)) break;
 
       visited.add(prequelId);
@@ -213,8 +214,6 @@ export async function searchAniListAnime(animeName: string): Promise<AnimeIdResu
       query: animeName,
       page: 1,
       perPage: 1,
-      // Resolver previously didn't filter adult titles — preserve that.
-      includeAdult: true,
     });
 
     if (result.error) {

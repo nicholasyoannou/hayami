@@ -101,6 +101,18 @@ export function resolveCurrentAdapter(location: Location = window.location) {
   return resolveAdapter(location);
 }
 
+/**
+ * Add an episode number to a `desiredKeys` set in every form Hayami might
+ * have keyed it under: as a number, as its string form, and zero-padded
+ * (`'01'`) when single-digit. Older mapper entries use zero-padded keys
+ * while newer ones don't.
+ */
+function addEpisodeKeyVariants(keys: Set<string | number>, episode: number): void {
+  keys.add(String(episode));
+  keys.add(episode);
+  if (episode < 10) keys.add(`0${episode}`);
+}
+
 // --- Hayami name cache (last-resolved series name for UI display) ---
 
 type LastResolvedHayamiRecord = {
@@ -593,16 +605,12 @@ export async function tryMapperFailover(
         ? effectiveEpisode - siteEpisodeOffset
         : previousCountEpisode?.episode ?? courRelativeEpisode?.episode ?? plannedCountEpisode?.episode ?? effectiveEpisode;
       if (episodeForKeys !== null) {
-        desiredKeys.add(String(episodeForKeys));
-        desiredKeys.add(episodeForKeys);
-        if (episodeForKeys < 10) desiredKeys.add(`0${episodeForKeys}`);
+        addEpisodeKeyVariants(desiredKeys, episodeForKeys);
       }
       // Keep the un-adjusted episode as a fallback candidate so sites whose
       // list selector grabs the wrong container don't lock us out.
       if (siteEpisodeOffset > 0 && effectiveEpisode !== null && effectiveEpisode !== episodeForKeys) {
-        desiredKeys.add(String(effectiveEpisode));
-        desiredKeys.add(effectiveEpisode);
-        if (effectiveEpisode < 10) desiredKeys.add(`0${effectiveEpisode}`);
+        addEpisodeKeyVariants(desiredKeys, effectiveEpisode);
       }
       if (siteEpisodeOffset > 0) {
         log.log(' Applied site episode offset from list selector:', {
@@ -688,9 +696,7 @@ export async function tryMapperFailover(
 
               // Update desired keys to include the season-based episode number
               desiredKeys.clear();
-              desiredKeys.add(String(seasonEpisode));
-              desiredKeys.add(seasonEpisode);
-              if (seasonEpisode < 10) desiredKeys.add(`0${seasonEpisode}`);
+              addEpisodeKeyVariants(desiredKeys, seasonEpisode);
 
               // Reorder to prioritize this season
               const newOrder = [entry.idx, ...order.filter(i => i !== entry.idx)];
@@ -830,7 +836,7 @@ export async function tryMapperFailover(
         // Surface the response's top-level animeMeta so callers can pick
         // up the canonical MAL/AniList ids even when the picked entry's
         // `external_sites` is empty (Hayami doesn't always populate it).
-        const meta = (effectiveMapperResult as unknown as { animeMeta?: { malId?: number | null; anilistId?: number | null } | null })?.animeMeta ?? null;
+        const meta = effectiveMapperResult?.animeMeta ?? null;
         out.animeMeta = meta;
         // Surface every candidate so the Reddit-URL fallback (year-group /
         // collapsed-part resolution in `reddit-url-resolver`) can run

@@ -354,6 +354,15 @@ export interface MapperResultEntry {
     mal_id?: number | string | null;
     anilist_id?: number | string | null;
   };
+  /** Legacy top-level ids — some older Hayami responses expose them outside `external_sites`. */
+  mal_id?: number | string | null;
+  anilist_id?: number | string | null;
+  /** Alternate name fields (mostly cross-language entries). */
+  title?: string;
+  name?: string;
+  alt_title?: string;
+  /** Additional years a season spans (e.g. AoT S3 has year "2018" but `merge_years: ["2018", "2019"]`). */
+  merge_years?: string[];
   /** Per-subreddit episode discussion threads (e.g. `{ JuJutsuKaisen: { "1": "url" } }`). */
   subreddit_episodes?: Record<string, Record<string, string>>;
   subreddit_episodes_anime_only?: Record<string, Record<string, string>>;
@@ -395,6 +404,8 @@ export interface MapperResponse {
   matched_result?: MapperMatchedMeta;
   matched_results?: MapperMatchedMeta[];
   results?: MapperResultEntry[];
+  /** Canonical MAL/AniList ids for the season-disambiguated anime, when the backend resolves them. */
+  animeMeta?: { malId?: number | null; anilistId?: number | null } | null;
 }
 
 // ==================== Crunchyroll Metadata Types ====================

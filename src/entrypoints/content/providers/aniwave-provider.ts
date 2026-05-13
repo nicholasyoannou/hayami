@@ -79,7 +79,7 @@ export class AniwaveProvider extends BaseProvider {
     let mappedAnimeName = animeInfo.animeName;
     // Default to the page's episode hints so a missing mapping doesn't strand us.
     let episodeNumber: string | number =
-      extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeNumber || '';
+      extractEpisodeNumber(animeInfo.episodeName || '') || '';
     let preferDub = false;
     let preferredSlug: string | null = null;
     this.apiIsDub = null;
@@ -320,7 +320,7 @@ export class AniwaveProvider extends BaseProvider {
     toggles.forEach((btn) => {
       btn.onclick = (e) => {
         e.stopPropagation();
-        const root = btn.closest('.aniwave-comment');
+        const root = btn.closest<HTMLElement>('.aniwave-comment');
         if (!root) return;
         const currentDepth = Number(root.dataset.depth || '0');
         const collapsing = !root.classList.contains('is-collapsed');
@@ -645,7 +645,6 @@ export class AniwaveProvider extends BaseProvider {
     const animeName = this.apiAnimeName || context.animeInfo?.animeName || 'Aniwave';
     const episode = this.apiEpisodeNumber
       ?? extractEpisodeNumber(context.animeInfo?.episodeName || '')
-      ?? context.animeInfo?.episodeNumber
       ?? '';
     const shouldShowLoadMore = options?.showLoadMore !== false && this.hasMore;
     const collapsedIds = this.captureCollapsedCommentIds(container);
