@@ -498,18 +498,21 @@ export async function runCrunchyrollDeepPipeline(
     // platform-specific entry coverage.
     const responseAnimeMeta =
       (mapperResult as unknown as { animeMeta?: { malId?: number | null; anilistId?: number | null } | null })?.animeMeta ?? null;
-    // Surface every candidate so Reddit's year-group / collapsed-part
-    // fallback can run against this same fetch when our pick yields no
-    // episode URL — see `writeOutCommon` below.
-    const responseAllResults = Array.isArray(results) ? results : null;
-    const responseMatchedIdx = typeof matchedResult?.index === 'number' ? matchedResult.index : null;
+    // Surface every candidate up front so Reddit's year-group / collapsed-
+    // part fallback (`reddit-url-resolver`) can run against this same fetch
+    // even when the pipeline gives up before picking an entry (e.g. the
+    // "Could not map episode number to season episode" path). Without this
+    // early write, those early-return paths would leave `failoverOut`
+    // empty and the fallback resolver would have nothing to work with.
+    if (out) {
+      out.allResults = Array.isArray(results) ? results : null;
+      out.matchedResultIdx = typeof matchedResult?.index === 'number' ? matchedResult.index : null;
+    }
     const writeOutCommon = (entry: MapperResultEntry | null, episode: number | null) => {
       if (!out) return;
       out.entry = entry;
       out.episode = episode;
       out.animeMeta = responseAnimeMeta;
-      out.allResults = responseAllResults;
-      out.matchedResultIdx = responseMatchedIdx;
     };
     let forcedSeasonEpisode: number | null = null; // derived from slice matching
     let clampSeasonEpisode: number | null = null; // last-resort clamp for oversized CR numbering

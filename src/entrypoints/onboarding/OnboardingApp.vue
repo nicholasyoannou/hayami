@@ -286,7 +286,7 @@ async function persistMediaKeys() {
             <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
         </div>
-        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-chip-row" role="group" aria-label="Built-in sites">
+        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-toggles" role="group" aria-label="Built-in sites">
           <button
             v-for="site in builtinSiteOptions"
             :key="site.id"
@@ -294,19 +294,20 @@ async function persistMediaKeys() {
             role="switch"
             :aria-checked="isSiteEnabled(site.id)"
             :aria-label="`Toggle Hayami on ${site.label}`"
-            class="site-chip"
-            :class="{ 'site-chip--on': isSiteEnabled(site.id) }"
+            class="setting-toggle"
+            :class="{ 'setting-toggle--active': isSiteEnabled(site.id) }"
             :disabled="sitesSaving"
             @click="toggleSite(site.id)"
           >
-            <svg class="site-chip-check" viewBox="0 0 16 16" aria-hidden="true">
-              <path d="M3 8.5l3.2 3.2L13 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-            </svg>
-            <span class="site-chip-label">{{ site.label }}</span>
+            <span class="setting-toggle-track">
+              <span class="setting-toggle-thumb"></span>
+            </span>
+            <span class="setting-toggle-label">{{ site.label }}</span>
           </button>
         </div>
 
         <p
+          v-if="currentStepDef.id !== 'choose-sites'"
           class="step-content"
           :class="{ 'step-content--connect-padding': currentStepDef.id === 'connect-accounts' }"
           v-html="formattedStepContentHtml"
@@ -327,15 +328,15 @@ async function persistMediaKeys() {
 
         <div v-if="currentStepDef.id === 'malsync'" class="malsync-step">
           <button
-            class="malsync-toggle"
-            :class="{ 'malsync-toggle--active': malSyncEnabled }"
+            class="setting-toggle"
+            :class="{ 'setting-toggle--active': malSyncEnabled }"
             :disabled="malSyncToggling"
             @click="toggleMalSync"
           >
-            <span class="malsync-toggle-track">
-              <span class="malsync-toggle-thumb"></span>
+            <span class="setting-toggle-track">
+              <span class="setting-toggle-thumb"></span>
             </span>
-            <span class="malsync-toggle-label">
+            <span class="setting-toggle-label">
               {{ malSyncEnabled ? 'MAL-Sync integration enabled' : 'Enable MAL-Sync integration' }}
             </span>
           </button>
@@ -366,6 +367,14 @@ async function persistMediaKeys() {
             />
           </div>
         </div>
+
+        <template v-if="currentStepDef.id === 'choose-sites'">
+          <div class="step-flex-spacer"></div>
+          <p
+            class="step-content step-content--footer"
+            v-html="formattedStepContentHtml"
+          ></p>
+        </template>
 
         <div class="modal-actions">
           <button v-if="currentStep > 0" @click="prevStep" class="btn btn-back">
@@ -876,7 +885,7 @@ async function persistMediaKeys() {
   gap: 10px;
 }
 
-.malsync-toggle {
+.setting-toggle {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -891,17 +900,17 @@ async function persistMediaKeys() {
   transition: all 0.2s ease;
 }
 
-.malsync-toggle:hover {
+.setting-toggle:hover {
   background: rgba(255, 255, 255, 0.07);
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-.malsync-toggle:disabled {
+.setting-toggle:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.malsync-toggle-track {
+.setting-toggle-track {
   position: relative;
   width: 40px;
   height: 22px;
@@ -911,11 +920,11 @@ async function persistMediaKeys() {
   flex-shrink: 0;
 }
 
-.malsync-toggle--active .malsync-toggle-track {
+.setting-toggle--active .setting-toggle-track {
   background: rgba(91, 168, 255, 0.7);
 }
 
-.malsync-toggle-thumb {
+.setting-toggle-thumb {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -926,11 +935,11 @@ async function persistMediaKeys() {
   transition: transform 0.2s ease;
 }
 
-.malsync-toggle--active .malsync-toggle-thumb {
+.setting-toggle--active .setting-toggle-thumb {
   transform: translateX(18px);
 }
 
-.malsync-toggle-label {
+.setting-toggle-label {
   flex: 1;
 }
 
@@ -941,75 +950,24 @@ async function persistMediaKeys() {
   padding-left: 4px;
 }
 
-/* Built-in sites step — Material 3 filter-chip pattern */
-.sites-chip-row {
+/* Built-in sites step */
+.sites-toggles {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 2px 0 16px 0;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 0 0;
 }
 
-.site-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  background: transparent;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 13.5px;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
-  -webkit-tap-highlight-color: transparent;
+/* Pushes the disclaimer text to the very bottom of the modal, just above the buttons. */
+.step-flex-spacer {
+  flex: 1;
+  min-height: 12px;
 }
 
-.site-chip:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.92);
-}
-
-.site-chip:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(91, 168, 255, 0.55);
-}
-
-.site-chip:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.site-chip-check {
-  width: 0;
-  height: 14px;
-  flex-shrink: 0;
-  opacity: 0;
-  margin-right: 0;
-  overflow: hidden;
-  transition: width 0.18s ease, opacity 0.18s ease, margin-right 0.18s ease;
-}
-
-.site-chip-label {
-  white-space: nowrap;
-}
-
-.site-chip--on {
-  background: rgba(91, 168, 255, 0.14);
-  border-color: rgba(91, 168, 255, 0.5);
-  color: #ffffff;
-}
-
-.site-chip--on:hover:not(:disabled) {
-  background: rgba(91, 168, 255, 0.2);
-  border-color: rgba(91, 168, 255, 0.65);
-}
-
-.site-chip--on .site-chip-check {
-  width: 14px;
-  opacity: 1;
-  margin-right: 6px;
+.onboarding-modal.fixed-size .step-content.step-content--footer {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.62);
 }
 </style>
