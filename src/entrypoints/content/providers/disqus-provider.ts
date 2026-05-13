@@ -23,12 +23,11 @@ import {
 import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
 import { handleProviderError } from '../utils/error-handler';
 import {
-  getSeriesMapping,
   parseEpisodeFromTitle,
-  tryMapperFailover,
   getLastResolvedHayamiName,
-  type MapperFailoverOut,
 } from '../mapping';
+import { resolveAnimeIdentity } from '../mapping/identity-resolver';
+import { getSavedIds } from '../mapping/trust-policy';
 import { applyMapperEntryIdsToAnimeInfo } from '../core/discussion-manager';
 import { dispatchManualSearchRequest } from './manual-search';
 import { getRuntimeUrl } from '@/utils/runtime';
@@ -313,45 +312,25 @@ export class DisqusProvider extends BaseProvider {
     }
 
     try {
-      const mapping = animeInfo?.animeName
-        ? await getSeriesMapping(animeInfo.animeName, 'disqus')
-        : null;
-      const episodeOffset = mapping?.episodeOffset ?? 0;
-      const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
-      const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
+      const ctx = await this.loadProviderContext(animeInfo, 'disqus');
+      const { mapping, rawEpisode: rawEp, mappedEpisode: mappedEp, hasUserPickedOverride } = ctx;
 
       // PRIORITY 1: a real "Wrong anime?" pick lives in the mapping with
-      // `mapperAnimeName` set (it's how the modal records the user's
-      // confirmed series). Pin its ids and skip the Hayami round-trip
+      // `mapperAnimeName` set. Pin its ids and skip the Hayami round-trip
       // below so a follow-up resolve can't re-introduce the wrong-series
       // ids the user explicitly corrected against.
       //
-      // We deliberately *don't* trust `mapping.malId` on its own: the
-      // shared anime-id cache (populated by `cacheAnimeIds` from
-      // MAL-Sync's pre-Hayami detection) gets merged into the mapping
-      // by `getSeriesMapping`'s fallback, so a `mapping.malId` value
-      // without `mapperAnimeName` may be MAL-Sync's wrong parent-series
-      // id (e.g. MHA S4 38408 for an MHA: More episode) rather than a
-      // user override.
-      const hasSavedOverride = !!(mapping?.mapperAnimeName && mapping.mapperAnimeName.trim());
-      const mappedMalId = hasSavedOverride
-        && typeof mapping?.malId === 'number'
-        && Number.isFinite(mapping.malId)
-        && mapping.malId > 0
-          ? mapping.malId
-          : null;
-      const mappedAnilistId = hasSavedOverride
-        && typeof mapping?.anilistId === 'number'
-        && Number.isFinite(mapping.anilistId)
-        && mapping.anilistId > 0
-          ? mapping.anilistId
-          : null;
-      if (mappedMalId) {
-        animeInfo.malId = mappedMalId;
+      // The trust-policy helper enforces "only trust saved ids when the
+      // user actually picked them" — without it, MAL-Sync's parent-series
+      // id (cached by `cacheAnimeIds`) would silently win and resolve the
+      // wrong thread (e.g. MHA S4 38408 for an MHA: More episode).
+      const saved = getSavedIds(mapping, { requireUserPick: true });
+      if (saved.malId) {
+        animeInfo.malId = saved.malId;
       }
-      if (mappedAnilistId) {
-        animeInfo.anilistId = mappedAnilistId;
-      } else if (mappedMalId) {
+      if (saved.anilistId) {
+        animeInfo.anilistId = saved.anilistId;
+      } else if (saved.malId) {
         // The saved override only carries a MAL id — drop the stale
         // anilistId from the original detection so the discussanime.moe
         // lookup doesn't get confused by mismatched ids.
@@ -361,32 +340,31 @@ export class DisqusProvider extends BaseProvider {
       // PRIORITY 2: no saved override — run the same season-aware Hayami
       // match Reddit uses so multi-season titles ("My Hero Academia FINAL
       // SEASON" = "MHA: More", not "MHA S4") resolve to the right MAL id.
-      // Reddit's failover writes its matched entry's MAL/AniList ids onto
-      // `out.entry` even when no Reddit URL is available, so we lift the
-      // disambiguated ids without caring about Reddit's URL outcome.
       //
       // Skip when Reddit's foreground flow already resolved this series
       // AND the disambiguated ids are still on `animeInfo`. The cache hit
       // alone isn't enough — `lastResolvedHayami` is module-scoped and
       // outlives the original `animeInfo`, so on SPA navigation between
       // episodes of the same series the new `animeInfo` arrives without
-      // the prior episode's id mutations and we still need the failover
+      // the prior episode's id mutations and we still need the resolver
       // to populate `malId`/`anilistId` before `findEpisodeThread`.
       const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
       const hasResolvedIds = !!animeInfo.malId || !!animeInfo.anilistId;
       let mapperResolvedEp: number | null = null;
-      if (!hasSavedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
+      if (!hasUserPickedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
         try {
-          const failoverOut: MapperFailoverOut = {};
-          await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);
-          if (failoverOut.entry || failoverOut.animeMeta) {
-            applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
+          const identity = await resolveAnimeIdentity(animeInfo, {
+            mapping,
+            episode: mappedEp ?? rawEp,
+          });
+          if (identity.entry || identity.animeMeta) {
+            applyMapperEntryIdsToAnimeInfo(animeInfo, identity.entry, identity.animeMeta);
           }
-          if (typeof failoverOut.episode === 'number' && Number.isFinite(failoverOut.episode) && failoverOut.episode > 0) {
-            mapperResolvedEp = failoverOut.episode;
+          if (identity.resolvedEpisode !== null) {
+            mapperResolvedEp = identity.resolvedEpisode;
           }
         } catch (e) {
-          log.warn('Hayami season-aware match failed; falling back to detected ids', e);
+          log.warn('Identity resolution failed; falling back to detected ids', e);
         }
       }
 

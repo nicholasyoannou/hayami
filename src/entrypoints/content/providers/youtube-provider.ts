@@ -85,10 +85,10 @@ export class YouTubeProvider extends BaseProvider {
         }
       });
 
-      // Extract episode number
-      const episodeNumStr = extractEpisodeNumber(animeInfo.episodeName);
-      const rawEpisodeNum = episodeNumStr ? parseInt(episodeNumStr, 10) : null;
-
+      // Resolve the user's override name + episode offset alongside the raw
+      // episode number; bail early if no episode could be parsed.
+      const ctx = await this.loadProviderContext(animeInfo, 'youtube');
+      const rawEpisodeNum = ctx.rawEpisode;
       if (!rawEpisodeNum) {
         toast.error('Could not extract episode number', {
           description: 'Unable to determine episode number from episode name.',
@@ -96,27 +96,8 @@ export class YouTubeProvider extends BaseProvider {
         clearLoadingState('YouTube no episode number');
         return;
       }
-
-      // Apply the user's saved "Wrong anime?" override, if any. The mapping
-      // can redirect the YouTube search to a different series entirely
-      // (mapperAnimeName) and/or offset the episode number (episodeOffset),
-      // which lets viewers correct Hayami misses on a per-series basis.
-      let mappedAnimeName = animeInfo.animeName;
-      let episodeNum = rawEpisodeNum;
-      try {
-        const mapping = animeInfo?.animeName
-          ? await getSeriesMapping(animeInfo.animeName, 'youtube')
-          : null;
-        const overrideName = (mapping?.mapperAnimeName || '').trim();
-        if (overrideName) {
-          mappedAnimeName = overrideName;
-        }
-        if (Number.isFinite(mapping?.episodeOffset as number)) {
-          episodeNum = rawEpisodeNum + Number(mapping!.episodeOffset);
-        }
-      } catch (mappingError) {
-        log.warn('Failed to read YouTube series mapping override:', mappingError);
-      }
+      const mappedAnimeName = ctx.resolvedAnimeName;
+      const episodeNum = ctx.mappedEpisode ?? rawEpisodeNum;
 
       // Search all YouTube channels via the generic platform
       const platform = 'youtube' as const;

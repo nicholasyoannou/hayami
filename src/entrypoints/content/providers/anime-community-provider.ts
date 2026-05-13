@@ -3,7 +3,6 @@ import type { AnimeInfo } from '../types';
 import type { CommentProvider, ProviderContext } from '../types/data';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds, getLastAnimeIdResolverError } from '@/utils/animeIdResolver';
-import { getSeriesMapping } from '../storage/series-mapping';
 import { dispatchManualSearchRequest } from './manual-search';
 import { safeClear } from '../utils/dom-helpers';
 import { getRuntimeUrl } from '@/utils/runtime';
@@ -36,15 +35,16 @@ export class AnimeCommunityProvider extends BaseProvider {
 
     try {
       const animeInfo = context.animeInfo as AnimeInfo;
-      const mapping = await getSeriesMapping(animeInfo.animeName, 'animecommunity');
-      const mappedAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+      const ctx = await this.loadProviderContext(animeInfo, 'animecommunity');
+      const mappedAnimeName = ctx.resolvedAnimeName;
       const animeInfoForLookup = mappedAnimeName === animeInfo.animeName
         ? animeInfo
         : { ...animeInfo, animeName: mappedAnimeName };
       const episodeChapterNumber =
-        extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeName || '';
-      const detectedEpisode = extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeName || '?';
-      const numericEpisode = Number(extractEpisodeNumber(animeInfo.episodeName || ''));
+        ctx.rawEpisode ?? extractEpisodeNumber(animeInfo.episodeName || '') ?? animeInfo.episodeName ?? '';
+      const detectedEpisode =
+        ctx.rawEpisode ?? extractEpisodeNumber(animeInfo.episodeName || '') ?? animeInfo.episodeName ?? '?';
+      const numericEpisode = ctx.rawEpisode ?? NaN;
 
       const { malId, anilistId } = await this.resolveIds(animeInfoForLookup);
 

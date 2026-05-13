@@ -14,6 +14,7 @@ import { handleProviderError } from '../utils/error-handler';
 import { CONTAINER_RETRY_ATTEMPTS, CONTAINER_RETRY_DELAY_MS } from '../constants';
 import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason } from '../mapping';
 import { getSeriesMapping } from '../storage/series-mapping';
+import { getSavedIds } from '../mapping/trust-policy';
 import { safeClear } from '../utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
@@ -27,17 +28,17 @@ export class AniListProvider extends BaseProvider {
     this.validateAnimeInfo(animeInfo);
 
     try {
-      const mapping = await getSeriesMapping(animeInfo.animeName, 'anilist');
-      const mappedAnimeName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
+      const ctx = await this.loadProviderContext(animeInfo, 'anilist');
+      const { mapping, resolvedAnimeName: mappedAnimeName, hasUserPickedOverride: hasMappedTitleOverride } = ctx;
       const animeInfoForLookup = mappedAnimeName === animeInfo.animeName
         ? animeInfo
         : { ...animeInfo, animeName: mappedAnimeName };
-      // If the mapping carries a saved AniList ID (from "wrong anime" picker), use it directly.
-      // Otherwise, if the user overrode the title, discard the old ID from the original series.
-      const hasMappedTitleOverride = mappedAnimeName !== animeInfo.animeName;
-      let anilistId = (typeof mapping?.anilistId === 'number' && Number.isFinite(mapping.anilistId))
-        ? mapping.anilistId
-        : (hasMappedTitleOverride ? null : animeInfo.anilistId);
+      // Prefer a saved AniList id from the override. Without one, drop the
+      // existing animeInfo.anilistId when the user changed the title — it's
+      // from the original (wrong) series.
+      const saved = getSavedIds(mapping, { requireUserPick: false });
+      let anilistId = saved.anilistId
+        ?? (hasMappedTitleOverride ? null : animeInfo.anilistId);
 
       // Prefer Hayami mapper to derive an authoritative AniList ID. The site
       // adapter exposes its own series-identity hints (Crunchyroll fills both
@@ -97,12 +98,7 @@ export class AniListProvider extends BaseProvider {
         return;
       }
 
-      const rawEpisode = extractEpisodeNumber(animeInfo.episodeName);
-      const rawEpisodeNum = rawEpisode ? Number(rawEpisode) : null;
-      const episodeOffset = Number.isFinite(mapping?.episodeOffset) ? Number(mapping?.episodeOffset) : 0;
-      const episodeParsed = rawEpisodeNum !== null && Number.isFinite(rawEpisodeNum)
-        ? rawEpisodeNum + episodeOffset
-        : null;
+      const episodeParsed = ctx.mappedEpisode;
 
       // Use pre-fetched data from cache if available (background prefetch)
       let threadsResult: Awaited<ReturnType<typeof fetchAniListThreads>>;

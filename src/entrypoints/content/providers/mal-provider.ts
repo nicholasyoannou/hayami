@@ -17,6 +17,7 @@ import {
   CONTAINER_RETRY_DELAY_MS 
 } from '../constants';
 import { getSeriesMapping } from '../storage/series-mapping';
+import { getSavedIds } from '../mapping/trust-policy';
 import { safeClear } from '../utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
@@ -30,22 +31,16 @@ export class MalProvider extends BaseProvider {
     
     this.validateAnimeInfo(animeInfo);
 
-    // Resolve MAL ID with site-aware strategy
-    const normalizeMalId = (val: unknown): number | null => {
-      if (typeof val === 'number' && Number.isFinite(val)) return val;
-      if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
-      return null;
-    };
-
     // Check for a "wrong anime" override before resolving MAL ID, so we
     // resolve against the corrected title instead of the original one.
-    const mapping = await getSeriesMapping(animeInfo.animeName || '', 'mal');
-    const mapperAnimeName = (mapping?.mapperAnimeName || '').trim();
-    const resolveAnimeName = mapperAnimeName || animeInfo.animeName;
+    const ctx = await this.loadProviderContext(animeInfo, 'mal');
+    const { mapping, resolvedAnimeName, hasUserPickedOverride } = ctx;
 
-    // If the user picked a specific MAL anime via "wrong anime", the mapping
-    // carries the authoritative MAL ID — use it directly, no search needed.
-    let malId = normalizeMalId(mapping?.malId) ?? null;
+    // MAL trusts any saved MAL id directly — the user either picked it via
+    // "Wrong anime?" or the search step below would re-derive the same
+    // parent id anyway. Use `requireUserPick: false` for that reason.
+    const saved = getSavedIds(mapping, { requireUserPick: false });
+    let malId: number | null = saved.malId;
     if (malId) {
       animeInfo.malId = malId;
       log.log('Using saved malId from mapping:', malId);
@@ -54,13 +49,13 @@ export class MalProvider extends BaseProvider {
     // When the user corrected the anime name but we don't have a saved MAL ID,
     // the original malId (if any) belongs to the wrong series — discard it.
     if (!malId) {
-      malId = mapperAnimeName ? null : animeInfo.malId;
+      malId = hasUserPickedOverride ? null : (animeInfo.malId ?? null);
     }
 
     // Resolve via MAL's own API first, then AniList as fallback
     if (!malId) {
-      log.log('Resolving malId via MAL search for:', resolveAnimeName);
-      malId = await searchMalAnimeId(resolveAnimeName);
+      log.log('Resolving malId via MAL search for:', resolvedAnimeName);
+      malId = await searchMalAnimeId(resolvedAnimeName);
       if (malId) {
         animeInfo.malId = malId;
         log.log('Resolved malId via MAL search:', malId);
@@ -68,8 +63,8 @@ export class MalProvider extends BaseProvider {
     }
 
     if (!malId) {
-      log.log('MAL search failed, trying Jikan fallback for:', resolveAnimeName);
-      malId = await searchJikanAnimeId(resolveAnimeName);
+      log.log('MAL search failed, trying Jikan fallback for:', resolvedAnimeName);
+      malId = await searchJikanAnimeId(resolvedAnimeName);
       if (malId) {
         animeInfo.malId = malId;
         log.log('Resolved malId from Jikan:', malId);
@@ -84,17 +79,13 @@ export class MalProvider extends BaseProvider {
     }
 
     try {
-      const episodeNum = extractEpisodeNumber(animeInfo.episodeName);
-
-      const parsedEpisodeNum = episodeNum ? Number(episodeNum) : null;
-      const desiredWithOffset = parsedEpisodeNum !== null ? parsedEpisodeNum + (mapping?.episodeOffset ?? 0) : null;
-      const chosenEpisodeNum = desiredWithOffset ?? parsedEpisodeNum;
+      const chosenEpisodeNum = ctx.mappedEpisode ?? ctx.rawEpisode;
 
       log.log('Episode resolution (offset + MAL title match)', {
         anime: animeInfo.animeName,
         rawEpisodeName: animeInfo.episodeName,
-        parsedEpisode: parsedEpisodeNum,
-        episodeOffset: mapping?.episodeOffset ?? 0,
+        parsedEpisode: ctx.rawEpisode,
+        episodeOffset: ctx.episodeOffset,
         chosenEpisodeNum,
         malId,
       });
@@ -203,11 +194,11 @@ export class MalProvider extends BaseProvider {
           posts: postsResult?.posts,
           nextPageUrl: postsResult?.nextPageUrl ?? null,
         },
-        animeTitle: resolveAnimeName,
+        animeTitle: resolvedAnimeName,
         topicId: forumResult.selectedTopic?.id,
         wrongAnimeContext: {
           animeName: animeInfo.animeName,
-          resolvedAnimeName: resolveAnimeName,
+          resolvedAnimeName: resolvedAnimeName,
           malId,
           episodeNumber: parsedEpisode,
         },

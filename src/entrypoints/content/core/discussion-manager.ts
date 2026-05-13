@@ -1405,88 +1405,10 @@ async function displayDiscussion(discussion: any): Promise<void> {
   await uiManager.showPopupContent();
 }
 
-// =============================================================================
-// DISQUS INTEGRATION FUNCTIONS
-// Functions for loading, embedding, and displaying Disqus discussion threads
-// =============================================================================
-
-function waitForDisqusLoad(callback: () => void): void {
-  const checkDisqusLoaded = (): boolean => {
-    const disqusThread = document.getElementById('disqus_thread');
-    if (!disqusThread) {
-      return false;
-    }
-
-    // Check for iframe (most reliable indicator)
-    const iframe = disqusThread.querySelector('iframe') as HTMLIFrameElement;
-    if (iframe) {
-      // If iframe exists and has a disqus.com src, consider it loaded
-      // Don't wait for dimensions - Disqus will render asynchronously
-      if (iframe.src && iframe.src.includes('disqus.com')) {
-        return true;
-      }
-    }
-
-    // Check for Disqus-specific elements
-    // Disqus creates various divs and elements when loading
-    const hasDisqusContent = disqusThread.children.length > 0 || 
-                             disqusThread.querySelector('[id*="disqus"]') !== null ||
-                             disqusThread.querySelector('[class*="disqus"]') !== null ||
-                             disqusThread.innerHTML.trim().length > 0;
-    
-    return hasDisqusContent;
-  };
-
-  // First check - maybe it's already loaded
-  if (checkDisqusLoaded()) {
-    callback();
-    return;
-  }
-
-  const disqusThread = document.getElementById('disqus_thread');
-  if (!disqusThread) {
-    // If disqus_thread doesn't exist yet, wait a bit and try again
-    setTimeout(() => waitForDisqusLoad(callback), 100);
-    return;
-  }
-
-  let checkCount = 0;
-  const maxChecks = 20; // 20 * 100ms = 2 seconds max
-  let settled = false;
-
-  const settle = () => {
-    if (settled) return;
-    settled = true;
-    clearInterval(intervalId);
-    observer.disconnect();
-    callback();
-  };
-
-  // Use MutationObserver to detect when Disqus content appears
-  const observer = new MutationObserver(() => {
-    if (checkDisqusLoaded()) {
-      settle();
-    }
-  });
-
-  observer.observe(disqusThread, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ['style', 'width', 'height', 'src']
-  });
-
-  // Also do periodic checks in case MutationObserver misses something
-  const intervalId = setInterval(() => {
-    checkCount++;
-    if (checkDisqusLoaded() || checkCount >= maxChecks) {
-      settle();
-    }
-  }, 100);
-
-  // Fallback: clear after reasonable timeout (1.5 seconds)
-  setTimeout(settle, 1500);
-}
+// Disqus is owned by `DisqusProvider`; its own `waitForDisqusLoad` (in
+// `providers/disqus-provider.ts`) is the live implementation. The duplicate
+// that used to live here was unreachable after the inline render's early
+// `return;` below — see the `LEGACY DOM RENDERING CODE REMOVED` marker.
 
 function mountLoadingShell(): void {
   try {

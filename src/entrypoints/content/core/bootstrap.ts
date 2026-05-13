@@ -20,7 +20,7 @@ import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mapper/site-mapper-utils';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
-import { isSupportedLocation } from '../sites/registry';
+import { isSupportedLocation, initSiteRegistry } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { resolveAdapter, saveSeriesMapping, deleteSeriesMapping } from '../mapping';
 import {
@@ -222,6 +222,7 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
 
   // Hydrate verbose-logging flag from extension storage, then show banner
   await initLoggerFromStorage();
+  await initSiteRegistry();
   const version = browser.runtime.getManifest()?.version ?? 'dev';
   banner(version);
   installGlobalHelpers();

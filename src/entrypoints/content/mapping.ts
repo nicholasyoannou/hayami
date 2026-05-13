@@ -80,9 +80,7 @@ import {
 import {
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
-  fetchAnimeMeta,
   extractSeasonTitleFromAnimeName,
-  type AnimeMeta,
 } from './mapping/hayami-client';
 import { inferCourRelativeEpisode, inferPlannedCountEpisode, inferPreviousEpisodeCountEpisode } from './mapping/episode-numbering';
 
@@ -91,10 +89,8 @@ export {
   extractEpisodeTableFromRedditSelftext,
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
-  fetchAnimeMeta,
   extractSeasonTitleFromAnimeName,
 };
-export type { AnimeMeta };
 
 // Re-export CR-specific helpers — only kept for the offline test/debug
 // surface; provider/site code should import from `./sites/*` directly.
@@ -257,12 +253,25 @@ export interface MapperFailoverOut {
   animeMeta?: { malId?: number | null; anilistId?: number | null } | null;
 }
 
+/**
+ * Internal options for `tryMapperFailover`. Non-Reddit consumers (Disqus,
+ * AniList, MAL) call this through `resolveAnimeIdentity`, which sets
+ * `skipRedditExtras` so we don't pay for Reddit-specific selftext fetches
+ * the caller would just throw away.
+ */
+export interface TryMapperFailoverInternalOpts {
+  /** Skip Reddit selftext episode-table extraction + post-match correction. */
+  skipRedditExtras?: boolean;
+}
+
 export async function tryMapperFailover(
   animeInfo: AnimeInfo,
   platform: 'reddit' = 'reddit',
   episodeOverride?: number | null,
   out?: MapperFailoverOut,
+  internalOpts?: TryMapperFailoverInternalOpts,
 ): Promise<string | null> {
+  const skipRedditExtras = internalOpts?.skipRedditExtras === true;
   try {
     log.log(' Starting failover process', { platform });
     log.log(' Mapper failover inputs:', {
@@ -409,9 +418,11 @@ export async function tryMapperFailover(
         anilistPreviousEpisodeCount?: number | null;
       } | undefined;
       
-      // For Reddit, extract episode table in parallel to inform Hayami about episode count
+      // For Reddit, extract episode table in parallel to inform Hayami about episode count.
+      // Identity-only callers (Disqus etc.) skip this — `window.location.href` would point at
+      // the streaming site, not a Reddit thread, so the fetch is wasted on those sites.
       let episodeTablePromise: Promise<{ tableMap: Map<number, string>; maxEpisode: number | null } | null> | null = null;
-      if (platform === 'reddit' && animeInfo?.animeName) {
+      if (platform === 'reddit' && !skipRedditExtras && animeInfo?.animeName) {
         // Start extraction early, but don't await yet
         const firstRedditUrl = window.location.href;
         episodeTablePromise = extractEpisodeTableFromRedditSelftext(firstRedditUrl, animeInfo.animeName);
@@ -809,7 +820,7 @@ export async function tryMapperFailover(
         out.animeMeta = meta;
       };
 
-      if (platform === 'reddit' && mapperUrl && episodeForKeys !== null) {
+      if (platform === 'reddit' && !skipRedditExtras && mapperUrl && episodeForKeys !== null) {
         const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeForKeys, animeInfo?.animeName);
         if (corrected && corrected !== mapperUrl) {
           recordNonCrResolved();

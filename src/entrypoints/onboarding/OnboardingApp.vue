@@ -4,7 +4,14 @@ import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import AccountManagement from '@/components/AccountManagement.vue';
 import ApiKeyInput from '@/components/ApiKeyInput.vue';
-import { imgchestApiKeyItem, malSyncEnabledItem, onboardingCompleteItem } from '@/config/storage';
+import {
+  imgchestApiKeyItem,
+  malSyncEnabledItem,
+  onboardingCompleteItem,
+  enabledBuiltinSitesItem,
+  BUILTIN_SITE_IDS,
+  type BuiltinSiteId,
+} from '@/config/storage';
 import { con } from '@/utils/logger';
 
 const log = con.m('Onboarding');
@@ -19,6 +26,42 @@ const bgLoaded = ref(false);
 const malSyncDetected = ref(false);
 const malSyncEnabled = ref(false);
 const malSyncToggling = ref(false);
+
+// Built-in sites toggle state
+type SiteOption = {
+  id: BuiltinSiteId;
+  label: string;
+};
+
+const builtinSiteOptions: SiteOption[] = [
+  { id: 'crunchyroll', label: 'Crunchyroll' },
+  { id: 'netflix', label: 'Netflix' },
+];
+
+const enabledSites = ref<BuiltinSiteId[]>([...BUILTIN_SITE_IDS]);
+const sitesSaving = ref(false);
+
+function isSiteEnabled(id: BuiltinSiteId): boolean {
+  return enabledSites.value.includes(id);
+}
+
+async function toggleSite(id: BuiltinSiteId) {
+  const previous = enabledSites.value;
+  const set = new Set(previous);
+  if (set.has(id)) set.delete(id);
+  else set.add(id);
+  const next = BUILTIN_SITE_IDS.filter((siteId) => set.has(siteId));
+  enabledSites.value = next;
+  sitesSaving.value = true;
+  try {
+    await enabledBuiltinSitesItem.setValue(next);
+  } catch (e) {
+    log.warn('Failed to save enabled built-in sites', e);
+    enabledSites.value = previous;
+  } finally {
+    sitesSaving.value = false;
+  }
+}
 
 // Image loading states for skeleton loaders
 const imageLoaded = ref<Record<string, boolean>>({});
@@ -71,6 +114,17 @@ onMounted(async () => {
     log.warn('Failed to load image host keys', e);
   }
 
+  try {
+    const storedSites = await enabledBuiltinSitesItem.getValue();
+    if (Array.isArray(storedSites)) {
+      enabledSites.value = storedSites.filter((id): id is BuiltinSiteId =>
+        (BUILTIN_SITE_IDS as readonly string[]).includes(id),
+      );
+    }
+  } catch (e) {
+    log.warn('Failed to load enabled built-in sites', e);
+  }
+
   // Detect MAL-Sync extension
   try {
     const response = await browser.runtime.sendMessage({ action: 'hayami_malsync_detect' });
@@ -110,6 +164,12 @@ const baseSteps: StepDef[] = [
     icon: '\uD83D\uDD10'
   },
   {
+    id: 'choose-sites',
+    title: 'Choose the sites you want enabled',
+    content: '**Site not listed?** Any site can support Hayami. Right-click any page and map it yourself through the [custom sites feature](https://docs.hayami.moe/custom-websites) \u2014 and once you\u2019ve mapped a site, you can publish that mapping to a shareable URL so others in the community can subscribe to your list and get weekly-synced updates. More on this in the next couple of steps.',
+    icon: '\uD83C\uDFAF'
+  },
+  {
     id: 'image-previews',
     title: 'Image previews',
     content: 'Add your ImageChest API key so image previews can work smoothly. This is required for image previews. Read on how to get an ImageChest API key [here](https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key).',
@@ -118,7 +178,7 @@ const baseSteps: StepDef[] = [
   {
     id: 'mapping-note',
     title: 'Note on mapping',
-    content: '**Hayami can get mappings wrong**. Server-side Hayami collates anime discussions; Hayami\u2019s mappings aren\u2019t perfect, and may sometimes get your series or episode number incorrectly. There\u2019s many reasons for this, but one example is S2E1 may be Episode 25 somewhere else.\n\n **The good news is you can manually set-once, and forget per-season this mapping yourself**. On all discussion platforms, you should (see a "?")(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-45.png) or ("Wrong anime?" text)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Screenshot2026-03-28175605.png) in the upper-portion of the discussion platform. After the dialog has launched, check if the shown anime name is correct, and (if not, click the "wrong anime" trigger)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-47.png), (search and select the right series)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-48.png). After, (select the episode your on)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-49.png). Your mapping should be saved for the rest of the season. \n\nFor further documentation on setting this up, see this section on the [getting started page](https://docs.hayami.moe/getting-started#some-things-you-definitely-need-to-know).',
+    content: '**Hayami can get mappings wrong**. Hayami\u2019s mappings aren\u2019t perfect, and may sometimes get your series or episode number incorrectly. There\u2019s many reasons for this, but one example is S2E1 may be Episode 25 somewhere else.\n\n **The good news is you can manually set-once, and forget per-season this mapping yourself**. On all discussion platforms, you should (see a "?")(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-45.png) or ("Wrong anime?" text)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Screenshot2026-03-28175605.png) in the upper-portion of the discussion platform. After the dialog has launched, check if the shown anime name is correct, and (if not, click the "wrong anime" trigger)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-47.png), (search and select the right series)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-48.png). After, (select the episode your on)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/image-49.png). Your mapping should be saved for the rest of the season. \n\nFor further documentation on setting this up, see this section on the [getting started page](https://docs.hayami.moe/getting-started#some-things-you-definitely-need-to-know).',
     icon: '\uD83E\uDDED'
   },
   {
@@ -216,16 +276,33 @@ async function persistMediaKeys() {
           <span v-else-if="currentStepDef.icon" class="step-icon-inline">{{ currentStepDef.icon }}</span>
           <h1 class="step-title">{{ currentStepDef.title }}</h1>
           <a
-            v-if="currentStepDef.id === 'image-previews' || currentStepDef.id === 'mapping-note' || currentStepDef.id === 'custom-sites' || currentStepDef.id === 'malsync'"
+            v-if="currentStepDef.id === 'image-previews' || currentStepDef.id === 'mapping-note' || currentStepDef.id === 'custom-sites' || currentStepDef.id === 'malsync' || currentStepDef.id === 'choose-sites'"
             class="step-title-info"
-            :href="currentStepDef.id === 'image-previews' ? 'https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key' : currentStepDef.id === 'mapping-note' ? 'https://docs.hayami.moe/getting-started#some-things-you-definitely-need-to-know' : currentStepDef.id === 'malsync' ? 'https://docs.hayami.moe/mal-sync' : 'https://docs.hayami.moe/custom-websites'"
+            :href="currentStepDef.id === 'image-previews' ? 'https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key' : currentStepDef.id === 'mapping-note' ? 'https://docs.hayami.moe/getting-started#some-things-you-definitely-need-to-know' : currentStepDef.id === 'malsync' ? 'https://docs.hayami.moe/mal-sync' : currentStepDef.id === 'choose-sites' ? 'https://docs.hayami.moe/getting-started' : 'https://docs.hayami.moe/custom-websites'"
             target="_blank"
             rel="noreferrer"
-            :aria-label="currentStepDef.id === 'image-previews' ? 'Open image preview docs' : currentStepDef.id === 'mapping-note' ? 'Open mapping note docs' : currentStepDef.id === 'malsync' ? 'Open MAL-Sync docs' : 'Open custom websites docs'"
+            :aria-label="currentStepDef.id === 'image-previews' ? 'Open image preview docs' : currentStepDef.id === 'mapping-note' ? 'Open mapping note docs' : currentStepDef.id === 'malsync' ? 'Open MAL-Sync docs' : currentStepDef.id === 'choose-sites' ? 'Open built-in sites docs' : 'Open custom websites docs'"
           >
             <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
         </div>
+        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-chip-row">
+          <button
+            v-for="site in builtinSiteOptions"
+            :key="site.id"
+            type="button"
+            role="switch"
+            :aria-checked="isSiteEnabled(site.id)"
+            :aria-label="`Toggle Hayami on ${site.label}`"
+            class="site-chip"
+            :class="{ 'site-chip--on': isSiteEnabled(site.id) }"
+            :disabled="sitesSaving"
+            @click="toggleSite(site.id)"
+          >
+            {{ site.label }}
+          </button>
+        </div>
+
         <p
           class="step-content"
           :class="{ 'step-content--connect-padding': currentStepDef.id === 'connect-accounts' }"
@@ -859,5 +936,52 @@ async function persistMediaKeys() {
   color: rgba(255, 255, 255, 0.5);
   margin: 0;
   padding-left: 4px;
+}
+
+/* Built-in sites step */
+.sites-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px 0;
+}
+
+.site-chip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.05s ease;
+}
+
+.site-chip:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.site-chip:active {
+  transform: scale(0.97);
+}
+
+.site-chip--on {
+  background: rgba(91, 168, 255, 0.55);
+  border-color: rgba(91, 168, 255, 0.75);
+  color: #ffffff;
+}
+
+.site-chip--on:hover {
+  background: rgba(91, 168, 255, 0.65);
+  border-color: rgba(91, 168, 255, 0.85);
+  color: #ffffff;
+}
+
+.site-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

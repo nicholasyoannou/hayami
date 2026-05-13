@@ -5,6 +5,9 @@
 import type { CommentProvider, ProviderContext } from '../types/data';
 import type { AnimeInfo } from '../types';
 import { safeClear } from '../utils/dom-helpers';
+import { getSeriesMapping, type SeriesMapping, type SeriesMappingPlatform } from '../storage/series-mapping';
+import { parseEpisodeFromTitle } from '../sites/shared';
+import { hasUserPickedOverride } from '../mapping/trust-policy';
 
 /**
  * Base interface for all comment providers
@@ -29,6 +32,27 @@ export interface ICommentProvider {
 }
 
 /**
+ * Bundle of common values every provider derives from `animeInfo` + saved
+ * mapping. Built by `BaseProvider.loadProviderContext` so the boilerplate
+ * (load mapping → apply override name → parse episode → apply offset) lives
+ * in one place instead of being re-implemented per provider.
+ */
+export interface ProviderResolutionContext {
+  /** The saved mapping for this provider, or null if none exists. */
+  mapping: SeriesMapping | null;
+  /** The anime name to use for downstream lookups (override > detected). */
+  resolvedAnimeName: string;
+  /** True iff the user explicitly picked the anime via "Wrong anime?". */
+  hasUserPickedOverride: boolean;
+  /** Episode number parsed from `animeInfo.episodeName`, pre-offset. Null when unparsable. */
+  rawEpisode: number | null;
+  /** Episode number after applying `mapping.episodeOffset` (when both raw and offset exist). */
+  mappedEpisode: number | null;
+  /** Offset applied to `rawEpisode` to produce `mappedEpisode`. Zero when no offset. */
+  episodeOffset: number;
+}
+
+/**
  * Base class for comment providers with common functionality
  */
 export abstract class BaseProvider implements ICommentProvider {
@@ -45,6 +69,41 @@ export abstract class BaseProvider implements ICommentProvider {
     if (!animeInfo) {
       throw new Error('Anime info is required but not available');
     }
+  }
+
+  /**
+   * Load the platform's saved mapping and derive the common values every
+   * provider needs: override anime name, raw/offset episode numbers, and the
+   * user-override flag. Each provider's `switchTo` should call this first
+   * and pass the result into its own resolution step.
+   *
+   * The platform key defaults to the provider's `name`. Providers that need
+   * to read a different platform's mapping (rare; only Disqus does this
+   * cross-platform today) can pass an explicit key.
+   */
+  protected async loadProviderContext(
+    animeInfo: AnimeInfo,
+    platform?: SeriesMappingPlatform,
+  ): Promise<ProviderResolutionContext> {
+    const platformKey: SeriesMappingPlatform = platform ?? (this.name as SeriesMappingPlatform);
+    const mapping = animeInfo.animeName
+      ? await getSeriesMapping(animeInfo.animeName, platformKey)
+      : null;
+    const overrideName = (mapping?.mapperAnimeName || '').trim();
+    const resolvedAnimeName = overrideName || animeInfo.animeName;
+    const rawEpisode = parseEpisodeFromTitle(animeInfo.episodeName || '');
+    const episodeOffset = Number.isFinite(mapping?.episodeOffset as number)
+      ? Number(mapping?.episodeOffset)
+      : 0;
+    const mappedEpisode = rawEpisode !== null ? rawEpisode + episodeOffset : null;
+    return {
+      mapping,
+      resolvedAnimeName,
+      hasUserPickedOverride: hasUserPickedOverride(mapping),
+      rawEpisode,
+      mappedEpisode,
+      episodeOffset,
+    };
   }
 
   /**

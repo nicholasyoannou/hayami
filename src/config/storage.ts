@@ -160,6 +160,17 @@ export const onboardingCompleteItem = storage.defineItem<boolean>(
   { fallback: false }
 );
 
+// Built-in sites Hayami injects on. Disabling a site keeps the content script
+// silent on its pages — the user can re-enable it any time from settings.
+// IDs match `SiteProviderDefinition.id` in `src/entrypoints/content/sites/*`.
+export const BUILTIN_SITE_IDS = ['crunchyroll', 'netflix'] as const;
+export type BuiltinSiteId = (typeof BUILTIN_SITE_IDS)[number];
+
+export const enabledBuiltinSitesItem = storage.defineItem<BuiltinSiteId[]>(
+  'sync:enabled_builtin_sites',
+  { fallback: [...BUILTIN_SITE_IDS] }
+);
+
 // Compact mode: hides avatars, tightens spacing, skips /about API calls
 export const redditCompactModeItem = storage.defineItem<boolean>(
   'local:reddit_compact_mode',

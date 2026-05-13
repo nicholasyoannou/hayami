@@ -11,7 +11,6 @@ import { escapeHtml } from '@/utils/html-utils';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { aniwaveAutoExpandAllItem, aniwaveAutoExpandDepthItem, aniwaveHideReplyContextItem } from '@/config/storage';
-import { getSeriesMapping } from '../storage/series-mapping';
 import { con } from '@/utils/logger';
 const log = con.m('Aniwave');
 
@@ -76,29 +75,28 @@ export class AniwaveProvider extends BaseProvider {
     this.validateAnimeInfo(context.animeInfo);
     const animeInfo = context.animeInfo;
     container.style.display = 'block';
-    const rawEpisode = extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeNumber || '';
 
     let mappedAnimeName = animeInfo.animeName;
-    let episodeNumber: string | number = rawEpisode;
+    // Default to the page's episode hints so a missing mapping doesn't strand us.
+    let episodeNumber: string | number =
+      extractEpisodeNumber(animeInfo.episodeName || '') || animeInfo.episodeNumber || '';
     let preferDub = false;
     let preferredSlug: string | null = null;
     this.apiIsDub = null;
 
     try {
-      const mapping = animeInfo?.animeName ? await getSeriesMapping(animeInfo.animeName, 'aniwave') : null;
-      const mapperAnimeName = (mapping?.mapperAnimeName || '').trim();
-      if (mapperAnimeName) {
-        mappedAnimeName = mapperAnimeName;
-      }
-      preferDub = mapping?.aniwaveIsDub === true;
-      const savedSlug = (mapping?.aniwaveSlug || '').trim();
+      const ctx = await this.loadProviderContext(animeInfo, 'aniwave');
+      mappedAnimeName = ctx.resolvedAnimeName;
+      preferDub = ctx.mapping?.aniwaveIsDub === true;
+      const savedSlug = (ctx.mapping?.aniwaveSlug || '').trim();
       preferredSlug = savedSlug || null;
-
-      const rawEpisodeNum = Number(rawEpisode);
-      const hasRawEpisode = Number.isFinite(rawEpisodeNum);
-      const hasOffset = Number.isFinite(mapping?.episodeOffset as number);
-      if (hasRawEpisode && hasOffset) {
-        episodeNumber = rawEpisodeNum + Number(mapping!.episodeOffset);
+      // Aniwave's episodeNumber stays string-or-number so the upstream API
+      // call can pass through manual labels; only swap when we have a real
+      // post-offset numeric value.
+      if (ctx.mappedEpisode !== null) {
+        episodeNumber = ctx.mappedEpisode;
+      } else if (ctx.rawEpisode !== null) {
+        episodeNumber = ctx.rawEpisode;
       }
     } catch (error) {
       log.warn('failed to read saved series mapping override', error);

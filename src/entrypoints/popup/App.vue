@@ -76,6 +76,9 @@ import {
   anilistWrongAnimeTitleFormatItem,
   verboseLoggingItem,
   siteMapperAdvancedModeItem,
+  enabledBuiltinSitesItem,
+  BUILTIN_SITE_IDS,
+  type BuiltinSiteId,
   MANUAL_OVERRIDES_RECENT_LIMIT,
   type ImgurFrontendOption,
   type ImgurOdsOption,
@@ -90,6 +93,7 @@ import imagePreviewsIcon from '@/assets/settingsScreen/imagePreviews.svg';
 import discussionPlatformsIcon from '@/assets/settingsScreen/discussionPlatforms.svg';
 import customSitesIcon from '@/assets/settingsScreen/customSites.svg';
 import komentoScriptIcon from '@/assets/settingsScreen/komentoscript.svg';
+import builtinSitesIcon from '@/assets/settingsScreen/builtinSites.svg';
 import infoIcon from '@/assets/settingsScreen/infoIcon.svg';
 import SettingField from './SettingField.vue';
 import HomeView from './HomeView.vue';
@@ -97,6 +101,7 @@ import ManageAccountsPanel from './ManageAccountsPanel.vue';
 import DiscussionPlatformsSettingsPanel from './DiscussionPlatformsSettingsPanel.vue';
 import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
+import BuiltinSitesSettingsPanel from './BuiltinSitesSettingsPanel.vue';
 import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
 import CustomSitesSyncSettingsPanel from './CustomSitesSyncSettingsPanel.vue';
 import PublishCustomSitesPanel from './PublishCustomSitesPanel.vue';
@@ -157,13 +162,13 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides' | 'clear-storage';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'builtin-sites' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides' | 'clear-storage';
 type SettingsNavItem = {
-  id: SettingCategoryId | 'discussion-platforms' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
+  id: SettingCategoryId | 'discussion-platforms' | 'builtin-sites' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
   label: string;
   description: string;
   icon: string;
-  kind: 'settings' | 'providers' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
+  kind: 'settings' | 'providers' | 'builtin-sites' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
 };
 type OptionEntry<T> = { value: T; label: string };
 
@@ -903,6 +908,13 @@ const settingsNavItems: SettingsNavItem[] = [
     kind: 'providers',
   },
   {
+    id: 'builtin-sites',
+    label: 'Built-in sites',
+    description: 'Choose which built-in sites (Crunchyroll, Netflix) Hayami runs on.',
+    icon: builtinSitesIcon,
+    kind: 'builtin-sites',
+  },
+  {
     id: 'custom-sites',
     label: 'Custom websites',
     description: 'Manage website mappings and where Hayami appears.',
@@ -1013,6 +1025,52 @@ const activeCategoryAdvancedSettings = computed(() =>
 );
 
 const malSyncInstalled = ref(false);
+
+const enabledBuiltinSites = ref<BuiltinSiteId[]>([...BUILTIN_SITE_IDS]);
+const savingBuiltinSites = ref(false);
+
+async function loadEnabledBuiltinSites() {
+  try {
+    const stored = await enabledBuiltinSitesItem.getValue();
+    if (Array.isArray(stored)) {
+      const filtered = stored.filter((id): id is BuiltinSiteId =>
+        (BUILTIN_SITE_IDS as readonly string[]).includes(id),
+      );
+      enabledBuiltinSites.value = filtered;
+    }
+  } catch (error) {
+    log.warn('Failed to load enabled built-in sites', error);
+  }
+}
+
+async function setBuiltinSiteEnabled(id: BuiltinSiteId, enabled: boolean) {
+  const previous = enabledBuiltinSites.value;
+  const nextSet = new Set(previous);
+  if (enabled) nextSet.add(id);
+  else nextSet.delete(id);
+  // Preserve canonical ordering so consumers don't have to sort.
+  const next = BUILTIN_SITE_IDS.filter((siteId) => nextSet.has(siteId));
+  enabledBuiltinSites.value = next;
+  savingBuiltinSites.value = true;
+  try {
+    await enabledBuiltinSitesItem.setValue(next);
+    showSuccess(enabled ? `${siteLabelFor(id)} enabled` : `${siteLabelFor(id)} disabled`);
+  } catch (error) {
+    log.error('Failed to save enabled built-in sites', error);
+    enabledBuiltinSites.value = previous;
+    showError('Failed to update site preference');
+  } finally {
+    savingBuiltinSites.value = false;
+  }
+}
+
+function siteLabelFor(id: BuiltinSiteId): string {
+  const map: Record<BuiltinSiteId, string> = {
+    crunchyroll: 'Crunchyroll',
+    netflix: 'Netflix',
+  };
+  return map[id];
+}
 
 const manualOverrides = ref<ManualOverrideSummary[]>([]);
 const isLoadingManualOverrides = ref(false);
@@ -1200,6 +1258,7 @@ onMounted(async () => {
     loadKomentoSyncStatus(),
     loadKomentoPendingPermissions(),
     loadCustomSitesSyncStatus(),
+    loadEnabledBuiltinSites(),
   ]);
   await customSitesPromise;
   await applyInitialRouteParams();
@@ -1228,6 +1287,9 @@ function selectSettingsNavItem(item: SettingsNavItem) {
   selectedSettingsCategory.value = item.id as SettingsNavItem['id'];
   if (item.kind === 'providers') {
     settingsScreen.value = 'providers';
+  } else if (item.kind === 'builtin-sites') {
+    settingsScreen.value = 'builtin-sites';
+    void loadEnabledBuiltinSites();
   } else if (item.kind === 'custom-sites') {
     settingsScreen.value = 'custom-sites';
   } else if (item.kind === 'komentoscript') {
@@ -1949,6 +2011,20 @@ function handleRemoveCustomSite(site: any) {
                     </div>
                   </div>
                 </div>
+              </template>
+
+              <template v-else-if="settingsScreen === 'builtin-sites'">
+                <BuiltinSitesSettingsPanel
+                  :back-icon="backIcon"
+                  :builtin-sites-icon="builtinSitesIcon"
+                  :is-large-layout="isLargeLayout"
+                  :enabled-ids="enabledBuiltinSites"
+                  :saving="savingBuiltinSites"
+                  :on-back="() => { settingsScreen = 'menu'; }"
+                  :on-toggle="setBuiltinSiteEnabled"
+                  :on-open-custom-sites="() => { selectedSettingsCategory = 'custom-sites'; settingsScreen = 'custom-sites'; }"
+                  :on-open-komento-script="() => { selectedSettingsCategory = 'komentoscript'; settingsScreen = 'komentoscript'; }"
+                />
               </template>
 
               <template v-else-if="settingsScreen === 'custom-sites'">
