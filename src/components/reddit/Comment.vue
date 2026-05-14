@@ -1,7 +1,9 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditComment' });
+
 import { ref, computed, inject, onMounted, onUnmounted, onUpdated, nextTick, watch, type Ref } from 'vue';
 import { voteThing, saveThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/reddit/api';
-import RedditUserHoverCard from './RedditUserHoverCard.vue';
+import RedditUserHoverCard from './UserHoverCard.vue';
 import { markdownToHtml, processRedditBodyHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';

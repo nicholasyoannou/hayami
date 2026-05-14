@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditSelectionPanel' });
+
 import { escapeHtml } from '@/utils/html-utils';
 
 export interface RedditPost {

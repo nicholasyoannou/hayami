@@ -1,7 +1,9 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditCommentList' });
+
 import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
-import RedditComment from './RedditComment.vue';
+import RedditComment from './Comment.vue';
 import { getPostComments, getMoreChildren, getSubredditModeratorSet, voteThing, saveThing, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/reddit/api';
 import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem, redditProfileHoverCardItem, redditAutoExpandAllItem } from '@/config/storage';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';

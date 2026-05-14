@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditAuthPrompt' });
+
 const emit = defineEmits<{
   close: [];
   login: [];

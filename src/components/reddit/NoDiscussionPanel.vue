@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditNoDiscussionPanel' });
+
 import { escapeHtml } from '@/utils/html-utils';
 
 const props = defineProps<{

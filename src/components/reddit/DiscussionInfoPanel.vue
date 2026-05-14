@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditDiscussionInfoPanel' });
+
 import { escapeHtml } from '@/utils/html-utils';
 
 export interface RedditPost {

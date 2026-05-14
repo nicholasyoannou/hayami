@@ -12,10 +12,10 @@ import { resolveAdapter } from '../sites/registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper/site-mapper-utils';
 import type { AnimeInfo } from '../types';
-import RedditDiscussionInfoPanel from '@/components/reddit/RedditDiscussionInfoPanel.vue';
-import RedditManualSearchPanel from '@/components/reddit/RedditManualSearchPanel.vue';
-import RedditNoDiscussionPanel from '@/components/reddit/RedditNoDiscussionPanel.vue';
-import RedditSelectionPanel, { type RedditPost } from '@/components/reddit/RedditSelectionPanel.vue';
+import RedditDiscussionInfoPanel from '@/components/reddit/DiscussionInfoPanel.vue';
+import RedditManualSearchPanel from '@/components/reddit/ManualSearchPanel.vue';
+import RedditNoDiscussionPanel from '@/components/reddit/NoDiscussionPanel.vue';
+import RedditSelectionPanel, { type RedditPost } from '@/components/reddit/SelectionPanel.vue';
 import { con } from '@/utils/logger';
 const log = con.m('SelectionUI');
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditUserHoverCard' });
+
 import { ref, onMounted, computed } from 'vue';
 import { getUserProfile, type RedditUserProfile } from '@/utils/reddit/api';
 import { redditLinkDomainItem } from '@/config/storage';

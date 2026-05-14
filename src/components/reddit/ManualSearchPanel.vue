@@ -1,7 +1,9 @@
 <script setup lang="ts">
+defineOptions({ name: 'RedditManualSearchPanel' });
+
 import { ref, watch, onMounted } from 'vue';
 import { con } from '@/utils/logger';
-import type { RedditPost } from './RedditSelectionPanel.vue';
+import type { RedditPost } from './SelectionPanel.vue';
 
 const log = con.m('Reddit');
 
