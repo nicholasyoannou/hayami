@@ -3,7 +3,7 @@
  */
 
 import type { CommentProvider, ProviderContext } from '../types/data';
-import { DisqusProvider } from './disqus-provider';
+import { DisqusProvider } from './disqus/provider';
 import { RedditProvider } from '@/entrypoints/content/providers/reddit/provider';
 import { YouTubeProvider } from './youtube/provider';
 import { MalProvider } from './mal/provider';

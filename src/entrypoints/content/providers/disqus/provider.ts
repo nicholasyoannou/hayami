@@ -8,31 +8,31 @@
  * we own the data now, so we just ask our own site.
  */
 
-import { BaseProvider } from './base-provider';
-import type { CommentProvider, ProviderContext, DisqusThread } from '../types/data';
-import type { AnimeInfo } from '../types';
+import { BaseProvider } from '../base-provider';
+import type { CommentProvider, ProviderContext, DisqusThread } from '@/entrypoints/content/types/data';
+import type { AnimeInfo } from '@/entrypoints/content/types';
 import { findEpisodeThread } from '@/utils/discussanimeApi';
-import { renderDisqusContainer } from '../templates';
+import { renderDisqusContainer } from '@/entrypoints/content/templates';
 import {
   CONTAINER_RETRY_ATTEMPTS,
   CONTAINER_RETRY_DELAY_MS,
   DISQUS_FORUM_SHORTNAME,
   ASSETS,
   SELECTORS
-} from '../constants';
-import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
-import { handleProviderError } from '../utils/error-handler';
+} from '@/entrypoints/content/constants';
+import { removeScripts, removeIframes, safeClear } from '@/entrypoints/content/utils/dom-helpers';
+import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
 import {
   parseEpisodeFromTitle,
   getLastResolvedHayamiName,
-} from '../mapping';
-import { resolveAnimeIdentity } from '../mapping/identity-resolver';
-import { getSavedIds } from '../mapping/trust-policy';
-import { applyMapperEntryIdsToAnimeInfo } from '../mapping/apply-ids';
-import { dispatchManualSearchRequest } from './manual-search';
+} from '@/entrypoints/content/mapping';
+import { resolveAnimeIdentity } from '@/entrypoints/content/mapping/identity-resolver';
+import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
+import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
+import { dispatchManualSearchRequest } from '../manual-search';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { linkOnlyModeItem } from '@/config/storage';
-import { getCustomEpisodeListOffset } from '../ui/site-mapper/site-mapper-utils';
+import { getCustomEpisodeListOffset } from '@/entrypoints/content/ui/site-mapper/site-mapper-utils';
 import { con } from '@/utils/logger';
 const log = con.m('Disqus');
 

@@ -4,4 +4,4 @@
 
 export * from '@/entrypoints/content/templates/reddit';
 export * from './youtube';
-export * from './disqus-templates';
+export * from './disqus';

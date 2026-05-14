@@ -37,7 +37,7 @@ import {
   activateRedditOnDemand,
   runRedditSearchPipeline,
 } from '@/entrypoints/content/providers/reddit/discussion';
-import { DisqusProvider } from '../providers/disqus-provider';
+import { DisqusProvider } from '../providers/disqus/provider';
 
 // Template renderers
 // UI utilities
