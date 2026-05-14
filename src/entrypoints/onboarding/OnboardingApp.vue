@@ -205,7 +205,7 @@ const baseSteps: StepDef[] = [
   {
     id: 'custom-sites',
     title: 'Custom sites',
-    content: 'Any site can support Hayami through the [custom sites feature](https://docs.hayami.moe/custom-websites). The custom site mapper allows anyone, without requiring coding knowledge, to click and select elements on-page, practically enabling any site to support Hayami out-the-box. Map your favourite sites, publish your list to a shareable URL, or subscribe to lists others have published to get weekly-synced community configurations.\n\n**Make your own listing**: To add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/customMappingHayami.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page.\n\n**Sync to others**: You can sync custom websites from a third-party URL that updates weekly — useful for picking up community-maintained mappings without configuring each site yourself. Once you\'ve made your own mappings, you can also publish them to a shareable URL so others can subscribe to your list. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites#how-to-sync-with-custom-website-mappings).',
+    content: 'Any site can support Hayami through the [custom sites feature](https://docs.hayami.moe/custom-websites). The custom site mapper allows anyone, without requiring coding knowledge, to click and select elements on-page, practically enabling any site to support Hayami out-the-box. Map your favourite sites, publish your list to a shareable URL, or subscribe to lists others have published to get weekly-synced community configurations.\n\n**Make your own listing**: To add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/mapsitetohayami_showcase-ezgif.com-optimize-2.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page.\n\n**Sync to others**: You can sync custom websites from a third-party URL that updates weekly — useful for picking up community-maintained mappings without configuring each site yourself. Once you\'ve made your own mappings, you can also publish them to a shareable URL so others can subscribe to your list. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites#how-to-sync-with-custom-website-mappings).',
     icon: '\uD83C\uDF10'
   },
   {
@@ -1017,14 +1017,14 @@ async function persistMediaKeys() {
 }
 
 .site-chip--active {
-  background: #5ba8ff;
-  border-color: #5ba8ff;
+  background: rgba(91, 168, 255, 0.5);
+  border-color: rgba(91, 168, 255, 0.8);
   color: #fff;
 }
 
 .site-chip--active:hover:not(:disabled) {
-  background: #4d99f0;
-  border-color: #4d99f0;
+  background: rgba(91, 168, 255, 0.65);
+  border-color: rgba(91, 168, 255, 0.95);
   color: #fff;
 }
 
