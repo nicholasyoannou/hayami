@@ -31,6 +31,7 @@ const ANIME_GENRE_IDS = [
   3073,
   3095,
 ];
+const ANIME_GENRE_ID_SET = new Set<number>(ANIME_GENRE_IDS);
 
 export interface NetflixContext {
   videoId: string;
@@ -219,7 +220,7 @@ async function inferIsAnime(video: any, titleId: string | null): Promise<boolean
     null;
 
   if (Array.isArray(genreCandidates)) {
-    const matched = genreCandidates.some((g) => ANIME_GENRE_IDS.includes(Number(g)));
+    const matched = genreCandidates.some((g) => ANIME_GENRE_ID_SET.has(Number(g)));
     return matched;
   }
 
@@ -233,7 +234,7 @@ async function inferIsAnime(video: any, titleId: string | null): Promise<boolean
       try {
         const genresArray = JSON.parse(`[${match[1]}]`);
         if (Array.isArray(genresArray)) {
-          return genresArray.some((g: any) => ANIME_GENRE_IDS.includes(Number((g as any)?.id ?? g)));
+          return genresArray.some((g: any) => ANIME_GENRE_ID_SET.has(Number((g as any)?.id ?? g)));
         }
       } catch {
         return null;

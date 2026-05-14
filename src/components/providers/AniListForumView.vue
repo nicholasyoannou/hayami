@@ -563,7 +563,7 @@ watch(() => props.result.comments, (newComments) => {
   if (Array.isArray(newComments)) {
     comments.value = newComments;
   }
-}, { deep: true });
+});
 
 watch(() => props.result.pageInfo, (newInfo) => {
   pageInfo.value = newInfo ?? { nextPage: null, hasNextPage: false };

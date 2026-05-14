@@ -1160,11 +1160,11 @@ watch(
 );
 
 watch(
-  () => props.discussion,
-  (d) => {
-    log.log('discussion prop changed:', { id: d.id, fullname: d.fullname, title: d.title });
+  [() => props.discussion.id, () => props.discussion.fullname, () => props.discussion.title],
+  ([id, fullname, title]) => {
+    log.log('discussion prop changed:', { id, fullname, title });
   },
-  { deep: true, immediate: true }
+  { immediate: true }
 );
 
 // Trigger providerHook.changeProvider for non-Reddit defaults on startup

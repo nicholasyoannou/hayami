@@ -30,13 +30,13 @@ const thumbUFIconUrl = getRuntimeUrl('assets/commentAssets/youtube/thumbUF.svg')
 const dislikeUFIconUrl = getRuntimeUrl('assets/commentAssets/youtube/dislikeUnfilled.svg');
 const expandIconUrl = getRuntimeUrl('assets/commentAssets/youtube/expand.svg');
 
-// Watch for external reply updates
+// Watch for external reply updates. Replies are replaced wholesale by parent — no deep watch needed.
 watch(() => props.comment.replies, (newReplies) => {
   if (newReplies) {
     localReplies.value = newReplies;
     newReplies.forEach(reply => renderedReplyIds.value.add(reply.id));
   }
-}, { deep: true });
+});
 
 // Initialize rendered reply IDs
 if (props.comment.replies) {

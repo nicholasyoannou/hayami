@@ -11,6 +11,7 @@ import {
   type CustomSitesSyncSource,
   type CustomSitesSyncState,
 } from '@/config/storage';
+import { fetchWithTimeout } from '@/utils/fetchWithTimeout';
 
 export const CUSTOM_SITES_SYNC_WEEKLY_ALARM = 'hayami-custom-sites-weekly-sync';
 const WEEKLY_MINUTES = 60 * 24 * 7;
@@ -126,7 +127,7 @@ export async function syncCustomSitesSources(reason: string = 'manual'): Promise
         headers['If-None-Match'] = previousEtag;
       }
 
-      const response = await fetch(source.url, { method: 'GET', headers });
+      const response = await fetchWithTimeout(source.url, { method: 'GET', headers });
 
       if (response.status === 304) {
         const retained = existingCached.filter((entry) => entry.sourceId === source.id);

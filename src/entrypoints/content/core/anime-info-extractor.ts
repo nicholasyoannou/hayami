@@ -124,40 +124,31 @@ export function observeAnimeInfoOnce(
     await tryDetectAndEmit();
   });
 
-  // Optimize: Observe only the specific container instead of entire document.body
-  // This reduces performance impact significantly
-  const targetContainer = document.querySelector('.erc-watch-episode-layout') || document.body;
-  
-  // If we found the specific container, observe only that (more efficient)
-  // Otherwise fall back to body but with narrower scope
-  if (targetContainer !== document.body) {
-    observer.observe(targetContainer, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      characterData: true,
-      attributeFilter: ['class', 'data-testid', 'data-test', 'content']
-    });
-  } else {
-    // Fallback: observe body but try to narrow scope
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      characterData: true,
-      attributeFilter: ['class', 'data-testid', 'data-test', 'content']
-    });
-  }
-  
+  const episodeLayout = document.querySelector('.erc-watch-episode-layout');
+  const targetContainer = episodeLayout || document.body;
+  const scopedToLayout = targetContainer !== document.body;
+
+  // We only need to be re-probed when nodes are added/removed or relevant test-id/class attributes change.
+  // characterData (text content) changes don't influence the selectors we run, so omit it to cut callback volume.
+  observer.observe(targetContainer, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ['class', 'data-testid', 'data-test'],
+  });
+
   setActiveObserver(observer);
 
   // Immediate probe catches pages where content already rendered before observation starts.
   void tryDetectAndEmit();
 
-  // Periodic fallback for SPA flows where selectors become valid without meaningful DOM mutations.
+  // Polling fallback for SPA flows where selectors become valid without meaningful mutations
+  // inside our observed subtree (e.g. the layout container itself getting swapped out).
+  // When scoped to the episode layout, slow the cadence — we expect the observer to handle the common case.
+  const pollIntervalMs = scopedToLayout ? 1500 : 500;
   pollIntervalId = window.setInterval(() => {
     void tryDetectAndEmit();
-  }, 500);
+  }, pollIntervalMs);
 
   // Safety timeout to avoid keeping observers alive indefinitely on unsupported/failed pages.
   hardTimeoutId = window.setTimeout(() => {

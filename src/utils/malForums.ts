@@ -5,6 +5,7 @@
  */
 
 import { getMALAccessToken } from './malAuth';
+import { fetchWithTimeout } from './fetchWithTimeout';
 import { con } from '@/utils/logger';
 
 const log = con.m('MALForums');
@@ -59,7 +60,7 @@ export async function fetchJikanForumTopics(malId: number, episode?: number): Pr
     const url = `https://api.jikan.moe/v4/anime/${malId}/forum`;
     // Try direct first; if CORS, fall back to proxyFetch without auth
     const tryDirect = async () => {
-      const resp = await fetch(url, { method: 'GET' });
+      const resp = await fetchWithTimeout(url, { method: 'GET' });
       if (!resp.ok) {
         return { ok: false, status: resp.status, body: await resp.text() };
       }
@@ -204,7 +205,7 @@ async function fetchTextWithProxy(url: string): Promise<{ ok: boolean; status: n
   }
 
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithTimeout(url, {
       method: 'GET',
       headers: {
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -322,7 +323,7 @@ async function fetchJsonWithProxy(url: string, token: string): Promise<{ ok: boo
   }
   // Fallback to direct fetch (may hit CORS if proxy is unavailable)
   try {
-    const resp = await fetch(url, {
+    const resp = await fetchWithTimeout(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -376,7 +377,7 @@ export async function searchJikanAnimeId(animeName: string): Promise<number | nu
     let data: any = null;
     // Try direct fetch first
     try {
-      const resp = await fetch(url.toString(), { method: 'GET' });
+      const resp = await fetchWithTimeout(url.toString(), { method: 'GET' });
       if (resp.ok) {
         data = await resp.json();
       }

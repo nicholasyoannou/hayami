@@ -262,9 +262,36 @@ export async function getMoreChildren(
 }
 
 /**
+ * Insertion-order LRU. Evicts the oldest entry once size exceeds `max`.
+ * Bounds long-lived caches in service workers / SPA sessions.
+ */
+class BoundedMap<K, V> {
+  private map = new Map<K, V>();
+  constructor(private readonly max: number) {}
+  has(k: K): boolean { return this.map.has(k); }
+  get(k: K): V | undefined {
+    if (!this.map.has(k)) return undefined;
+    const v = this.map.get(k)!;
+    this.map.delete(k);
+    this.map.set(k, v);
+    return v;
+  }
+  set(k: K, v: V): void {
+    if (this.map.has(k)) this.map.delete(k);
+    this.map.set(k, v);
+    while (this.map.size > this.max) {
+      const oldest = this.map.keys().next().value;
+      if (oldest === undefined) break;
+      this.map.delete(oldest);
+    }
+  }
+  delete(k: K): void { this.map.delete(k); }
+}
+
+/**
  * Fetch a user's avatar (snoovatar or icon image)
  */
-const userAvatarCache = new Map<string, string | null>();
+const userAvatarCache = new BoundedMap<string, string | null>(1000);
 const userAvatarInflight = new Map<string, Promise<string | null>>();
 
 export async function getUserAvatar(username: string): Promise<string | null> {
@@ -360,7 +387,7 @@ export interface RedditUserProfile {
   createdUtc: number;
 }
 
-const userProfileCache = new Map<string, RedditUserProfile | null>();
+const userProfileCache = new BoundedMap<string, RedditUserProfile | null>(500);
 const userProfileInflight = new Map<string, Promise<RedditUserProfile | null>>();
 
 /**

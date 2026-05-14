@@ -140,12 +140,12 @@ function resolveSubreddit(): string | null {
   return match?.[1] || null;
 }
 
-// Watch for external reply updates
+// Watch for external reply updates. Reference watch is enough — replies array is replaced wholesale by parent.
 watch(() => props.comment.replies, (newReplies) => {
   if (newReplies) {
     localReplies.value = newReplies;
   }
-}, { deep: true });
+});
 
 watch(() => props.comment.body, (b) => { localBody.value = b; });
 watch(() => props.comment.body_html, (h) => { localBodyHtml.value = h || ''; });
@@ -156,18 +156,6 @@ const isReplyAuthBlocked = computed(() => props.isRedditConnected === false);
 const isHighlighted = computed(() => props.highlightIds?.has(props.comment.id) ?? false);
 const hasMoreChildren = computed(() => (props.comment.moreChildrenIds?.length || 0) > 0);
 const remainingChildrenCount = computed(() => props.comment.moreCount || props.comment.moreChildrenIds?.length || 0);
-
-// Watch for changes to moreChildrenIds to debug
-watch(() => props.comment.moreChildrenIds, (newIds, oldIds) => {
-  if (newIds && newIds.length > 0) {
-    log.debug('moreChildrenIds changed for comment', props.comment.id, ':', oldIds, '->', newIds);
-  }
-}, { deep: true });
-
-// Watch hasMoreChildren computed
-watch(hasMoreChildren, (newVal) => {
-  log.debug('hasMoreChildren changed for comment', props.comment.id, ':', newVal);
-});
 const loadingMoreChildren = ref(false);
 
 const awardsCount = computed(() => {

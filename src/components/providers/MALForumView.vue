@@ -116,12 +116,12 @@ watch(sentinelRef, (el) => {
   }
 });
 
-// Watch for external updates
+// Watch for external updates. Posts array is replaced wholesale — no deep watch needed.
 watch(() => props.result.posts, (newPosts) => {
   if (Array.isArray(newPosts)) {
     posts.value = newPosts;
   }
-}, { deep: true });
+});
 
 watch(() => props.result.nextPageUrl, (newUrl) => {
   nextPageUrl.value = newUrl ?? null;
