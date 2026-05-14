@@ -4,7 +4,7 @@ import {
   fetchCrunchyrollSeasons,
   getCrunchyrollAccessToken,
 } from '../net/crunchyroll-client';
-import { DetectedContext, PlacementTargets, SiteAdapter, SiteDeepMappingContext, SiteEpisodeMetadata, SiteSeriesHints } from '../adapters/types';
+import { DetectedContext, PlacementTargets, SiteAdapter, SiteDeepMappingContext, SiteEpisodeMetadata, SiteSeriesHints } from './types';
 import type { SiteProviderDefinition } from './provider-definition';
 import { buildLocationMatcher } from './provider-definition';
 import { con } from '@/utils/logger';

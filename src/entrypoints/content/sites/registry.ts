@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser';
 import type { AnimeInfo } from '../types';
-import type { SiteAdapter } from '../adapters/types';
+import type { SiteAdapter } from './types';
 import {
   crunchyrollSiteDefinition,
 } from './crunchyroll';
@@ -88,4 +88,23 @@ export function getAdapters(): SiteAdapter[] {
 
 export function findAdapter(location: Location = window.location): SiteAdapter | null {
   return siteDefinitions.find((def) => isDefinitionEnabled(def) && definitionMatchesLocation(def.definition, location))?.adapter ?? null;
+}
+
+const extraAdapters: SiteAdapter[] = [];
+
+export function resolveAdapter(location: Location = window.location): SiteAdapter | null {
+  const registryAdapter = findAdapter(location);
+  if (registryAdapter) return registryAdapter;
+  return extraAdapters.find((adapter) => adapter.matches(location)) || null;
+}
+
+export function getRegisteredAdapters(): SiteAdapter[] {
+  return [...getAdapters(), ...extraAdapters];
+}
+
+export function registerAdapter(adapter: SiteAdapter): void {
+  const exists = getAdapters().some((a) => a.id === adapter.id) || extraAdapters.some((a) => a.id === adapter.id);
+  if (!exists) {
+    extraAdapters.push(adapter);
+  }
 }

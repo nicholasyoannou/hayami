@@ -5,7 +5,7 @@ import {
   MANUAL_OVERRIDES_RECENT_LIMIT,
   type ManualOverrideRecentEntry,
 } from '@/config/storage';
-import { resolveAdapter } from '../adapters/site-registry';
+import { resolveAdapter } from '../sites/registry';
 import { con } from '@/utils/logger';
 const log = con.m('SeriesMapping');
 

@@ -1,6 +1,6 @@
 import { browser } from 'wxt/browser'
 import type { ContentScriptContext } from 'wxt/utils/content-scripts-context'
-import type { DetectedContext, SiteAdapter, SiteEpisodeMetadata } from '@/entrypoints/content/adapters/types'
+import type { DetectedContext, SiteAdapter, SiteEpisodeMetadata } from '@/entrypoints/content/sites/types'
 import { ensureToaster } from '@/entrypoints/content/core/bootstrap'
 import { setContentScriptContext } from '@/entrypoints/content/core/content-script-context'
 import { displayDiscussionDependingOnMode } from '@/entrypoints/content/core/discussion-manager'

@@ -9,7 +9,7 @@ import { createApp, reactive, h } from 'vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping, markPopupInteractionLock } from '../ui/site-mapper/site-mapper-utils';
-import { resolveAdapter } from '../adapters/site-registry';
+import { resolveAdapter } from '../sites/registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { injectExtensionStyles, getComponentCss, waitForComponentCss } from '../utils/style-injection';
 import { getContentScriptContext } from './content-script-context';

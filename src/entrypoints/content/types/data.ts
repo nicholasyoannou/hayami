@@ -2,7 +2,14 @@
  * Type definitions for all data structures used in the extension
  */
 
-import type { AnimeInfo } from '../types';
+export type AnimeInfo = {
+  animeName: string;
+  episodeName: string;
+  releaseDate?: string;
+  malId?: number | null;
+  anilistId?: number | null;
+  hayamiDocId?: string | null;
+};
 
 // ==================== Reddit Types ====================
 
@@ -446,5 +453,3 @@ export interface CrunchyrollSeasonsResponse {
   data?: CrunchyrollSeason[];
 }
 
-// Re-export AnimeInfo for convenience
-export type { AnimeInfo };

@@ -8,7 +8,7 @@ import { getUiManager } from '../core/ui-manager';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping, getSeriesMapping, deleteSeriesMapping } from '../mapping';
 import { getState } from '../state';
-import { resolveAdapter } from '../adapters/site-registry';
+import { resolveAdapter } from '../sites/registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper/site-mapper-utils';
 import type { AnimeInfo } from '../types';

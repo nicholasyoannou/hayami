@@ -20,7 +20,7 @@ import type {
   MapperMatchedMeta,
   CrunchyrollSeason,
 } from '../types/data';
-import type { SiteDeepMappingContext } from '../adapters/types';
+import type { SiteDeepMappingContext } from './types';
 import {
   pickMalSyncIds,
   recordLastResolvedHayamiName,

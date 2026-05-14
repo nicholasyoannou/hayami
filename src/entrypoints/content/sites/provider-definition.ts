@@ -1,5 +1,5 @@
 import type { AnimeInfo } from '../types';
-import type { SiteAdapter } from '../adapters/types';
+import type { SiteAdapter } from './types';
 
 export type UrlMatchPattern = string | RegExp | ((location: Location) => boolean);
 

@@ -13,7 +13,7 @@
  */
 
 import { con } from '@/utils/logger';
-import { AnimeInfo } from './types';
+import { AnimeInfo } from '../types';
 import { browser } from 'wxt/browser';
 import { malSyncEnabledItem } from '@/config/storage';
 import type { MalSyncPresence, MalSyncDomResult } from '@/utils/malSync';
@@ -21,7 +21,7 @@ import { observeMalSyncDom } from '@/utils/malSync';
 import type {
   MapperResponse,
   MapperResultEntry,
-} from './types/data';
+} from '../types/data';
 
 const log = con.m('Mapper');
 import {
@@ -34,20 +34,20 @@ import {
   pickPreferredSameYear,
   buildMapperSlicesForCrSeasons,
   findSliceEpisodeMatch,
-} from './sites/shared';
+} from '../sites/shared';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
-import { resolveAdapter } from './adapters/site-registry';
-import { getCustomEpisodeListOffset } from './ui/site-mapper/site-mapper-utils';
+import { resolveAdapter } from '../sites/registry';
+import { getCustomEpisodeListOffset } from '../ui/site-mapper/site-mapper-utils';
 
 // CR-specific helpers — re-exported here for backward compatibility with the
 // `__mappingTest` debug surface (`scripts/mapping-test.ts`). The implementations
 // live under `sites/` since they only run inside the CR deep-mapping pipeline.
-import { refineMatchedIndexUsingCrunchyrollData } from './sites/crunchyroll-refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './sites/crunchyroll-episode-mapper';
+import { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll-refiner';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll-episode-mapper';
 
-export { SERIES_MAPPING_KEY } from './mapping-keys';
-export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from './storage/series-mapping';
-import { cacheAnimeIds } from './storage/series-mapping';
+export { SERIES_MAPPING_KEY } from '../mapping-keys';
+export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from '../storage/series-mapping';
+import { cacheAnimeIds } from '../storage/series-mapping';
 export {
   parseEpisodeFromTitle,
   parseMapperYear,
@@ -58,31 +58,31 @@ export {
   pickPreferredSameYear,
   buildMapperSlicesForCrSeasons,
   findSliceEpisodeMatch,
-} from './sites/shared';
-export type { DetectedContext, SiteAdapter, SiteEpisodeMetadata, PlacementTargets, PlacementTarget } from './adapters/types';
-export { resolveAdapter, getRegisteredAdapters, registerAdapter } from './adapters/site-registry';
+} from '../sites/shared';
+export type { DetectedContext, SiteAdapter, SiteEpisodeMetadata, PlacementTargets, PlacementTarget } from '../sites/types';
+export { resolveAdapter, getRegisteredAdapters, registerAdapter } from '../sites/registry';
 
 // Extracted submodules — import for internal use and re-export for consumers
-import { extractEpisodeNumberFromUrlHints } from './mapping/url-parsing';
+import { extractEpisodeNumberFromUrlHints } from './url-parsing';
 // `extractEpisodeIdFromUrl` is CR-only by necessity (hardcodes the CR
 // hostname/URL shape), so it lives with the CR adapter; import it from
 // there to feed the still-CR-coupled deep-mapping path below.
-import { extractEpisodeIdFromUrl } from './sites/crunchyroll';
+import { extractEpisodeIdFromUrl } from '../sites/crunchyroll';
 // CR's deep mapping pipeline is now extracted to its own file (Phase C).
 // `tryMapperFailover` delegates to it once the adapter has produced a
 // `SiteDeepMappingContext`; the orchestrator no longer carries CR-shaped
 // per-season + per-episode mapping logic.
-import { runCrunchyrollDeepPipeline } from './sites/crunchyroll-pipeline';
+import { runCrunchyrollDeepPipeline } from '../sites/crunchyroll-pipeline';
 import {
   extractEpisodeTableFromRedditSelftext,
   maybeCorrectRedditEpisodeViaSelftext,
-} from './mapping/reddit-selftext';
+} from './reddit-selftext';
 import {
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
   extractSeasonTitleFromAnimeName,
-} from './mapping/hayami-client';
-import { inferCourRelativeEpisode, inferPlannedCountEpisode, inferPreviousEpisodeCountEpisode } from './mapping/episode-numbering';
+} from './hayami-client';
+import { inferCourRelativeEpisode, inferPlannedCountEpisode, inferPreviousEpisodeCountEpisode } from './episode-numbering';
 
 export {
   extractEpisodeNumberFromUrlHints,
@@ -94,8 +94,8 @@ export {
 
 // Re-export CR-specific helpers — only kept for the offline test/debug
 // surface; provider/site code should import from `./sites/*` directly.
-export { refineMatchedIndexUsingCrunchyrollData } from './sites/crunchyroll-refiner';
-export { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './sites/crunchyroll-episode-mapper';
+export { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll-refiner';
+export { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll-episode-mapper';
 
 export function resolveCurrentAdapter(location: Location = window.location) {
   return resolveAdapter(location);
