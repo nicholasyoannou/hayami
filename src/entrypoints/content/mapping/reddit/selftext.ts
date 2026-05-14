@@ -5,9 +5,9 @@
  * Caches responses by post ID for performance.
  */
 
-import { extensionFetch } from '@/platforms/reddit/api';
-import { getAccessToken, makeRedditRequest } from '@/platforms/reddit/auth';
-import { extractRedditPostId } from '@/platforms/reddit/runtime';
+import { extensionFetch } from '@/utils/reddit/api';
+import { getAccessToken, makeRedditRequest } from '@/utils/reddit/auth';
+import { extractRedditPostId } from '@/entrypoints/content/providers/reddit/runtime';
 import { con } from '@/utils/logger';
 
 const log = con.m('MapperSelftext');

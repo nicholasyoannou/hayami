@@ -76,7 +76,7 @@ import { runCrunchyrollDeepPipeline } from '../sites/crunchyroll/pipeline';
 import {
   extractEpisodeTableFromRedditSelftext,
   correctRedditEpisodeViaSelftext,
-} from '@/platforms/reddit/mapping/selftext';
+} from '@/entrypoints/content/mapping/reddit/selftext';
 import {
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,

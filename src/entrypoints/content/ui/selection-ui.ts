@@ -3,7 +3,7 @@
  */
 
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { searchCustomPosts } from '@/platforms/reddit/api';
+import { searchCustomPosts } from '@/utils/reddit/api';
 import { getUiManager } from '../core/ui-manager';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping, getSeriesMapping, deleteSeriesMapping } from '../mapping';

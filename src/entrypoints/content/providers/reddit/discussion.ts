@@ -27,11 +27,11 @@ import {
   type MapperFailoverOut,
 } from '@/entrypoints/content/mapping';
 import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
-import { collectRedditAlternateThreads } from './mapping/alternates';
+import { collectRedditAlternateThreads } from '@/entrypoints/content/mapping/reddit/alternates';
 import {
   resolveRedditUrlFromMapperResults,
   resolveRedditUrlForMovieEntry,
-} from './mapping/url-resolver';
+} from '@/entrypoints/content/mapping/reddit/url-resolver';
 import { findExactDateMatch } from '@/entrypoints/content/utils/date-utils';
 import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
 import { redditMultiSubredditItem } from '@/config/storage';
@@ -308,7 +308,7 @@ export async function runRedditSearchPipeline(
   // fallback paths (we added unauthenticated search/comments/morechildren)
   // so the UI won't force the user to log in just to view threads. Keep
   // the auth prompt available for actions that require OAuth (posting/voting).
-  const { isAuthenticated } = await import('@/platforms/reddit/auth');
+  const { isAuthenticated } = await import('@/utils/reddit/auth');
   const authenticated = await isAuthenticated();
   if (!authenticated) {
     log.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
@@ -396,7 +396,7 @@ export async function runRedditSearchPipeline(
     log.log('User switched providers during search, aborting Reddit search');
     return { kind: 'cancelled' };
   }
-  const { searchSeriesDiscussionsByDate } = await import('@/platforms/reddit/api');
+  const { searchSeriesDiscussionsByDate } = await import('@/utils/reddit/api');
   const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
   if (isCancelled()) {
     log.log('User switched providers during search, aborting Reddit search');

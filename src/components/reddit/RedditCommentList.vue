@@ -2,11 +2,11 @@
 import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
 import RedditComment from './RedditComment.vue';
-import { getPostComments, getMoreChildren, getSubredditModeratorSet, voteThing, saveThing, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/platforms/reddit/api';
+import { getPostComments, getMoreChildren, getSubredditModeratorSet, voteThing, saveThing, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/reddit/api';
 import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem, redditProfileHoverCardItem, redditAutoExpandAllItem } from '@/config/storage';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
-import { getCurrentUsername } from '@/platforms/reddit/auth';
-import { getCommentFaces, type CommentFaceMap } from '@/platforms/reddit/comment-faces';
+import { getCurrentUsername } from '@/utils/reddit/auth';
+import { getCommentFaces, type CommentFaceMap } from '@/utils/reddit/comment-faces';
 import { con } from '@/utils/logger';
 
 const log = con.m('RedditComments');

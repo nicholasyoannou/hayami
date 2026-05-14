@@ -1,6 +1,6 @@
 /**
  * Reddit session helpers used by the cookie-based "are you signed in?" flow
- * (separate from the OAuth flow in `@/platforms/reddit/auth`). The handlers in
+ * (separate from the OAuth flow in `@/utils/reddit/auth`). The handlers in
  * `handlers/reddit.ts` and the guided-login flow both poke at these to
  * mirror Reddit's current logged-in state into the UI.
  */
