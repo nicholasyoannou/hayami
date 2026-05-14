@@ -33,6 +33,8 @@ import { publishHandlers } from './background/handlers/publish';
 import { malsyncHandlers } from './background/handlers/malsync';
 import { disqusHandlers } from './background/handlers/disqus';
 import { authHandlers } from './background/handlers/auth';
+import { proxyHandlers } from './background/handlers/proxy';
+import { redditHandlers } from './background/handlers/reddit';
 import type { BackgroundMessageHandler } from './background/handlers/types';
 import {
   POLL_RULE_ID,
@@ -400,41 +402,6 @@ async function runKomentoSyncWithBadge(reason: string) {
   }
 }
 
-/**
- * Shared proxy fetch handler used by both hayami_proxyFetch and hayami_cr_proxyFetch.
- * @param url - The URL to fetch
- * @param init - Fetch init options
- * @param label - Log label for debug/error messages
- * @param sendResponse - Message port sendResponse callback
- */
-async function handleProxyFetch(
-  url: string,
-  init: RequestInit,
-  label: string,
-  sendResponse: (response: any) => void,
-) {
-  try {
-    const resp = await fetch(url, init as any);
-    const ct = resp.headers.get('content-type') || '';
-    let body: any = null;
-    try {
-      if (ct.includes('application/json')) body = await resp.json(); else body = await resp.text();
-    } catch (parseErr) {
-      body = `<<unparseable response: ${String(parseErr).slice(0,200)}>>`;
-    }
-    const headers = Array.from(resp.headers.entries());
-    bg.debug(`${label} response:`, { url, ok: resp.ok, status: resp.status, headers });
-    if (!resp.ok) {
-      const bodyStr = typeof body === 'string' ? body : JSON.stringify(body);
-      bg.warn(`${label} non-OK response:`, { url, status: resp.status, body: bodyStr.slice(0,500) });
-    }
-    sendResponse({ ok: resp.ok, status: resp.status, statusText: resp.statusText, headers, body });
-  } catch (err) {
-    bg.error(`${label} error:`, err);
-    sendResponse({ ok: false, status: 0, statusText: String(err), headers: [], body: null });
-  }
-}
-
 async function getKomentoPendingPermissionsSummary() {
   const permissions = browser.permissions;
   const [cached, sources, customMap, targetSelections, syncedCached, syncSources, syncEnabled] = await Promise.all([
@@ -762,94 +729,6 @@ async function registerContextMenu(): Promise<void> {
   }
 }
 
-function isRedditHomeUrl(rawUrl?: string): boolean {
-  if (!rawUrl) return false;
-  try {
-    const parsed = new URL(rawUrl);
-    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-    if (host !== 'reddit.com') return false;
-    return parsed.pathname === '/' || parsed.pathname === '';
-  } catch {
-    return false;
-  }
-}
-
-async function hasRedditSessionCookie(): Promise<boolean> {
-  try {
-    // Fast path: direct lookup against common Reddit hosts.
-    const directHosts = ['https://www.reddit.com/', 'https://reddit.com/', 'https://old.reddit.com/'];
-    for (const url of directHosts) {
-      try {
-        const cookie = await browser.cookies.get({ url, name: 'reddit_session' });
-        if (cookie) return true;
-      } catch {
-        // Continue to next host.
-      }
-    }
-
-    // Fallback: scan cookies and match reddit_session on reddit.com domains.
-    const cookies = await browser.cookies.getAll({});
-    return cookies.some((cookie) => {
-      if (cookie?.name !== 'reddit_session') return false;
-      const domain = (cookie.domain || '').replace(/^\./, '').toLowerCase();
-      return domain === 'reddit.com' || domain.endsWith('.reddit.com');
-    });
-  } catch (error) {
-    bg.warn(' Failed to read Reddit cookies for auth check', error);
-    return false;
-  }
-}
-
-async function getRedditSessionProfile(): Promise<{ loggedIn: boolean; username?: string; profilePic?: string | null }> {
-  try {
-    const hasCookie = await hasRedditSessionCookie();
-    if (!hasCookie) {
-      return { loggedIn: false };
-    }
-
-    const parseProfile = (raw: any): { username?: string; profilePic?: string | null } => {
-      const root = raw?.data && typeof raw.data === 'object' ? raw.data : raw;
-      const username = typeof root?.name === 'string' ? root.name : undefined;
-      const profilePicRaw =
-        typeof root?.snoovatar_img === 'string' && root.snoovatar_img
-          ? root.snoovatar_img
-          : typeof root?.icon_img === 'string'
-            ? root.icon_img
-            : null;
-      const profilePic = typeof profilePicRaw === 'string' ? profilePicRaw.replace(/&amp;/g, '&') : null;
-      return { username, profilePic };
-    };
-
-    const urls = ['https://www.reddit.com/api/me.json', 'https://old.reddit.com/api/me.json'];
-    for (const url of urls) {
-      try {
-        const resp = await fetch(url, {
-          method: 'GET',
-          credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-          },
-        });
-        if (!resp.ok) continue;
-
-        const data = await resp.json();
-        const parsed = parseProfile(data);
-        if (parsed.username) {
-          return { loggedIn: true, username: parsed.username, profilePic: parsed.profilePic ?? null };
-        }
-      } catch {
-        // Try next endpoint.
-      }
-    }
-
-    // If session cookie exists but profile lookup fails, keep loggedIn true.
-    return { loggedIn: true };
-  } catch (error) {
-    bg.warn(' Failed to fetch Reddit session profile', error);
-    return { loggedIn: false };
-  }
-}
-
 export default defineBackground(() => {
   initLoggerFromStorage();
   const version = browser.runtime.getManifest()?.version ?? 'dev';
@@ -889,6 +768,8 @@ export default defineBackground(() => {
     ...malsyncHandlers,
     ...disqusHandlers,
     ...authHandlers,
+    ...proxyHandlers,
+    ...redditHandlers,
   };
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -901,122 +782,6 @@ export default defineBackground(() => {
     const action = message?.action;
     const extracted = typeof action === 'string' ? externalHandlers[action] : undefined;
     if (extracted) return extracted(message, sender, sendResponse);
-
-    // Handle proxyFetch (needs sendResponse and return true)
-    // Namespaced to avoid conflicts with other extensions
-    if (message.action === 'hayami_proxyFetch') {
-      const { url, init } = message;
-      bg.debug(' hayami_proxyFetch requested:', url, { init });
-      handleProxyFetch(url, init, 'hayami_proxyFetch', sendResponse);
-      return true; // keep message channel open for async response
-    }
-
-    if (message.action === 'hayami_closeTab') {
-      const tabId = sender.tab?.id;
-      if (tabId) {
-        browser.tabs.remove(tabId).catch(() => {});
-      }
-      sendResponse({ ok: true });
-      return false;
-    }
-
-    if (message.action === 'hayami_openRedditLoginGuided') {
-      (async () => {
-        const sourceTabId = sender.tab?.id;
-
-        const loginUrl = typeof message.url === 'string' && message.url.trim()
-          ? message.url.trim()
-          : 'https://www.reddit.com/login';
-
-        let loginTabId: number | null = null;
-        let loginWindowId: number | null = null;
-        let cleanedUp = false;
-
-        const cleanup = () => {
-          if (cleanedUp) return;
-          cleanedUp = true;
-          try { browser.tabs.onUpdated.removeListener(handleUpdated); } catch {}
-          try { browser.tabs.onRemoved.removeListener(handleRemoved); } catch {}
-        };
-
-        const handleRemoved = (removedTabId: number) => {
-          if (removedTabId !== loginTabId) return;
-          cleanup();
-        };
-
-        const handleUpdated = async (updatedTabId: number, changeInfo: any, tab: any) => {
-          if (updatedTabId !== loginTabId) return;
-          const currentUrl = changeInfo?.url || tab?.url;
-          if (!isRedditHomeUrl(currentUrl)) return;
-
-          cleanup();
-          try {
-            if (typeof loginWindowId === 'number') {
-              await browser.windows.remove(loginWindowId);
-            } else if (typeof loginTabId === 'number') {
-              await browser.tabs.remove(loginTabId);
-            }
-          } catch {
-            // ignore tab close failures
-          }
-
-          if (typeof sourceTabId === 'number') {
-            try {
-              await browser.tabs.sendMessage(sourceTabId, { action: 'hayami_redditLoginCompleted' });
-            } catch {
-              // originating tab may no longer have the content script mounted
-            }
-          }
-        };
-
-        try {
-          const createdWindow = await browser.windows.create({
-            url: loginUrl,
-            type: 'popup',
-            focused: true,
-            width: 520,
-            height: 760,
-          });
-
-          const createdTab = createdWindow?.tabs?.[0];
-          loginWindowId = typeof createdWindow?.id === 'number' ? createdWindow.id : null;
-
-          if (typeof createdTab?.id !== 'number') {
-            sendResponse({ success: false, error: 'Failed to open Reddit login popup.' });
-            return;
-          }
-
-          loginTabId = createdTab.id;
-          browser.tabs.onUpdated.addListener(handleUpdated);
-          browser.tabs.onRemoved.addListener(handleRemoved);
-
-          sendResponse({ success: true, tabId: loginTabId, windowId: loginWindowId });
-        } catch (error) {
-          cleanup();
-          sendResponse({
-            success: false,
-            error: error instanceof Error ? error.message : 'Failed to open Reddit login popup.',
-          });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_checkRedditTokenCookie') {
-      (async () => {
-        const loggedIn = await hasRedditSessionCookie();
-        sendResponse({ loggedIn });
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_getRedditCookieSessionProfile') {
-      (async () => {
-        const profile = await getRedditSessionProfile();
-        sendResponse(profile);
-      })();
-      return true;
-    }
 
     if (message.action === 'hayami_unregister_scripts_for_host') {
       (async () => {
@@ -1226,23 +991,6 @@ export default defineBackground(() => {
         }
       })();
       return true;
-    }
-
-    if (message.action === 'hayami_getAnimeDiscussion') {
-      // This will be handled by the content script sending anime info
-      const { animeName, episodeName } = message;
-      // Forward to content script or handle here
-      sendResponse({ received: true });
-      return false; // synchronous response
-    }
-
-    // Handle hayami_cr_proxyFetch (namespaced proxy for Disqus — credentials omitted)
-    if (message.action === 'hayami_cr_proxyFetch') {
-      const { url } = message as any;
-      const init = Object.assign({}, (message as any).init || {}, { credentials: 'omit' });
-      bg.debug(' hayami_cr_proxyFetch requested:', url, { init });
-      handleProxyFetch(url, init, 'hayami_cr_proxyFetch', sendResponse);
-      return true; // keep message channel open for async response
     }
 
     if (message.action === 'hayami_komento_syncNow') {
