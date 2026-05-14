@@ -205,7 +205,7 @@ const baseSteps: StepDef[] = [
   {
     id: 'custom-sites',
     title: 'Custom sites',
-    content: 'Any site can support Hayami through the [custom sites feature](https://docs.hayami.moe/custom-websites). Map your own listings, publish them to a shareable URL, or subscribe to lists others have published to get weekly-synced community configurations.\n\n**Make your own listing**: To add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/customMappingHayami.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page.\n\n**Sync to others**: You can sync custom websites from a third-party URL that updates weekly — useful for picking up community-maintained mappings without configuring each site yourself. Once you\'ve made your own mappings, you can also publish them to a shareable URL so others can subscribe to your list. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites).',
+    content: 'Any site can support Hayami through the [custom sites feature](https://docs.hayami.moe/custom-websites). The custom site mapper allows anyone, without requiring coding knowledge, to click and select elements on-page, practically enabling any site to support Hayami out-the-box. Map your favourite sites, publish your list to a shareable URL, or subscribe to lists others have published to get weekly-synced community configurations.\n\n**Make your own listing**: To add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/customMappingHayami.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page.\n\n**Sync to others**: You can sync custom websites from a third-party URL that updates weekly — useful for picking up community-maintained mappings without configuring each site yourself. Once you\'ve made your own mappings, you can also publish them to a shareable URL so others can subscribe to your list. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites#how-to-sync-with-custom-website-mappings).',
     icon: '\uD83C\uDF10'
   },
   {
@@ -307,7 +307,7 @@ async function persistMediaKeys() {
             <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
         </div>
-        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-grid" role="group" aria-label="Built-in sites">
+        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-list" role="group" aria-label="Built-in sites">
           <button
             v-for="site in builtinSiteOptions"
             :key="site.id"
@@ -328,6 +328,11 @@ async function persistMediaKeys() {
               aria-hidden="true"
             />
             <span class="site-chip-label">{{ site.label }}</span>
+            <span class="site-chip-check" aria-hidden="true">
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3.5 8.5 6.8 11.5 12.5 5"></polyline>
+              </svg>
+            </span>
           </button>
         </div>
 
@@ -975,47 +980,52 @@ async function persistMediaKeys() {
   padding-left: 4px;
 }
 
-/* Built-in sites step — chip grid (MAL-Sync install-links style) */
-.sites-grid {
+/* Built-in sites step — compact chip grid, scales to many sites */
+.sites-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin: 4px 0 0 0;
+  gap: 8px;
+  margin: 6px 0 0 0;
 }
 
 .site-chip {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  padding: 7px 12px 7px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  opacity: 0.5;
-  filter: grayscale(1);
-  transition: opacity 0.2s ease, filter 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .site-chip:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.site-chip:focus-visible {
+  outline: none;
+  border-color: rgba(91, 168, 255, 0.7);
 }
 
 .site-chip--active {
-  opacity: 1;
-  filter: none;
-  background: rgba(91, 168, 255, 0.16);
-  border-color: rgba(91, 168, 255, 0.45);
+  background: #5ba8ff;
+  border-color: #5ba8ff;
   color: #fff;
 }
 
 .site-chip--active:hover:not(:disabled) {
-  background: rgba(91, 168, 255, 0.22);
-  border-color: rgba(91, 168, 255, 0.6);
+  background: #4d99f0;
+  border-color: #4d99f0;
+  color: #fff;
 }
 
 .site-chip:disabled {
@@ -1023,15 +1033,38 @@ async function persistMediaKeys() {
 }
 
 .site-chip-favicon {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
   flex-shrink: 0;
   object-fit: contain;
+  opacity: 0.55;
+  filter: grayscale(0.7);
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.site-chip--active .site-chip-favicon {
+  opacity: 1;
+  filter: none;
 }
 
 .site-chip-label {
   line-height: 1;
+}
+
+.site-chip-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.site-chip--active .site-chip-check {
+  opacity: 1;
 }
 
 /* Spacing between the sites grid and the disclaimer text below it. */
