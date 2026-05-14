@@ -16,25 +16,7 @@ import {
   komentoScriptSourceRegistryItem,
   komentoScriptTargetSelectionsItem,
   komentoScriptSyncStateItem,
-  malSyncEnabledItem,
 } from '@/config/storage';
-import { detectMalSync, queryMalSyncPresence } from '@/utils/malSync';
-import {
-  startGithubDeviceFlow,
-  pollGithubDeviceFlow,
-  setGithubPat,
-  getGithubAuth,
-  logoutGithub,
-} from '@/utils/githubPublishAuth';
-import {
-  buildGitlabAuthorizeUrl,
-  completeGitlabRedirectCallback,
-  runGitlabAuthFlow,
-  setGitlabPat,
-  getGitlabAuth,
-  logoutGitlab,
-} from '@/utils/gitlabPublishAuth';
-import { createRemote, updateRemote, deleteRemote } from '@/utils/publishProviders';
 import {
   KOMENTOSCRIPT_WEEKLY_ALARM,
   ensureKomentoSourceRegistryInitialized,
@@ -49,6 +31,9 @@ import {
   shouldRunStartupCustomSitesSync,
   syncCustomSitesSources,
 } from '@/custom-sites-sync';
+import { publishHandlers } from './background/handlers/publish';
+import { malsyncHandlers } from './background/handlers/malsync';
+import type { BackgroundMessageHandler } from './background/handlers/types';
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
 
@@ -988,12 +973,26 @@ export default defineBackground(() => {
     });
   };
 
+  // Handlers that don't capture closure state live in `background/handlers/*.ts`
+  // and get merged into a single map here. Handlers that still need closure
+  // refs (setPollBlockForTab, setDisqusReferrerStripForTab, pendingAuthSourceTabs)
+  // remain as if-blocks below until they're moved out.
+  const externalHandlers: Record<string, BackgroundMessageHandler> = {
+    ...publishHandlers,
+    ...malsyncHandlers,
+  };
+
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // SECURITY: Validate that messages come from this extension only
     if (sender.id !== browser.runtime.id) {
       bg.warn(' Rejected message from unauthorized sender:', sender.id);
       return false;
     }
+
+    const action = message?.action;
+    const extracted = typeof action === 'string' ? externalHandlers[action] : undefined;
+    if (extracted) return extracted(message, sender, sendResponse);
+
     // Handle proxyFetch (needs sendResponse and return true)
     // Namespaced to avoid conflicts with other extensions
     if (message.action === 'hayami_proxyFetch') {
@@ -1001,64 +1000,6 @@ export default defineBackground(() => {
       bg.debug(' hayami_proxyFetch requested:', url, { init });
       handleProxyFetch(url, init, 'hayami_proxyFetch', sendResponse);
       return true; // keep message channel open for async response
-    }
-
-    // ── Publish Custom Sites handlers ────────────────────────────────
-    if (message.action === 'hayami_publish_github_startDeviceFlow') {
-      (async () => sendResponse(await startGithubDeviceFlow()))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_github_pollDeviceFlow') {
-      (async () => sendResponse(await pollGithubDeviceFlow(message.deviceCode, message.intervalMs || 5000)))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_github_setPat') {
-      (async () => sendResponse(await setGithubPat(message.token || '')))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_github_getAuth') {
-      (async () => sendResponse({ ok: true, state: await getGithubAuth() }))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_github_logout') {
-      (async () => { await logoutGithub(); sendResponse({ ok: true }); })();
-      return true;
-    }
-    if (message.action === 'hayami_publish_gitlab_buildAuthorizeUrl') {
-      (async () => sendResponse(await buildGitlabAuthorizeUrl()))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_gitlab_runAuthFlow') {
-      (async () => sendResponse(await runGitlabAuthFlow({ openAs: message.openAs })))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_gitlab_setPat') {
-      (async () => sendResponse(await setGitlabPat(message.token || '')))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_gitlab_completeCallback') {
-      (async () => sendResponse(await completeGitlabRedirectCallback(message.callbackUrl || '')))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_gitlab_getAuth') {
-      (async () => sendResponse({ ok: true, state: await getGitlabAuth() }))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_gitlab_logout') {
-      (async () => { await logoutGitlab(); sendResponse({ ok: true }); })();
-      return true;
-    }
-    if (message.action === 'hayami_publish_createRemote') {
-      (async () => sendResponse(await createRemote(message.provider, message.name, message.payload, message.visibility)))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_updateRemote') {
-      (async () => sendResponse(await updateRemote(message.provider, message.remoteId, message.name, message.payload)))();
-      return true;
-    }
-    if (message.action === 'hayami_publish_deleteRemote') {
-      (async () => sendResponse(await deleteRemote(message.provider, message.remoteId)))();
-      return true;
     }
 
     if (message.action === 'hayami_blockDisqusPoll') {
@@ -1785,58 +1726,6 @@ export default defineBackground(() => {
           });
         } catch (error) {
           sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
-        }
-      })();
-      return true;
-    }
-
-    // ── MAL-Sync Integration ──────────────────────────────────────────
-
-    if (message.action === 'hayami_malsync_detect') {
-      (async () => {
-        try {
-          const installed = await detectMalSync();
-          sendResponse({ ok: true, installed });
-        } catch (error) {
-          sendResponse({ ok: false, installed: false, error: error instanceof Error ? error.message : 'unknown' });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_malsync_presence') {
-      (async () => {
-        try {
-          const enabled = await malSyncEnabledItem.getValue();
-          if (!enabled) {
-            sendResponse({ ok: false, error: 'malsync_disabled' });
-            return;
-          }
-
-          const tabId = typeof message.tabId === 'number'
-            ? message.tabId
-            : sender.tab?.id;
-          if (typeof tabId !== 'number') {
-            sendResponse({ ok: false, error: 'no_tab_id' });
-            return;
-          }
-
-          const presence = await queryMalSyncPresence(tabId);
-          sendResponse({ ok: true, presence });
-        } catch (error) {
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_malsync_setEnabled') {
-      (async () => {
-        try {
-          await malSyncEnabledItem.setValue(Boolean(message.enabled));
-          sendResponse({ ok: true });
-        } catch (error) {
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
         }
       })();
       return true;
