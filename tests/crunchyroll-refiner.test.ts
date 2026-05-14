@@ -1,5 +1,5 @@
 /**
- * Tests for src/entrypoints/content/sites/crunchyroll-refiner.ts
+ * Tests for src/entrypoints/content/sites/crunchyroll/refiner.ts
  *
  * Covers: refineMatchedIndexUsingCrunchyrollData
  *
@@ -7,7 +7,7 @@
  * Crunchyroll metadata (air year, season number, episode coverage, etc.).
  */
 import { describe, it, expect } from 'vitest';
-import { refineMatchedIndexUsingCrunchyrollData } from '@/entrypoints/content/sites/crunchyroll-refiner';
+import { refineMatchedIndexUsingCrunchyrollData } from '@/entrypoints/content/sites/crunchyroll/refiner';
 import type { MapperResultEntry, CrunchyrollEpisodeMetadata, CrunchyrollSeason } from '@/entrypoints/content/types/data';
 
 // ---------------------------------------------------------------------------

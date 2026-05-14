@@ -13,8 +13,8 @@ import {
   normalizeForMatch,
   pickPreferredSameYear,
   findSliceEpisodeMatch,
-} from '../sites/shared';
-import type { MapperResultEntry, CrunchyrollEpisodeMetadata, CrunchyrollSeason } from '../types/data';
+} from '../shared';
+import type { MapperResultEntry, CrunchyrollEpisodeMetadata, CrunchyrollSeason } from '../../types/data';
 
 const log = con.m('Mapper');
 

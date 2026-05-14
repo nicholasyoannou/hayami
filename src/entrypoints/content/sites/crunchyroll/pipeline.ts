@@ -13,20 +13,20 @@
  * easier to attribute.
  */
 
-import type { AnimeInfo } from '../types';
+import type { AnimeInfo } from '../../types';
 import type {
   MapperResponse,
   MapperResultEntry,
   MapperMatchedMeta,
   CrunchyrollSeason,
-} from '../types/data';
-import type { SiteDeepMappingContext } from './types';
+} from '../../types/data';
+import type { SiteDeepMappingContext } from '../types';
 import {
   pickMalSyncIds,
   recordLastResolvedHayamiName,
   type MalSyncResult,
   type MapperFailoverOut,
-} from '../mapping';
+} from '../../mapping';
 import {
   parseEpisodeFromTitle,
   parseMapperYear,
@@ -35,14 +35,14 @@ import {
   normalizeForMatch,
   scoreSeasonTitleMatch,
   findSliceEpisodeMatch,
-} from './shared';
-import { refineMatchedIndexUsingCrunchyrollData } from './crunchyroll-refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './crunchyroll-episode-mapper';
-import { cacheAnimeIds } from '../storage/series-mapping';
+} from '../shared';
+import { refineMatchedIndexUsingCrunchyrollData } from './refiner';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './episode-mapper';
+import { cacheAnimeIds } from '../../storage/series-mapping';
 import {
   fetchAnimeMapperDataBySeriesAndSeason,
   fetchAnimeMapperDataBySeriesName,
-} from '../mapping/hayami-client';
+} from '../../mapping/hayami-client';
 import { con } from '@/utils/logger';
 
 const log = con.m('CrunchyrollPipeline');

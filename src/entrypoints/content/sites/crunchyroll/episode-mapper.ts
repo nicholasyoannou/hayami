@@ -7,8 +7,8 @@
  */
 
 import { con } from '@/utils/logger';
-import { normalizeForMatch, isSequelTitle, parseMapperYear } from '../sites/shared';
-import type { MapperResultEntry, CrunchyrollSeason } from '../types/data';
+import { normalizeForMatch, isSequelTitle, parseMapperYear } from '../shared';
+import type { MapperResultEntry, CrunchyrollSeason } from '../../types/data';
 
 const log = con.m('Mapper');
 

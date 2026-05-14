@@ -42,8 +42,8 @@ import { getCustomEpisodeListOffset } from '../ui/site-mapper/site-mapper-utils'
 // CR-specific helpers — re-exported here for backward compatibility with the
 // `__mappingTest` debug surface (`scripts/mapping-test.ts`). The implementations
 // live under `sites/` since they only run inside the CR deep-mapping pipeline.
-import { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll-refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll-episode-mapper';
+import { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll/refiner';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll/episode-mapper';
 
 export { SERIES_MAPPING_KEY } from '../mapping-keys';
 export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from '../storage/series-mapping';
@@ -72,7 +72,7 @@ import { extractEpisodeIdFromUrl } from '../sites/crunchyroll';
 // `tryMapperFailover` delegates to it once the adapter has produced a
 // `SiteDeepMappingContext`; the orchestrator no longer carries CR-shaped
 // per-season + per-episode mapping logic.
-import { runCrunchyrollDeepPipeline } from '../sites/crunchyroll-pipeline';
+import { runCrunchyrollDeepPipeline } from '../sites/crunchyroll/pipeline';
 import {
   extractEpisodeTableFromRedditSelftext,
   maybeCorrectRedditEpisodeViaSelftext,
@@ -94,8 +94,8 @@ export {
 
 // Re-export CR-specific helpers — only kept for the offline test/debug
 // surface; provider/site code should import from `./sites/*` directly.
-export { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll-refiner';
-export { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll-episode-mapper';
+export { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll/refiner';
+export { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll/episode-mapper';
 
 export function resolveCurrentAdapter(location: Location = window.location) {
   return resolveAdapter(location);
