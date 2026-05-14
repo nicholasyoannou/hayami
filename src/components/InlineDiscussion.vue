@@ -3,7 +3,7 @@ import { computed, ref, watch, nextTick, onMounted, onUnmounted, reactive } from
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl, sendMessageWithRetry } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
-import { RedditCommentList } from './comments';
+import RedditCommentList from '@/reddit/components/RedditCommentList.vue';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
 import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/reddit/api';
 import { useManualSearch, type Provider, type AniListSearchMedia, type MalSearchMedia } from '@/composables/useManualSearch';

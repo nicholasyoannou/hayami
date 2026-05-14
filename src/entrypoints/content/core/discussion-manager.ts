@@ -18,9 +18,7 @@ import { escapeHtml } from '@/utils/html-utils';
 
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
-import { 
-  RedditManualSearchPanel,
-} from '@/components/overlays';
+import RedditManualSearchPanel from '@/reddit/components/RedditManualSearchPanel.vue';
 
 // Type imports
 import { AnimeInfo } from '../types';
