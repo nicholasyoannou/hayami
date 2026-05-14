@@ -2,22 +2,22 @@
  * MAL (MyAnimeList) forum provider implementation
  */
 
-import { BaseProvider } from './base-provider';
-import type { CommentProvider, ProviderContext, MalForumResult } from '../types/data';
-import type { AnimeInfo } from '../types';
-import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId, searchJikanAnimeId, pickEpisodeTopic } from '@/utils/malForums';
+import { BaseProvider } from '../base-provider';
+import type { CommentProvider, ProviderContext, MalForumResult } from '@/entrypoints/content/types/data';
+import type { AnimeInfo } from '@/entrypoints/content/types';
+import { fetchMalForumTopics, fetchMalTopicPosts, fetchJikanForumTopics, searchMalAnimeId, searchJikanAnimeId, pickEpisodeTopic } from '@/utils/mal/forums';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import MALForumView from '@/components/providers/MALForumView.vue';
-import { bbcodeToHtml } from '../parsers/bbcode';
-import { handleProviderError, handleApiError } from '../utils/error-handler';
+import MALForumView from '@/components/mal/ForumView.vue';
+import { bbcodeToHtml } from '@/entrypoints/content/parsers/bbcode';
+import { handleProviderError, handleApiError } from '@/entrypoints/content/utils/error-handler';
 import { toast } from 'vue-sonner';
-import { 
-  CONTAINER_RETRY_ATTEMPTS, 
-  CONTAINER_RETRY_DELAY_MS 
-} from '../constants';
-import { getSeriesMapping } from '../storage/series-mapping';
-import { getSavedIds } from '../mapping/trust-policy';
-import { safeClear } from '../utils/dom-helpers';
+import {
+  CONTAINER_RETRY_ATTEMPTS,
+  CONTAINER_RETRY_DELAY_MS
+} from '@/entrypoints/content/constants';
+import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
+import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
+import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
 const log = con.m('MALProvider');

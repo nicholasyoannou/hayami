@@ -5,7 +5,7 @@
  * when both are active on the same streaming page.
  */
 
-import { detectMalSync, queryMalSyncPresence } from '@/utils/malSync';
+import { detectMalSync, queryMalSyncPresence } from '@/utils/mal/sync';
 import { malSyncEnabledItem } from '@/config/storage';
 import type { BackgroundMessageHandler } from './types';
 

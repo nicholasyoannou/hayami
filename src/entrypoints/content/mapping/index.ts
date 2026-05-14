@@ -16,8 +16,8 @@ import { con } from '@/utils/logger';
 import { AnimeInfo } from '../types';
 import { browser } from 'wxt/browser';
 import { malSyncEnabledItem } from '@/config/storage';
-import type { MalSyncPresence, MalSyncDomResult } from '@/utils/malSync';
-import { observeMalSyncDom } from '@/utils/malSync';
+import type { MalSyncPresence, MalSyncDomResult } from '@/utils/mal/sync';
+import { observeMalSyncDom } from '@/utils/mal/sync';
 import type {
   MapperResponse,
   MapperResultEntry,

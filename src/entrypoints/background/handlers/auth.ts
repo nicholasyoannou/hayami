@@ -8,7 +8,7 @@
 
 import { authenticateWithReddit, isAuthenticated, exchangeCodeForToken as exchangeRedditCode } from '@/utils/reddit/auth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtube/auth';
-import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
+import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/mal/auth';
 import { con } from '@/utils/logger';
 import type { BackgroundMessageHandler } from './types';
 

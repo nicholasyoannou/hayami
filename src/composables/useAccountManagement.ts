@@ -15,7 +15,7 @@ import {
   getStoredYouTubeProfilePic,
   logoutYouTube,
 } from '@/utils/youtube/auth';
-import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/malAuth';
+import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/mal/auth';
 import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilistAuth';
 import { sendMessageWithRetry } from '@/utils/runtime';
 

@@ -1,12 +1,14 @@
 <script setup lang="ts">
+defineOptions({ name: 'MALForumView' });
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { MalForumResult, MalPost, MalTopic, WrongAnimeContext } from '@/entrypoints/content/types/data';
 import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
-import { fetchMalTopicPosts } from '@/utils/malForums';
-import MALPost from './MALPost.vue';
-import MALTopicList from './MALTopicList.vue';
+import { fetchMalTopicPosts } from '@/utils/mal/forums';
+import MALPost from './Post.vue';
+import MALTopicList from './TopicList.vue';
 import { escapeHtml } from '@/utils/html-utils';
-import ProviderAuthRequired from './ProviderAuthRequired.vue';
+import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
 import { con } from '@/utils/logger';
 
 const log = con.m('MAL');

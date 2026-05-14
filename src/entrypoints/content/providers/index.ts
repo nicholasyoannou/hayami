@@ -11,7 +11,7 @@ export * from './provider-manager';
 export { DisqusProvider } from './disqus-provider';
 export { RedditProvider } from '@/entrypoints/content/providers/reddit/provider';
 export { YouTubeProvider, setCurrentYouTubeVideo, getCurrentYouTubeVideo, setCurrentYouTubeOrder, getCurrentYouTubeOrder } from './youtube/provider';
-export { MalProvider } from './mal-provider';
+export { MalProvider } from './mal/provider';
 export { AniListProvider } from './anilist-provider';
 export { AniwaveProvider } from './aniwave-provider';
 export { AnimeCommunityProvider } from './anime-community-provider';

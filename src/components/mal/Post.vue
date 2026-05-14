@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'MALPost' });
+
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import type { MalPost } from '@/entrypoints/content/types/data';
 import { escapeHtml } from '@/utils/html-utils';

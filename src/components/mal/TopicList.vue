@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'MALTopicList' });
+
 import { computed } from 'vue';
 import type { MalTopic } from '@/entrypoints/content/types/data';
 import { escapeHtml } from '@/utils/html-utils';

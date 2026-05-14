@@ -4,8 +4,8 @@
  * - Selects the likely episode discussion topic by matching "Episode N"
  */
 
-import { getMALAccessToken } from './malAuth';
-import { fetchWithTimeout } from './fetchWithTimeout';
+import { getMALAccessToken } from './auth';
+import { fetchWithTimeout } from '../fetchWithTimeout';
 import { con } from '@/utils/logger';
 
 const log = con.m('MALForums');
