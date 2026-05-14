@@ -14,4 +14,4 @@ export { YouTubeProvider, setCurrentYouTubeVideo, getCurrentYouTubeVideo, setCur
 export { MalProvider } from './mal/provider';
 export { AniListProvider } from './anilist/provider';
 export { AniwaveProvider } from './aniwave/provider';
-export { AnimeCommunityProvider } from './anime-community-provider';
+export { AnimeCommunityProvider } from './animecommunity/provider';

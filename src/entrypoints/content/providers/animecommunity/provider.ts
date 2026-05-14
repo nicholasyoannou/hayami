@@ -1,10 +1,10 @@
-import { BaseProvider } from './base-provider';
-import type { AnimeInfo } from '../types';
-import type { CommentProvider, ProviderContext } from '../types/data';
+import { BaseProvider } from '../base-provider';
+import type { AnimeInfo } from '@/entrypoints/content/types';
+import type { CommentProvider, ProviderContext } from '@/entrypoints/content/types/data';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds, getLastAnimeIdResolverError } from '@/utils/animeIdResolver';
-import { dispatchManualSearchRequest } from './manual-search';
-import { safeClear } from '../utils/dom-helpers';
+import { dispatchManualSearchRequest } from '../manual-search';
+import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { con } from '@/utils/logger';
 const log = con.m('AnimeCommunity');
