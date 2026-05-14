@@ -4,7 +4,7 @@
 
 import type { RedditComment } from '../types/data';
 import { escapeHtml } from '@/utils/html-utils';
-import { formatRedditDate } from '@/utils/redditApi';
+import { formatRedditDate } from '@/reddit/api';
 import { REDDIT_COMMENTS_INITIAL_LIMIT, REDDIT_COMMENTS_REPLY_LIMIT, CSS_CLASSES } from '../constants';
 import { processMarkdownWithFallbacks } from './markdown-processors';
 import { autolinkTextNodes } from './autolink';

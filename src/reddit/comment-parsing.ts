@@ -1,4 +1,4 @@
-import type { RedditComment } from './redditApi';
+import type { RedditComment } from './api';
 
 function normalizeDistinguished(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;

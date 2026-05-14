@@ -14,7 +14,7 @@ import {
   isImgurUrl,
   transformImgurFrontendUrl,
 } from '@/entrypoints/content/images/imgur';
-import { extensionFetch } from '@/utils/redditApi';
+import { extensionFetch } from '@/reddit/api';
 import {
   DEFAULT_IMGUR_CLIENT_ID,
   embedImagesItem,
@@ -128,7 +128,7 @@ async function refreshEmbedImagesEnabled(preview: ReturnType<typeof useImagePrev
 
 function extractImgchestImages(payload: any): string[] {
   const urls: string[] = [];
-  const maybePush = (val: any) => {
+  const pushIfLink = (val: any) => {
     const link = (typeof val === 'string' && val) || val?.direct_url || val?.directUrl || val?.cdn_url || val?.cdnUrl || val?.url || val?.link || val?.image || val?.src || val?.file;
     if (typeof link === 'string' && link.trim()) urls.push(link.trim());
   };
@@ -139,7 +139,7 @@ function extractImgchestImages(payload: any): string[] {
     const lists = [root.images, root.files, root.items, root.attachments, root.media, root];
     for (const arr of lists) {
       if (Array.isArray(arr)) {
-        arr.forEach(maybePush);
+        arr.forEach(pushIfLink);
       }
     }
   }
@@ -590,13 +590,13 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   add(document, 'scroll', hidePreview, true);
 
   // Prefetch on scroll
-  const maybePrefetchOnScroll = (ev: Event, reason: string) => {
+  const prefetchOnScroll = (ev: Event, reason: string) => {
     if (!preview.galleryImages || preview.galleryImages.length <= 1) return;
     preview.triggerGalleryPrefetch(reason);
   };
 
-  add(document, 'wheel', (ev) => maybePrefetchOnScroll(ev, 'wheel'), { passive: true });
-  add(document, 'touchmove', (ev) => maybePrefetchOnScroll(ev, 'touchmove'), { passive: true });
+  add(document, 'wheel', (ev) => prefetchOnScroll(ev, 'wheel'), { passive: true });
+  add(document, 'touchmove', (ev) => prefetchOnScroll(ev, 'touchmove'), { passive: true });
 
   // Keyboard navigation
   add(document, 'keydown', (ev) => {

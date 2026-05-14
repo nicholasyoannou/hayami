@@ -1,7 +1,7 @@
-import { getAccessToken } from './redditAuth';
-import { extensionFetchTransport } from './redditTransport';
-import { parseComments, parseLegacyContentMeta, resolveCommentDistinguished } from './redditCommentParsing';
-import type { RedditComment, RedditCommentSort } from './redditApi';
+import { getAccessToken } from './auth';
+import { extensionFetchTransport } from './transport';
+import { parseComments, parseLegacyContentMeta, resolveCommentDistinguished } from './comment-parsing';
+import type { RedditComment, RedditCommentSort } from './api';
 import { con } from '@/utils/logger';
 
 const log = con.m('RedditMore');

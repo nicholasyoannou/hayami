@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, inject, onMounted, onUnmounted, onUpdated, nextTick, watch, type Ref } from 'vue';
-import { voteThing, saveThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/redditApi';
+import { voteThing, saveThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/reddit/api';
 import RedditUserHoverCard from './RedditUserHoverCard.vue';
 import { markdownToHtml, processRedditBodyHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
-import { applyCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
+import { applyCommentFaces, type CommentFaceMap } from '@/reddit/comment-faces';
 import { toast } from 'vue-sonner';
 import { con } from '@/utils/logger';
 

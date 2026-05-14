@@ -6,7 +6,7 @@ import {
   getStoredUsername,
   getStoredProfilePic,
   logout,
-} from '@/utils/redditAuth';
+} from '@/reddit/auth';
 import { redditClientIdItem } from '@/config/storage';
 import {
   authenticateWithYouTube,

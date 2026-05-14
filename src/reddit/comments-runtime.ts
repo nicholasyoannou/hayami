@@ -1,7 +1,7 @@
-import { getAccessToken, getStoredUsername, makeRedditRequest } from './redditAuth';
-import { extensionFetchTransport } from './redditTransport';
-import { parseComments } from './redditCommentParsing';
-import type { RedditCommentSort, RedditCommentsResult } from './redditApi';
+import { getAccessToken, getStoredUsername, makeRedditRequest } from './auth';
+import { extensionFetchTransport } from './transport';
+import { parseComments } from './comment-parsing';
+import type { RedditCommentSort, RedditCommentsResult } from './api';
 import { con } from '@/utils/logger';
 
 const log = con.m('RedditComments');

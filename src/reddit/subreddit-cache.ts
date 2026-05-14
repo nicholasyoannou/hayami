@@ -1,5 +1,5 @@
-import { getAccessToken } from './redditAuth';
-import { extensionFetchTransport } from './redditTransport';
+import { getAccessToken } from './auth';
+import { extensionFetchTransport } from './transport';
 import { con } from '@/utils/logger';
 
 const log = con.m('SubredditCache');

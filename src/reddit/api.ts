@@ -3,15 +3,15 @@
  * for Crunchyroll episodes
  */
 
-import { makeRedditRequest, getAccessToken, getStoredUsername } from './redditAuth';
-import { extensionFetchTransport, crProxyFetchTransport } from './redditTransport';
+import { makeRedditRequest, getAccessToken, getStoredUsername } from './auth';
+import { extensionFetchTransport, crProxyFetchTransport } from './transport';
 import {
   getSubredditAboutCachedInternal,
   getSubredditEmojiMapInternal,
   getSubredditModeratorSetInternal,
-} from './redditSubredditCache';
-import { getPostCommentsRuntime } from './redditCommentsRuntime';
-import { getMoreChildrenRuntime } from './redditMoreChildrenRuntime';
+} from './subreddit-cache';
+import { getPostCommentsRuntime } from './comments-runtime';
+import { getMoreChildrenRuntime } from './more-children-runtime';
 import { con } from '@/utils/logger';
 
 const log = con.m('RedditApi');

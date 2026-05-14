@@ -5,8 +5,8 @@
  * Caches responses by post ID for performance.
  */
 
-import { extensionFetch } from '@/utils/redditApi';
-import { getAccessToken, makeRedditRequest } from '@/utils/redditAuth';
+import { extensionFetch } from '@/reddit/api';
+import { getAccessToken, makeRedditRequest } from '@/reddit/auth';
 import { extractRedditPostId } from '@/entrypoints/content/core/reddit-runtime';
 import { con } from '@/utils/logger';
 
@@ -88,7 +88,7 @@ export async function extractEpisodeTableFromRedditSelftext(
   }
 }
 
-export async function maybeCorrectRedditEpisodeViaSelftext(
+export async function correctRedditEpisodeViaSelftext(
   mapperUrl: string,
   desiredEpisode: number | null,
   seriesName?: string,

@@ -11,7 +11,7 @@
  * to apply them as inline styles on rendered comment HTML.
  */
 
-import { extensionFetchTransport } from './redditTransport';
+import { extensionFetchTransport } from './transport';
 import { con } from '@/utils/logger';
 
 const log = con.m('CommentFaces');

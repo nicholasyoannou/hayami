@@ -308,7 +308,7 @@ export async function runRedditSearchPipeline(
   // fallback paths (we added unauthenticated search/comments/morechildren)
   // so the UI won't force the user to log in just to view threads. Keep
   // the auth prompt available for actions that require OAuth (posting/voting).
-  const { isAuthenticated } = await import('@/utils/redditAuth');
+  const { isAuthenticated } = await import('@/reddit/auth');
   const authenticated = await isAuthenticated();
   if (!authenticated) {
     log.log('User not authenticated with Reddit - proceeding with public/browser-session fallback');
@@ -396,7 +396,7 @@ export async function runRedditSearchPipeline(
     log.log('User switched providers during search, aborting Reddit search');
     return { kind: 'cancelled' };
   }
-  const { searchSeriesDiscussionsByDate } = await import('@/utils/redditApi');
+  const { searchSeriesDiscussionsByDate } = await import('@/reddit/api');
   const results = await searchSeriesDiscussionsByDate(animeInfo.animeName, animeInfo.releaseDate || '');
   if (isCancelled()) {
     log.log('User switched providers during search, aborting Reddit search');

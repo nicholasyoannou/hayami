@@ -7,7 +7,7 @@
 
 import { toast } from 'vue-sonner';
 
-import type { RedditCommentSort } from '@/utils/redditApi';
+import type { RedditCommentSort } from '@/reddit/api';
 import { con } from '@/utils/logger';
 const log = con.m('DiscussionManager');
 
@@ -94,11 +94,11 @@ let currentRenderIntent: RenderIntent = 'popup';
 // search fallback below; other Reddit imports come in eagerly via
 // `./reddit-runtime` / `./reddit-discussion`, so this is the only path
 // that still benefits from on-demand loading.
-type RedditApiModule = typeof import('@/utils/redditApi');
+type RedditApiModule = typeof import('@/reddit/api');
 let redditApiModulePromise: Promise<RedditApiModule> | null = null;
 function getRedditApiModule(): Promise<RedditApiModule> {
   if (!redditApiModulePromise) {
-    redditApiModulePromise = import('@/utils/redditApi');
+    redditApiModulePromise = import('@/reddit/api');
   }
   return redditApiModulePromise;
 }

@@ -2,11 +2,11 @@
 import { ref, computed, watch, provide, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
 import RedditComment from './RedditComment.vue';
-import { getPostComments, getMoreChildren, getSubredditModeratorSet, voteThing, saveThing, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/utils/redditApi';
+import { getPostComments, getMoreChildren, getSubredditModeratorSet, voteThing, saveThing, type RedditComment as RedditCommentData, type RedditCommentSort } from '@/reddit/api';
 import { redditCommentTextSizeIncreaseItem, redditDeepReplyModeItem, redditMaxInlineDepthItem, redditCommentLayoutItem, redditTraditionalSpacingItem, redditTruncateLinesItem, redditProfileHoverCardItem, redditAutoExpandAllItem } from '@/config/storage';
 import { useKeyboardShortcuts } from '@/composables/useKeyboardShortcuts';
-import { getCurrentUsername } from '@/utils/redditAuth';
-import { getCommentFaces, type CommentFaceMap } from '@/utils/redditCommentFaces';
+import { getCurrentUsername } from '@/reddit/auth';
+import { getCommentFaces, type CommentFaceMap } from '@/reddit/comment-faces';
 import { con } from '@/utils/logger';
 
 const log = con.m('RedditComments');
@@ -44,7 +44,6 @@ const comments = ref<RedditCommentData[]>([]);
 const isLoading = ref(true);
 const error = ref<string | null>(null);
 const currentSort = ref<RedditCommentSort>(props.initialSort || 'confidence');
-const highlightIds = ref<Set<string>>(new Set());
 const rootMoreIds = ref<string[]>([]);
 const moderatorUsernames = ref<Set<string>>(new Set());
 const moderatorLookupSubreddit = ref<string | null>(null);
@@ -278,40 +277,74 @@ const renderedCount = ref(0);
 const hasMore = ref(false);
 const loadingMore = ref(false);
 
-// Filtered comments for search
-const filteredComments = computed(() => {
-  if (!props.searchQuery || !props.searchQuery.trim()) {
-    return comments.value;
+// Debounced search query. The user can type fast; walking the entire comment tree on every
+// keystroke wastes work. 150ms drops mid-typing keystrokes but still feels responsive.
+// Clearing the query flushes immediately so results don't linger after the user blanks the box.
+const debouncedSearchQuery = ref('');
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => props.searchQuery,
+  (q) => {
+    if (searchDebounceTimer !== null) {
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = null;
+    }
+    const trimmed = (q || '').trim();
+    if (!trimmed) {
+      debouncedSearchQuery.value = '';
+      return;
+    }
+    searchDebounceTimer = setTimeout(() => {
+      debouncedSearchQuery.value = trimmed;
+      searchDebounceTimer = null;
+    }, 150);
+  },
+  { immediate: true },
+);
+onUnmounted(() => {
+  if (searchDebounceTimer !== null) {
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = null;
   }
-  
-  const query = props.searchQuery.toLowerCase();
-  
+});
+
+// Pure single-walk derivation: same inputs always yield the same { tree, highlights }.
+// Previously this lived in `filteredComments` and mutated highlightIds as a side effect,
+// which is the Vue anti-pattern for computeds (re-runs can fire from unrelated dependents).
+const filterResult = computed<{ tree: RedditCommentData[]; highlights: Set<string> }>(() => {
+  const query = debouncedSearchQuery.value.toLowerCase();
+  const highlights = new Set<string>();
+  if (!query) {
+    return { tree: comments.value, highlights };
+  }
+
   function matchesQuery(comment: RedditCommentData): boolean {
     const bodyMatch = (comment.body || '').toLowerCase().includes(query);
     const authorMatch = (comment.author || '').toLowerCase().includes(query);
     return bodyMatch || authorMatch;
   }
-  
+
   function filterTree(list: RedditCommentData[]): RedditCommentData[] {
     const result: RedditCommentData[] = [];
     for (const c of list) {
       const childMatches = c.replies ? filterTree(c.replies) : [];
-      if (matchesQuery(c) || childMatches.length > 0) {
+      const hit = matchesQuery(c);
+      if (hit) highlights.add(c.id);
+      if (hit || childMatches.length > 0) {
         result.push({
           ...c,
-          replies: childMatches.length > 0 ? childMatches : c.replies
+          replies: childMatches.length > 0 ? childMatches : c.replies,
         });
-        if (matchesQuery(c)) {
-          highlightIds.value.add(c.id);
-        }
       }
     }
     return result;
   }
-  
-  highlightIds.value = new Set();
-  return filterTree(comments.value);
+
+  return { tree: filterTree(comments.value), highlights };
 });
+
+const filteredComments = computed(() => filterResult.value.tree);
+const highlightIds = computed(() => filterResult.value.highlights);
 
 // Visible comments (paginated)
 const visibleComments = computed(() => {
@@ -548,7 +581,7 @@ function loadMoreComments() {
   const outOfFetched = renderedCount.value >= filteredComments.value.length;
   const hasRootMore = rootMoreIds.value.length > 0;
 
-  const maybeFetchRootMore = async () => {
+  const fetchRootMore = async () => {
     if (!outOfFetched || !hasRootMore) return;
     const chunk = rootMoreIds.value.slice(0, 20);
     rootMoreIds.value = rootMoreIds.value.slice(20);
@@ -568,7 +601,7 @@ function loadMoreComments() {
     }
   };
 
-  Promise.resolve(maybeFetchRootMore()).finally(() => {
+  Promise.resolve(fetchRootMore()).finally(() => {
     // Update hasMore: true if there are more visible comments OR more root comments to fetch
     hasMore.value = renderedCount.value < filteredComments.value.length || rootMoreIds.value.length > 0;
     loadingMore.value = false;

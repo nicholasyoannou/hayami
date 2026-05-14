@@ -1,7 +1,7 @@
 import { con } from '@/utils/logger';
 const log = con.m('RedditRuntime');
-import { extensionFetch, getSubredditAboutCached } from '@/utils/redditApi';
-import { getStoredUsername, isAuthenticated, makeRedditRequest } from '@/utils/redditAuth';
+import { extensionFetch, getSubredditAboutCached } from '@/reddit/api';
+import { getStoredUsername, isAuthenticated, makeRedditRequest } from '@/reddit/auth';
 
 function sanitizeRedditIconUrl(iconUrl?: string | null): string | null {
   if (!iconUrl) return null;
