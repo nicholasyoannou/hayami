@@ -8,7 +8,7 @@ import { RedditProvider } from '@/entrypoints/content/providers/reddit/provider'
 import { YouTubeProvider } from './youtube/provider';
 import { MalProvider } from './mal/provider';
 import { AniListProvider } from './anilist/provider';
-import { AniwaveProvider } from './aniwave-provider';
+import { AniwaveProvider } from './aniwave/provider';
 import { AnimeCommunityProvider } from './anime-community-provider';
 import { handleProviderError } from '../utils/error-handler';
 

@@ -1,12 +1,12 @@
-import { BaseProvider } from './base-provider';
+import { BaseProvider } from '../base-provider';
 import type {
   AniwaveComment,
   AniwaveCommentsResponse,
   CommentProvider,
   ProviderContext,
-} from '../types/data';
-import { fetchAniwaveComments, fetchAniwaveReplies, searchAniwaveAnime } from '@/utils/aniwaveApi';
-import { dispatchManualSearchRequest } from '../providers/manual-search';
+} from '@/entrypoints/content/types/data';
+import { fetchAniwaveComments, fetchAniwaveReplies, searchAniwaveAnime } from '@/utils/aniwave/api';
+import { dispatchManualSearchRequest } from '../manual-search';
 import { escapeHtml } from '@/utils/html-utils';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
