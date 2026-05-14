@@ -1,9 +1,7 @@
 import { con, banner, initLoggerFromStorage } from '@/utils/logger';
 const bg = con.m('Background');
-import { authenticateWithReddit, isAuthenticated } from '@/utils/redditAuth';
-import { exchangeCodeForToken as exchangeRedditCode } from '@/utils/redditAuth';
-import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth, completeYouTubeRedirect } from '@/utils/youtubeAuth';
-import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
+import { authenticateWithYouTube } from '@/utils/youtubeAuth';
+import { authenticateWithMAL } from '@/utils/malAuth';
 import { authenticateWithAniList } from '@/utils/anilistAuth';
 import {
   customSiteMappingsItem,
@@ -33,7 +31,19 @@ import {
 } from '@/custom-sites-sync';
 import { publishHandlers } from './background/handlers/publish';
 import { malsyncHandlers } from './background/handlers/malsync';
+import { disqusHandlers } from './background/handlers/disqus';
+import { authHandlers } from './background/handlers/auth';
 import type { BackgroundMessageHandler } from './background/handlers/types';
+import {
+  POLL_RULE_ID,
+  ADS_IFRAME_RULE_ID,
+  DISQUS_PROFILE_REDIRECT_RULE_ID,
+  REDDIT_NAV_HEADER_RULE_ID,
+  DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
+  disqusReferrerStripRules,
+  setPollBlockForTab,
+  setDisqusReferrerStripForTab,
+} from './background/dnr-rules';
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
 
@@ -133,9 +143,6 @@ async function migrateLocalToSync(): Promise<void> {
 type SupportedProviderAuth = 'youtube' | 'mal' | 'anilist';
 const pendingAuthSourceTabs: Partial<Record<SupportedProviderAuth, number>> = {};
 
-// Per-tab Disqus referrer-strip rules: tabId → session rule ID
-const disqusReferrerStripRules = new Map<number, number>();
-let disqusReferrerStripRuleIdCounter = 99100;
 let komentoSyncInProgress = false;
 let komentoSyncStartedAt = 0;
 let komentoSyncBadgeTimer: number | undefined;
@@ -675,34 +682,6 @@ async function purgeHostPermissionsForHost(host: string, origin?: string) {
   return { removalResults, unregisterError, remainingOrigins };
 }
 
-const POLL_RULE_ID = 99001;
-const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
-
-// Disqus's tempest service injects a monetization iframe into every thread
-// embed. Block it alongside the poll endpoint whenever Hayami is embedding
-// Disqus on a tab so the host page stays free of third-party ad frames.
-const ADS_IFRAME_RULE_ID = 99002;
-const ADS_IFRAME_URL_FILTER = '||tempest.services.disqus.com/ads-iframe';
-
-// Redirect Disqus profile page opens to the chuunime profile page instead.
-// excludedInitiatorDomains keeps the "View Disqus profile" link on our own
-// profile pages working — that click originates from discussanime.moe, so
-// the rule doesn't fire and the user lands on Disqus as expected.
-const DISQUS_PROFILE_REDIRECT_RULE_ID = 99003;
-
-// Rule IDs for rewriting sec-fetch-* headers on Reddit .json API requests so
-// that they look like browser navigations instead of programmatic fetches.
-// Without this, Reddit returns 403 for requests with sec-fetch-mode: cors.
-const REDDIT_NAV_HEADER_RULE_ID = 99010;
-
-// DiscussAnime ↔ Disqus bridge. Rewrites Origin/Referer on outgoing fetches
-// from discussanime.moe → disqus.com so Disqus's server-side origin gate
-// stops 400ing the scraped home api_key, and injects
-// Access-Control-Allow-{Origin,Credentials,Methods,Headers} on the response
-// so the browser's CORS check against the page origin passes with
-// credentials flowing.
-const DISCUSSANIME_DISQUS_BRIDGE_RULE_ID = 99020;
-
 const CONTEXT_MENU_ID = 'hayami-configure-site';
 
 async function requestSitePermission(url: string): Promise<boolean> {
@@ -900,78 +879,6 @@ export default defineBackground(() => {
   // CRITICAL: Register the message listener FIRST, before any other initialization
   // that might throw and prevent it from being registered. On Firefox MV2, if anything
   // throws before this point, the popup/content scripts get "Could not establish connection".
-  const setPollBlockForTab = async (tabId: number, enable: boolean) => {
-    const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
-    if (!dnr) return;
-    const blockedResourceTypes = [
-      'main_frame',
-      'sub_frame',
-      'xmlhttprequest',
-      'script',
-      'image',
-      'media',
-      'object',
-      'ping',
-      'other'
-    ] as const;
-    const removeRuleIds = [POLL_RULE_ID, ADS_IFRAME_RULE_ID];
-    const addRules = enable
-      ? [
-          {
-            id: POLL_RULE_ID,
-            priority: 1,
-            action: { type: 'block' as const },
-            condition: {
-              urlFilter: POLL_URL_FILTER,
-              tabIds: [tabId],
-              resourceTypes: blockedResourceTypes,
-            }
-          },
-          {
-            id: ADS_IFRAME_RULE_ID,
-            priority: 1,
-            action: { type: 'block' as const },
-            condition: {
-              urlFilter: ADS_IFRAME_URL_FILTER,
-              tabIds: [tabId],
-              resourceTypes: blockedResourceTypes,
-            }
-          }
-        ]
-      : [];
-    await dnr.updateSessionRules({ removeRuleIds, addRules: addRules as any });
-  };
-
-  const setDisqusReferrerStripForTab = async (tabId: number, enable: boolean) => {
-    const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
-    if (!dnr) return;
-    const existingRuleId = disqusReferrerStripRules.get(tabId);
-    if (!enable) {
-      if (existingRuleId !== undefined) {
-        await dnr.updateSessionRules({ removeRuleIds: [existingRuleId] });
-        disqusReferrerStripRules.delete(tabId);
-      }
-      return;
-    }
-    if (existingRuleId !== undefined) return; // already active for this tab
-    const ruleId = disqusReferrerStripRuleIdCounter++;
-    disqusReferrerStripRules.set(tabId, ruleId);
-    await dnr.updateSessionRules({
-      addRules: [{
-        id: ruleId,
-        priority: 1,
-        action: {
-          type: 'modifyHeaders' as const,
-          requestHeaders: [{ header: 'referer', operation: 'remove' as const }],
-        },
-        condition: {
-          requestDomains: ['disqus.com'],
-          tabIds: [tabId],
-          resourceTypes: ['sub_frame' as const, 'script' as const, 'image' as const, 'xmlhttprequest' as const, 'ping' as const, 'other' as const],
-        },
-      }],
-    });
-  };
 
   // Handlers that don't capture closure state live in `background/handlers/*.ts`
   // and get merged into a single map here. Handlers that still need closure
@@ -980,6 +887,8 @@ export default defineBackground(() => {
   const externalHandlers: Record<string, BackgroundMessageHandler> = {
     ...publishHandlers,
     ...malsyncHandlers,
+    ...disqusHandlers,
+    ...authHandlers,
   };
 
   browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -1000,42 +909,6 @@ export default defineBackground(() => {
       bg.debug(' hayami_proxyFetch requested:', url, { init });
       handleProxyFetch(url, init, 'hayami_proxyFetch', sendResponse);
       return true; // keep message channel open for async response
-    }
-
-    if (message.action === 'hayami_blockDisqusPoll') {
-      (async () => {
-        try {
-          const tabId = sender.tab?.id;
-          if (!tabId) {
-            sendResponse({ ok: false, error: 'no-tab' });
-            return;
-          }
-          await setPollBlockForTab(tabId, !!message.enable);
-          sendResponse({ ok: true });
-        } catch (error) {
-          bg.warn(' Failed to toggle poll block', error);
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_disqusReferrerStrip') {
-      (async () => {
-        try {
-          const tabId = sender.tab?.id;
-          if (!tabId) {
-            sendResponse({ ok: false, error: 'no-tab' });
-            return;
-          }
-          await setDisqusReferrerStripForTab(tabId, !!message.enable);
-          sendResponse({ ok: true });
-        } catch (error) {
-          bg.warn(' Failed to toggle Disqus referrer strip', error);
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : 'unknown' });
-        }
-      })();
-      return true;
     }
 
     if (message.action === 'hayami_closeTab') {
@@ -1141,137 +1014,6 @@ export default defineBackground(() => {
       (async () => {
         const profile = await getRedditSessionProfile();
         sendResponse(profile);
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_checkDisqusSession') {
-      (async () => {
-        try {
-          // Check for 'disqusauth' cookie on disqus.com
-          const directUrls = ['https://disqus.com/', 'https://www.disqus.com/'];
-          let cookie: any = null;
-          for (const url of directUrls) {
-            try {
-              cookie = await browser.cookies.get({ url, name: 'disqusauth' });
-              if (cookie) break;
-            } catch { /* continue */ }
-          }
-
-          if (!cookie) {
-            // Fallback: scan all cookies
-            const allCookies = await browser.cookies.getAll({});
-            cookie = allCookies.find((c) => {
-              if (c?.name !== 'disqusauth') return false;
-              const domain = (c.domain || '').replace(/^\./, '').toLowerCase();
-              return domain === 'disqus.com' || domain.endsWith('.disqus.com');
-            }) || null;
-          }
-
-          if (!cookie?.value) {
-            sendResponse({ loggedIn: false });
-            return;
-          }
-
-          // Parse username from disqusauth cookie value
-          // Format: "1|disqus_USERNAME|0|1|0||385091656|//a.disquscdn.com/...|1"
-          let username: string | null = null;
-          try {
-            const parts = cookie.value.split('|');
-            if (parts.length >= 2 && parts[1]) {
-              username = parts[1];
-            }
-          } catch { /* ignore parse errors */ }
-
-          sendResponse({ loggedIn: true, username });
-        } catch (error) {
-          bg.warn(' Failed to check Disqus session', error);
-          sendResponse({ loggedIn: false });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_openDisqusLoginGuided') {
-      (async () => {
-        const loginUrl = typeof message.url === 'string' && message.url.trim()
-          ? message.url.trim()
-          : 'https://disqus.com/profile/login/';
-
-        let loginTabId: number | null = null;
-        let loginWindowId: number | null = null;
-        let cleanedUp = false;
-
-        const cleanup = () => {
-          if (cleanedUp) return;
-          cleanedUp = true;
-          try { browser.tabs.onUpdated.removeListener(handleUpdated); } catch {}
-          try { browser.tabs.onRemoved.removeListener(handleRemoved); } catch {}
-        };
-
-        const handleRemoved = (removedTabId: number) => {
-          if (removedTabId !== loginTabId) return;
-          cleanup();
-        };
-
-        const isDisqusHomeUrl = (rawUrl?: string | null): boolean => {
-          if (!rawUrl) return false;
-          try {
-            const parsed = new URL(rawUrl);
-            const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
-            if (host !== 'disqus.com') return false;
-            return parsed.pathname === '/' || parsed.pathname === '';
-          } catch {
-            return false;
-          }
-        };
-
-        const handleUpdated = async (updatedTabId: number, changeInfo: any, tab: any) => {
-          if (updatedTabId !== loginTabId) return;
-          const currentUrl = changeInfo?.url || tab?.url;
-          if (!isDisqusHomeUrl(currentUrl)) return;
-
-          cleanup();
-          try {
-            if (typeof loginWindowId === 'number') {
-              await browser.windows.remove(loginWindowId);
-            } else if (typeof loginTabId === 'number') {
-              await browser.tabs.remove(loginTabId);
-            }
-          } catch {
-            // ignore close failures
-          }
-        };
-
-        try {
-          const createdWindow = await browser.windows.create({
-            url: loginUrl,
-            type: 'popup',
-            focused: true,
-            width: 520,
-            height: 760,
-          });
-
-          const createdTab = createdWindow?.tabs?.[0];
-          loginWindowId = typeof createdWindow?.id === 'number' ? createdWindow.id : null;
-
-          if (typeof createdTab?.id !== 'number') {
-            sendResponse({ success: false, error: 'Failed to open Disqus login popup.' });
-            return;
-          }
-
-          loginTabId = createdTab.id;
-          browser.tabs.onUpdated.addListener(handleUpdated);
-          browser.tabs.onRemoved.addListener(handleRemoved);
-
-          sendResponse({ success: true, tabId: loginTabId, windowId: loginWindowId });
-        } catch (error) {
-          cleanup();
-          sendResponse({
-            success: false,
-            error: error instanceof Error ? error.message : 'Failed to open Disqus login popup.',
-          });
-        }
       })();
       return true;
     }
@@ -1486,116 +1228,6 @@ export default defineBackground(() => {
       return true;
     }
 
-    // Handle other async messages
-    // All message actions are namespaced with 'hayami_' to avoid conflicts with other extensions
-    if (message.action === 'hayami_authenticate') {
-      (async () => {
-        try {
-          const result = await authenticateWithReddit();
-          sendResponse(result);
-        } catch (error) {
-          bg.error('Authentication error:', error);
-          sendResponse({ 
-            success: false, 
-            error: error instanceof Error ? error.message : 'Unknown error' 
-          });
-        }
-      })();
-      return true; // keep channel open for async
-    }
-
-    if (message.action === 'hayami_checkAuth') {
-      (async () => {
-        const authenticated = await isAuthenticated();
-        sendResponse({ authenticated });
-      })();
-      return true; // keep channel open for async
-    }
-
-    if (message.action === 'hayami_getYouTubeToken') {
-      (async () => {
-        try {
-          const token = await getYouTubeAccessToken(false);
-          sendResponse({ token });
-        } catch (error) {
-          bg.error('Error getting YouTube token:', error);
-          sendResponse({ token: null, error: error instanceof Error ? error.message : 'Unknown error' });
-        }
-      })();
-      return true; // keep channel open for async
-    }
-
-    if (message.action === 'hayami_authenticateYouTube') {
-      (async () => {
-        try {
-          const result = await authenticateWithYouTube();
-          sendResponse(result);
-        } catch (error) {
-          bg.error('YouTube authentication error:', error);
-          sendResponse({ 
-            success: false, 
-            error: error instanceof Error ? error.message : 'Unknown error' 
-          });
-        }
-      })();
-      return true; // keep channel open for async
-    }
-
-    if (message.action === 'hayami_checkYouTubeAuth') {
-      (async () => {
-        try {
-          const authenticated = await checkYouTubeAuth();
-          sendResponse({ authenticated });
-        } catch (error) {
-          bg.error('Error checking YouTube auth:', error);
-          sendResponse({ authenticated: false });
-        }
-      })();
-      return true; // keep channel open for async
-    }
-
-    if (message.action === 'hayami_authenticateMAL') {
-      (async () => {
-        try {
-          const result = await authenticateWithMAL();
-          sendResponse(result);
-        } catch (error) {
-          bg.error('MAL authentication error:', error);
-          sendResponse({
-            success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_checkMALAuth') {
-      (async () => {
-        try {
-          const authenticated = await checkMALAuth();
-          sendResponse({ authenticated });
-        } catch (error) {
-          bg.error('Error checking MAL auth:', error);
-          sendResponse({ authenticated: false });
-        }
-      })();
-      return true;
-    }
-
-    if (message.action === 'hayami_getMALToken') {
-      (async () => {
-        try {
-          const token = await getMALAccessToken(false);
-          sendResponse({ token });
-        } catch (error) {
-          bg.error('Error getting MAL token:', error);
-          sendResponse({ token: null, error: error instanceof Error ? error.message : 'Unknown error' });
-        }
-      })();
-      return true;
-    }
-
     if (message.action === 'hayami_getAnimeDiscussion') {
       // This will be handled by the content script sending anime info
       const { animeName, episodeName } = message;
@@ -1604,26 +1236,6 @@ export default defineBackground(() => {
       return false; // synchronous response
     }
 
-    if (message.action === 'hayami_reddit_exchange') {
-      (async () => {
-        try {
-          const { code } = message as any;
-          if (!code) {
-            sendResponse({ success: false, error: 'missing_code' });
-            return;
-          }
-          const result = await exchangeRedditCode(code);
-          sendResponse(result);
-        } catch (err) {
-          sendResponse({ success: false, error: err instanceof Error ? err.message : 'unknown' });
-        }
-      })();
-      return true;
-    }
-
-    // (Reverted) previously there was a startDisqusLoginFlow handler here.
-    // Disqus login should not be initiated automatically from the popup selection.
-    
     // Handle hayami_cr_proxyFetch (namespaced proxy for Disqus — credentials omitted)
     if (message.action === 'hayami_cr_proxyFetch') {
       const { url } = message as any;
