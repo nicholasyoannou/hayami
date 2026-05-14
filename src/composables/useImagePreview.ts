@@ -3,7 +3,7 @@ import type { ImgurOdsOption, ImgurVideoCdnOption } from '@/config/storage';
 import { con } from '@/utils/logger';
 
 const log = con.m('ImagePreview');
-import { applyFlyimgUrl, applyImgurOdsUrl, applyImgurVideoCdnUrl } from '@/entrypoints/content/images/imgur';
+import { applyFlyimgUrl, applyImgurOdsUrl, applyImgurVideoCdnUrl } from '@/utils/imgur';
 
 let currentImgurOdsProvider: ImgurOdsOption = 'imgur';
 let currentImgurVideoCdnProvider: ImgurVideoCdnOption = 'imgur';

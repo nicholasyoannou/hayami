@@ -4,7 +4,7 @@
  * Functions for fetching anime mapping data from the Hayami API service.
  */
 
-import { fetchHayami } from '@/utils/hayamiApi';
+import { fetchHayami } from '@/utils/hayami/api';
 import { toEpisodeDateParam } from '../utils/date-utils';
 import { con } from '@/utils/logger';
 import type { MapperResponse } from '../types/data';

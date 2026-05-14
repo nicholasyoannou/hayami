@@ -8,8 +8,8 @@
  */
 
 import type { PublishProviderId, PublishedVisibility } from '@/config/storage';
-import { getGithubAuth } from '@/utils/githubPublishAuth';
-import { getGitlabAuth } from '@/utils/gitlabPublishAuth';
+import { getGithubAuth } from '@/utils/github/auth';
+import { getGitlabAuth } from '@/utils/gitlab/auth';
 import type { CustomSiteMapping } from '@/entrypoints/content/ui/site-mapper/types';
 
 export const PUBLISH_FILENAME = 'hayami-custom-sites.json';

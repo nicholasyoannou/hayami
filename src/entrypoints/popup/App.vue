@@ -84,7 +84,7 @@ import {
   type ImgurOdsOption,
   type ImgurVideoCdnOption,
 } from '@/config/storage';
-import { initializeImgurRegionDefaultsOnce } from '@/entrypoints/content/images/imgur';
+import { initializeImgurRegionDefaultsOnce } from '@/utils/imgur';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
 import settingsIcon from '@/assets/settingsIcon.svg';

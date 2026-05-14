@@ -11,7 +11,7 @@
 import { BaseProvider } from '../base-provider';
 import type { CommentProvider, ProviderContext, DisqusThread } from '@/entrypoints/content/types/data';
 import type { AnimeInfo } from '@/entrypoints/content/types';
-import { findEpisodeThread } from '@/utils/discussanimeApi';
+import { findEpisodeThread } from '@/utils/discussanime/api';
 import { renderDisqusContainer } from '@/entrypoints/content/templates';
 import {
   CONTAINER_RETRY_ATTEMPTS,

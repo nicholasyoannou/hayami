@@ -9,7 +9,7 @@
  */
 
 import type { AniwaveCommentsResponse } from '@/entrypoints/content/types/data';
-import { fetchHayami } from '@/utils/hayamiApi';
+import { fetchHayami } from '@/utils/hayami/api';
 import { con } from '@/utils/logger';
 
 const log = con.m('AniwaveApi');

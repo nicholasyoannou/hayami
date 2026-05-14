@@ -8,7 +8,7 @@ import { fetchMalTopicPosts } from '@/utils/mal/forums';
 import MALPost from './Post.vue';
 import MALTopicList from './TopicList.vue';
 import { escapeHtml } from '@/utils/html-utils';
-import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
+import ProviderAuthRequired from '@/components/ProviderAuthRequired.vue';
 import { con } from '@/utils/logger';
 
 const log = con.m('MAL');

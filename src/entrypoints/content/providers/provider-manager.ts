@@ -3,6 +3,7 @@
  */
 
 import type { CommentProvider, ProviderContext } from '../types/data';
+import type { ICommentProvider } from './base-provider';
 import { DisqusProvider } from './disqus/provider';
 import { RedditProvider } from '@/entrypoints/content/providers/reddit/provider';
 import { YouTubeProvider } from './youtube/provider';
@@ -12,13 +13,9 @@ import { AniwaveProvider } from './aniwave/provider';
 import { AnimeCommunityProvider } from './animecommunity/provider';
 import { handleProviderError } from '../utils/error-handler';
 
-// Provider instances (lazy-loaded)
-const providers = new Map<CommentProvider, any>();
+const providers = new Map<CommentProvider, ICommentProvider>();
 
-/**
- * Gets or creates a provider instance
- */
-function getProvider(provider: CommentProvider): any {
+function getProvider(provider: CommentProvider): ICommentProvider {
   if (!providers.has(provider)) {
     switch (provider) {
       case 'disqus':

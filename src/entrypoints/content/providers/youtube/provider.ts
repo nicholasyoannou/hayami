@@ -11,7 +11,7 @@ import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { resolveAdapter } from '@/entrypoints/content/mapping';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import YouTubeCommentList from '@/components/youtube/CommentList.vue';
-import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
+import ProviderAuthRequired from '@/components/ProviderAuthRequired.vue';
 import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
 import {
   CONTAINER_RETRY_ATTEMPTS,

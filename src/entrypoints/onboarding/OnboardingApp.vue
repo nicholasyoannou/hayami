@@ -31,12 +31,33 @@ const malSyncToggling = ref(false);
 type SiteOption = {
   id: BuiltinSiteId;
   label: string;
+  origin: string;
+  description: string;
 };
 
 const builtinSiteOptions: SiteOption[] = [
-  { id: 'crunchyroll', label: 'Crunchyroll' },
-  { id: 'netflix', label: 'Netflix' },
+  {
+    id: 'crunchyroll',
+    label: 'Crunchyroll',
+    origin: 'https://www.crunchyroll.com',
+    description: 'Show comments under episodes at crunchyroll.com/watch.',
+  },
+  {
+    id: 'netflix',
+    label: 'Netflix',
+    origin: 'https://www.netflix.com',
+    description: 'Show comments under episodes at netflix.com/watch.',
+  },
 ];
+
+function faviconFor(origin: string): string {
+  try {
+    const url = new URL(origin);
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(url.origin)}&sz=64`;
+  } catch {
+    return 'https://www.google.com/s2/favicons?domain=';
+  }
+}
 
 const enabledSites = ref<BuiltinSiteId[]>([...BUILTIN_SITE_IDS]);
 const sitesSaving = ref(false);
@@ -286,7 +307,7 @@ async function persistMediaKeys() {
             <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
         </div>
-        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-toggles" role="group" aria-label="Built-in sites">
+        <div v-if="currentStepDef.id === 'choose-sites'" class="sites-grid" role="group" aria-label="Built-in sites">
           <button
             v-for="site in builtinSiteOptions"
             :key="site.id"
@@ -294,15 +315,19 @@ async function persistMediaKeys() {
             role="switch"
             :aria-checked="isSiteEnabled(site.id)"
             :aria-label="`Toggle Hayami on ${site.label}`"
-            class="setting-toggle"
-            :class="{ 'setting-toggle--active': isSiteEnabled(site.id) }"
+            class="site-chip"
+            :class="{ 'site-chip--active': isSiteEnabled(site.id) }"
             :disabled="sitesSaving"
             @click="toggleSite(site.id)"
           >
-            <span class="setting-toggle-track">
-              <span class="setting-toggle-thumb"></span>
-            </span>
-            <span class="setting-toggle-label">{{ site.label }}</span>
+            <img
+              :src="faviconFor(site.origin)"
+              alt=""
+              class="site-chip-favicon"
+              referrerpolicy="no-referrer"
+              aria-hidden="true"
+            />
+            <span class="site-chip-label">{{ site.label }}</span>
           </button>
         </div>
 
@@ -950,12 +975,63 @@ async function persistMediaKeys() {
   padding-left: 4px;
 }
 
-/* Built-in sites step */
-.sites-toggles {
+/* Built-in sites step — chip grid (MAL-Sync install-links style) */
+.sites-grid {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 4px 0 0 0;
+}
+
+.site-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  opacity: 0.5;
+  filter: grayscale(1);
+  transition: opacity 0.2s ease, filter 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.site-chip:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.site-chip--active {
+  opacity: 1;
+  filter: none;
+  background: rgba(91, 168, 255, 0.16);
+  border-color: rgba(91, 168, 255, 0.45);
+  color: #fff;
+}
+
+.site-chip--active:hover:not(:disabled) {
+  background: rgba(91, 168, 255, 0.22);
+  border-color: rgba(91, 168, 255, 0.6);
+}
+
+.site-chip:disabled {
+  cursor: not-allowed;
+}
+
+.site-chip-favicon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  object-fit: contain;
+}
+
+.site-chip-label {
+  line-height: 1;
 }
 
 /* Pushes the disclaimer text to the very bottom of the modal, just above the buttons. */

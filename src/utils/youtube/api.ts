@@ -5,7 +5,7 @@
  */
 
 import { getYouTubeAccessToken } from './auth';
-import { fetchHayami } from '@/utils/hayamiApi';
+import { fetchHayami } from '@/utils/hayami/api';
 import { con } from '@/utils/logger';
 
 const log = con.m('YouTubeApi');

@@ -1,8 +1,8 @@
 /**
- * Tests for src/entrypoints/content/utils/mal-utils.ts
+ * Tests for src/utils/mal/title-parsing.ts
  */
 import { describe, it, expect } from 'vitest';
-import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
+import { extractSeasonNumber } from '@/utils/mal/title-parsing';
 
 // ---------------------------------------------------------------------------
 // extractSeasonNumber

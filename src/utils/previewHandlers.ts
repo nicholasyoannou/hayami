@@ -13,7 +13,7 @@ import {
   initializeImgurRegionDefaultsOnce,
   isImgurUrl,
   transformImgurFrontendUrl,
-} from '@/entrypoints/content/images/imgur';
+} from '@/utils/imgur';
 import { extensionFetch } from '@/utils/reddit/api';
 import {
   DEFAULT_IMGUR_CLIENT_ID,

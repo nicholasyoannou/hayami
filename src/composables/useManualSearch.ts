@@ -11,13 +11,13 @@ import {
   getSeriesMapping,
   getLastResolvedHayamiName,
 } from '@/entrypoints/content/mapping';
-import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
+import { extractSeasonNumber } from '@/utils/mal/title-parsing';
 import {
   searchAnimeCatalog,
   fetchAnimeByMalId,
   fetchAvailableEpisodeNumbers,
   type DiscussAnimeSearchHit,
-} from '@/utils/discussanimeApi';
+} from '@/utils/discussanime/api';
 import type { ProviderContext } from '@/entrypoints/content/types/data';
 import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
 

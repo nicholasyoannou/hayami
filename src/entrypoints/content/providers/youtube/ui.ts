@@ -4,8 +4,8 @@ import YouTubeCommentsRoot from '@/components/youtube/CommentsRoot.vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
-import { getComponentCss } from '../utils/style-injection';
-import { getContentScriptContext } from '../core/content-script-context';
+import { getComponentCss } from '../../utils/style-injection';
+import { getContentScriptContext } from '../../core/content-script-context';
 import { con } from '@/utils/logger';
 const log = con.m('YouTubeUI');
 

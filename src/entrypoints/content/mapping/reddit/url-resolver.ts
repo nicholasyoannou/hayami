@@ -15,7 +15,7 @@
 
 import type { MapperResultEntry } from '@/entrypoints/content/types/data';
 import { normalizeForMatch } from '@/entrypoints/content/sites/shared';
-import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
+import { extractSeasonNumber } from '@/utils/mal/title-parsing';
 import { toPositiveInt } from '@/utils/numbers';
 import { con } from '@/utils/logger';
 

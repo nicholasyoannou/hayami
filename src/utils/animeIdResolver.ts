@@ -6,9 +6,9 @@
  * Note: Uses AniList exclusively as it's more reliable and also provides MAL IDs
  */
 
-import { searchAniListMedia, type AniListMedia } from './anilistSearch';
-import { getAniListAccessToken } from './anilistAuth';
-import { anilistProxyFetch } from './anilistTransport';
+import { searchAniListMedia, type AniListMedia } from './anilist/search';
+import { getAniListAccessToken } from './anilist/auth';
+import { anilistProxyFetch } from './anilist/transport';
 import { con } from '@/utils/logger';
 
 const log = con.m('AnimeResolver');

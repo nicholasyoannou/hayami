@@ -1,17 +1,9 @@
 import { con } from '@/utils/logger';
+import type { AnimeInfo } from '@/entrypoints/content/types/data';
 
 const log = con.m('AnimeInfo');
 
-/**
- * Anime info extraction and caching
- */
-export interface AnimeInfo {
-  animeName: string;
-  episodeName: string;
-  releaseDate?: string;
-  malId?: number | null;
-  anilistId?: number | null;
-}
+export type { AnimeInfo };
 
 let cachedAnimeInfo: AnimeInfo | null = null;
 let lastProcessedKey: string | null = null;

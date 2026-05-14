@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { findEpisodeThread } from '@/utils/discussanimeApi';
+import { findEpisodeThread } from '@/utils/discussanime/api';
 
 function makeThread(episode: number) {
   return {

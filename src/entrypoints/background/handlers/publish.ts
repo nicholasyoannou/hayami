@@ -14,7 +14,7 @@ import {
   setGithubPat,
   getGithubAuth,
   logoutGithub,
-} from '@/utils/githubPublishAuth';
+} from '@/utils/github/auth';
 import {
   buildGitlabAuthorizeUrl,
   completeGitlabRedirectCallback,
@@ -22,7 +22,7 @@ import {
   setGitlabPat,
   getGitlabAuth,
   logoutGitlab,
-} from '@/utils/gitlabPublishAuth';
+} from '@/utils/gitlab/auth';
 import { createRemote, updateRemote, deleteRemote } from '@/utils/publishProviders';
 import type { BackgroundMessageHandler } from './types';
 

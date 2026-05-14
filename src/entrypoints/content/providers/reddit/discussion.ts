@@ -33,7 +33,7 @@ import {
   resolveRedditUrlForMovieEntry,
 } from '@/entrypoints/content/mapping/reddit/url-resolver';
 import { findExactDateMatch } from '@/entrypoints/content/utils/date-utils';
-import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
+import { extractSeasonNumber } from '@/utils/mal/title-parsing';
 import { redditMultiSubredditItem } from '@/config/storage';
 import { con } from '@/utils/logger';
 

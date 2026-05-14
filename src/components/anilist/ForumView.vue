@@ -8,7 +8,7 @@ import { fetchAniListThreadComments } from '@/utils/anilist/forums';
 import { escapeHtml } from '@/utils/html-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { imgurOdsItem, type ImgurOdsOption } from '@/config/storage';
-import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
+import ProviderAuthRequired from '@/components/ProviderAuthRequired.vue';
 import { con } from '@/utils/logger';
 
 const log = con.m('AniList');

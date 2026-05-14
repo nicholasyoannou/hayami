@@ -11,7 +11,7 @@
  */
 
 import { browser } from 'wxt/browser';
-import { fetchHayami } from '@/utils/hayamiApi';
+import { fetchHayami } from '@/utils/hayami/api';
 import { con } from '@/utils/logger';
 
 export type CodeChallengeMethod = 'plain' | 'S256';
