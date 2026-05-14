@@ -3,7 +3,7 @@ import {
   fetchCrunchyrollEpisodeMetadata,
   fetchCrunchyrollSeasons,
   getCrunchyrollAccessToken,
-} from '../../net/crunchyroll-client';
+} from './client';
 import { DetectedContext, PlacementTargets, SiteAdapter, SiteDeepMappingContext, SiteEpisodeMetadata, SiteSeriesHints } from '../types';
 import type { SiteProviderDefinition } from '../provider-definition';
 import { buildLocationMatcher } from '../provider-definition';

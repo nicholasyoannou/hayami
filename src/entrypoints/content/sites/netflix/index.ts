@@ -1,7 +1,7 @@
-import { resolveNetflixEpisodeInfo, getNetflixAnimeInfo } from '../net/netflix-client';
-import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata, SiteSeriesHints } from './types';
-import type { SiteProviderDefinition } from './provider-definition';
-import { buildLocationMatcher } from './provider-definition';
+import { resolveNetflixEpisodeInfo, getNetflixAnimeInfo } from './client';
+import { DetectedContext, PlacementTargets, SiteAdapter, SiteEpisodeMetadata, SiteSeriesHints } from '../types';
+import type { SiteProviderDefinition } from '../provider-definition';
+import { buildLocationMatcher } from '../provider-definition';
 
 export const netflixUrlMatchPatterns = [
   '*://*.netflix.com/watch/*',
