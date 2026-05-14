@@ -1,4 +1,5 @@
 import { getWatchPageWrapper } from '../../utils/dom-helpers';
+import { isCrunchyrollHost } from '@/utils/hostnames';
 import {
   fetchCrunchyrollEpisodeMetadata,
   fetchCrunchyrollSeasons,
@@ -25,9 +26,7 @@ export const crunchyrollUrlMatchPatterns = [
  */
 export function extractEpisodeIdFromUrl(): string | null {
   try {
-    const host = window.location.hostname.toLowerCase();
-    const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
-    if (!isCrunchyrollHost) return null;
+    if (!isCrunchyrollHost(window.location.hostname.toLowerCase())) return null;
     const match = window.location.href.match(/\/watch\/([A-Z0-9]+)/i);
     return match ? match[1] : null;
   } catch (error) {

@@ -20,24 +20,6 @@ export function isSameDay(date1: Date, date2: Date): boolean {
 }
 
 /**
- * Check if a release date string represents today's date
- */
-export function isReleaseDateToday(releaseDate?: string | Date | null): boolean {
-  if (!releaseDate) return false;
-
-  const parsedDate = releaseDate instanceof Date
-    ? releaseDate
-    : (typeof releaseDate === 'string' ? new Date(Date.parse(releaseDate)) : null);
-
-  if (!parsedDate || Number.isNaN(parsedDate.getTime())) return false;
-
-  const now = new Date();
-  return parsedDate.getFullYear() === now.getFullYear() &&
-    parsedDate.getMonth() === now.getMonth() &&
-    parsedDate.getDate() === now.getDate();
-}
-
-/**
  * Anime-season shorthand → month (0-indexed) using the industry convention:
  * Winter = January, Spring = April, Summer = July, Fall/Autumn = October.
  * Hayami's `episode_date` only needs to land in the right quarter to

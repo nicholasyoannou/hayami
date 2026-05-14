@@ -3,7 +3,7 @@ import accountsIcon from '@/assets/accountsIcon.svg';
 
 type AccountInfo = {
   isConnected: boolean;
-  username?: string;
+  username?: string | null;
 };
 
 type Props = {

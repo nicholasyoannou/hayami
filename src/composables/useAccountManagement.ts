@@ -1,4 +1,5 @@
 import { ref, computed, onMounted } from 'vue';
+import { sleep } from '@/utils/async';
 import { con } from '@/utils/logger';
 import {
   authenticateWithReddit,
@@ -294,7 +295,7 @@ export function useAccountManagement() {
       void (async () => {
         const deadline = Date.now() + 60000;
         while (Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await sleep(1000);
           try {
             const res = await sendMessageWithRetry({ action: 'hayami_checkRedditTokenCookie' });
             if (res?.loggedIn) {
@@ -365,7 +366,7 @@ export function useAccountManagement() {
         void (async () => {
           const deadline = Date.now() + 90000;
           while (Date.now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+            await sleep(2000);
             try {
               const authenticated = await isYouTubeAuthenticated();
               if (authenticated) {
@@ -424,7 +425,7 @@ export function useAccountManagement() {
         void (async () => {
           const deadline = Date.now() + 90000;
           while (Date.now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+            await sleep(2000);
             try {
               const authenticated = await isMALAuthenticated();
               if (authenticated) {
@@ -473,7 +474,7 @@ export function useAccountManagement() {
         void (async () => {
           const deadline = Date.now() + 90000;
           while (Date.now() < deadline) {
-            await new Promise((resolve) => setTimeout(resolve, 2000));
+            await sleep(2000);
             try {
               const authenticated = await isAniListAuthenticated();
               if (authenticated) {
@@ -528,7 +529,7 @@ export function useAccountManagement() {
       void (async () => {
         const deadline = Date.now() + 60000;
         while (Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
+          await sleep(1500);
           try {
             const res = await sendMessageWithRetry({ action: 'hayami_checkDisqusSession' });
             if (res?.loggedIn) {

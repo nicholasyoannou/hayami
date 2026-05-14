@@ -23,6 +23,7 @@ import { waitForElement, removeScripts, removeIframes, safeClear } from '@/entry
 import { teardownYouTubeInfiniteScroll } from '@/entrypoints/content/state';
 import { toast } from 'vue-sonner';
 import { linkOnlyModeItem } from '@/config/storage';
+import { sleep } from '@/utils/async';
 import { con } from '@/utils/logger';
 const log = con.m('YouTubeProvider');
 
@@ -201,19 +202,13 @@ export class YouTubeProvider extends BaseProvider {
       };
 
       // Link-only mode: show a button linking to the video instead of rendering comments
-      if (await linkOnlyModeItem.getValue()) {
-        const ytUrl = `https://www.youtube.com/watch?v=${video.video_id}`;
-        const linkContainer = await this.getContainerWithRetry(
-          getExternalCommentsContainer,
-          CONTAINER_RETRY_ATTEMPTS,
-          CONTAINER_RETRY_DELAY_MS,
-        );
-        this.renderLinkButton(linkContainer, ytUrl, 'YouTube', clearLoadingState);
+      const ytUrl = `https://www.youtube.com/watch?v=${video.video_id}`;
+      if (await this.maybeRenderLinkOnly(ytUrl, 'YouTube', getExternalCommentsContainer, clearLoadingState)) {
         return;
       }
 
       // Wait for comments section to be available
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await sleep(50);
       
       let commentsSection = await this.getContainerWithRetry(
         getExternalCommentsContainer,

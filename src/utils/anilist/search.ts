@@ -17,6 +17,7 @@
  * discard stale responses.
  */
 
+import { sleep } from '@/utils/async';
 import { getAniListAccessToken } from './auth';
 import { anilistProxyFetch } from './transport';
 import { con } from '../logger';
@@ -126,28 +127,6 @@ function parseRetryAfterMs(headerValue: string | null): number {
   const seconds = Number.parseFloat(headerValue);
   if (!Number.isFinite(seconds) || seconds < 0) return DEFAULT_RETRY_BACKOFF_MS;
   return Math.min(MAX_RETRY_BACKOFF_MS, Math.ceil(seconds * 1000));
-}
-
-function abortError(): DOMException {
-  return new DOMException('Aborted', 'AbortError');
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(abortError());
-      return;
-    }
-    const timer = setTimeout(() => {
-      signal?.removeEventListener('abort', onAbort);
-      resolve();
-    }, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(abortError());
-    };
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
 }
 
 function isGraphqlRateLimit(entry: any): boolean {

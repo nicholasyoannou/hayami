@@ -46,6 +46,12 @@ const emit = defineEmits<{
   openDeepView: [comment: RedditComment];
 }>();
 
+// Explicit slot type so recursive RedditComment rendering doesn't trigger
+// TS's "implicitly any from self-reference" inference loop on the slot prop.
+defineSlots<{
+  'reply-editor'?: (props: { comment: RedditComment }) => unknown;
+}>();
+
 const depth = computed(() => props.depth ?? 0);
 const isCollapsed = ref(false);
 const isLineHover = ref(false);
@@ -1364,8 +1370,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           @collapse="(id, state) => emit('collapse', id, state)"
           @open-deep-view="(c) => emit('openDeepView', c)"
         >
-          <template #reply-editor="childSlotProps">
-            <slot name="reply-editor" v-bind="childSlotProps" />
+          <template #reply-editor="slotProps">
+            <slot name="reply-editor" :comment="slotProps.comment" />
           </template>
         </RedditComment>
 

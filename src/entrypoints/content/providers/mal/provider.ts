@@ -18,7 +18,6 @@ import {
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
 import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
-import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
 const log = con.m('MALProvider');
 
@@ -123,16 +122,10 @@ export class MalProvider extends BaseProvider {
       }
 
       // Link-only mode: show a button linking to the topic instead of rendering posts
-      if (await linkOnlyModeItem.getValue() && forumResult.selectedTopic) {
+      if (forumResult.selectedTopic) {
         const topicUrl = forumResult.selectedTopic.url
           || (forumResult.selectedTopic.id ? `https://myanimelist.net/forum/?topicid=${forumResult.selectedTopic.id}` : null);
-        if (topicUrl) {
-          const container = await this.getContainerWithRetry(
-            getExternalCommentsContainer,
-            CONTAINER_RETRY_ATTEMPTS,
-            CONTAINER_RETRY_DELAY_MS,
-          );
-          this.renderLinkButton(container, topicUrl, 'MyAnimeList', clearLoadingState);
+        if (await this.maybeRenderLinkOnly(topicUrl, 'MyAnimeList', getExternalCommentsContainer, clearLoadingState)) {
           return;
         }
       }

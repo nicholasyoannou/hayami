@@ -1,7 +1,9 @@
 import { browser } from 'wxt/browser';
+import { sleep } from '@/utils/async';
 
 export function getRuntimeUrl(path: string): string {
-  const runtime = browser?.runtime ?? (globalThis.browser ?? globalThis.chrome)?.runtime;
+  const g = globalThis as typeof globalThis & { browser?: typeof chrome; chrome?: typeof chrome };
+  const runtime = browser?.runtime ?? (g.browser ?? g.chrome)?.runtime;
   if (!runtime?.getURL) return path;
   try {
     return runtime.getURL(path);
@@ -31,7 +33,7 @@ export async function sendMessageWithRetry<T = any>(message: any, maxRetries = 5
       }
       if (attempt < maxRetries - 1) {
         // Increasing delays: 500, 1000, 1500, 2000ms
-        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+        await sleep(500 * (attempt + 1));
       }
     }
   }

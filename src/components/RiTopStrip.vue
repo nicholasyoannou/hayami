@@ -284,6 +284,8 @@
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { getSubredditAboutCached } from '@/utils/reddit/api';
+import { formatRelativeTime as formatRelativeTimeShared } from '@/utils/format-time';
+import type { CommentProvider } from '@/entrypoints/content/types/data';
 import { con } from '@/utils/logger';
 
 const log = con.m('TopStrip');
@@ -306,7 +308,7 @@ export interface DiscussionTab {
   url?: string;
 }
 
-type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
+type Provider = CommentProvider;
 
 interface MenuItem {
   id: Provider;
@@ -565,22 +567,9 @@ function getCategoryAccent(category: DiscussionTab['category']): string {
   }
 }
 
-/** Compact relative-time formatter ("2h ago", "3d ago", "Jan 4, 2024"). */
 function formatRelativeTime(utcSeconds: number | null | undefined): string | null {
   if (typeof utcSeconds !== 'number' || !Number.isFinite(utcSeconds) || utcSeconds <= 0) return null;
-  const nowMs = Date.now();
-  const thenMs = utcSeconds * 1000;
-  const diffSec = Math.max(0, Math.round((nowMs - thenMs) / 1000));
-  if (diffSec < 60) return 'just now';
-  const diffMin = Math.round(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.round(diffHr / 24);
-  if (diffDay < 7) return `${diffDay}d ago`;
-  if (diffDay < 30) return `${Math.round(diffDay / 7)}w ago`;
-  if (diffDay < 365) return `${Math.round(diffDay / 30)}mo ago`;
-  return `${Math.round(diffDay / 365)}y ago`;
+  return formatRelativeTimeShared(utcSeconds * 1000, { style: 'compact' });
 }
 
 const defaultSubredditIconUrl = 'https://www.redditstatic.com/desktop2x/img/favicon/apple-icon-120x120.png';

@@ -10,19 +10,24 @@ import { con } from '@/utils/logger';
 
 const log = con.m('YouTubeApi');
 
+// Canonical YouTube comment shape. Re-exported from types/data.ts so legacy
+// consumers can keep importing from there, but the source of truth lives next
+// to the fetch function that builds them.
 export interface YouTubeComment {
   id: string;
   author: string;
   authorChannelId?: string;
   authorProfileImageUrl?: string;
-  text: string;
-  textDisplay: string;
-  likeCount: number;
+  text?: string;
+  textDisplay?: string;
+  likeCount?: number;
   publishedAt: string;
   updatedAt?: string;
   parentId?: string;
   replies?: YouTubeComment[];
   replyCount?: number;
+  canReply?: boolean;
+  viewerRating?: string;
 }
 
 export interface YouTubeCommentThread {

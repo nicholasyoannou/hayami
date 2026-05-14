@@ -39,7 +39,7 @@ function deepMerge<T>(base: T, incoming: Partial<T>): T {
 function asPlacement(value: unknown): KomentoPlacement | null {
   if (!isObject(value)) return null;
   if (!isDisplayPlacement(value.display)) return null;
-  return value as KomentoPlacement;
+  return value as unknown as KomentoPlacement;
 }
 
 type PlacementCandidate = {

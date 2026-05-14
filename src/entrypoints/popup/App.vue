@@ -961,6 +961,7 @@ const settingValues = reactive<SettingValueMap>({
   redditProfileHoverCard: true,
   redditKeyboardShortcuts: false,
   redditCommentFaces: false,
+  redditLinkDomain: 'reddit',
   redditMultiSubreddit: false,
   redditAutoExpandAll: false,
   redditTraditionalSpacing: 3,
@@ -2219,12 +2220,12 @@ function handleRemoveCustomSite(site: any) {
                   :setting-values="settingValues"
                   :provider-icons="providerIcons"
                   :on-back="() => { settingsScreen = 'menu'; }"
-                  :on-setting-change="handleSettingChange"
+                  :on-setting-change="(handleSettingChange as any)"
                   :on-setting-value-update="(key, v) => { (settingValues as any)[key] = v }"
-                  :format-slider-value="formatSliderValue"
-                  :get-setting-options="getSettingOptions"
-                  :is-setting-visible="isSettingVisible"
-                  :is-setting-disabled="isSettingDisabled"
+                  :format-slider-value="(formatSliderValue as any)"
+                  :get-setting-options="(getSettingOptions as any)"
+                  :is-setting-visible="(isSettingVisible as any)"
+                  :is-setting-disabled="(isSettingDisabled as any)"
                 />
               </template>
               </div>
@@ -2239,11 +2240,11 @@ function handleRemoveCustomSite(site: any) {
             :reddit-display-status="redditDisplayStatus"
             :reddit-uses-cookie-mode="redditUsesCookieMode"
             :reddit-can-login="redditCanLogin"
-            :reddit="getRedditAccount()"
-            :disqus="getDisqusAccount()"
-            :youtube="getYouTubeAccount()"
-            :mal="getMALAccount()"
-            :anilist="getAniListAccount()"
+            :reddit="getRedditAccount() ?? null"
+            :disqus="getDisqusAccount() ?? null"
+            :youtube="getYouTubeAccount() ?? null"
+            :mal="getMALAccount() ?? null"
+            :anilist="getAniListAccount() ?? null"
             :on-reddit-login="handleLogin"
             :on-reddit-logout="handleLogout"
             :on-disqus-login="handleDisqusLogin"

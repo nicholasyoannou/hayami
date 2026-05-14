@@ -2,6 +2,7 @@
 defineOptions({ name: 'RedditSelectionPanel' });
 
 import { escapeHtml } from '@/utils/html-utils';
+import { formatLocaleTimestamp as formatDate } from '@/utils/format-time';
 
 export interface RedditPost {
   title: string;
@@ -24,10 +25,6 @@ const emit = defineEmits<{
   reset: [];
   select: [post: RedditPost, index: number];
 }>();
-
-function formatDate(timestamp: number): string {
-  return new Date(timestamp * 1000).toLocaleString();
-}
 
 function handleSelect(post: RedditPost, index: number): void {
   emit('select', post, index);

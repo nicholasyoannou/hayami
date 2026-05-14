@@ -10,6 +10,7 @@
 
 import type { AniwaveCommentsResponse } from '@/entrypoints/content/types/data';
 import { fetchHayami } from '@/utils/hayami/api';
+import { sleep } from '@/utils/async';
 import { con } from '@/utils/logger';
 
 const log = con.m('AniwaveApi');
@@ -63,7 +64,7 @@ async function fetchWithRateLimit(url: string): Promise<Response> {
     const waitMs = Number.isNaN(parsedHeader)
       ? RATE_LIMIT_MAX_WAIT_MS
       : Math.min(Math.max(parsedHeader, 0), RATE_LIMIT_MAX_WAIT_MS);
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
+    await sleep(waitMs);
     attempt += 1;
   }
   return fetchHayami(url);

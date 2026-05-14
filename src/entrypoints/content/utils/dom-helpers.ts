@@ -3,6 +3,7 @@
  */
 
 import { SELECTORS } from '../constants';
+import { sleep } from '@/utils/async';
 import { con } from '@/utils/logger';
 const log = con.m('DOM');
 
@@ -56,23 +57,9 @@ export async function waitForElement(
     if (element) {
       return element;
     }
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    await sleep(delayMs);
   }
   return null;
-}
-
-/**
- * Creates a sentinel element for intersection observers
- */
-export function createSentinel(id: string, className?: string): HTMLElement {
-  const sentinel = document.createElement('div');
-  sentinel.id = id;
-  if (className) {
-    sentinel.className = className;
-  }
-  sentinel.style.height = '24px';
-  sentinel.style.margin = '8px 0';
-  return sentinel;
 }
 
 /**

@@ -36,6 +36,8 @@ export type KomentoPendingPermissionSource = {
   pendingOrigins: string[];
 };
 
+export type KomentoPendingPreviewInfo = Array<{ origin: string; sourceLabel: string }>;
+
 export type KomentoSourceTargetOption = {
   targetId: string;
   origins: string[];
@@ -167,8 +169,8 @@ export function useKomentoScript(options: {
 
   const hasKomentoPendingPermissions = computed(() => komentoPendingOrigins.value.length > 0);
 
-  const komentoPendingPreview = computed(() => {
-    const preview: Array<{ origin: string; sourceLabel: string }> = [];
+  const komentoPendingPreview = computed((): KomentoPendingPreviewInfo => {
+    const preview: KomentoPendingPreviewInfo = [];
     for (const source of komentoPendingPermissionSources.value) {
       for (const origin of source.pendingOrigins) {
         preview.push({ origin, sourceLabel: source.sourceLabel });

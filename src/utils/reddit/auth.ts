@@ -232,9 +232,9 @@ export async function getAccessToken(): Promise<string | null> {
     STORAGE_KEYS.tokenExpiry,
   ]);
 
-  const accessToken = storage[STORAGE_KEYS.accessToken];
-  const refreshToken = storage[STORAGE_KEYS.refreshToken];
-  const expiry = storage[STORAGE_KEYS.tokenExpiry];
+  const accessToken = storage[STORAGE_KEYS.accessToken] as string | undefined;
+  const refreshToken = storage[STORAGE_KEYS.refreshToken] as string | undefined;
+  const expiry = storage[STORAGE_KEYS.tokenExpiry] as number | undefined;
 
   // Return valid token if not expired
   if (accessToken && expiry && Date.now() < expiry) {
@@ -361,7 +361,7 @@ export async function getStoredUsername(): Promise<string | null> {
   const { [STORAGE_KEYS.username]: username } = await browser.storage.local.get(
     STORAGE_KEYS.username
   );
-  return username || null;
+  return (username as string | undefined) || null;
 }
 
 /**
@@ -384,7 +384,7 @@ export async function getStoredProfilePic(): Promise<string | null> {
   const { [STORAGE_KEYS.profilePic]: profilePic } = await browser.storage.local.get(
     STORAGE_KEYS.profilePic
   );
-  return profilePic || null;
+  return (profilePic as string | undefined) || null;
 }
 
 /**
@@ -397,8 +397,8 @@ export async function logout(): Promise<void> {
       STORAGE_KEYS.refreshToken,
     ]);
 
-    const accessToken = storage[STORAGE_KEYS.accessToken];
-    const refreshToken = storage[STORAGE_KEYS.refreshToken];
+    const accessToken = storage[STORAGE_KEYS.accessToken] as string | undefined;
+    const refreshToken = storage[STORAGE_KEYS.refreshToken] as string | undefined;
 
     // Revoke tokens on Reddit's server
     if (refreshToken) {
@@ -484,8 +484,8 @@ export async function makeRedditRequest<T>(
     // Attempt token refresh on 401 and retry once
     if (response.status === 401) {
       const storage = await browser.storage.local.get([STORAGE_KEYS.refreshToken]);
-      const refreshToken = storage[STORAGE_KEYS.refreshToken];
-      
+      const refreshToken = storage[STORAGE_KEYS.refreshToken] as string | undefined;
+
       if (refreshToken) {
         const newToken = await refreshAccessToken(refreshToken);
         if (newToken) {

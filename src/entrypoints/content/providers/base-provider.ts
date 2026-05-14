@@ -6,10 +6,13 @@ import { createApp, type App, type Component } from 'vue';
 import type { CommentProvider, ProviderContext } from '../types/data';
 import type { AnimeInfo } from '../types';
 import { safeClear } from '../utils/dom-helpers';
-import { getSeriesMapping, type SeriesMapping, type SeriesMappingPlatform } from '../storage/series-mapping';
-import { parseEpisodeFromTitle } from '../sites/shared';
-import { hasUserPickedOverride } from '../mapping/trust-policy';
+import type { SeriesMappingPlatform } from '../storage/series-mapping';
+import { resolveProviderContext, type ProviderResolutionContext } from './provider-context';
+import { linkOnlyModeItem } from '@/config/storage';
+import { sleep } from '@/utils/async';
 import { con } from '@/utils/logger';
+
+export type { ProviderResolutionContext } from './provider-context';
 
 const baseProviderLog = con.m('BaseProvider');
 
@@ -33,27 +36,6 @@ export interface ICommentProvider {
    * Renders comments into the container
    */
   render(container: HTMLElement, context: ProviderContext): Promise<void>;
-}
-
-/**
- * Bundle of common values every provider derives from `animeInfo` + saved
- * mapping. Built by `BaseProvider.loadProviderContext` so the boilerplate
- * (load mapping → apply override name → parse episode → apply offset) lives
- * in one place instead of being re-implemented per provider.
- */
-export interface ProviderResolutionContext {
-  /** The saved mapping for this provider, or null if none exists. */
-  mapping: SeriesMapping | null;
-  /** The anime name to use for downstream lookups (override > detected). */
-  resolvedAnimeName: string;
-  /** True iff the user explicitly picked the anime via "Wrong anime?". */
-  hasUserPickedOverride: boolean;
-  /** Episode number parsed from `animeInfo.episodeName`, pre-offset. Null when unparsable. */
-  rawEpisode: number | null;
-  /** Episode number after applying `mapping.episodeOffset` (when both raw and offset exist). */
-  mappedEpisode: number | null;
-  /** Offset applied to `rawEpisode` to produce `mappedEpisode`. Zero when no offset. */
-  episodeOffset: number;
 }
 
 /**
@@ -135,29 +117,11 @@ export abstract class BaseProvider implements ICommentProvider {
    * to read a different platform's mapping (rare; only Disqus does this
    * cross-platform today) can pass an explicit key.
    */
-  protected async loadProviderContext(
+  protected loadProviderContext(
     animeInfo: AnimeInfo,
     platform?: SeriesMappingPlatform,
   ): Promise<ProviderResolutionContext> {
-    const platformKey: SeriesMappingPlatform = platform ?? (this.name as SeriesMappingPlatform);
-    const mapping = animeInfo.animeName
-      ? await getSeriesMapping(animeInfo.animeName, platformKey)
-      : null;
-    const overrideName = (mapping?.mapperAnimeName || '').trim();
-    const resolvedAnimeName = overrideName || animeInfo.animeName;
-    const rawEpisode = parseEpisodeFromTitle(animeInfo.episodeName || '');
-    const episodeOffset = Number.isFinite(mapping?.episodeOffset as number)
-      ? Number(mapping?.episodeOffset)
-      : 0;
-    const mappedEpisode = rawEpisode !== null ? rawEpisode + episodeOffset : null;
-    return {
-      mapping,
-      resolvedAnimeName,
-      hasUserPickedOverride: hasUserPickedOverride(mapping),
-      rawEpisode,
-      mappedEpisode,
-      episodeOffset,
-    };
+    return resolveProviderContext(animeInfo, platform ?? (this.name as SeriesMappingPlatform));
   }
 
   /**
@@ -173,9 +137,32 @@ export abstract class BaseProvider implements ICommentProvider {
       if (container) {
         return container;
       }
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await sleep(delayMs);
     }
     throw new Error('External comments container not found after retries');
+  }
+
+  /**
+   * If "link-only" mode is enabled and `url` is non-empty, wait for the
+   * external comments container and render a "View discussion on {label}"
+   * button into it. Returns `true` when the button was rendered so the
+   * caller can early-return from its render path.
+   *
+   * Absorbs the `linkOnlyModeItem.getValue() → getContainerWithRetry →
+   * renderLinkButton` triad that repeated across mal/anilist/youtube/disqus
+   * providers (~10 lines each).
+   */
+  protected async maybeRenderLinkOnly(
+    url: string | null | undefined,
+    platformLabel: string,
+    getContainer: () => HTMLElement | null,
+    clearLoadingState: (reason: string) => void,
+  ): Promise<boolean> {
+    if (!url) return false;
+    if (!(await linkOnlyModeItem.getValue())) return false;
+    const container = await this.getContainerWithRetry(getContainer);
+    this.renderLinkButton(container, url, platformLabel, clearLoadingState);
+    return true;
   }
 
   /**

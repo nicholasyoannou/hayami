@@ -13,6 +13,7 @@
  */
 
 import type { DisqusThread } from '@/entrypoints/content/types/data';
+import { extractEpisodeNumbersFromTitle } from '@/utils/episode-utils';
 import { con } from '@/utils/logger';
 
 const log = con.m('DiscussanimeApi');
@@ -334,20 +335,6 @@ export async function findEpisodeThread(
   return null;
 }
 
-/** Mirror of malForums.extractEpisodeNumbersFromTitle so this util has no
- *  cross-feature dependency on the MAL forum module. */
-function extractEpisodeNumbersFromTitle(title: string): number[] {
-  const numbers = new Set<number>();
-  const patterns = [/episode\s*(\d+)/gi, /\bep\.?\s*(\d+)/gi, /\be\.?\s*(\d+)/gi, /s\d+e(\d+)/gi];
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(title)) !== null) {
-      const n = Number(match[1]);
-      if (Number.isFinite(n)) numbers.add(n);
-    }
-  }
-  return Array.from(numbers);
-}
 
 /**
  * Walk every approved thread filed against `malId` and return the

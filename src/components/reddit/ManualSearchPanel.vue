@@ -3,6 +3,7 @@ defineOptions({ name: 'RedditManualSearchPanel' });
 
 import { ref, watch, onMounted } from 'vue';
 import { con } from '@/utils/logger';
+import { formatLocaleTimestamp as formatDate } from '@/utils/format-time';
 import type { RedditPost } from './SelectionPanel.vue';
 
 const log = con.m('Reddit');
@@ -55,10 +56,6 @@ onMounted(() => {
     query.value = props.initialQuery;
   }
 });
-
-function formatDate(timestamp: number): string {
-  return new Date(timestamp * 1000).toLocaleString();
-}
 
 function handleSelect(post: RedditPost, index: number): void {
   emit('select', post, index);

@@ -8,6 +8,7 @@
 </template>
 
 <script setup lang="ts">
+import type { CSSProperties } from 'vue';
 defineOptions({ name: 'YouTubeModal' });
 
 import LiteYouTubeEmbed from 'vue-lite-youtube-embed';
@@ -15,7 +16,7 @@ import 'vue-lite-youtube-embed/style.css';
 
 const props = defineProps<{ videoId: string; onClose?: () => void }>();
 
-const overlayStyle = {
+const overlayStyle: CSSProperties = {
   position: 'fixed',
   inset: '0',
   background: 'rgba(0,0,0,0.75)',
@@ -27,7 +28,7 @@ const overlayStyle = {
   padding: '30px 20px',
 };
 
-const modalStyle = {
+const modalStyle: CSSProperties = {
   background: '#0f0f0f',
   border: '1px solid #2a2a2c',
   borderRadius: '12px',
@@ -38,7 +39,7 @@ const modalStyle = {
   position: 'relative',
 };
 
-const closeButtonStyle = {
+const closeButtonStyle: CSSProperties = {
   position: 'absolute',
   top: '8px',
   right: '10px',

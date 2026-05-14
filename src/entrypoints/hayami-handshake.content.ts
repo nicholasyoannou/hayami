@@ -10,6 +10,7 @@ import { registerAdapter } from '@/entrypoints/content/mapping'
 import { destroyState, initState, setLastAnimeInfo } from '@/entrypoints/content/state'
 import { searchAniListMedia, type AniListSearchErrorCode } from '@/utils/anilist/search'
 import { wirePreviewHandlers } from '@/utils/previewHandlers'
+import { isHayamiHost } from '@/utils/hostnames'
 
 /**
  * Strips a trailing parenthetical alternative title from hayami.moe API titles.
@@ -305,9 +306,8 @@ function ensureHayamiAdapter(): void {
   const adapter: SiteAdapter = {
     id: 'hayami-host-inline',
     matches: (loc) => {
-      const isHayamiHost = loc.hostname.endsWith('hayami.moe')
       const isLocalDevHost = import.meta.env.DEV && loc.hostname === 'localhost' && loc.port === '3000'
-      return isHayamiHost || isLocalDevHost
+      return isHayamiHost(loc.hostname) || isLocalDevHost
     },
     detectContext: (): DetectedContext => ({
       episodeId: null,
@@ -390,9 +390,8 @@ export default defineContentScript({
   // Prevent manifest CSS injection on hayami.moe — see content/index.ts for details.
   cssInjectionMode: 'manual',
   main(ctx: ContentScriptContext) {
-    const isHayamiHost = location.hostname.endsWith('hayami.moe')
     const isLocalDevHost = import.meta.env.DEV && location.hostname === 'localhost' && location.port === '3000'
-    if (!isHayamiHost && !isLocalDevHost) return
+    if (!isHayamiHost(location.hostname) && !isLocalDevHost) return
 
     const postInstalled = () => {
       window.postMessage({ source: 'hayami-extension', type: 'hayami_extension_installed' }, '*')
@@ -448,7 +447,9 @@ export default defineContentScript({
         return
       }
 
-      const requestPayload = data.payload && typeof data.payload === 'object' ? data.payload : null
+      const requestPayload = data.payload && typeof data.payload === 'object'
+        ? (data.payload as HayamiDiscussionRequest)
+        : null
       const discussionUrlRaw = requestPayload?.discussionUrl ?? data.discussionUrl
       const discussionUrl = typeof discussionUrlRaw === 'string' ? discussionUrlRaw.trim() : ''
       if (!discussionUrl) return

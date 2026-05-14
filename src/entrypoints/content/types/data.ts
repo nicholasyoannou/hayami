@@ -78,19 +78,10 @@ export interface DisqusThread {
 
 // ==================== YouTube Types ====================
 
-export interface YouTubeComment {
-  id: string;
-  author: string;
-  authorProfileImageUrl?: string;
-  textDisplay?: string;
-  text?: string;
-  publishedAt: string;
-  likeCount?: number;
-  replyCount?: number;
-  replies?: YouTubeComment[];
-  canReply?: boolean;
-  viewerRating?: string;
-}
+// YouTube comment shape lives in `src/utils/youtube/api.ts` (the file that
+// fetches them). Re-exported here for legacy `types/data` imports.
+import type { YouTubeComment } from '@/utils/youtube/api';
+export type { YouTubeComment };
 
 export interface YouTubePageInfo {
   totalResults?: number;
@@ -113,39 +104,26 @@ export interface YouTubeVideo {
 
 // ==================== MAL Types ====================
 
-export interface MalAuthor {
-  name?: string;
-  forum_avatar?: string;
-  forum_avator?: string;
-  avatar?: string;
-  forum_title?: string;
-}
-
-export interface MalPost {
-  id?: string | number;
-  number?: number;
-  author?: MalAuthor;
-  body?: string;
-  signature?: string;
-  created_at?: string;
-}
-
-export interface MalTopic {
-  id?: string | number;
-  title?: string;
-  url?: string;
-  comments?: number;
-  author?: MalAuthor;
-}
-
-export interface MalForumResult {
-  status?: 'auth_required' | 'rate_limited' | 'no_topic' | 'success';
-  topics?: MalTopic[];
-  selectedTopic?: MalTopic;
-  retryAfterSeconds?: number;
-  posts?: MalPost[];
-  nextPageUrl?: string | null;
-}
+// MAL forum types live in `src/utils/mal/forums.ts` (the file that actually
+// fetches them). Re-exported here for components that consume MAL data via
+// the cache / discussion shape, plus legacy aliases.
+import type {
+  MalForumStatus,
+  MalForumResult,
+  MalForumTopic,
+  MalForumPost,
+  MalForumTopicDetail,
+} from '@/utils/mal/forums';
+export type {
+  MalForumStatus,
+  MalForumResult,
+  MalForumTopic,
+  MalForumPost,
+  MalForumTopicDetail,
+};
+export type MalTopic = MalForumTopic;
+export type MalPost = MalForumPost;
+export type MalAuthor = NonNullable<MalForumPost['author']>;
 
 // ==================== AniList Types ====================
 
@@ -260,17 +238,18 @@ export interface DiscussionCache {
     platform?: string;
   } | YouTubeVideo; // Support both old format (just video) and new format (with playlist/platform)
   mal?: {
-    topics?: MalTopic[];
-    selectedTopic?: MalTopic;
-    status?: string;
+    topics?: MalForumTopic[];
+    selectedTopic?: MalForumTopic | null;
+    status?: MalForumStatus;
     retryAfterSeconds?: number;
-    posts?: MalPost[];
+    posts?: MalForumPost[];
     nextPageUrl?: string | null;
   };
   anilist?: {
     threads?: AniListThread[];
     selectedThread?: AniListThread;
     status?: string;
+    errorMessage?: string;
     comments?: AniListThreadComment[];
     pageInfo?: {
       currentPage?: number;

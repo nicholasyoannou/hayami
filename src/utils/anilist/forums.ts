@@ -10,7 +10,7 @@ import type {
   AniListThreadComment,
 } from '@/entrypoints/content/types/data';
 import { getAniListAccessToken } from './auth';
-import { extractEpisodeNumbersFromTitle } from '../mal/forums';
+import { extractEpisodeNumbersFromTitle } from '@/utils/episode-utils';
 import { anilistProxyFetch } from './transport';
 
 interface GraphqlResult<T> {

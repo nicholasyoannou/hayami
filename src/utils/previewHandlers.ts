@@ -307,8 +307,8 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   refreshEmbedImagesEnabled(preview);
   refreshImgurImagePreferences();
   const storageListener = (
-    changes: Record<string, browser.storage.StorageChange>,
-    areaName: browser.storage.StorageName,
+    changes: Record<string, chrome.storage.StorageChange>,
+    areaName: chrome.storage.AreaName,
   ) => {
     if (areaName !== 'local') return;
     const keys = Object.keys(changes || {});
@@ -322,7 +322,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   browser.storage.onChanged.addListener(storageListener);
 
   // Hover preview for image anchors in rendered comments
-  add(document, 'mouseover', async (ev) => {
+  add(document, 'mouseover', async (ev: MouseEvent) => {
     if (!embedImagesEnabled) {
       preview.hidePreview();
       return;
@@ -568,14 +568,14 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     }
   });
 
-  add(document, 'mousemove', (ev) => {
+  add(document, 'mousemove', (ev: MouseEvent) => {
     if (!embedImagesEnabled || !preview.isActive) return;
     preview.positionPreview(ev.clientX, ev.clientY);
   });
 
   const hidePreview = () => preview.hidePreview();
 
-  add(document, 'mouseout', (ev) => {
+  add(document, 'mouseout', (ev: MouseEvent) => {
     const targetAnchor = findAnchorFromEvent(ev);
     if (!targetAnchor || !isInsideCommentBody(targetAnchor)) return;
     if (hoveredPreviewAnchor === targetAnchor) {
@@ -595,11 +595,11 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
     preview.triggerGalleryPrefetch(reason);
   };
 
-  add(document, 'wheel', (ev) => prefetchOnScroll(ev, 'wheel'), { passive: true });
-  add(document, 'touchmove', (ev) => prefetchOnScroll(ev, 'touchmove'), { passive: true });
+  add(document, 'wheel', (ev: WheelEvent) => prefetchOnScroll(ev, 'wheel'), { passive: true });
+  add(document, 'touchmove', (ev: TouchEvent) => prefetchOnScroll(ev, 'touchmove'), { passive: true });
 
   // Keyboard navigation
-  add(document, 'keydown', (ev) => {
+  add(document, 'keydown', (ev: KeyboardEvent) => {
     if (isEditableTarget(ev)) {
       return;
     }
@@ -623,7 +623,7 @@ export function wirePreviewHandlers(ctx: ContentScriptContext): void {
   });
 
   // Click handler for YouTube & galleries
-  add(document, 'click', (ev) => {
+  add(document, 'click', (ev: MouseEvent) => {
     const a = findAnchorFromEvent(ev);
     if (!a) return;
     if (!isInsideCommentBody(a)) return;

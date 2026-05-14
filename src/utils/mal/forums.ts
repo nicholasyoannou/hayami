@@ -6,6 +6,7 @@
 
 import { getMALAccessToken } from './auth';
 import { fetchWithTimeout } from '../fetchWithTimeout';
+import { extractEpisodeNumbersFromTitle } from '@/utils/episode-utils';
 import { con } from '@/utils/logger';
 
 const log = con.m('MALForums');
@@ -30,12 +31,17 @@ export interface MalForumResult {
   selectedTopic?: MalForumTopic | null;
   retryAfterSeconds?: number;
   error?: string;
+  /** Posts of the selected topic, when the caller pre-fetched them. */
+  posts?: MalForumPost[];
+  /** Cursor for paginated post loading; populated when `posts` is set. */
+  nextPageUrl?: string | null;
 }
 
 export interface MalForumPost {
   id: number | string;
+  number?: number;
   created_at?: string;
-  author?: { id?: number; name?: string; forum_title?: string; forum_avatar?: string };
+  author?: { id?: number; name?: string; forum_title?: string; forum_avatar?: string; forum_avator?: string; avatar?: string };
   body?: string;
   signature?: string;
 }
@@ -415,25 +421,6 @@ export async function searchJikanAnimeId(animeName: string): Promise<number | nu
   }
 }
 
-export function extractEpisodeNumbersFromTitle(title: string = ''): number[] {
-  const numbers = new Set<number>();
-  const patterns = [
-    /episode\s*(\d+)/gi, // Episode 3, episode 12
-    /\bep\.?\s*(\d+)/gi, // EP3, EP 12
-    /\be\.?\s*(\d+)/gi, // E3, E12
-    /s\d+e(\d+)/gi, // S2E07
-  ];
-
-  for (const pattern of patterns) {
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(title)) !== null) {
-      const n = Number(match[1]);
-      if (Number.isFinite(n)) numbers.add(n);
-    }
-  }
-
-  return Array.from(numbers);
-}
 
 export function pickEpisodeTopic(topics: MalForumTopic[] = [], episode?: number): MalForumTopic | null {
   if (!topics.length) return null;

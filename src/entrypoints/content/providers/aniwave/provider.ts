@@ -9,6 +9,7 @@ import { fetchAniwaveComments, fetchAniwaveReplies, searchAniwaveAnime } from '@
 import { dispatchManualSearchRequest } from '../manual-search';
 import { escapeHtml } from '@/utils/html-utils';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
+import { formatRelativeTime, parseLooseIsoTimestamp } from '@/utils/format-time';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { aniwaveAutoExpandAllItem, aniwaveAutoExpandDepthItem, aniwaveHideReplyContextItem } from '@/config/storage';
 import { con } from '@/utils/logger';
@@ -818,46 +819,9 @@ export class AniwaveProvider extends BaseProvider {
   }
 
   private formatRelativeTime(value: string): string {
-    const parsedMs = this.parseTimestamp(value);
-    if (Number.isNaN(parsedMs)) return value;
-
-    const now = Date.now();
-    const diffMs = Math.max(0, now - parsedMs);
-    const minute = 60 * 1000;
-    const hour = 60 * minute;
-    const day = 24 * hour;
-    const week = 7 * day;
-    const month = 30 * day;
-    const year = 365 * day;
-
-    const format = (num: number, unit: string) => (num === 1 ? `a ${unit} ago` : `${num} ${unit}s ago`);
-
-    if (diffMs < minute) return 'just now';
-    if (diffMs < hour) return format(Math.floor(diffMs / minute), 'minute');
-    if (diffMs < day) return format(Math.floor(diffMs / hour), 'hour');
-    if (diffMs < week) return format(Math.floor(diffMs / day), 'day');
-    if (diffMs < month) return format(Math.floor(diffMs / week), 'week');
-    if (diffMs < year) return format(Math.floor(diffMs / month), 'month');
-    return format(Math.floor(diffMs / year), 'year');
-  }
-
-  private parseTimestamp(raw: string): number {
-    if (!raw) return Number.NaN;
-    try {
-      // Trim fractional seconds to milliseconds so Date can parse values like 2026-02-13T16:40:54.451000
-      const trimmed = raw.replace(/\.(\d{3})\d+/, '.$1');
-      const withZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(trimmed) ? trimmed : `${trimmed}Z`;
-      const parsed = new Date(withZone);
-      if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
-
-      // Fallback: remove fractional seconds entirely and try UTC
-      const noFraction = trimmed.replace(/\.\d+/, '');
-      const fallbackParsed = new Date(/[zZ]|[+-]\d{2}:?\d{2}$/.test(noFraction) ? noFraction : `${noFraction}Z`);
-      const fallback = fallbackParsed.getTime();
-      return Number.isNaN(fallback) ? Number.NaN : fallback;
-    } catch {
-      return Number.NaN;
-    }
+    const parsedMs = parseLooseIsoTimestamp(value);
+    if (parsedMs === null) return value;
+    return formatRelativeTime(parsedMs, { style: 'long' }) ?? value;
   }
 
   private sanitizeMessage(html: string): { html: string; hasInlineImage: boolean } {

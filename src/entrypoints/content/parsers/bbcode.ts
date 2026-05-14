@@ -131,7 +131,8 @@ export function bbcodeToHtml(input: string): string {
   });
 
   // Basic BBCode replacements
-  const replacements: [RegExp, string][] = [
+  type BBCodeReplacer = string | ((match: string, ...captures: string[]) => string);
+  const replacements: [RegExp, BBCodeReplacer][] = [
     [/\[b\](.*?)\[\/b\]/gis, '<strong>$1</strong>'],
     [/\[i\](.*?)\[\/i\]/gis, '<em>$1</em>'],
     [/\[u\](.*?)\[\/u\]/gis, '<u>$1</u>'],
@@ -199,7 +200,7 @@ export function bbcodeToHtml(input: string): string {
   for (let i = 0; i < 6; i += 1) {
     const prev = out;
     replacements.forEach(([re, repl]) => {
-      out = out.replace(re, repl);
+      out = out.replace(re, repl as string);
     });
     if (out === prev) break;
   }

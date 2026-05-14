@@ -15,7 +15,6 @@ import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataB
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
 import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
-import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
 const log = con.m('AniListProvider');
 
@@ -113,18 +112,10 @@ export class AniListProvider extends BaseProvider {
       }
 
       // Link-only mode: show a button linking to the thread instead of rendering comments
-      if (await linkOnlyModeItem.getValue()) {
-        const threadUrl = threadsResult.selectedThread?.siteUrl
-          || (threadsResult.selectedThread?.id ? `https://anilist.co/forum/thread/${threadsResult.selectedThread.id}` : null);
-        if (threadUrl) {
-          const container = await this.getContainerWithRetry(
-            getExternalCommentsContainer,
-            CONTAINER_RETRY_ATTEMPTS,
-            CONTAINER_RETRY_DELAY_MS,
-          );
-          this.renderLinkButton(container, threadUrl, 'AniList', clearLoadingState);
-          return;
-        }
+      const threadUrl = threadsResult.selectedThread?.siteUrl
+        || (threadsResult.selectedThread?.id ? `https://anilist.co/forum/thread/${threadsResult.selectedThread.id}` : null);
+      if (await this.maybeRenderLinkOnly(threadUrl, 'AniList', getExternalCommentsContainer, clearLoadingState)) {
+        return;
       }
 
       let commentsResult: Awaited<ReturnType<typeof fetchAniListThreadComments>> | null = null;

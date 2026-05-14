@@ -6,7 +6,7 @@ import { toast } from 'vue-sonner';
 import { con } from '@/utils/logger';
 const log = con.m('ErrorHandler');
 
-export interface ErrorContext {
+interface ErrorContext {
   operation: string;
   provider?: string;
   details?: Record<string, unknown>;
@@ -72,28 +72,3 @@ export function handleApiError(
   }
 }
 
-/**
- * Handles authentication errors
- */
-export function handleAuthError(provider: string): void {
-  toast.error(`${provider} authentication required`, {
-    description: `Please authenticate ${provider} in the extension settings.`,
-  });
-}
-
-/**
- * Wraps an async function with error handling
- */
-export function withErrorHandling<T extends (...args: any[]) => Promise<any>>(
-  fn: T,
-  context: ErrorContext
-): T {
-  return (async (...args: Parameters<T>) => {
-    try {
-      return await fn(...args);
-    } catch (error) {
-      handleError(error, context);
-      throw error; // Re-throw to allow caller to handle if needed
-    }
-  }) as T;
-}

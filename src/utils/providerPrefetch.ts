@@ -17,15 +17,13 @@ import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchMalForumTopics, fetchJikanForumTopics, pickEpisodeTopic, searchMalAnimeId, searchJikanAnimeId } from '@/utils/mal/forums';
 import { fetchAniListThreads } from '@/utils/anilist/forums';
 import { findEpisodeThread } from '@/utils/discussanime/api';
-import { parseEpisodeFromTitle } from '@/entrypoints/content/sites/shared';
-import { extractEpisodeNumber } from '@/utils/episode-utils';
 import {
   tryMapperFailover,
   getLastResolvedHayamiName,
   type MapperFailoverOut,
 } from '@/entrypoints/content/mapping';
 import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
-import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
+import { resolveProviderContext } from '@/entrypoints/content/providers/provider-context';
 import { con } from '@/utils/logger';
 
 const log = con.m('Prefetch');
@@ -74,9 +72,9 @@ async function prefetchMal(
     return cache.mal.selectedTopic.comments ?? null;
   }
 
-  const mapping = await getSeriesMapping(animeInfo.animeName || '', 'mal');
+  const ctx = await resolveProviderContext(animeInfo, 'mal');
+  const mapping = ctx.mapping;
   const mapperAnimeName = (mapping?.mapperAnimeName || '').trim();
-  const resolveAnimeName = mapperAnimeName || animeInfo.animeName;
 
   // Use saved MAL ID from mapping (set by "wrong anime" picker) first
   let malId = normalizeMalId(mapping?.malId) ?? null;
@@ -90,20 +88,18 @@ async function prefetchMal(
 
   // MAL's own API first, then Jikan fallback
   if (!malId) {
-    malId = await searchMalAnimeId(resolveAnimeName);
+    malId = await searchMalAnimeId(ctx.resolvedAnimeName);
     if (malId) animeInfo.malId = malId;
   }
 
   if (!malId) {
-    malId = await searchJikanAnimeId(resolveAnimeName);
+    malId = await searchJikanAnimeId(ctx.resolvedAnimeName);
     if (malId) animeInfo.malId = malId;
   }
 
   if (!malId) return null;
 
-  const episodeNum = extractEpisodeNumber(animeInfo.episodeName);
-  const parsedEp = episodeNum ? Number(episodeNum) : null;
-  const chosenEp = parsedEp !== null ? parsedEp + (mapping?.episodeOffset ?? 0) : parsedEp;
+  const chosenEp = ctx.mappedEpisode;
 
   let result = await fetchMalForumTopics(malId, chosenEp ?? undefined);
   if (!result.selectedTopic && (!result.topics || result.topics.length === 0)) {
@@ -140,7 +136,8 @@ async function prefetchAniList(
     return cache.anilist.selectedThread.replyCount ?? null;
   }
 
-  const mapping = await getSeriesMapping(animeInfo.animeName, 'anilist');
+  const ctx = await resolveProviderContext(animeInfo, 'anilist');
+  const mapping = ctx.mapping;
   const mappedAnimeName = (mapping?.mapperAnimeName || '').trim();
 
   // Use saved AniList ID from mapping (set by "wrong anime" picker) first
@@ -156,21 +153,14 @@ async function prefetchAniList(
   }
 
   if (!anilistId) {
-    const resolveAnimeName = mappedAnimeName || animeInfo.animeName;
-    const ids = await getCachedAnimeIds(resolveAnimeName);
+    const ids = await getCachedAnimeIds(ctx.resolvedAnimeName);
     anilistId = ids?.anilistId ?? null;
     if (anilistId) animeInfo.anilistId = anilistId;
   }
 
   if (!anilistId) return null;
-  const rawEp = extractEpisodeNumber(animeInfo.episodeName);
-  const rawEpNum = rawEp ? Number(rawEp) : null;
-  const episodeOffset = mapping?.episodeOffset ?? 0;
-  const episodeParsed = rawEpNum !== null ? rawEpNum + episodeOffset : null;
 
-  const mappedName = (mapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
-
-  const threadsResult = await fetchAniListThreads(anilistId, mappedName, episodeParsed);
+  const threadsResult = await fetchAniListThreads(anilistId, ctx.resolvedAnimeName, ctx.mappedEpisode);
 
   cache.anilist = {
     threads: threadsResult.threads,
@@ -191,10 +181,10 @@ async function prefetchDisqus(
     return cache.disqus.thread.posts ?? null;
   }
 
-  const mapping = await getSeriesMapping(animeInfo.animeName || '', 'disqus');
-  const episodeOffset = mapping?.episodeOffset ?? 0;
-  const rawEp = parseEpisodeFromTitle(animeInfo.episodeName || '');
-  const mappedEp = rawEp !== null ? rawEp + episodeOffset : null;
+  const ctx = await resolveProviderContext(animeInfo, 'disqus');
+  const mapping = ctx.mapping;
+  const rawEp = ctx.rawEpisode;
+  const mappedEp = ctx.mappedEpisode;
 
   // PRIORITY 1: a real "Wrong anime?" pick is identifiable by its
   // `mapperAnimeName` field (set by the modal). The bare `malId` on the

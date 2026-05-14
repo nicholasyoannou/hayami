@@ -15,6 +15,7 @@
 import { con } from '@/utils/logger';
 import { AnimeInfo } from '../types';
 import { browser } from 'wxt/browser';
+import { isCrunchyrollHost } from '@/utils/hostnames';
 import { malSyncEnabledItem } from '@/config/storage';
 import type { MalSyncPresence, MalSyncDomResult } from '@/utils/mal/sync';
 import { observeMalSyncDom } from '@/utils/mal/sync';
@@ -407,10 +408,9 @@ export async function tryMapperFailover(
     };
 
     const overrideEpisode = episodeOverride ?? null;
-    const host = window.location.hostname.toLowerCase();
-    const isCrunchyrollHost = host === 'crunchyroll.com' || host.endsWith('.crunchyroll.com');
     const isCrunchyrollWatchPath = window.location.pathname.includes('/watch/');
-    const shouldUseCrunchyrollMetadata = isCrunchyrollHost && isCrunchyrollWatchPath;
+    const shouldUseCrunchyrollMetadata = isCrunchyrollHost(window.location.hostname.toLowerCase())
+      && isCrunchyrollWatchPath;
 
     const episodeId = shouldUseCrunchyrollMetadata ? extractEpisodeIdFromUrl() : null;
     if (!episodeId) {

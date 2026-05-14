@@ -23,8 +23,8 @@ import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/man
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type Provider = 'reddit' | 'disqus' | 'youtube' | 'mal' | 'anilist' | 'aniwave' | 'animecommunity';
-type ManualEpisodeProvider = 'reddit' | 'disqus' | 'aniwave' | 'animecommunity' | 'anilist' | 'mal' | 'youtube';
+import type { CommentProvider } from '@/entrypoints/content/types/data';
+export type Provider = CommentProvider;
 
 export interface AniListSearchMedia {
   id: number;
@@ -80,7 +80,7 @@ export function useManualSearch(params: {
   const manualEpisodeLoading = ref(false);
   const manualEpisodeError = ref<string | null>(null);
   const manualEpisodeSelected = ref<number | null>(null);
-  const manualEpisodeProvider = ref<ManualEpisodeProvider>('reddit');
+  const manualEpisodeProvider = ref<Provider>('reddit');
   const manualEpisodeContext = ref<{
     animeName?: string;
     episodeNumber?: number | null;
@@ -175,7 +175,7 @@ export function useManualSearch(params: {
 
   // ── Pure helper functions ────────────────────────────────────────────────
 
-  function resolveManualEpisodeProvider(provider?: Provider | string | null): ManualEpisodeProvider {
+  function resolveManualEpisodeProvider(provider?: Provider | string | null): Provider {
     if (provider === 'aniwave') return 'aniwave';
     if (provider === 'animecommunity') return 'animecommunity';
     if (provider === 'anilist') return 'anilist';
@@ -537,7 +537,7 @@ export function useManualSearch(params: {
 
   function getMapperEpisodeOptions(
     result: any,
-    options?: { provider?: ManualEpisodeProvider; aniwaveIsDub?: boolean },
+    options?: { provider?: Provider; aniwaveIsDub?: boolean },
   ): Array<{ episode: number; url: string; isDub?: boolean }> {
     const episodes = result?.episodes;
     if (!episodes) return [];
@@ -1328,7 +1328,7 @@ export function useManualSearch(params: {
     // If a manual mapping already exists, keep using that override as highest priority.
     const resolveManualOverrideNames = async (
       info: any,
-      providerForMapping: ManualEpisodeProvider,
+      providerForMapping: Provider,
       episodeNumber?: number | null,
     ): Promise<{ resolvedAnimeName?: string; mappingAnimeName?: string; episodeNumber?: number | null }> => {
       const baseAnimeName = (info?.animeName || '').trim();
