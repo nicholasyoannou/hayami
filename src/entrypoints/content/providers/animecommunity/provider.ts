@@ -5,7 +5,6 @@ import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds, getLastAnimeIdResolverError } from '@/utils/animeIdResolver';
 import { dispatchManualSearchRequest } from '../manual-search';
 import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
-import { getRuntimeUrl } from '@/utils/runtime';
 import { con } from '@/utils/logger';
 const log = con.m('AnimeCommunity');
 
@@ -122,24 +121,46 @@ export class AnimeCommunityProvider extends BaseProvider {
         },
       };
 
-      const embedUrl = new URL(getRuntimeUrl('animecommunity-embed.html'));
+      // The TAC widget is hosted on hayami.moe so the extension package ships
+      // no remote-fetched JS (Chrome MV3 remote-code policy).
+      const embedUrl = new URL('https://hayami.moe/embed/tac');
       embedUrl.searchParams.set('config', JSON.stringify(cfg));
 
       iframe.src = embedUrl.toString();
       container.appendChild(iframe);
       this.iframeRef = iframe;
 
-      const onEmbedHeight = (event: MessageEvent) => {
-        if (!this.iframeRef || event.source !== this.iframeRef.contentWindow) return;
-        const payload = event.data as { type?: string; height?: unknown };
-        if (payload?.type !== 'animecommunity:height') return;
-        const next = Number(payload.height);
-        if (!Number.isFinite(next) || next <= 0) return;
-        const clamped = Math.min(Math.max(Math.ceil(next), 240), 5000);
-        this.iframeRef.style.height = `${clamped}px`;
+      const sendAuthorize = () => {
+        const frame = this.iframeRef;
+        if (!frame?.contentWindow) return;
+        // targetOrigin pinned to hayami.moe so the token never reaches a
+        // navigated-away iframe.
+        frame.contentWindow.postMessage(
+          { source: 'hayami-extension', type: 'hayami:tac-authorize' },
+          'https://hayami.moe',
+        );
       };
 
-      window.addEventListener('message', onEmbedHeight, { signal });
+      iframe.addEventListener('load', sendAuthorize, { signal });
+
+      const onIframeMessage = (event: MessageEvent) => {
+        if (!this.iframeRef || event.source !== this.iframeRef.contentWindow) return;
+        const payload = event.data as { source?: string; type?: string; height?: unknown };
+
+        if (payload?.source === 'hayami-embed' && payload?.type === 'ready') {
+          sendAuthorize();
+          return;
+        }
+
+        if (payload?.type === 'animecommunity:height') {
+          const next = Number(payload.height);
+          if (!Number.isFinite(next) || next <= 0) return;
+          const clamped = Math.min(Math.max(Math.ceil(next), 240), 5000);
+          this.iframeRef.style.height = `${clamped}px`;
+        }
+      };
+
+      window.addEventListener('message', onIframeMessage, { signal });
 
       context.clearLoadingState('animecommunity');
     } catch (error) {

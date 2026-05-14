@@ -1,12 +1,6 @@
 import { defineConfig } from 'wxt';
 import { hostPermissions } from './src/config';
 
-const SANDBOX_CSP = [
-  "sandbox allow-scripts allow-forms allow-popups allow-modals;",
-  "script-src 'self' blob: 'unsafe-inline' 'unsafe-eval' https://theanimecommunity.com https://www.theanimecommunity.com;",
-  "child-src 'self';",
-].join(' ');
-
 process.env.NODE_ENV = 'production';
 const filteredEntrypointSet = process.env.NODE_ENV === 'production'
   ? new Set([
@@ -56,13 +50,7 @@ export default defineConfig({
     optional_host_permissions: ['<all_urls>'],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
-      // Extension pages cannot load remote scripts; keep scripts self-only. AnimeCommunity remote script is loaded
-      // inside a dedicated sandbox page.
       extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' https: http:; frame-src 'self' https://hayami.moe;",
-      sandbox: SANDBOX_CSP,
-    },
-    sandbox: {
-      pages: ['animecommunity-embed.html']
     },
     commands: {
       'open-site-mapper': {
@@ -97,8 +85,6 @@ export default defineConfig({
           'content-scripts/content.css',
           'content-scripts/hayami-handshake.css',
           'popup.html',
-          'animecommunity-embed.html',
-          'animecommunity-embed.js',
           'icons/hayamiLogo-wBg.png',
         ],
         matches: ['<all_urls>']
@@ -124,13 +110,6 @@ export default defineConfig({
           matches: [...hostPermissions],
           js: ["content-scripts/content.js"],
         });
-      }
-
-      // Keep sandbox CSP explicit in output manifest to match known working TAC setup.
-      if (!manifest.content_security_policy) manifest.content_security_policy = {} as any;
-      (manifest.content_security_policy as any).sandbox = SANDBOX_CSP;
-      if (manifest.sandbox && 'content_security_policy' in manifest.sandbox) {
-        delete (manifest.sandbox as any).content_security_policy;
       }
     },
   },

@@ -205,7 +205,7 @@ const baseSteps: StepDef[] = [
   {
     id: 'custom-sites',
     title: 'Custom sites',
-    content: 'Hayami allows you to configure custom sites in two ways: through the extension\'s [custom sites feature](https://docs.hayami.moe/custom-websites), or by syncing to community [KomentoScript](https://docs.hayami.moe/komento-script) instances.\n\n**Custom sites**: If you wish to add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/customMappingHayami.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page. You can also sync custom websites from a third-party URL that syncs weekly. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites).\n\n**KomentoScript**: KomentoScript is an advanced site-mapping feature, allowing syncing from a third-party URL aiming to serve community-driven configurations. By syncing to a KomentoScript instance, you get pre-configured configurations of custom sites, and updates associated to it, synced weekly. Read more on the [KomentoScript documentation](https://docs.hayami.moe/komento-script).',
+    content: 'Any site can support Hayami through the [custom sites feature](https://docs.hayami.moe/custom-websites). Map your own listings, publish them to a shareable URL, or subscribe to lists others have published to get weekly-synced community configurations.\n\n**Make your own listing**: To add a custom site, (right click, and click \'Configure site with Hayami\')(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/customMappingHayami.gif). You can then choose how you want the comments section mounted, and then you select the episode name and number. Upon doing so, the comments section should mount after refreshing the page.\n\n**Sync to others**: You can sync custom websites from a third-party URL that updates weekly — useful for picking up community-maintained mappings without configuring each site yourself. Once you\'ve made your own mappings, you can also publish them to a shareable URL so others can subscribe to your list. Read more on [Hayami\'s documentation](https://docs.hayami.moe/custom-websites).',
     icon: '\uD83C\uDF10'
   },
   {
@@ -1034,10 +1034,9 @@ async function persistMediaKeys() {
   line-height: 1;
 }
 
-/* Pushes the disclaimer text to the very bottom of the modal, just above the buttons. */
+/* Spacing between the sites grid and the disclaimer text below it. */
 .step-flex-spacer {
-  flex: 1;
-  min-height: 12px;
+  min-height: 24px;
 }
 
 .onboarding-modal.fixed-size .step-content.step-content--footer {
