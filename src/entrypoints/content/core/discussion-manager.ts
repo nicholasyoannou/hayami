@@ -7,7 +7,7 @@
 
 import { toast } from 'vue-sonner';
 
-import type { RedditCommentSort } from '@/reddit/api';
+import type { RedditCommentSort } from '@/platforms/reddit/api';
 import { con } from '@/utils/logger';
 const log = con.m('DiscussionManager');
 
@@ -18,7 +18,7 @@ import { escapeHtml } from '@/utils/html-utils';
 
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
-import RedditManualSearchPanel from '@/reddit/components/RedditManualSearchPanel.vue';
+import RedditManualSearchPanel from '@/components/reddit/RedditManualSearchPanel.vue';
 
 // Type imports
 import { AnimeInfo } from '../types';
@@ -36,7 +36,7 @@ import {
   makeRedditTabChangeCallback,
   activateRedditOnDemand,
   runRedditSearchPipeline,
-} from '@/reddit/discussion';
+} from '@/platforms/reddit/discussion';
 import { DisqusProvider } from '../providers/disqus-provider';
 
 // Template renderers
@@ -92,11 +92,11 @@ let currentRenderIntent: RenderIntent = 'popup';
 // search fallback below; other Reddit imports come in eagerly via
 // `./reddit-runtime` / `./reddit-discussion`, so this is the only path
 // that still benefits from on-demand loading.
-type RedditApiModule = typeof import('@/reddit/api');
+type RedditApiModule = typeof import('@/platforms/reddit/api');
 let redditApiModulePromise: Promise<RedditApiModule> | null = null;
 function getRedditApiModule(): Promise<RedditApiModule> {
   if (!redditApiModulePromise) {
-    redditApiModulePromise = import('@/reddit/api');
+    redditApiModulePromise = import('@/platforms/reddit/api');
   }
   return redditApiModulePromise;
 }

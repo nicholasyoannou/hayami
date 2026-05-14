@@ -6,7 +6,7 @@
  * and `hayami_reddit_exchange` finishes Reddit's authorization-code grant.
  */
 
-import { authenticateWithReddit, isAuthenticated, exchangeCodeForToken as exchangeRedditCode } from '@/reddit/auth';
+import { authenticateWithReddit, isAuthenticated, exchangeCodeForToken as exchangeRedditCode } from '@/platforms/reddit/auth';
 import { authenticateWithYouTube, getYouTubeAccessToken, isYouTubeAuthenticated as checkYouTubeAuth } from '@/utils/youtubeAuth';
 import { authenticateWithMAL, getMALAccessToken, isMALAuthenticated as checkMALAuth } from '@/utils/malAuth';
 import { con } from '@/utils/logger';

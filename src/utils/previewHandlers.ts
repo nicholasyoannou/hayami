@@ -14,7 +14,7 @@ import {
   isImgurUrl,
   transformImgurFrontendUrl,
 } from '@/entrypoints/content/images/imgur';
-import { extensionFetch } from '@/reddit/api';
+import { extensionFetch } from '@/platforms/reddit/api';
 import {
   DEFAULT_IMGUR_CLIENT_ID,
   embedImagesItem,

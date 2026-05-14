@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
-import { getUserProfile, type RedditUserProfile } from '@/reddit/api';
+import { getUserProfile, type RedditUserProfile } from '@/platforms/reddit/api';
 import { redditLinkDomainItem } from '@/config/storage';
 
 const props = defineProps<{

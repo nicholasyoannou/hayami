@@ -4,7 +4,7 @@ import { anilistProxyFetch } from '@/utils/anilistTransport';
 import { searchAniListMedia as searchAniListMediaPrimitive } from '@/utils/anilistSearch';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
-import { searchCustomPosts } from '@/reddit/api';
+import { searchCustomPosts } from '@/platforms/reddit/api';
 import {
   extractEpisodeTableFromRedditSelftext,
   fetchAnimeMapperDataBySeriesName,

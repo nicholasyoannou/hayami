@@ -9,7 +9,7 @@ export const providers = ['reddit', 'disqus', 'youtube', 'mal', 'anilist', 'aniw
 export * from './base-provider';
 export * from './provider-manager';
 export { DisqusProvider } from './disqus-provider';
-export { RedditProvider } from '@/reddit/provider';
+export { RedditProvider } from '@/platforms/reddit/provider';
 export { YouTubeProvider, setCurrentYouTubeVideo, getCurrentYouTubeVideo, setCurrentYouTubeOrder, getCurrentYouTubeOrder } from './youtube-provider';
 export { MalProvider } from './mal-provider';
 export { AniListProvider } from './anilist-provider';

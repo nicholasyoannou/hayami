@@ -3,7 +3,7 @@
  */
 
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { searchCustomPosts } from '@/reddit/api';
+import { searchCustomPosts } from '@/platforms/reddit/api';
 import { getUiManager } from '../core/ui-manager';
 import { removeCommentsSkeletonLoading } from './skeletons';
 import { parseEpisodeFromTitle, saveSeriesMapping, getSeriesMapping, deleteSeriesMapping } from '../mapping';
@@ -12,10 +12,10 @@ import { resolveAdapter } from '../sites/registry';
 import { getWatchPageWrapper } from '../utils/dom-helpers';
 import { applySidePadding, getCustomMountAnchor, getCustomSiteMapping } from './site-mapper/site-mapper-utils';
 import type { AnimeInfo } from '../types';
-import RedditDiscussionInfoPanel from '@/reddit/components/RedditDiscussionInfoPanel.vue';
-import RedditManualSearchPanel from '@/reddit/components/RedditManualSearchPanel.vue';
-import RedditNoDiscussionPanel from '@/reddit/components/RedditNoDiscussionPanel.vue';
-import RedditSelectionPanel, { type RedditPost } from '@/reddit/components/RedditSelectionPanel.vue';
+import RedditDiscussionInfoPanel from '@/components/reddit/RedditDiscussionInfoPanel.vue';
+import RedditManualSearchPanel from '@/components/reddit/RedditManualSearchPanel.vue';
+import RedditNoDiscussionPanel from '@/components/reddit/RedditNoDiscussionPanel.vue';
+import RedditSelectionPanel, { type RedditPost } from '@/components/reddit/RedditSelectionPanel.vue';
 import { con } from '@/utils/logger';
 const log = con.m('SelectionUI');
 

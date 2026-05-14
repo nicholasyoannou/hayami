@@ -3,11 +3,11 @@ import { computed, ref, watch, nextTick, onMounted, onUnmounted, reactive } from
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl, sendMessageWithRetry } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
-import RedditCommentList from '@/reddit/components/RedditCommentList.vue';
+import RedditCommentList from '@/components/reddit/RedditCommentList.vue';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
-import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/reddit/api';
+import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/platforms/reddit/api';
 import { useManualSearch, type Provider, type AniListSearchMedia, type MalSearchMedia } from '@/composables/useManualSearch';
-import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/reddit/auth';
+import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/platforms/reddit/auth';
 import { useProvider } from '@/composables/useProvider';
 import type { ProviderContext, AlternateRedditThread } from '@/entrypoints/content/types/data';
 import type { DiscussionTab } from './RiTopStrip.vue';

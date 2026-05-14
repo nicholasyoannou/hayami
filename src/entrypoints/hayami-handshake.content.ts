@@ -4,7 +4,7 @@ import type { DetectedContext, SiteAdapter, SiteEpisodeMetadata } from '@/entryp
 import { ensureToaster } from '@/entrypoints/content/core/bootstrap'
 import { setContentScriptContext } from '@/entrypoints/content/core/content-script-context'
 import { displayDiscussionDependingOnMode } from '@/entrypoints/content/core/discussion-manager'
-import { fetchRedditPostFromUrl } from '@/reddit/runtime'
+import { fetchRedditPostFromUrl } from '@/platforms/reddit/runtime'
 import { getUiManager } from '@/entrypoints/content/core/ui-manager'
 import { registerAdapter } from '@/entrypoints/content/mapping'
 import { destroyState, initState, setLastAnimeInfo } from '@/entrypoints/content/state'

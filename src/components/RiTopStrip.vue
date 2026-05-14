@@ -283,7 +283,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue';
 import { getRuntimeUrl } from '@/utils/runtime';
-import { getSubredditAboutCached } from '@/reddit/api';
+import { getSubredditAboutCached } from '@/platforms/reddit/api';
 import { con } from '@/utils/logger';
 
 const log = con.m('TopStrip');

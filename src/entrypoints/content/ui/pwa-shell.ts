@@ -3,7 +3,7 @@ import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { completeAniListImplicitGrant } from '@/utils/anilistAuth';
 import { completeMALRedirect } from '@/utils/malAuth';
-import { completeRedditRedirectCallback } from '@/reddit/auth';
+import { completeRedditRedirectCallback } from '@/platforms/reddit/auth';
 import { completeYouTubeRedirect } from '@/utils/youtubeAuth';
 import { con } from '@/utils/logger';
 const log = con.m('PWAShell');
