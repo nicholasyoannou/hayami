@@ -16,7 +16,7 @@
  */
 
 import { browser } from 'wxt/browser';
-import { authenticateWithYouTube } from '@/utils/youtubeAuth';
+import { authenticateWithYouTube } from '@/utils/youtube/auth';
 import { authenticateWithMAL } from '@/utils/malAuth';
 import { authenticateWithAniList } from '@/utils/anilistAuth';
 import type { BackgroundMessageHandler } from './types';

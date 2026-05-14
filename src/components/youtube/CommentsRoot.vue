@@ -10,7 +10,9 @@
 </template>
 
 <script setup lang="ts">
-import YouTubeCommentList from './YouTubeCommentList.vue';
+defineOptions({ name: 'YouTubeCommentsRoot' });
+
+import YouTubeCommentList from './CommentList.vue';
 
 const props = defineProps<{
   videoId: string;

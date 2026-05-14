@@ -1,7 +1,9 @@
 <script setup lang="ts">
+defineOptions({ name: 'YouTubeComment' });
+
 import { ref, computed, watch } from 'vue';
-import { getCommentReplies, type YouTubeComment as YouTubeCommentData } from '@/utils/youtubeApi';
-import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube-utils';
+import { getCommentReplies, type YouTubeComment as YouTubeCommentData } from '@/utils/youtube/api';
+import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube/utils';
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { con } from '@/utils/logger';

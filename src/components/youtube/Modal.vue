@@ -8,6 +8,8 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'YouTubeModal' });
+
 import LiteYouTubeEmbed from 'vue-lite-youtube-embed';
 import 'vue-lite-youtube-embed/style.css';
 

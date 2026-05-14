@@ -1,11 +1,13 @@
 <script setup lang="ts">
+defineOptions({ name: 'YouTubeCommentList' });
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { getVideoComments } from '@/utils/youtubeApi';
+import { getVideoComments } from '@/utils/youtube/api';
 import type { YouTubeComment as YouTubeCommentData, WrongAnimeContext } from '@/entrypoints/content/types/data';
 import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
-import type { YouTubeCommentsResult } from '@/utils/youtubeApi';
-import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube-utils';
-import YouTubeComment from './YouTubeComment.vue';
+import type { YouTubeCommentsResult } from '@/utils/youtube/api';
+import { formatYouTubeDate, formatYouTubeCommentText } from '@/entrypoints/content/providers/youtube/utils';
+import YouTubeComment from './Comment.vue';
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { con } from '@/utils/logger';

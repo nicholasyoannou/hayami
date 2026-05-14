@@ -4,7 +4,7 @@
  * Handles fetching YouTube comments and video data
  */
 
-import { getYouTubeAccessToken } from './youtubeAuth';
+import { getYouTubeAccessToken } from './auth';
 import { fetchHayami } from '@/utils/hayamiApi';
 import { con } from '@/utils/logger';
 

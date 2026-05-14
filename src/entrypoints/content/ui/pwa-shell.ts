@@ -4,7 +4,7 @@ import { getRuntimeUrl } from '@/utils/runtime';
 import { completeAniListImplicitGrant } from '@/utils/anilistAuth';
 import { completeMALRedirect } from '@/utils/malAuth';
 import { completeRedditRedirectCallback } from '@/utils/reddit/auth';
-import { completeYouTubeRedirect } from '@/utils/youtubeAuth';
+import { completeYouTubeRedirect } from '@/utils/youtube/auth';
 import { con } from '@/utils/logger';
 const log = con.m('PWAShell');
 

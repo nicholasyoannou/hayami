@@ -3,5 +3,5 @@
  */
 
 export * from '@/entrypoints/content/templates/reddit';
-export * from './youtube-templates';
+export * from './youtube';
 export * from './disqus-templates';

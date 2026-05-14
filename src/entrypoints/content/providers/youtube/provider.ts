@@ -2,25 +2,25 @@
  * YouTube comment provider implementation
  */
 
-import { BaseProvider } from './base-provider';
-import type { CommentProvider, ProviderContext, YouTubeVideo } from '../types/data';
-import type { AnimeInfo } from '../types';
-import { isYouTubeAuthenticated } from '@/utils/youtubeAuth';
-import { searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtubeApi';
+import { BaseProvider } from '../base-provider';
+import type { CommentProvider, ProviderContext, YouTubeVideo } from '@/entrypoints/content/types/data';
+import type { AnimeInfo } from '@/entrypoints/content/types';
+import { isYouTubeAuthenticated } from '@/utils/youtube/auth';
+import { searchYouTubePlaylist, findVideoInPlaylist } from '@/utils/youtube/api';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
-import { resolveAdapter } from '../mapping';
-import { getSeriesMapping } from '../storage/series-mapping';
-import YouTubeCommentList from '@/components/comments/YouTubeCommentList.vue';
+import { resolveAdapter } from '@/entrypoints/content/mapping';
+import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
+import YouTubeCommentList from '@/components/youtube/CommentList.vue';
 import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
-import { handleProviderError } from '../utils/error-handler';
-import { 
-  CONTAINER_RETRY_ATTEMPTS, 
+import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
+import {
+  CONTAINER_RETRY_ATTEMPTS,
   CONTAINER_RETRY_DELAY_MS,
   ASSETS,
   SELECTORS
-} from '../constants';
-import { waitForElement, removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
-import { teardownYouTubeInfiniteScroll } from '../state';
+} from '@/entrypoints/content/constants';
+import { waitForElement, removeScripts, removeIframes, safeClear } from '@/entrypoints/content/utils/dom-helpers';
+import { teardownYouTubeInfiniteScroll } from '@/entrypoints/content/state';
 import { toast } from 'vue-sonner';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';

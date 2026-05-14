@@ -1,6 +1,6 @@
 import { createShadowRootUi } from 'wxt/utils/content-script-ui/shadow-root';
 import { createApp, type App as VueApp } from 'vue';
-import YouTubeCommentsRoot from '@/components/comments/YouTubeCommentsRoot.vue';
+import YouTubeCommentsRoot from '@/components/youtube/CommentsRoot.vue';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
