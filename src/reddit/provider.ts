@@ -2,11 +2,11 @@
  * Reddit comment provider implementation
  */
 
-import { BaseProvider } from './base-provider';
-import type { CommentProvider, ProviderContext } from '../types/data';
-import { removeScripts, removeIframes, safeClear } from '../utils/dom-helpers';
-import { teardownRedditInfiniteScroll } from '../state';
-import { ASSETS, SELECTORS } from '../constants';
+import { BaseProvider } from '@/entrypoints/content/providers/base-provider';
+import type { CommentProvider, ProviderContext } from '@/entrypoints/content/types/data';
+import { removeScripts, removeIframes, safeClear } from '@/entrypoints/content/utils/dom-helpers';
+import { teardownRedditInfiniteScroll } from '@/entrypoints/content/state';
+import { ASSETS, SELECTORS } from '@/entrypoints/content/constants';
 import { con } from '@/utils/logger';
 const log = con.m('RedditProvider');
 

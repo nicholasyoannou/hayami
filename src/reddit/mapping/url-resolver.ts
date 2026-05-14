@@ -13,9 +13,9 @@
  * is server-side fuzzy and doesn't need any of this.
  */
 
-import type { MapperResultEntry } from '../types/data';
-import { normalizeForMatch } from '../sites/shared';
-import { extractSeasonNumber } from '../utils/mal-utils';
+import type { MapperResultEntry } from '@/entrypoints/content/types/data';
+import { normalizeForMatch } from '@/entrypoints/content/sites/shared';
+import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
 import { toPositiveInt } from '@/utils/numbers';
 import { con } from '@/utils/logger';
 

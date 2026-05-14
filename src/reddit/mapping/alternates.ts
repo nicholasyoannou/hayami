@@ -9,7 +9,7 @@ import type {
   MapperResultEntry,
   AlternateRedditThread,
   AlternateRedditCategory,
-} from '../types/data';
+} from '@/entrypoints/content/types/data';
 
 type VariantDict = Record<string, Record<string, string>> | undefined;
 

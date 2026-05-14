@@ -4,7 +4,7 @@
 
 import type { CommentProvider, ProviderContext } from '../types/data';
 import { DisqusProvider } from './disqus-provider';
-import { RedditProvider } from './reddit-provider';
+import { RedditProvider } from '@/reddit/provider';
 import { YouTubeProvider } from './youtube-provider';
 import { MalProvider } from './mal-provider';
 import { AniListProvider } from './anilist-provider';

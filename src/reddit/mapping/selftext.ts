@@ -7,7 +7,7 @@
 
 import { extensionFetch } from '@/reddit/api';
 import { getAccessToken, makeRedditRequest } from '@/reddit/auth';
-import { extractRedditPostId } from '@/entrypoints/content/core/reddit-runtime';
+import { extractRedditPostId } from '@/reddit/runtime';
 import { con } from '@/utils/logger';
 
 const log = con.m('MapperSelftext');

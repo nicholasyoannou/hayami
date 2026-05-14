@@ -10,30 +10,30 @@
  * URL into a render-ready discussion object."
  */
 
-import type { AnimeInfo } from '../types';
-import type { MapperResultEntry, CommentProvider } from '../types/data';
-import { useContentState } from '../state';
+import type { AnimeInfo } from '@/entrypoints/content/types';
+import type { MapperResultEntry, CommentProvider } from '@/entrypoints/content/types/data';
+import { useContentState } from '@/entrypoints/content/state';
 import { useDiscussionStore } from '@/store/discussion';
-import { getUiManager, type InlineDiscussionExposed } from './ui-manager';
+import { getUiManager, type InlineDiscussionExposed } from '@/entrypoints/content/core/ui-manager';
 import {
   fetchRedditPostFromUrl,
   fetchSubredditInfo,
   extractRedditPostId,
-} from './reddit-runtime';
+} from './runtime';
 import {
   getSeriesMapping,
   parseEpisodeFromTitle,
   tryMapperFailover,
   type MapperFailoverOut,
-} from '../mapping';
-import { applyMapperEntryIdsToAnimeInfo } from '../mapping/apply-ids';
-import { collectRedditAlternateThreads } from '../mapping/reddit-alternates';
+} from '@/entrypoints/content/mapping';
+import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
+import { collectRedditAlternateThreads } from './mapping/alternates';
 import {
   resolveRedditUrlFromMapperResults,
   resolveRedditUrlForMovieEntry,
-} from '../mapping/reddit-url-resolver';
-import { findExactDateMatch } from '../utils/date-utils';
-import { extractSeasonNumber } from '../utils/mal-utils';
+} from './mapping/url-resolver';
+import { findExactDateMatch } from '@/entrypoints/content/utils/date-utils';
+import { extractSeasonNumber } from '@/entrypoints/content/utils/mal-utils';
 import { redditMultiSubredditItem } from '@/config/storage';
 import { con } from '@/utils/logger';
 

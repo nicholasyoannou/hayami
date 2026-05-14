@@ -15,7 +15,7 @@ import {
   searchAndDisplayDiscussion,
   displayDiscussionDependingOnMode,
 } from './discussion-manager';
-import { fetchRedditPostFromUrl } from './reddit-runtime';
+import { fetchRedditPostFromUrl } from '@/reddit/runtime';
 import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
 import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mapper/site-mapper-utils';

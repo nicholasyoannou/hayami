@@ -38,7 +38,7 @@ import {
   makeRedditTabChangeCallback,
   activateRedditOnDemand,
   runRedditSearchPipeline,
-} from './reddit-discussion';
+} from '@/reddit/discussion';
 import { DisqusProvider } from '../providers/disqus-provider';
 
 // Template renderers

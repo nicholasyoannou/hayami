@@ -75,8 +75,8 @@ import { extractEpisodeIdFromUrl } from '../sites/crunchyroll';
 import { runCrunchyrollDeepPipeline } from '../sites/crunchyroll/pipeline';
 import {
   extractEpisodeTableFromRedditSelftext,
-  maybeCorrectRedditEpisodeViaSelftext,
-} from './reddit-selftext';
+  correctRedditEpisodeViaSelftext,
+} from '@/reddit/mapping/selftext';
 import {
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
@@ -848,7 +848,7 @@ export async function tryMapperFailover(
       };
 
       if (platform === 'reddit' && !skipRedditExtras && mapperUrl && episodeForKeys !== null) {
-        const corrected = await maybeCorrectRedditEpisodeViaSelftext(mapperUrl, episodeForKeys, animeInfo?.animeName);
+        const corrected = await correctRedditEpisodeViaSelftext(mapperUrl, episodeForKeys, animeInfo?.animeName);
         if (corrected && corrected !== mapperUrl) {
           recordNonCrResolved();
           writeLightweightOut();
