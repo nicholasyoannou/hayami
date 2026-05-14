@@ -17,9 +17,9 @@
  * discard stale responses.
  */
 
-import { getAniListAccessToken } from './anilistAuth';
-import { anilistProxyFetch } from './anilistTransport';
-import { con } from './logger';
+import { getAniListAccessToken } from './auth';
+import { anilistProxyFetch } from './transport';
+import { con } from '../logger';
 
 const log = con.m('AniListSearch');
 

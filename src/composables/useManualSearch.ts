@@ -1,7 +1,7 @@
 import { ref, computed, watch, onScopeDispose } from 'vue';
 import { con } from '@/utils/logger';
-import { anilistProxyFetch } from '@/utils/anilistTransport';
-import { searchAniListMedia as searchAniListMediaPrimitive } from '@/utils/anilistSearch';
+import { anilistProxyFetch } from '@/utils/anilist/transport';
+import { searchAniListMedia as searchAniListMediaPrimitive } from '@/utils/anilist/search';
 import type { Ref } from 'vue';
 import { toast } from 'vue-sonner';
 import { searchCustomPosts } from '@/utils/reddit/api';

@@ -1,12 +1,14 @@
 <script setup lang="ts">
+defineOptions({ name: 'AniListForumView' });
+
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { AniListForumResult, AniListThreadComment, WrongAnimeContext } from '@/entrypoints/content/types/data';
 import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
-import { fetchAniListThreadComments } from '@/utils/anilistForums';
+import { fetchAniListThreadComments } from '@/utils/anilist/forums';
 import { escapeHtml } from '@/utils/html-utils';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { imgurOdsItem, type ImgurOdsOption } from '@/config/storage';
-import ProviderAuthRequired from './ProviderAuthRequired.vue';
+import ProviderAuthRequired from '@/components/providers/ProviderAuthRequired.vue';
 import { con } from '@/utils/logger';
 
 const log = con.m('AniList');

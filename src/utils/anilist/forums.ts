@@ -9,9 +9,9 @@ import type {
   AniListThread,
   AniListThreadComment,
 } from '@/entrypoints/content/types/data';
-import { getAniListAccessToken } from './anilistAuth';
-import { extractEpisodeNumbersFromTitle } from './malForums';
-import { anilistProxyFetch } from './anilistTransport';
+import { getAniListAccessToken } from './auth';
+import { extractEpisodeNumbersFromTitle } from '../mal/forums';
+import { anilistProxyFetch } from './transport';
 
 interface GraphqlResult<T> {
   ok: boolean;

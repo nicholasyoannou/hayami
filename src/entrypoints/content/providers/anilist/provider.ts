@@ -3,18 +3,18 @@
  */
 
 import { toast } from 'vue-sonner';
-import { BaseProvider } from './base-provider';
-import type { CommentProvider, ProviderContext, AniListForumResult } from '../types/data';
+import { BaseProvider } from '../base-provider';
+import type { CommentProvider, ProviderContext, AniListForumResult } from '@/entrypoints/content/types/data';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
-import { fetchAniListThreads, fetchAniListThreadComments } from '@/utils/anilistForums';
-import AniListForumView from '@/components/providers/AniListForumView.vue';
-import { handleProviderError } from '../utils/error-handler';
-import { CONTAINER_RETRY_ATTEMPTS, CONTAINER_RETRY_DELAY_MS } from '../constants';
-import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason } from '../mapping';
-import { getSeriesMapping } from '../storage/series-mapping';
-import { getSavedIds } from '../mapping/trust-policy';
-import { safeClear } from '../utils/dom-helpers';
+import { fetchAniListThreads, fetchAniListThreadComments } from '@/utils/anilist/forums';
+import AniListForumView from '@/components/anilist/ForumView.vue';
+import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
+import { CONTAINER_RETRY_ATTEMPTS, CONTAINER_RETRY_DELAY_MS } from '@/entrypoints/content/constants';
+import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason } from '@/entrypoints/content/mapping';
+import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
+import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
+import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
 import { linkOnlyModeItem } from '@/config/storage';
 import { con } from '@/utils/logger';
 const log = con.m('AniListProvider');

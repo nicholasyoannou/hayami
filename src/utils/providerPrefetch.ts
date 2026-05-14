@@ -15,7 +15,7 @@ import type { DiscussionCache } from '@/entrypoints/content/types/data';
 import type { AnimeInfo } from '@/entrypoints/content/types';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchMalForumTopics, fetchJikanForumTopics, pickEpisodeTopic, searchMalAnimeId, searchJikanAnimeId } from '@/utils/mal/forums';
-import { fetchAniListThreads } from '@/utils/anilistForums';
+import { fetchAniListThreads } from '@/utils/anilist/forums';
 import { findEpisodeThread } from '@/utils/discussanimeApi';
 import { parseEpisodeFromTitle } from '@/entrypoints/content/sites/shared';
 import { extractEpisodeNumber } from '@/utils/episode-utils';

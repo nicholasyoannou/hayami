@@ -18,7 +18,7 @@
 import { browser } from 'wxt/browser';
 import { authenticateWithYouTube } from '@/utils/youtube/auth';
 import { authenticateWithMAL } from '@/utils/mal/auth';
-import { authenticateWithAniList } from '@/utils/anilistAuth';
+import { authenticateWithAniList } from '@/utils/anilist/auth';
 import type { BackgroundMessageHandler } from './types';
 
 type SupportedProviderAuth = 'youtube' | 'mal' | 'anilist';

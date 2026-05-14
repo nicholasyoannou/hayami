@@ -8,7 +8,7 @@ import { fetchRedditPostFromUrl } from '@/entrypoints/content/providers/reddit/r
 import { getUiManager } from '@/entrypoints/content/core/ui-manager'
 import { registerAdapter } from '@/entrypoints/content/mapping'
 import { destroyState, initState, setLastAnimeInfo } from '@/entrypoints/content/state'
-import { searchAniListMedia, type AniListSearchErrorCode } from '@/utils/anilistSearch'
+import { searchAniListMedia, type AniListSearchErrorCode } from '@/utils/anilist/search'
 import { wirePreviewHandlers } from '@/utils/previewHandlers'
 
 /**

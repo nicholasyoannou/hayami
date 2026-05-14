@@ -16,7 +16,7 @@ import {
   logoutYouTube,
 } from '@/utils/youtube/auth';
 import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/mal/auth';
-import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilistAuth';
+import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilist/auth';
 import { sendMessageWithRetry } from '@/utils/runtime';
 
 export interface Account {
