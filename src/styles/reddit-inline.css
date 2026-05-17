@@ -393,7 +393,11 @@
   display: block !important;
   flex-shrink: 0 !important;
   object-fit: contain;
-  transition: filter 0.15s ease;
+  /* Only transition opacity, never `filter`: the upvoted/downvoted states swap
+     to a completely different filter chain (invert/sepia/saturate/hue-rotate),
+     and interpolating mismatched filter lists passes through magenta/purple
+     mid-frames. Snapping the colour (like the Reddit app) avoids that flash. */
+  transition: opacity 0.15s ease;
   cursor: pointer;
   filter: var(--ri-icon-filter, brightness(0) saturate(100%) invert(100%));
   opacity: 0.7;
@@ -3536,6 +3540,21 @@
   > .ri-trad-children
   > .ri-load-more::before {
   border-color: var(--trad-line-hover);
+}
+
+/* A comment with both truncated local replies AND a Reddit "more"
+   continuation renders two .ri-load-more buttons. As inline-flex they sit
+   side-by-side; each draws its elbow ::before relative to its own box, so the
+   second button's elbow floats detached from the parent line. Forcing each
+   onto its own line keeps every button's left edge at the children
+   content-start, so every elbow lands on the thread line like child comments
+   do. Compact kills these elbows and classic already block-stacks. */
+#reddit-inline-discussion
+  .ri-comment.ri-traditional:not(.ri-compact):not(.ri-classic)
+  .ri-trad-children
+  > .ri-load-more {
+  display: flex !important;
+  width: fit-content !important;
 }
 
 /* --- Line truncation note ---

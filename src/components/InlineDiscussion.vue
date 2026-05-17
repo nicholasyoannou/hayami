@@ -6,6 +6,8 @@ import RiTopStrip from './RiTopStrip.vue';
 import RedditCommentList from '@/components/reddit/CommentList.vue';
 import TipTapCommentEditor from './TipTapCommentEditor.vue';
 import { voteThing, submitComment, type RedditComment, type RedditCommentSort } from '@/utils/reddit/api';
+import { playUpvoteCelebration } from '@/utils/reddit/upvote-animation';
+import RollingNumber from '@/components/RollingNumber.vue';
 import { useManualSearch, type Provider, type AniListSearchMedia, type MalSearchMedia } from '@/composables/useManualSearch';
 import { getCurrentUsername, getStoredUsername, isAuthenticated } from '@/utils/reddit/auth';
 import { useProvider } from '@/composables/useProvider';
@@ -688,11 +690,14 @@ async function handleUpvote(e?: Event) {
     return;
   }
   if (isArchived.value) return;
-  
+
+  // Capture synchronously: currentTarget is cleared once the event finishes.
+  const originEl = (e?.currentTarget as HTMLElement) ?? null;
+
   const prevState = voteState.value;
   const prevScore = currentScore.value;
   const fullname = postFullname.value;
-  
+
   log.log('Upvoting post:', fullname, 'Current state:', prevState);
   
   let newDir: 1 | 0 | -1;
@@ -712,7 +717,11 @@ async function handleUpvote(e?: Event) {
     voteState.value = 'upvoted';
     currentScore.value = prevScore + 1;
   }
-  
+
+  if (voteState.value === 'upvoted' && prevState !== 'upvoted') {
+    playUpvoteCelebration(originEl);
+  }
+
   try {
     log.log('Calling voteThing with fullname:', fullname, 'direction:', newDir);
     const result = await voteThing(fullname, newDir, props.discussion.subreddit);
@@ -1537,7 +1546,7 @@ defineExpose({
                   alt="upvote"
                 />
               </button>
-              <span class="ri-vote-score">{{ currentScore.toLocaleString() }}</span>
+              <span class="ri-vote-score"><RollingNumber :value="currentScore" /></span>
               <button
                 class="ri-vote-btn"
                 :class="{ 'ri-auth-disabled-action': !isRedditConnected }"

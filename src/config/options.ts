@@ -67,6 +67,13 @@ export const redditLinkDomainOptions = [
 
 export type RedditLinkDomainOption = (typeof redditLinkDomainOptions)[number]['value'];
 
+export const redditUpvoteAnimationOptions = [
+  { value: 'mobile', label: 'Mobile Reddit (arrow launch — default)' },
+  { value: 'pop', label: 'Pop & burst' },
+] as const;
+
+export type RedditUpvoteAnimationOption = (typeof redditUpvoteAnimationOptions)[number]['value'];
+
 export const wrongAnimeTitleFormatOptions = [
   { value: 'romaji', label: 'Romaji only' },
   { value: 'english', label: 'English only' },

@@ -8,6 +8,7 @@ import type {
   RedditDeepReplyModeOption,
   RedditCommentLayoutOption,
   RedditLinkDomainOption,
+  RedditUpvoteAnimationOption,
   WrongAnimeTitleFormatOption,
 } from './options';
 import type { KomentoScriptPack, KomentoSourceRegistryEntry } from '@/komentoscript';
@@ -181,6 +182,18 @@ export const redditCompactModeItem = storage.defineItem<boolean>(
 export const redditProfileHoverCardItem = storage.defineItem<boolean>(
   'local:reddit_profile_hover_card',
   { fallback: true }
+);
+
+// Animations: upvote celebration + rolling-number score odometer
+export const redditAnimationsEnabledItem = storage.defineItem<boolean>(
+  'local:reddit_animations_enabled',
+  { fallback: true }
+);
+
+// Upvote animation style (when animations are enabled)
+export const redditUpvoteAnimationItem = storage.defineItem<RedditUpvoteAnimationOption>(
+  'local:reddit_upvote_animation',
+  { fallback: 'mobile' }
 );
 
 // Provider availability badges: show comment counts on provider tabs (manually enabled)

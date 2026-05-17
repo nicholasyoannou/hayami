@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Upvote Animation Lab</title>
+<style>
+  :root {
+    --arrow-shape: polygon(50% 0%, 0% 45%, 35% 45%, 35% 100%, 65% 100%, 65% 45%, 100% 45%);
+    --orange: #ff4500;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #0e0e0e;
+    color: #d7dadc;
+    font: 14px/1.5 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    padding: 32px 28px 80px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #8a8d90; margin: 0 0 22px; max-width: 760px; }
+  .sub b { color: #d7dadc; }
+  .controls {
+    display: flex; gap: 18px; align-items: center;
+    margin-bottom: 26px; flex-wrap: wrap;
+  }
+  .controls label { display: flex; gap: 7px; align-items: center; cursor: pointer; color: #b7bbbe; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    background: #161616;
+    border: 1px solid #2c2c2c;
+    border-radius: 14px;
+    padding: 20px 20px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .card .name { font-weight: 700; font-size: 15px; }
+  .card .desc { color: #8a8d90; font-size: 12.5px; min-height: 50px; }
+  .stage {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 26px 0 10px;
+  }
+
+  /* ---- Realistic vote bubble (mirrors the extension's .ri-vote-bubble) ---- */
+  .bubble {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px;
+    background: #161616;
+    border: 1px solid #2c2c2c;
+    border-radius: 20px;
+    color: #aaa;
+    font-size: 13px; font-weight: 600; line-height: 1;
+    user-select: none;
+  }
+  .stage .bubble { background: #1c1c1c; }
+  .vote {
+    background: none; border: 0; padding: 4px; margin: 0;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .arrow {
+    position: relative;
+    width: 18px; height: 17px;
+    clip-path: var(--arrow-shape);
+    background: #9aa0a6;
+    transition: background .15s ease;
+  }
+  .vote.down .arrow { transform: rotate(180deg); }
+  .bubble.is-up .arrow { background: var(--orange); }
+  .bubble.is-down .vote.down .arrow { background: #6a5cff; }
+  .arrow .fill {
+    position: absolute; inset: 0;
+    background: var(--orange);
+    transform: scaleY(0);
+    transform-origin: bottom;
+    opacity: 0;
+  }
+  .score {
+    min-width: 2ch; text-align: center;
+    color: #d7dadc; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  /* per-digit odometer: each digit is its own window; only changed digits roll */
+  .rn-row { display: inline-flex; }
+  .rn-digit { display: inline-block; height: 1em; line-height: 1; overflow: hidden; }
+  .rn-strip {
+    display: flex; flex-direction: column;
+    transition: transform .34s cubic-bezier(.2,.85,.3,1);
+    will-change: transform;
+  }
+  .rn-cell { height: 1em; line-height: 1; display: block; text-align: center; }
+  .rn-sep { display: inline-block; }
+
+  /* ===================== Per-effect keyframes ===================== */
+
+  /* baseline: scale pop */
+  .fx-pop { animation: fx-pop .42s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes fx-pop {
+    0% { transform: scale(1); } 35% { transform: scale(1.32); }
+    60% { transform: scale(.92); } 100% { transform: scale(1); }
+  }
+
+  /* fill & snap */
+  .effect-fill .arrow .fill {
+    opacity: 1;
+    transition: transform .28s ease;
+  }
+  .effect-fill.is-up .arrow { background: #4a4a4a; }
+  .effect-fill.is-up .arrow .fill { transform: scaleY(1); }
+  .fx-snap { animation: fx-snap .22s ease-out; }
+  @keyframes fx-snap {
+    0% { transform: scale(1); } 45% { transform: scale(1.2); } 100% { transform: scale(1); }
+  }
+
+  /* youtube-style elastic bounce */
+  .fx-yt { animation: fx-yt .55s cubic-bezier(.5,1.8,.4,.9); }
+  @keyframes fx-yt {
+    0% { transform: scale(1); } 22% { transform: scale(.82) translateY(2px); }
+    52% { transform: scale(1.38) translateY(-3px); }
+    74% { transform: scale(.94); } 100% { transform: scale(1); }
+  }
+
+  /* mobile Reddit arrow launch (mirrors extension mobileLaunch) */
+  .fx-mobile { animation: fx-mobile .62s cubic-bezier(.3,1.3,.5,1); }
+  @keyframes fx-mobile {
+    0%   { transform: translateY(0) scale(1); }
+    30%  { transform: translateY(-9px) scale(1.12); }
+    55%  { transform: translateY(-3px) scale(1); }
+    75%  { transform: translateY(1px) scale(.98); }
+    100% { transform: translateY(0) scale(1); }
+  }
+
+  /* launch upward */
+  .fx-launch { animation: fx-launch .6s cubic-bezier(.3,1,.5,1); }
+  @keyframes fx-launch {
+    0%  { transform: translateY(0) scaleY(1); }
+    18% { transform: translateY(1px) scaleY(.82); }
+    42% { transform: translateY(-15px) scaleY(1.18); }
+    66% { transform: translateY(0) scaleY(.9); }
+    82% { transform: translateY(-3px) scaleY(1.04); }
+    100%{ transform: translateY(0) scaleY(1); }
+  }
+
+  /* twitter-style quick overshoot */
+  .fx-tw { animation: fx-tw .4s cubic-bezier(.2,1.6,.5,1); }
+  @keyframes fx-tw {
+    0% { transform: scale(.4); } 60% { transform: scale(1.22); } 100% { transform: scale(1); }
+  }
+
+  /* minimal gentle pop */
+  .fx-soft { animation: fx-soft .34s ease-out; }
+  @keyframes fx-soft {
+    0% { transform: scale(1); } 45% { transform: scale(1.13); } 100% { transform: scale(1); }
+  }
+
+  /* shared transient layers */
+  .fx-layer { position: fixed; pointer-events: none; z-index: 2147483646; }
+  .fx-particle { position: absolute; border-radius: 50%; will-change: transform, opacity; }
+  .fx-ring {
+    position: absolute; border-radius: 50%;
+    border: 2px solid var(--orange); will-change: transform, opacity;
+  }
+  .fx-streak { position: absolute; border-radius: 2px; will-change: transform, opacity; }
+
+  /* reduced-motion simulation */
+  body.rm .arrow, body.rm .rn-strip { transition: none !important; animation: none !important; }
+  .hint { margin-top: 28px; color: #6f7174; font-size: 12px; }
+  kbd { background:#222;border:1px solid #333;border-radius:4px;padding:1px 5px;font-size:11px; }
+</style>
+</head>
+<body>
+  <h1>Upvote Animation Lab</h1>
+  <p class="sub">
+    Click an <b>up</b> or <b>down</b> arrow on any card. Every card shares the real extension's
+    vote-bubble styling and the new <b>rolling-number</b> scroll (up when the score rises, down when it
+    falls). Only the <b>icon click effect</b> differs per card — click around, then tell me which one to ship.
+  </p>
+  <div class="controls">
+    <label><input type="checkbox" id="rm" /> Simulate <b>prefers-reduced-motion</b> (motion off, color only)</label>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <p class="hint">
+    Tip: click the same arrow repeatedly to replay. Toggle off then on to see un-vote → re-vote.
+    This file is standalone scratch — open it directly in a browser; it is not part of the extension build.
+  </p>
+
+<script>
+const REDUCED = () => document.body.classList.contains('rm')
+  || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+const CARDS = [
+  { id:'baseline', name:'Baseline (current)',
+    desc:'What is shipped now: arrow scale-pop, orange bubble glow, and a small upward burst of orange particles.' },
+  { id:'mobile',   name:'Mobile Reddit (arrow launch)',
+    desc:'Faithful to the Reddit app: the arrow hops sharply up, scales slightly, then springs back and settles. Orange fill, no particles or glow.' },
+  { id:'fill',     name:'Fill & snap',
+    desc:'Arrow fills orange bottom-up like it is charging, then a crisp scale snap. No particles — precise, not flashy.' },
+  { id:'yt',       name:'YouTube-style burst',
+    desc:'Big elastic bounce on the arrow + an expanding ring + a radial confetti pop. Most celebratory / playful.' },
+  { id:'launch',   name:'Launch upward',
+    desc:'The arrow physically jumps up with a squash-and-stretch and bounce-settles, leaving spark streaks below.' },
+  { id:'tw',       name:'Twitter-style',
+    desc:'Quick scale-in overshoot with a two-tone radial dot ring expanding outward — the classic "fave" feel.' },
+  { id:'soft',     name:'Minimal ring',
+    desc:'A single expanding ring + a gentle pop. The most restrained option for a dense comment list.' },
+];
+
+const grid = document.getElementById('grid');
+for (const c of CARDS) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.innerHTML = `
+    <div class="name">${c.name}</div>
+    <div class="desc">${c.desc}</div>
+    <div class="stage">
+      <div class="bubble effect-${c.id}" data-effect="${c.id}">
+        <button class="vote up" aria-label="upvote"><span class="arrow"><span class="fill"></span></span></button>
+        <span class="score" data-val="42">42</span>
+        <button class="vote down" aria-label="downvote"><span class="arrow"><span class="fill"></span></span></button>
+      </div>
+    </div>`;
+  grid.appendChild(card);
+}
+
+document.getElementById('rm').addEventListener('change', e => {
+  document.body.classList.toggle('rm', e.target.checked);
+});
+
+/* ---------------- Per-digit odometer ---------------- */
+// Each digit is its own fixed-height window with a 0-9 strip. Columns are keyed
+// by place value (counted from the right) and reused across updates, so only
+// digits whose value actually changed get a transition — unchanged digits
+// (e.g. the "4" in 43 -> 44) stay perfectly still.
+function renderNumber(scoreEl, value) {
+  const reduced = REDUCED();
+  const str = value.toLocaleString('en-US');
+  const digitCount = (str.match(/\d/g) || []).length;
+
+  let row = scoreEl.querySelector('.rn-row');
+  if (!row) {
+    row = document.createElement('span');
+    row.className = 'rn-row';
+    scoreEl.textContent = '';
+    scoreEl.appendChild(row);
+  }
+  const existing = new Map([...row.children].map(el => [el.dataset.key, el]));
+  const used = new Set();
+
+  let place = digitCount;      // digits still to the right of the cursor
+  let prev = null;
+  for (const ch of str) {
+    const isDigit = ch >= '0' && ch <= '9';
+    if (isDigit) place--;
+    const key = isDigit ? 'd' + place : 's' + place + ch;
+    used.add(key);
+    let el = existing.get(key);
+
+    if (isDigit) {
+      const fresh = !el || el.dataset.kind !== 'd';
+      if (fresh) {
+        el = document.createElement('span');
+        el.className = 'rn-digit'; el.dataset.kind = 'd'; el.dataset.key = key;
+        const strip = document.createElement('span');
+        strip.className = 'rn-strip';
+        for (let n = 0; n <= 9; n++) {
+          const c = document.createElement('span');
+          c.className = 'rn-cell'; c.textContent = n;
+          strip.appendChild(c);
+        }
+        el.appendChild(strip);
+      }
+      const strip = el.firstChild;
+      const target = `translateY(-${ch}em)`;
+      if (fresh || reduced) {
+        // Snap newly-added columns (and reduced-motion) without a roll.
+        strip.style.transition = 'none';
+        strip.style.transform = target;
+        void strip.offsetWidth;
+        strip.style.transition = reduced ? 'none' : '';
+      } else {
+        // Same value -> identical transform -> browser runs no transition.
+        strip.style.transform = target;
+      }
+    } else {
+      if (!el || el.dataset.kind !== 's') {
+        el = document.createElement('span');
+        el.className = 'rn-sep'; el.dataset.kind = 's'; el.dataset.key = key;
+      }
+      el.textContent = ch;
+    }
+
+    if (prev) prev.after(el); else row.prepend(el);
+    prev = el;
+  }
+  for (const [k, el] of existing) if (!used.has(k)) el.remove();
+  scoreEl.dataset.val = String(value);
+}
+
+/* ---------------- Shared transient helpers ---------------- */
+function centerOf(el) {
+  const r = el.getBoundingClientRect();
+  return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+}
+function makeLayer(el) {
+  const { x, y } = centerOf(el);
+  const layer = document.createElement('div');
+  layer.className = 'fx-layer';
+  layer.style.left = x + 'px';
+  layer.style.top = y + 'px';
+  document.body.appendChild(layer);
+  return layer;
+}
+function reap(layer, anims) {
+  let done = false;
+  const kill = () => { if (!done) { done = true; layer.remove(); } };
+  Promise.allSettled(anims.map(a => a.finished)).then(kill);
+  setTimeout(kill, 1600);
+}
+const ORANGE = ['#ff4500', '#ff6a33', '#ff8b60', '#ffb000'];
+const CONFETTI = ['#ff4500', '#ffb000', '#54d6ff', '#7c5cff', '#36d399', '#ff5fa2'];
+
+function burst(el, cfg) {
+  const layer = makeLayer(el);
+  const anims = [];
+  for (let i = 0; i < cfg.count; i++) {
+    const p = document.createElement('span');
+    p.className = 'fx-particle';
+    const size = cfg.size[0] + Math.random() * (cfg.size[1] - cfg.size[0]);
+    p.style.width = p.style.height = size + 'px';
+    p.style.background = cfg.palette[(Math.random() * cfg.palette.length) | 0];
+    layer.appendChild(p);
+    const ang = (cfg.baseAngle + (Math.random() - 0.5) * cfg.spread) * Math.PI / 180;
+    const dist = cfg.dist[0] + Math.random() * (cfg.dist[1] - cfg.dist[0]);
+    const dx = Math.cos(ang) * dist, dy = Math.sin(ang) * dist;
+    anims.push(p.animate([
+      { transform: 'translate(0,0) scale(1)', opacity: 1 },
+      { transform: `translate(${dx*0.6}px,${dy}px) scale(.9)`, opacity: 1, offset: .55 },
+      { transform: `translate(${dx}px,${dy + (cfg.gravity||0)}px) scale(.2)`, opacity: 0 },
+    ], { duration: cfg.dur[0] + Math.random()*(cfg.dur[1]-cfg.dur[0]),
+         delay: Math.random()*40, easing: 'cubic-bezier(.2,.6,.35,1)', fill: 'forwards' }));
+  }
+  reap(layer, anims);
+}
+function ring(el, color, toScale, dur) {
+  const layer = makeLayer(el);
+  const r = document.createElement('span');
+  r.className = 'fx-ring';
+  const d = 26;
+  r.style.width = r.style.height = d + 'px';
+  r.style.left = (-d/2) + 'px';
+  r.style.top = (-d/2) + 'px';
+  r.style.borderColor = color;
+  layer.appendChild(r);
+  const a = r.animate([
+    { transform: 'scale(.3)', opacity: .9, borderWidth: '3px' },
+    { transform: `scale(${toScale})`, opacity: 0, borderWidth: '1px' },
+  ], { duration: dur, easing: 'cubic-bezier(.2,.7,.3,1)', fill: 'forwards' });
+  reap(layer, [a]);
+}
+function streaks(el) {
+  const layer = makeLayer(el);
+  const anims = [];
+  for (let i = 0; i < 5; i++) {
+    const s = document.createElement('span');
+    s.className = 'fx-streak';
+    s.style.width = '2px';
+    s.style.height = (8 + Math.random()*8) + 'px';
+    s.style.background = ORANGE[(Math.random()*ORANGE.length)|0];
+    const ox = (i - 2) * 4;
+    s.style.left = ox + 'px';
+    layer.appendChild(s);
+    anims.push(s.animate([
+      { transform: 'translateY(-2px) scaleY(.6)', opacity: 1 },
+      { transform: `translateY(${16 + Math.random()*14}px) scaleY(1.4)`, opacity: 0 },
+    ], { duration: 360 + Math.random()*160, delay: Math.random()*60,
+         easing: 'cubic-bezier(.3,.5,.4,1)', fill: 'forwards' }));
+  }
+  reap(layer, anims);
+}
+function glow(bubble) {
+  bubble.animate([
+    { boxShadow: 'inset 0 0 0 0 rgba(255,69,0,0), 0 0 0 0 rgba(255,69,0,0)' },
+    { boxShadow: 'inset 0 0 999px 0 rgba(255,69,0,.22), 0 0 0 3px rgba(255,69,0,.14)', offset: .35 },
+    { boxShadow: 'inset 0 0 0 0 rgba(255,69,0,0), 0 0 0 0 rgba(255,69,0,0)' },
+  ], { duration: 520, easing: 'ease-out' });
+}
+function playClass(el, cls) {
+  el.classList.remove(cls);
+  void el.offsetWidth;            // force reflow so the animation can replay
+  el.classList.add(cls);
+  el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+}
+
+/* ---------------- Effect dispatch ---------------- */
+const EFFECTS = {
+  baseline(bubble, arrow) {
+    playClass(arrow, 'fx-pop');
+    glow(bubble);
+    burst(arrow, { count:12, size:[5,9], palette:ORANGE, baseAngle:-90,
+      spread:110, dist:[26,52], gravity:14, dur:[460,620] });
+  },
+  fill(bubble, arrow) {
+    // fill handled by CSS via .is-up; add the snap
+    playClass(arrow, 'fx-snap');
+  },
+  yt(bubble, arrow) {
+    playClass(arrow, 'fx-yt');
+    ring(arrow, '#ff8b60', 2.8, 500);
+    burst(arrow, { count:16, size:[5,9], palette:CONFETTI, baseAngle:-90,
+      spread:360, dist:[28,56], gravity:10, dur:[520,720] });
+  },
+  mobile(bubble, arrow) {
+    playClass(arrow, 'fx-mobile');
+  },
+  launch(bubble, arrow) {
+    playClass(arrow, 'fx-launch');
+    streaks(arrow);
+  },
+  tw(bubble, arrow) {
+    playClass(arrow, 'fx-tw');
+    burst(arrow, { count:14, size:[4,7], palette:['#ff4500','#ffb000'],
+      baseAngle:-90, spread:360, dist:[24,46], gravity:0, dur:[480,640] });
+  },
+  soft(bubble, arrow) {
+    playClass(arrow, 'fx-soft');
+    ring(arrow, '#ff8b60', 2.2, 460);
+  },
+};
+
+/* ---------------- Wire up clicks ---------------- */
+grid.addEventListener('click', e => {
+  const btn = e.target.closest('.vote');
+  if (!btn) return;
+  const bubble = btn.closest('.bubble');
+  const score = bubble.querySelector('.score');
+  const isUpBtn = btn.classList.contains('up');
+  const arrow = btn.querySelector('.arrow');
+  let v = Number(score.dataset.val);
+
+  if (isUpBtn) {
+    const nowUp = !bubble.classList.contains('is-up');
+    const wasDown = bubble.classList.contains('is-down');
+    bubble.classList.toggle('is-up', nowUp);
+    if (nowUp && wasDown) bubble.classList.remove('is-down');
+    v += nowUp ? (wasDown ? 2 : 1) : -1;
+    renderNumber(score, v);
+    if (nowUp && !REDUCED()) EFFECTS[bubble.dataset.effect](bubble, arrow);
+  } else {
+    const nowDown = !bubble.classList.contains('is-down');
+    const wasUp = bubble.classList.contains('is-up');
+    bubble.classList.toggle('is-down', nowDown);
+    if (nowDown && wasUp) bubble.classList.remove('is-up');
+    v += nowDown ? (wasUp ? -2 : -1) : 1;
+    renderNumber(score, v);
+  }
+});
+
+/* Build the digit columns once on load (no initial roll). */
+grid.querySelectorAll('.score').forEach(s => renderNumber(s, Number(s.dataset.val)));
+</script>
+</body>
+</html>

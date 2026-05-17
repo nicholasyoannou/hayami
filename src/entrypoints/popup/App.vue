@@ -11,6 +11,7 @@ import {
   redditDeepReplyModeOptions,
   redditCommentLayoutOptions,
   redditLinkDomainOptions,
+  redditUpvoteAnimationOptions,
   wrongAnimeTitleFormatOptions,
   type CommentProviderOption,
   type DisplayModeOption,
@@ -20,6 +21,7 @@ import {
   type RedditDeepReplyModeOption,
   type RedditCommentLayoutOption,
   type RedditLinkDomainOption,
+  type RedditUpvoteAnimationOption,
   type WrongAnimeTitleFormatOption,
 } from '@/config/options';
 import {
@@ -52,6 +54,8 @@ import {
   redditTraditionalSpacingItem,
   redditTruncateLinesItem,
   redditProfileHoverCardItem,
+  redditAnimationsEnabledItem,
+  redditUpvoteAnimationItem,
   redditKeyboardShortcutsItem,
   redditCommentFacesItem,
   redditLinkDomainItem,
@@ -136,6 +140,8 @@ type SettingValueMap = {
   redditDeepReplyMode: RedditDeepReplyModeOption;
   redditCommentLayout: RedditCommentLayoutOption;
   redditProfileHoverCard: boolean;
+  redditAnimationsEnabled: boolean;
+  redditUpvoteAnimation: RedditUpvoteAnimationOption;
   redditKeyboardShortcuts: boolean;
   redditCommentFaces: boolean;
   redditLinkDomain: RedditLinkDomainOption;
@@ -641,6 +647,36 @@ const settingDefinitions: SettingDefinition[] = [
     errorMessage: 'Failed to save profile hover card setting',
   },
   {
+    key: 'redditAnimationsEnabled',
+    type: 'toggle',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Animations',
+    description: 'Animate the upvote button and roll the score counter when voting. Turn off for instant, motion-free voting.',
+    fallback: true,
+    load: async () => (await redditAnimationsEnabledItem.getValue()) !== false,
+    save: async (value) => redditAnimationsEnabledItem.setValue(Boolean(value)),
+    successMessage: (value) => (value ? 'Animations enabled' : 'Animations disabled'),
+    errorMessage: 'Failed to save animations setting',
+  },
+  {
+    key: 'redditUpvoteAnimation',
+    type: 'select',
+    category: 'provider',
+    providerId: 'reddit',
+    label: 'Upvote animation',
+    description: 'Which animation plays when you upvote. "Mobile Reddit" (default) mimics the Reddit app\'s arrow launch; "Pop & burst" is a louder celebration with particles.',
+    options: redditUpvoteAnimationOptions,
+    fallback: 'mobile',
+    load: async () => {
+      const value = await redditUpvoteAnimationItem.getValue();
+      return redditUpvoteAnimationOptions.some((o) => o.value === value) ? value : 'mobile';
+    },
+    save: async (value) => redditUpvoteAnimationItem.setValue(value),
+    successMessage: (value) => `Upvote animation set to ${redditUpvoteAnimationOptions.find((o) => o.value === value)?.label || value}`,
+    errorMessage: 'Failed to save upvote animation setting',
+  },
+  {
     key: 'redditKeyboardShortcuts',
     type: 'toggle',
     category: 'provider',
@@ -959,6 +995,8 @@ const settingValues = reactive<SettingValueMap>({
   redditDeepReplyMode: 'popup',
   redditCommentLayout: 'traditional',
   redditProfileHoverCard: true,
+  redditAnimationsEnabled: true,
+  redditUpvoteAnimation: 'mobile',
   redditKeyboardShortcuts: false,
   redditCommentFaces: false,
   redditLinkDomain: 'reddit',
@@ -1502,6 +1540,9 @@ function isSettingVisible(setting: SettingDefinition) {
   }
   if (setting.key === 'redditKeyboardShortcuts') {
     return settingValues.redditCommentLayout === 'compact' || settingValues.redditCommentLayout === 'classic';
+  }
+  if (setting.key === 'redditUpvoteAnimation') {
+    return settingValues.redditAnimationsEnabled === true;
   }
   if (setting.key === 'disqusImageMaxWidth') {
     return Boolean(settingValues.disqusImageResizeEnabled);

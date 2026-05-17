@@ -4,10 +4,12 @@ defineOptions({ name: 'RedditComment' });
 import { ref, computed, inject, onMounted, onUnmounted, onUpdated, nextTick, watch, type Ref } from 'vue';
 import { voteThing, saveThing, getUserAvatar, formatRedditDate, deleteComment, editComment, type RedditComment } from '@/utils/reddit/api';
 import RedditUserHoverCard from './UserHoverCard.vue';
+import RollingNumber from '@/components/RollingNumber.vue';
 import { markdownToHtml, processRedditBodyHtml } from '@/utils/markdown';
 import { escapeHtml } from '@/utils/html-utils';
 import { getContrastingTextColor } from '@/utils/color-utils';
 import { applyCommentFaces, type CommentFaceMap } from '@/utils/reddit/comment-faces';
+import { playUpvoteCelebration } from '@/utils/reddit/upvote-animation';
 import { toast } from 'vue-sonner';
 import { con } from '@/utils/logger';
 
@@ -674,21 +676,26 @@ function handleTradLineClick() {
   toggleCollapse();
 }
 
-async function handleUpvote() {
+async function handleUpvote(ev?: MouseEvent) {
   if (isVoting.value || isDisabled.value) return;
-  
+
+  // Capture synchronously: currentTarget is cleared once the event finishes.
+  const originEl = (ev?.currentTarget as HTMLElement) ?? null;
+
   const prevState = voteState.value;
   const prevScore = score.value;
   const goingIdle = prevState === 'upvoted';
   const newDir = goingIdle ? 0 : 1;
-  
+
   // Optimistic UI
   let delta = 0;
   if (goingIdle) delta = -1;
   else if (prevState === 'downvoted') delta = 2;
   else delta = 1;
-  
+
   applyLocalVoteState(goingIdle ? 'idle' : 'upvoted', prevScore + delta);
+
+  if (!goingIdle) playUpvoteCelebration(originEl);
   
   isVoting.value = true;
   try {
@@ -1047,6 +1054,16 @@ const deepReplyMode = computed(() => (props.deepReplyMode === 'reddit' ? 'reddit
 const allowDeepView = computed(() => props.allowDeepView !== false);
 const showDeepViewIcon = computed(() => isDeepInline.value && allowDeepView.value);
 
+// At/after maxInlineDepth, visibleReplies is forced to [] so a comment with
+// both hidden loaded replies AND a Reddit `more` node renders two separate
+// "more replies" buttons — yet handleShowMoreReplies/handleShowMoreChildren
+// both short-circuit to the same handleDeepReplyAction(). Collapse them into
+// one button counting every reply reachable behind the deep view.
+const deepReplyCount = computed(() => {
+  const hiddenLoaded = Math.max(0, localReplies.value.length - visibleReplies.value.length);
+  return hiddenLoaded + remainingChildrenCount.value;
+});
+
 function getCommentFullname(comment: RedditComment): string {
   const existingFullname = String((comment as any).fullname || '').trim();
   if (existingFullname) {
@@ -1212,8 +1229,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           <span class="ri-stickied-icon" aria-hidden="true"></span>
           <span class="ri-stickied-label">{{ isClassic ? 'stickied comment' : 'Stickied comment' }}</span>
         </span>
-        <span v-if="isClassic" class="ri-classic-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} {{ score === 1 ? 'point' : 'points' }}</span>
-        <span v-else-if="props.compactMode" class="ri-compact-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }">{{ score }} pts</span>
+        <span v-if="isClassic" class="ri-classic-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }"><RollingNumber :value="score" /> {{ score === 1 ? 'point' : 'points' }}</span>
+        <span v-else-if="props.compactMode" class="ri-compact-score" :class="{ 'ri-cs-up': voteState === 'upvoted', 'ri-cs-down': voteState === 'downvoted' }"><RollingNumber :value="score" /> pts</span>
         <span class="ri-timestamp" :title="timestampTitle">{{ timestampText }}{{ isClassic && localEdited ? '*' : '' }}</span>
         <span v-if="editedText && !isClassic" class="ri-edited">{{ editedText }}</span>
       </div>
@@ -1269,7 +1286,7 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
               alt="upvote"
             />
           </button>
-          <span class="ri-score">{{ score.toLocaleString() }}</span>
+          <span class="ri-score"><RollingNumber :value="score" /></span>
           <button
             class="ri-vote-btn ri-downvote"
             :disabled="isDisabled"
@@ -1375,34 +1392,39 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           </template>
         </RedditComment>
 
+        <!-- Deep-inline: hasMoreReplies and hasMoreChildren both just open the
+             deep view, so render a single combined button. -->
         <button
-          v-if="hasMoreReplies"
+          v-if="showDeepViewIcon && (hasMoreReplies || hasMoreChildren)"
           class="ri-load-more"
           @click.stop="handleShowMoreReplies"
         >
           <span
-            v-if="showDeepViewIcon"
             class="ri-load-more-icon"
             :style="{ '--ri-load-more-icon': `url('${leadListIconUrl}')` }"
             aria-hidden="true"
           ></span>
-          {{ compactMode ? `load more comments (${localReplies.length - visibleReplies.length} replies)` : `${localReplies.length - visibleReplies.length} more replies` }}
+          {{ compactMode ? `load more comments (${deepReplyCount} replies)` : `${deepReplyCount} more replies` }}
         </button>
 
-        <button
-          v-if="hasMoreChildren"
-          class="ri-load-more"
-          :disabled="loadingMoreChildren"
-          @click.stop="handleShowMoreChildren"
-        >
-          <span
-            v-if="showDeepViewIcon"
-            class="ri-load-more-icon"
-            :style="{ '--ri-load-more-icon': `url('${leadListIconUrl}')` }"
-            aria-hidden="true"
-          ></span>
-          {{ loadingMoreChildren ? 'Loading…' : (compactMode ? `load more comments (${remainingChildrenCount} replies)` : `${remainingChildrenCount} more replies`) }}
-        </button>
+        <template v-else>
+          <button
+            v-if="hasMoreReplies"
+            class="ri-load-more"
+            @click.stop="handleShowMoreReplies"
+          >
+            {{ compactMode ? `load more comments (${localReplies.length - visibleReplies.length} replies)` : `${localReplies.length - visibleReplies.length} more replies` }}
+          </button>
+
+          <button
+            v-if="hasMoreChildren"
+            class="ri-load-more"
+            :disabled="loadingMoreChildren"
+            @click.stop="handleShowMoreChildren"
+          >
+            {{ loadingMoreChildren ? 'Loading…' : (compactMode ? `load more comments (${remainingChildrenCount} replies)` : `${remainingChildrenCount} more replies`) }}
+          </button>
+        </template>
       </div>
     </div>
   </div>
