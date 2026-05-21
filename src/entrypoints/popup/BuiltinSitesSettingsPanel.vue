@@ -79,8 +79,7 @@ const orderedSites = computed<SiteEntry[]>(() => {
 
   <div class="space-y-4">
     <p class="px-1 text-sm leading-relaxed text-white/70">
-      Choose which built-in sites Hayami runs on. Disabled sites stay completely silent —
-      no comment section, no overlays, no extra requests.
+      Choose which built-in sites Hayami runs on. Disabled sites won't have Hayami running on them.
     </p>
 
     <div class="hy-section-card">
