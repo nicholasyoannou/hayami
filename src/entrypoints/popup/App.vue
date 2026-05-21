@@ -1,5 +1,7 @@
 <script lang="ts" setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { Toaster, toast } from 'vue-sonner';
+import 'vue-sonner/style.css';
 import { browser } from 'wxt/browser';
 import { useAccountManagement } from '@/composables/useAccountManagement';
 import {
@@ -1210,9 +1212,6 @@ function formatManualOverrideRelativeTime(iso?: string): string {
 // Use shared account management
 const { refreshAllAccounts, getAccount, getAccountActions, anyAccountLoading } = useAccountManagement();
 
-const errorMessage = ref<string | null>(null);
-const successMessage = ref<string | null>(null);
-
 const currentView = ref<'home' | 'manage' | 'settings'>('home');
 const selectedSettingsCategory = ref<SettingsNavItem['id']>('general');
 const settingsScreen = ref<SettingsScreen>('menu');
@@ -1233,8 +1232,6 @@ const isEmbeddedPopup = (() => {
     return true;
   }
 })();
-let successTimer: number | undefined;
-let errorTimer: number | undefined;
 
 function getScrollbarModeRoots(): HTMLElement[] {
   return [document.documentElement, document.body, document.getElementById('app')]
@@ -1379,19 +1376,11 @@ async function reloadSetting(key: SettingKey) {
 }
 
 function showSuccess(message: string) {
-  if (successTimer) {
-    clearTimeout(successTimer);
-  }
-  successMessage.value = message;
-  successTimer = window.setTimeout(() => (successMessage.value = null), 1500);
+  toast.success(message);
 }
 
 function showError(message: string) {
-  if (errorTimer) {
-    clearTimeout(errorTimer);
-  }
-  errorMessage.value = message;
-  errorTimer = window.setTimeout(() => (errorMessage.value = null), 2000);
+  toast.error(message);
 }
 
 // KomentoScript composable
@@ -1451,7 +1440,6 @@ async function handleSettingChange(setting: SettingDefinition, value: SettingVal
     if (setting.onAfterSave) {
       await setting.onAfterSave(value as SettingValueMap[typeof setting.key]);
     }
-    showSuccess(setting.successMessage(value as SettingValueMap[typeof setting.key]));
   } catch (error) {
     log.error(`Failed to save ${setting.label}`, error);
     showError(setting.errorMessage || `Failed to save ${setting.label}`);
@@ -1720,7 +1708,7 @@ async function handleLogin() {
   try {
     await actions.connect();
   } catch (err) {
-    errorMessage.value = err instanceof Error ? err.message : 'Failed to log in to Reddit.';
+    showError(err instanceof Error ? err.message : 'Failed to log in to Reddit.');
   }
 }
 
@@ -1907,17 +1895,6 @@ function handleRemoveCustomSite(site: any) {
           </button>
         </div>
       </header>
-
-      <div v-if="errorMessage" class="flex items-start gap-3 rounded-2xl bg-rose-900/40 px-4 py-3 text-sm text-rose-100">
-        <span>⚠️</span>
-        <div class="flex-1">{{ errorMessage }}</div>
-        <button class="text-xs font-semibold text-rose-100" @click="errorMessage = null">Dismiss</button>
-      </div>
-      <div v-if="successMessage" class="flex items-start gap-3 rounded-2xl bg-emerald-900/40 px-4 py-3 text-sm text-emerald-100">
-        <span>✅</span>
-        <div class="flex-1">{{ successMessage }}</div>
-        <button class="text-xs font-semibold text-emerald-100" @click="successMessage = null">Dismiss</button>
-      </div>
 
       <div v-if="anyAccountLoading" class="flex flex-col items-center justify-center gap-3 rounded-3xl bg-[#262b33] px-6 py-10 shadow-inner">
         <div class="h-12 w-12 animate-spin rounded-full border-4 border-white/10 border-t-white"></div>
@@ -2394,6 +2371,10 @@ function handleRemoveCustomSite(site: any) {
         </div>
       </template>
   </div>
+
+  <Teleport to="body">
+    <Toaster position="bottom-center" theme="dark" rich-colors />
+  </Teleport>
 </template>
 
 <style scoped>

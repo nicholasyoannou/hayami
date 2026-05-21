@@ -118,9 +118,9 @@ const orderedSites = computed<SiteEntry[]>(() => {
         <p class="text-xs leading-relaxed text-white/65">
           Any site can support Hayami. You can map your own through the
           <span class="font-semibold text-white/85">Custom websites</span> panel by
-          right-clicking a page and choosing <em>Configure site with Hayami</em>, or sync to a
-          community <span class="font-semibold text-white/85">KomentoScript</span> instance to
-          pull in pre-configured mappings that update weekly.
+          right-clicking a page and choosing <em>Configure site with Hayami</em>, or subscribe to a
+          community <span class="font-semibold text-white/85">Custom Sites Sync</span> list to
+          pull in pre-configured site mappings.
         </p>
       </div>
       <div class="hy-row">
