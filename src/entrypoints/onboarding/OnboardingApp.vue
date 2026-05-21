@@ -32,7 +32,6 @@ type SiteOption = {
   id: BuiltinSiteId;
   label: string;
   origin: string;
-  description: string;
 };
 
 const builtinSiteOptions: SiteOption[] = [
@@ -40,13 +39,11 @@ const builtinSiteOptions: SiteOption[] = [
     id: 'crunchyroll',
     label: 'Crunchyroll',
     origin: 'https://www.crunchyroll.com',
-    description: 'Show comments under episodes at crunchyroll.com/watch.',
   },
   {
     id: 'netflix',
     label: 'Netflix',
     origin: 'https://www.netflix.com',
-    description: 'Show comments under episodes at netflix.com/watch.',
   },
 ];
 

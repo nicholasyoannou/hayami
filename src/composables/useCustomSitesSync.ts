@@ -8,6 +8,7 @@
 import { ref, reactive, computed } from 'vue';
 import { browser } from 'wxt/browser';
 import { sendMessageWithRetry } from '@/utils/runtime';
+import { ensurePermissionsForSourceUrls } from '@/utils/hostPermissions';
 import {
   customSitesSyncAutoSyncItem,
   customSitesSyncCachedItem,
@@ -235,6 +236,14 @@ export function useCustomSitesSync(options: {
     if (syncing.value) return;
     syncing.value = true;
     try {
+      const activeUrls = sources.value
+        .filter((s) => s.enabled !== false)
+        .map((s) => s.url);
+      const granted = await ensurePermissionsForSourceUrls(activeUrls);
+      if (!granted) {
+        showError('Site permission denied for one or more source URLs');
+        return;
+      }
       const response = await sendMessageWithRetry({
         action: 'hayami_customSitesSync_syncNow',
       });

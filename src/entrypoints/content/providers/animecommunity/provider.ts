@@ -3,6 +3,8 @@ import type { AnimeInfo } from '@/entrypoints/content/types';
 import type { CommentProvider, ProviderContext } from '@/entrypoints/content/types/data';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds, getLastAnimeIdResolverError } from '@/utils/animeIdResolver';
+import { resolveAnimeIdentity } from '@/entrypoints/content/mapping/identity-resolver';
+import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
 import { dispatchManualSearchRequest } from '../manual-search';
 import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
 import { con } from '@/utils/logger';
@@ -39,11 +41,32 @@ export class AnimeCommunityProvider extends BaseProvider {
       const animeInfoForLookup = mappedAnimeName === animeInfo.animeName
         ? animeInfo
         : { ...animeInfo, animeName: mappedAnimeName };
+
+      // Run the mapper failover to translate Crunchyroll's continuous episode
+      // numbering (e.g. JJK S3 ep 9 reported as E56) into the season-relative
+      // number TAC expects. Without this, the iframe's MAL/AniList query
+      // asks for `episodeChapterNumber=56` on a 12-episode season and 404s.
+      let mapperResolvedEp: number | null = null;
+      try {
+        const identity = await resolveAnimeIdentity(animeInfo, {
+          mapping: ctx.mapping,
+          episode: ctx.mappedEpisode ?? ctx.rawEpisode,
+        });
+        if (identity.entry || identity.animeMeta) {
+          applyMapperEntryIdsToAnimeInfo(animeInfo, identity.entry, identity.animeMeta);
+        }
+        if (identity.resolvedEpisode !== null) {
+          mapperResolvedEp = identity.resolvedEpisode;
+        }
+      } catch (e) {
+        log.warn('Identity resolution failed; falling back to detected episode', e);
+      }
+
       const episodeChapterNumber =
-        ctx.rawEpisode ?? extractEpisodeNumber(animeInfo.episodeName || '') ?? animeInfo.episodeName ?? '';
+        mapperResolvedEp ?? ctx.mappedEpisode ?? ctx.rawEpisode ?? extractEpisodeNumber(animeInfo.episodeName || '') ?? animeInfo.episodeName ?? '';
       const detectedEpisode =
-        ctx.rawEpisode ?? extractEpisodeNumber(animeInfo.episodeName || '') ?? animeInfo.episodeName ?? '?';
-      const numericEpisode = ctx.rawEpisode ?? NaN;
+        mapperResolvedEp ?? ctx.mappedEpisode ?? ctx.rawEpisode ?? extractEpisodeNumber(animeInfo.episodeName || '') ?? animeInfo.episodeName ?? '?';
+      const numericEpisode = mapperResolvedEp ?? ctx.mappedEpisode ?? ctx.rawEpisode ?? NaN;
 
       const { malId, anilistId } = await this.resolveIds(animeInfoForLookup);
 
@@ -109,16 +132,6 @@ export class AnimeCommunityProvider extends BaseProvider {
         AniList_ID: anilistId ?? '',
         episodeChapterNumber,
         mediaType: 'anime',
-        colorScheme: {
-          // Requested custom background
-          backgroundColor: '#0F0F0F',
-          primaryTextColor: '#E5E7EB',
-          secondaryTextColor: '#E5E7EB',
-          strongTextColor: '#FFFFFF',
-          accentColor: '#E5E7EB',
-          iconColor: '#E5E7EB',
-          primaryColor: '#E5E7EB',
-        },
       };
 
       // The TAC widget is hosted on hayami.moe so the extension package ships
@@ -155,7 +168,13 @@ export class AnimeCommunityProvider extends BaseProvider {
         if (payload?.type === 'animecommunity:height') {
           const next = Number(payload.height);
           if (!Number.isFinite(next) || next <= 0) return;
-          const clamped = Math.min(Math.max(Math.ceil(next), 240), 5000);
+          // +8px backstop: scrolling="no" leaves no slack for subpixel
+          // rounding or late-load reflow (image decode, font swap), so the
+          // last row gets clipped if the embed measures even slightly low.
+          // Upper bound is just sanity (paranoid runaway). TAC threads with
+          // many comments routinely measure 5000-10000px after View More
+          // expansions; the previous 5000px cap was clipping them.
+          const clamped = Math.min(Math.max(Math.ceil(next) + 8, 240), 50000);
           this.iframeRef.style.height = `${clamped}px`;
         }
       };

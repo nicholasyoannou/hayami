@@ -23,6 +23,7 @@ import {
   type KomentoSyncState,
 } from '@/config/storage';
 import { parseKomentoScriptPack, type KomentoScriptPack, type KomentoSourceRegistryEntry } from '@/komentoscript';
+import { ensurePermissionsForSourceUrls } from '@/utils/hostPermissions';
 import { con } from '@/utils/logger';
 const log = con.m('Komento');
 
@@ -537,6 +538,13 @@ export function useKomentoScript(options: {
       }
       await saveKomentoSources(next);
       if (!isEditing) {
+        const granted = await ensurePermissionsForSourceUrls([url]);
+        if (!granted) {
+          showError('Source added, but site permission was not granted. Sync skipped.');
+          resetKomentoSourceDraft();
+          await loadKomentoSyncStatus();
+          return;
+        }
         const response = await sendMessageWithRetry({ action: 'hayami_komento_syncNow' }) as any;
         if (!response?.ok) showError(response?.error || 'Source added, but sync failed');
         await loadKomentoSyncStatus();
@@ -578,6 +586,14 @@ export function useKomentoScript(options: {
   async function runKomentoSyncNow() {
     komentoSyncing.value = true;
     try {
+      const activeUrls = komentoSources.value
+        .filter((source) => source.enabled !== false)
+        .map((source) => source.url);
+      const granted = await ensurePermissionsForSourceUrls(activeUrls);
+      if (!granted) {
+        showError('Site permission denied for one or more source URLs');
+        return;
+      }
       const response = await sendMessageWithRetry({ action: 'hayami_komento_syncNow' }) as any;
       if (!response?.ok) { showError(response?.error || 'KomentoScript sync failed'); return; }
       komentoSyncState.value = response.state || null;

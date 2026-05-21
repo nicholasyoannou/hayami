@@ -20,7 +20,6 @@ type SiteEntry = {
   id: BuiltinSiteId;
   label: string;
   origin: string;
-  description: string;
 };
 
 const sites: SiteEntry[] = [
@@ -28,13 +27,11 @@ const sites: SiteEntry[] = [
     id: 'crunchyroll',
     label: 'Crunchyroll',
     origin: 'https://www.crunchyroll.com',
-    description: 'Show comments under episodes at crunchyroll.com/watch.',
   },
   {
     id: 'netflix',
     label: 'Netflix',
     origin: 'https://www.netflix.com',
-    description: 'Show comments under episodes at netflix.com/watch.',
   },
 ];
 
@@ -100,7 +97,6 @@ const orderedSites = computed<SiteEntry[]>(() => {
         />
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-semibold text-white/90">{{ site.label }}</p>
-          <p class="truncate text-xs text-white/55">{{ site.description }}</p>
         </div>
         <button
           type="button"

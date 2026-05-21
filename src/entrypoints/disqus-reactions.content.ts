@@ -572,6 +572,40 @@ function inject(strip: HTMLElement) {
       slot.parent.appendChild(strip);
     }
   }
+  notifyParentResize();
+}
+
+/** Nudge Disqus's iframe-side bundle to re-measure `body.scrollHeight`
+ *  and tell the parent page the new iframe height. Disqus does that
+ *  measurement once on load and on a handful of internal triggers
+ *  (window resize, comment count change, reply expansion) — it does
+ *  not continuously observe the DOM. Our strip mounts AFTER the
+ *  initial measurement (we wait on a network fetch first), so without
+ *  this nudge the parent iframe stays at its pre-injection height and
+ *  clips the bottom of the comment list. Reported on discussanime.moe
+ *  where the last comment's body rendered below the iframe boundary.
+ *
+ *  We fire twice: once after the next paint so layout is settled, and
+ *  again ~200ms later in case Disqus's listener is debounced and
+ *  swallowed the first signal. The synthetic `resize` event is cheap
+ *  and doesn't require knowing Disqus's internal postMessage protocol. */
+function notifyParentResize() {
+  const fire = () => {
+    try {
+      window.dispatchEvent(new Event('resize'));
+    } catch {
+      /* no-op */
+    }
+  };
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      fire();
+      setTimeout(fire, 200);
+    });
+  } else {
+    fire();
+    setTimeout(fire, 200);
+  }
 }
 
 /** Wait until `document.body` exists. The content script runs at

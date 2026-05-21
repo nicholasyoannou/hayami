@@ -307,50 +307,37 @@ function getFilteredSourceTargetOptions(sourceId: string): KomentoSourceTargetOp
                   <label
                     v-for="target in getFilteredSourceTargetOptions(source.id)"
                     :key="`${source.id}-${target.targetId}`"
-                    class="flex items-start gap-2 border-b border-white/[0.06] py-2 last:border-b-0"
+                    class="flex items-start gap-2.5 border-b border-white/[0.06] py-2.5 last:border-b-0"
                   >
                     <input
                       type="checkbox"
-                      class="mt-0.5"
+                      class="mt-1"
                       :checked="isSourceTargetEnabled(source.id, target.targetId)"
                       @change="(e) => onToggleSourceTarget(source.id, target.targetId, (e.target as HTMLInputElement).checked)"
                     />
                     <span class="min-w-0 flex-1">
                       <span class="block text-xs font-semibold text-white/90">{{ target.targetId }}</span>
-                      <span class="block truncate text-[11px] text-white/60">
-                        {{ target.origins.length ? target.origins.join(', ') : 'No origins' }}
+                      <span
+                        v-if="target.origins.length"
+                        class="mt-1 flex flex-wrap gap-1"
+                      >
+                        <span
+                          v-for="origin in target.origins"
+                          :key="origin"
+                          class="inline-flex max-w-full items-center gap-1 rounded-full bg-white/[0.06] py-0.5 pl-1 pr-2 text-[10px] text-white/75"
+                        >
+                          <img
+                            :src="getFaviconUrl(origin)"
+                            :alt="formatOrigin(origin)"
+                            class="h-3.5 w-3.5 shrink-0 rounded-sm bg-white/5"
+                            referrerpolicy="no-referrer"
+                          />
+                          <span class="truncate">{{ formatOrigin(origin) }}</span>
+                        </span>
                       </span>
+                      <span v-else class="mt-1 block text-[11px] text-white/45">No origins</span>
                     </span>
                   </label>
-                </div>
-              </div>
-
-              <!-- Mapped origins (flat) -->
-              <div
-                v-if="getMappedOrigins(source.id).length === 0"
-                class="text-xs text-white/60"
-              >
-                No mapped sites in current cached packs.
-              </div>
-              <div
-                v-else
-                :class="props.isLargeLayout ? 'grid grid-cols-1 sm:grid-cols-2 gap-x-4' : ''"
-              >
-                <div
-                  v-for="origin in getMappedOrigins(source.id)"
-                  :key="origin"
-                  class="flex items-center gap-3 border-b border-white/[0.06] py-2 last:border-b-0"
-                >
-                  <img
-                    :src="getFaviconUrl(origin)"
-                    :alt="formatOrigin(origin)"
-                    class="h-6 w-6 rounded bg-white/5"
-                    referrerpolicy="no-referrer"
-                  />
-                  <div class="min-w-0 flex-1">
-                    <div class="truncate text-sm font-semibold text-white/90">{{ formatOrigin(origin) }}</div>
-                    <div class="truncate text-xs text-white/60">{{ origin }}</div>
-                  </div>
                 </div>
               </div>
             </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { KomentoPendingPermissionSource, KomentoPendingPreviewInfo } from '@/composables/useKomentoScript';
 import accountIcon from '@/assets/accountIcon.svg';
+import KomentoPendingPermissionsCard from './KomentoPendingPermissionsCard.vue';
 
 type Props = {
   komentoPendingPermissionLoading: boolean;
