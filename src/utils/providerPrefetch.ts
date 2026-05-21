@@ -225,12 +225,20 @@ async function prefetchDisqus(
   // episode's id mutations and we still need the failover to run.
   const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
   const hasResolvedIds = !!animeInfo.malId || !!animeInfo.anilistId;
+  let mapperResolvedEp: number | null = null;
   if (!hasSavedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
     try {
       const failoverOut: MapperFailoverOut = {};
       await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);
       if (failoverOut.entry || failoverOut.animeMeta) {
         applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
+      }
+      // Keep the mapper's season-relative answer as a candidate. Without it,
+      // continuous-numbered CR shows (e.g. Science Future E32 → Part 3 E8)
+      // prefetch with only the raw streaming number and miss the thread,
+      // leaving the cache cold for the foreground switchTo to refill.
+      if (typeof failoverOut.episode === 'number') {
+        mapperResolvedEp = failoverOut.episode;
       }
     } catch {
       // Background prefetch — swallow failures, the provider's switchTo
@@ -241,7 +249,7 @@ async function prefetchDisqus(
   const thread = await findEpisodeThread({
     malId: animeInfo.malId ?? null,
     anilistId: animeInfo.anilistId ?? null,
-    episodeCandidates: [mappedEp, rawEp],
+    episodeCandidates: [mapperResolvedEp, mappedEp, rawEp],
     episodeNameHint: animeInfo.episodeName ?? null,
   });
   if (!thread) return null;
