@@ -74,6 +74,10 @@ import {
   customSitesSyncCachedItem,
   customSitesSyncEtagsItem,
   customSitesSyncHistoryItem,
+  customSitesSyncSourcesItem,
+  customSitesSyncEnabledItem,
+  customSitesSyncAutoSyncItem,
+  customSitesSyncStateItem,
   manualOverridesRecentItem,
   malSyncEnabledItem,
   malWrongAnimeTitleFormatItem,
@@ -81,6 +85,9 @@ import {
   verboseLoggingItem,
   siteMapperAdvancedModeItem,
   enabledBuiltinSitesItem,
+  onboardingCompleteItem,
+  redditCompactModeItem,
+  imgurRegionDefaultsInitializedItem,
   BUILTIN_SITE_IDS,
   type BuiltinSiteId,
   MANUAL_OVERRIDES_RECENT_LIMIT,
@@ -110,8 +117,6 @@ import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
 import CustomSitesSyncSettingsPanel from './CustomSitesSyncSettingsPanel.vue';
 import PublishCustomSitesPanel from './PublishCustomSitesPanel.vue';
 import CustomOverridesSettingsPanel from './CustomOverridesSettingsPanel.vue';
-import ClearStoragePanel from './ClearStoragePanel.vue';
-import type { ClearableCategoryId } from './clear-storage-categories';
 import {
   loadAllManualOverrides,
   deleteManualOverride,
@@ -121,6 +126,12 @@ import {
 import { useKomentoScript } from '@/composables/useKomentoScript';
 import { useCustomSitesSync } from '@/composables/useCustomSitesSync';
 import { useCustomSiteManagement } from '@/composables/useCustomSiteManagement';
+import { logout as logoutReddit } from '@/utils/reddit/auth';
+import { logoutYouTube } from '@/utils/youtube/auth';
+import { logoutMAL } from '@/utils/mal/auth';
+import { logoutAniList } from '@/utils/anilist/auth';
+import { logoutGithub } from '@/utils/github/auth';
+import { logoutGitlab } from '@/utils/gitlab/auth';
 import { con } from '@/utils/logger';
 
 const log = con.m('Popup');
@@ -168,7 +179,7 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'builtin-sites' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides' | 'clear-storage';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'builtin-sites' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides';
 type SettingsNavItem = {
   id: SettingCategoryId | 'discussion-platforms' | 'builtin-sites' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
   label: string;
@@ -1448,46 +1459,91 @@ async function handleSettingChange(setting: SettingDefinition, value: SettingVal
   }
 }
 
-async function clearStorageCategories(ids: ClearableCategoryId[]) {
-  if (ids.length === 0) return;
-  const tasks: Array<Promise<void>> = [];
+// Display-preference storage items reset together by the
+// 'display-preferences' category — listed explicitly so we don't accidentally
+// wipe auth tokens, mappings, or sync state.
+const DISPLAY_PREFERENCE_ITEMS = [
+  commentsProviderItem,
+  displayModeItem,
+  embedImagesItem,
+  imgurFrontendItem,
+  imgurOdsItem,
+  imgurVideoCdnItem,
+  imgurRegionDefaultsInitializedItem,
+  redditEditorModeItem,
+  redditShowFlairsItem,
+  redditFlairPositionItem,
+  redditDeepReplyModeItem,
+  redditMaxInlineDepthItem,
+  redditCommentLayoutItem,
+  redditTraditionalSpacingItem,
+  redditTruncateLinesItem,
+  redditKeyboardShortcutsItem,
+  redditCompactModeItem,
+  redditProfileHoverCardItem,
+  redditAnimationsEnabledItem,
+  redditUpvoteAnimationItem,
+  redditCommentTextSizeIncreaseItem,
+  redditDefaultSortItem,
+  redditCommentFacesItem,
+  redditLinkDomainItem,
+  redditMultiSubredditItem,
+  redditAutoExpandAllItem,
+  providerBadgesEnabledItem,
+  linkOnlyModeItem,
+  disqusImageResizeEnabledItem,
+  disqusImageMaxWidthItem,
+  aniwaveAutoExpandAllItem,
+  aniwaveAutoExpandDepthItem,
+  aniwaveHideReplyContextItem,
+  siteMapperAdvancedModeItem,
+  malWrongAnimeTitleFormatItem,
+  anilistWrongAnimeTitleFormatItem,
+  malSyncEnabledItem,
+  verboseLoggingItem,
+] as const;
 
-  for (const id of ids) {
-    switch (id) {
-      case 'manual-overrides':
-        // clearAllSeriesMappings wipes both seriesMappingItem and manualOverridesRecentItem
-        tasks.push(clearAllSeriesMappings().then(() => {
-          manualOverrides.value = [];
-        }));
-        break;
-      case 'anime-id-cache':
-        tasks.push(seriesAnimeIdsItem.setValue({}));
-        break;
-      case 'custom-sites':
-        tasks.push(customSiteMappingsItem.setValue({}));
-        break;
-      case 'komentoscript-cache':
-        tasks.push(komentoScriptCachedPacksItem.setValue([]));
-        tasks.push(komentoScriptEtagsItem.setValue({}));
-        break;
-      case 'custom-sites-sync-cache':
-        tasks.push(customSitesSyncCachedItem.setValue([]));
-        tasks.push(customSitesSyncEtagsItem.setValue({}));
-        break;
-      case 'sync-history':
-        tasks.push(komentoScriptSyncHistoryItem.setValue([]));
-        tasks.push(customSitesSyncHistoryItem.setValue([]));
-        break;
-    }
-  }
-
+// Revokes every optional_host_permission the user has granted. Manifest
+// host_permissions cannot be removed via permissions.remove and silently no-op.
+async function revokeAllOptionalHostPermissions(): Promise<void> {
   try {
-    await Promise.all(tasks);
-    const label = ids.length === 1 ? '1 category cleared' : `${ids.length} categories cleared`;
-    showSuccess(label);
+    const all = await browser.permissions.getAll();
+    const origins = (all?.origins || []).filter(Boolean);
+    if (!origins.length) return;
+    await new Promise<void>((resolve) => {
+      try {
+        browser.permissions.remove({ origins }, () => resolve());
+      } catch {
+        resolve();
+      }
+    });
   } catch (error) {
-    log.error('Failed to clear selected storage categories', error);
-    showError('Failed to clear some items');
+    log.warn('Failed to revoke optional host permissions', error);
+  }
+}
+
+const clearingCache = ref(false);
+
+async function clearCache() {
+  if (clearingCache.value) return;
+  if (!window.confirm('Clear cached anime IDs, KomentoScript packs, custom-sites sync data, and sync history? Everything rebuilds automatically as you browse.')) return;
+  clearingCache.value = true;
+  try {
+    await Promise.all([
+      seriesAnimeIdsItem.setValue({}),
+      komentoScriptCachedPacksItem.setValue([]),
+      komentoScriptEtagsItem.setValue({}),
+      customSitesSyncCachedItem.setValue([]),
+      customSitesSyncEtagsItem.setValue({}),
+      komentoScriptSyncHistoryItem.setValue([]),
+      customSitesSyncHistoryItem.setValue([]),
+    ]);
+    showSuccess('Cache cleared');
+  } catch (error) {
+    log.error('Failed to clear cache', error);
+    showError('Failed to clear cache');
+  } finally {
+    clearingCache.value = false;
   }
 }
 
@@ -2011,14 +2067,15 @@ function handleRemoveCustomSite(site: any) {
                   <div v-if="activeSettingsCategory.id === 'general'" class="hy-section-card">
                     <div class="hy-row">
                       <div class="flex-1 min-w-0">
-                        <p class="text-sm text-white/85">Clear storage</p>
-                        <p class="text-xs text-white/60">Choose which caches and user-authored items to wipe from this device.</p>
+                        <p class="text-sm text-white/85">Clear cache</p>
+                        <p class="text-xs text-white/60">Wipes anime ID cache, KomentoScript packs, sync data, and history. Rebuilds as you browse.</p>
                       </div>
                       <button
-                        class="shrink-0 rounded-lg bg-[#5a2f2f] px-3 py-2 text-sm font-semibold text-[#ffdcdc] hover:bg-[#733838]"
-                        @click="settingsScreen = 'clear-storage'"
+                        class="shrink-0 rounded-lg bg-[#5a2f2f] px-3 py-2 text-sm font-semibold text-[#ffdcdc] hover:bg-[#733838] disabled:cursor-not-allowed disabled:opacity-50"
+                        :disabled="clearingCache"
+                        @click="clearCache"
                       >
-                        Clear…
+                        {{ clearingCache ? 'Clearing…' : 'Clear' }}
                       </button>
                     </div>
                   </div>
@@ -2180,16 +2237,6 @@ function handleRemoveCustomSite(site: any) {
                   :settings-icon="customSitesIcon"
                   :is-large-layout="isLargeLayout"
                   :on-back="() => { settingsScreen = 'custom-sites'; }"
-                />
-              </template>
-
-              <template v-else-if="settingsScreen === 'clear-storage'">
-                <ClearStoragePanel
-                  :back-icon="backIcon"
-                  :settings-icon="settingsIcon"
-                  :is-large-layout="isLargeLayout"
-                  :on-back="() => { settingsScreen = 'category'; }"
-                  :on-clear="clearStorageCategories"
                 />
               </template>
 

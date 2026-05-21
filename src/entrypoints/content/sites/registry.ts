@@ -86,14 +86,10 @@ export function getAdapters(): SiteAdapter[] {
   return siteDefinitions.filter(isDefinitionEnabled).map((def) => def.adapter);
 }
 
-export function findAdapter(location: Location = window.location): SiteAdapter | null {
-  return siteDefinitions.find((def) => isDefinitionEnabled(def) && definitionMatchesLocation(def.definition, location))?.adapter ?? null;
-}
-
 const extraAdapters: SiteAdapter[] = [];
 
 export function resolveAdapter(location: Location = window.location): SiteAdapter | null {
-  const registryAdapter = findAdapter(location);
+  const registryAdapter = siteDefinitions.find((def) => isDefinitionEnabled(def) && definitionMatchesLocation(def.definition, location))?.adapter ?? null;
   if (registryAdapter) return registryAdapter;
   return extraAdapters.find((adapter) => adapter.matches(location)) || null;
 }

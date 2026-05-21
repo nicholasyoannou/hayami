@@ -18,7 +18,6 @@ import { escapeHtml } from '@/utils/html-utils';
 
 // Component imports
 import InlineDiscussion from '@/components/InlineDiscussion.vue';
-import RedditManualSearchPanel from '@/components/reddit/ManualSearchPanel.vue';
 
 // Type imports
 import { AnimeInfo } from '../types';
@@ -28,7 +27,6 @@ import type { CommentProvider, ProviderContext } from '../types/data';
 import {
   getSeriesMapping,
   parseEpisodeFromTitle,
-  saveSeriesMapping,
 } from '../mapping';
 import {
   enrichRedditDiscussion,
@@ -87,19 +85,6 @@ type RenderIntent = 'inline' | 'popup';
 let preferredProvider: CommentProvider = 'reddit';
 let activeUiProvider: CommentProvider | null = null;
 let currentRenderIntent: RenderIntent = 'popup';
-
-// Lazy loader for the Reddit API module — used only by the date-based
-// search fallback below; other Reddit imports come in eagerly via
-// `./reddit-runtime` / `./reddit-discussion`, so this is the only path
-// that still benefits from on-demand loading.
-type RedditApiModule = typeof import('@/utils/reddit/api');
-let redditApiModulePromise: Promise<RedditApiModule> | null = null;
-function getRedditApiModule(): Promise<RedditApiModule> {
-  if (!redditApiModulePromise) {
-    redditApiModulePromise = import('@/utils/reddit/api');
-  }
-  return redditApiModulePromise;
-}
 
 function extractEpisodeNumberText(input: string): string | null {
   const parsed = parseEpisodeFromTitle(input || '');
@@ -871,41 +856,3 @@ async function displayInlineDiscussion(discussion: any): Promise<void> {
   }
 }
 
-export function handleWrongClick(): void {
-  const lastInfo = state().lastAnimeInfo;
-  if (!lastInfo) return;
-  const episodeNumberStr = extractEpisodeNumberText(lastInfo.episodeName || '');
-  const episodeNumber = episodeNumberStr ? Number(episodeNumberStr) : undefined;
-  showManualSearchUI(lastInfo, episodeNumber);
-}
-
-function showManualSearchUI(animeInfo: AnimeInfo, episodeNumber?: number): void {
-  try {
-    const event = new CustomEvent('ri-manual-search-requested', {
-      detail: { animeInfo, episodeNumber },
-    });
-    window.dispatchEvent(event);
-    log.log('Routed manual search to Vue event');
-  } catch (e) {
-    log.warn('Failed to dispatch manual search event, using Vue component fallback', e);
-    getUiManager().mountWithPropsFactory(RedditManualSearchPanel, ({ close }) => ({
-      onClose: close,
-      onSearch: async (query: string) => {
-        if (!query) return [];
-        const { searchCustomPosts } = await getRedditApiModule();
-        return await searchCustomPosts(query);
-      },
-      onSelect: async (post: any, index: number) => {
-        if (typeof episodeNumber === 'number' && animeInfo?.animeName) {
-          const redditEp = parseEpisodeFromTitle(post.title);
-          if (redditEp !== null) {
-            const offset = redditEp - episodeNumber;
-            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
-          }
-        }
-        close();
-        await displayDiscussionDependingOnMode(post);
-      },
-    }));
-  }
-}

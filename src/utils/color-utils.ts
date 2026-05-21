@@ -9,7 +9,7 @@
  * @param hexColor Hex color string (with or without #)
  * @returns Luminance value between 0 and 1
  */
-export function getRelativeLuminance(hexColor: string): number {
+function getRelativeLuminance(hexColor: string): number {
   try {
     const hex = hexColor.replace('#', '');
     const r = parseInt(hex.substring(0, 2), 16) / 255;
