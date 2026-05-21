@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   mapEpisodeWithSeasonsData,
   mapEpisodeToSeasonEpisode,
+  foldCrEpisodeIntoCour,
 } from '@/entrypoints/content/sites/crunchyroll/episode-mapper';
 import type { MapperResultEntry, CrunchyrollSeason } from '@/entrypoints/content/types/data';
 
@@ -263,6 +264,40 @@ describe('mapEpisodeWithSeasonsData', () => {
       const result = mapEpisodeWithSeasonsData(1, 1, 1, crSeasons, cote, [cote], 0);
       expect(result).toBe(1);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// foldCrEpisodeIntoCour
+// ---------------------------------------------------------------------------
+describe('foldCrEpisodeIntoCour', () => {
+  // Dr. STONE: SCIENCE FUTURE Part 3 — CR numbers the season continuously
+  // (E32) but the mapper cour has 8 episodes, so E32 is season-relative E8.
+  // The matched entry's `episodes` map is sparse (only the just-aired E8 has
+  // a URL), so callers must pass the meta `episode_count` (8), not the key
+  // count (1). With 8 the fold yields ((32-1) % 8) + 1 = 8.
+  it('folds Dr. Stone Science Future CR E32 into Part 3 E8', () => {
+    expect(foldCrEpisodeIntoCour(32, 8, 22)).toBe(8);
+  });
+
+  it('folds a continuous cour-2 opener (CR E13 of a 12-ep cour) to E1', () => {
+    expect(foldCrEpisodeIntoCour(13, 12, 24)).toBe(1);
+  });
+
+  // The bug: a sparse map reports only 1 populated key. Folding with that
+  // count must NOT run (the `>= 6` gate) — otherwise it returns a bogus E1.
+  it('returns null when the cour length is below the size gate', () => {
+    expect(foldCrEpisodeIntoCour(32, 1, 22)).toBeNull();
+  });
+
+  it('returns null when the CR episode does not overrun the cour', () => {
+    expect(foldCrEpisodeIntoCour(5, 8, 22)).toBeNull();
+  });
+
+  // Guard against folding a normal multi-season show whose CR season maps 1:1
+  // to the mapper cour (CR season not ≥ 2× the cour length).
+  it('returns null when the CR season is not a collapsed multi-cour season', () => {
+    expect(foldCrEpisodeIntoCour(32, 8, 10)).toBeNull();
   });
 });
 

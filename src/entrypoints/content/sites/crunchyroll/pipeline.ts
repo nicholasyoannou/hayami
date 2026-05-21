@@ -37,7 +37,7 @@ import {
   findSliceEpisodeMatch,
 } from '../shared';
 import { refineMatchedIndexUsingCrunchyrollData } from './refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from './episode-mapper';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode, foldCrEpisodeIntoCour } from './episode-mapper';
 import { cacheAnimeIds } from '../../storage/series-mapping';
 import {
   fetchAnimeMapperDataBySeriesAndSeason,
@@ -46,6 +46,24 @@ import {
 import { con } from '@/utils/logger';
 
 const log = con.m('CrunchyrollPipeline');
+
+/**
+ * The authoritative per-cour episode count lives on the matched *meta*
+ * (`MapperMatchedMeta.episode_count`), not the `MapperResultEntry` — whose
+ * `episodes` URL map is frequently sparse for a currently-airing cour. Resolve
+ * it for the currently-selected `matchedIndex`; returns 0 when no meta exists.
+ */
+function matchedEpisodeCountForIndex(mapperResult: MapperResponse, matchedIndex: number): number {
+  const metas: MapperMatchedMeta[] = [];
+  if (mapperResult.matched_result) metas.push(mapperResult.matched_result);
+  if (Array.isArray(mapperResult.matched_results)) metas.push(...mapperResult.matched_results);
+  for (const meta of metas) {
+    if (meta?.index === matchedIndex && typeof meta.episode_count === 'number' && meta.episode_count > 0) {
+      return meta.episode_count;
+    }
+  }
+  return 0;
+}
 
 export interface CrunchyrollPipelineInput {
   animeInfo: AnimeInfo;
@@ -655,20 +673,25 @@ export async function runCrunchyrollDeepPipeline(
       // If Crunchyroll numbers the season far beyond the matched cour length (e.g., cour 2 starts at 25 while mapper has 12 eps),
       // fold the CR number back into the cour length when the season is clearly longer than the matched cour.
       if (forcedSeasonEpisode === null && matchedResult?.is_exact_match === true && matchedSeason?.episodes) {
-        const matchedSeasonEpisodeCount = Object.keys(matchedSeason.episodes || {}).length;
+        // Use the cour's true length (matched meta `episode_count`) over the
+        // count of populated URL keys: Hayami often ships only the just-aired
+        // episode's URL for an airing cour (e.g. `{ "8": "..." }`), so the key
+        // count is misleadingly small (1) and would skip the fold entirely.
+        const mappedEpisodeKeyCount = Object.keys(matchedSeason.episodes || {}).length;
+        const reportedEpisodeCount = matchedEpisodeCountForIndex(mapperResult, matchedIndex);
+        const courEpisodeCount = Math.max(mappedEpisodeKeyCount, reportedEpisodeCount);
         const crSeasonEpisodes = seasonsData.find(
           (s) => (s.season_sequence_number || s.season_number || 0) === seasonNumForSlice,
         )?.number_of_episodes || 0;
 
-        if (
-          matchedSeasonEpisodeCount >= 6 &&
-          crEpisodeNumber > matchedSeasonEpisodeCount &&
-          crSeasonEpisodes >= matchedSeasonEpisodeCount * 2
-        ) {
-          forcedSeasonEpisode = ((crEpisodeNumber - 1) % matchedSeasonEpisodeCount) + 1;
+        const folded = foldCrEpisodeIntoCour(crEpisodeNumber, courEpisodeCount, crSeasonEpisodes);
+        if (folded !== null) {
+          forcedSeasonEpisode = folded;
           log.log(' Folding CR episode into matched cour length', {
             crEpisodeNumber,
-            matchedSeasonEpisodeCount,
+            courEpisodeCount,
+            mappedEpisodeKeyCount,
+            reportedEpisodeCount,
             crSeasonEpisodes,
             forcedSeasonEpisode,
           });

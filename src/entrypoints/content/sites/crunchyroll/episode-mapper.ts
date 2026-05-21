@@ -20,6 +20,37 @@ function yearSortKey(year: string | number | undefined): number {
 }
 
 /**
+ * Fold a continuous Crunchyroll episode number back into a single cour when CR
+ * collapses multiple mapper "parts" into one season and numbers episodes
+ * continuously (e.g. CR E32 of an 8-episode "Science Future Part 3" → E8).
+ *
+ * `courEpisodeCount` MUST be the cour's true length. Callers should pass the
+ * matched-result `episode_count`, not `Object.keys(entry.episodes).length`:
+ * for a currently-airing cour Hayami frequently ships only the just-aired
+ * episode's discussion URL (e.g. `{ "8": "..." }`), so the populated-key count
+ * is misleadingly small (1) and would both fail the size gate below and
+ * corrupt the modulo.
+ *
+ * Returns the season-relative episode, or `null` when the inputs don't look
+ * like a collapsed-continuous cour, leaving the caller's other heuristics to
+ * run.
+ */
+export function foldCrEpisodeIntoCour(
+  crEpisodeNumber: number,
+  courEpisodeCount: number,
+  crSeasonEpisodes: number,
+): number | null {
+  if (
+    courEpisodeCount >= 6 &&
+    crEpisodeNumber > courEpisodeCount &&
+    crSeasonEpisodes >= courEpisodeCount * 2
+  ) {
+    return ((crEpisodeNumber - 1) % courEpisodeCount) + 1;
+  }
+  return null;
+}
+
+/**
  * Map CR episode number to mapper season episode using Crunchyroll seasons data
  * and mapper results. Handles multi-season shows with complex numbering.
  */
