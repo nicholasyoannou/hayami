@@ -74,6 +74,16 @@ export interface DisqusThread {
   slug?: string;
   forum?: string;
   posts?: number;
+  /**
+   * 1 when discussanime.moe owns the thread end-to-end and wants Hayami
+   * to iframe `embed_url` instead of mounting the Disqus loader. Today
+   * this only flips on for `is_archived` rows (Phase 1 of the Disqus
+   * archive import), but the name is behavioural so future native
+   * threads can opt in without an extension rebuild.
+   */
+  is_embed?: 0 | 1;
+  /** Absolute URL of the site-hosted iframe target. Present iff `is_embed === 1`. */
+  embed_url?: string | null;
 }
 
 // ==================== YouTube Types ====================

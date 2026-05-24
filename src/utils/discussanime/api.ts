@@ -41,6 +41,9 @@ interface LookupThreadResponse {
     identifier: string;
     url: string;
     forum_shortname: string;
+    /** 1 → iframe `embed_url` instead of mounting the Disqus loader. */
+    is_embed?: 0 | 1;
+    embed_url?: string | null;
   } | null;
 }
 
@@ -55,6 +58,8 @@ function toDisqusThread(
     link: row.url,
     slug: row.slug,
     forum: row.forum_shortname,
+    is_embed: row.is_embed === 1 ? 1 : 0,
+    embed_url: row.embed_url ?? null,
   };
 }
 
@@ -121,6 +126,9 @@ interface AnimeThreadRow {
   identifier: string;
   url: string;
   forum_shortname: string;
+  /** 1 → Hayami iframes `embed_url` instead of mounting the Disqus loader. */
+  is_embed?: 0 | 1;
+  embed_url?: string | null;
 }
 
 interface ByAnimeResponse {
@@ -173,6 +181,8 @@ function rowToDisqusThread(row: AnimeThreadRow): DisqusThread {
     slug: row.slug,
     forum: row.forum_shortname,
     posts: row.comment_count ?? undefined,
+    is_embed: row.is_embed === 1 ? 1 : 0,
+    embed_url: row.embed_url ?? null,
   };
 }
 

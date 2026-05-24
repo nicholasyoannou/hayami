@@ -12,7 +12,7 @@ import { BaseProvider } from '../base-provider';
 import type { CommentProvider, ProviderContext, DisqusThread } from '@/entrypoints/content/types/data';
 import type { AnimeInfo } from '@/entrypoints/content/types';
 import { findEpisodeThread } from '@/utils/discussanime/api';
-import { renderDisqusContainer } from '@/entrypoints/content/templates';
+import { renderArchiveContainer, renderDisqusContainer } from '@/entrypoints/content/templates';
 import {
   CONTAINER_RETRY_ATTEMPTS,
   CONTAINER_RETRY_DELAY_MS,
@@ -169,14 +169,126 @@ function dispatchDisqusManualSearch(animeInfo: AnimeInfo): void {
 }
 
 /**
+ * One-time install: the embed page (`/embed/discussion/{slug}`) posts
+ * `{ type: 'discussanime-archive-embed:resize', height }` whenever its
+ * content height changes (load, image-decode, sort tab, load-more, tooltip
+ * open/close). We size the corresponding iframe to that height so the
+ * thread renders full-height with no scrollbar — matching the user's
+ * "mount the full thing all the time" expectation.
+ *
+ * Match is by `event.source === iframe.contentWindow` so multiple
+ * archive iframes on the page (unlikely but possible during navigation)
+ * stay independent, and by iframe-src origin so a malicious host page
+ * can't push arbitrary heights at one of ours.
+ */
+let archiveResizeListenerAttached = false;
+function ensureArchiveResizeListener(): void {
+  if (archiveResizeListenerAttached) return;
+  archiveResizeListenerAttached = true;
+  window.addEventListener('message', (ev) => {
+    if (!ev.data || typeof ev.data !== 'object') return;
+    const data = ev.data as { type?: unknown; height?: unknown };
+    if (data.type !== 'discussanime-archive-embed:resize') return;
+    const height = Number(data.height);
+    if (!Number.isFinite(height) || height <= 0) return;
+    const iframes = document.querySelectorAll<HTMLIFrameElement>(
+      'iframe.ri-discussanime-embed'
+    );
+    for (const iframe of iframes) {
+      if (iframe.contentWindow !== ev.source) continue;
+      // Defence-in-depth: the message must originate from the same
+      // origin we asked the iframe to load. A different origin posting
+      // a resize message would mean the iframe got redirected
+      // somewhere we don't trust — ignore it.
+      try {
+        if (ev.origin !== new URL(iframe.src).origin) continue;
+      } catch {
+        continue;
+      }
+      iframe.style.height = `${Math.ceil(height)}px`;
+      break;
+    }
+  });
+}
+
+/**
+ * Renders the discussanime.moe-hosted archive iframe.
+ *
+ * Used when the lookup API returns `is_embed: 1` — the site owns the
+ * comment data and we just frame its `/embed/discussion/{slug}` route.
+ * Skips the Disqus loader / poll-block / referrer-strip plumbing
+ * because none of it applies to a same-origin iframe.
+ */
+async function renderArchiveThread(
+  thread: DisqusThread,
+  container: HTMLElement,
+  animeInfo: AnimeInfo,
+  clearLoadingState: (reason: string) => void
+): Promise<void> {
+  const embedUrl = thread.embed_url || '';
+  if (!embedUrl) {
+    log.warn('renderArchiveThread: missing embed_url, falling back to Disqus path', thread);
+    await renderDisqusThread(thread, container, animeInfo, clearLoadingState, { forceDisqus: true });
+    return;
+  }
+
+  // Killing any prior Disqus script + iframe before mounting the
+  // archive iframe — otherwise the previous episode's loader keeps the
+  // DISQUS singleton alive and breaks a subsequent disqus-flavoured
+  // switch in the same session.
+  DisqusProvider.clearStaleArtifacts();
+
+  // Listener must be wired before the iframe mounts so the very first
+  // resize message (sent on the embed page's initial $effect tick)
+  // isn't lost.
+  ensureArchiveResizeListener();
+
+  container.style.display = 'block';
+
+  const title = thread.clean_title || thread.title || 'Discussion';
+  container.innerHTML = renderArchiveContainer(embedUrl, title);
+
+  const wrongBtn = container.querySelector<HTMLButtonElement>('[data-disqus-wrong-anime]');
+  if (wrongBtn) {
+    wrongBtn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      dispatchDisqusManualSearch(animeInfo);
+    };
+  }
+
+  const iframe = container.querySelector<HTMLIFrameElement>('iframe.ri-discussanime-embed');
+  if (iframe) {
+    let settled = false;
+    const finish = (reason: string) => {
+      if (settled) return;
+      settled = true;
+      clearLoadingState(reason);
+    };
+    iframe.addEventListener('load', () => finish('Archive iframe load'), { once: true });
+    // Same 12s safety used by the Disqus path — the SvelteKit embed
+    // route is fast in practice but we don't want a hung network to
+    // freeze the loading spinner.
+    setTimeout(() => finish('Archive iframe timeout'), 12000);
+  } else {
+    clearLoadingState('Archive iframe (no element)');
+  }
+}
+
+/**
  * Renders a Disqus thread into the container
  */
 async function renderDisqusThread(
   thread: DisqusThread,
   container: HTMLElement,
   animeInfo: AnimeInfo,
-  clearLoadingState: (reason: string) => void
+  clearLoadingState: (reason: string) => void,
+  options: { forceDisqus?: boolean } = {}
 ): Promise<void> {
+  if (!options.forceDisqus && thread.is_embed === 1) {
+    await renderArchiveThread(thread, container, animeInfo, clearLoadingState);
+    return;
+  }
   const renderToken = `ri-disqus-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   // Disqus binds by global id (#disqus_thread). Prune only stale Hayami-owned
@@ -485,6 +597,13 @@ export class DisqusProvider extends BaseProvider {
     if (oldDisqus) {
       oldDisqus.remove();
     }
+    // Tear down any stale discussanime.moe archive iframes the previous
+    // episode mounted. Same intent as the Disqus block above — switching
+    // provider flavours mid-session leaves the old iframe orphaned in
+    // the comments container otherwise.
+    document
+      .querySelectorAll('iframe.ri-discussanime-embed')
+      .forEach((el) => el.remove());
     // Clear the global DISQUS singleton so the embed script reinitializes cleanly.
     const windowAny = window as Window & { DISQUS?: unknown };
     if (windowAny.DISQUS) {
