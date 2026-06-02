@@ -11,9 +11,9 @@ import { fetchAniListThreads, fetchAniListThreadComments } from '@/utils/anilist
 import AniListForumView from '@/components/anilist/ForumView.vue';
 import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
 import { CONTAINER_RETRY_ATTEMPTS, CONTAINER_RETRY_DELAY_MS } from '@/entrypoints/content/constants';
-import { resolveAdapter, fetchAnimeMapperDataBySeriesName, fetchAnimeMapperDataBySeriesAndSeason } from '@/entrypoints/content/mapping';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
+import { resolveSeriesIdentity } from '@/entrypoints/content/mapping/identity-resolver';
 import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
 import { con } from '@/utils/logger';
 const log = con.m('AniListProvider');
@@ -38,43 +38,35 @@ export class AniListProvider extends BaseProvider {
       let anilistId = saved.anilistId
         ?? (hasMappedTitleOverride ? null : animeInfo.anilistId);
 
-      // Prefer Hayami mapper to derive an authoritative AniList ID. The site
-      // adapter exposes its own series-identity hints (Crunchyroll fills both
-      // series + season title; Netflix returns series only) so this branch
-      // doesn't need any site-specific imports.
-      const adapter = resolveAdapter();
-      if (!anilistId && adapter?.getSeriesHints) {
-        let seriesTitle: string | null = null;
-        let seasonTitle: string | null = null;
+      // Resolve the canonical AniList id via the series-identity path
+      // (`api.hayami.moe/anime/resolve` + local cache fallbacks). Previously
+      // this branch hit `api.hayami.moe/anime/search` — the Reddit-shaped
+      // endpoint — twice (once with season title, once without) and parsed
+      // the heavyweight thread-mapping payload just to pull out
+      // `external_sites.anilist_id`. `resolveSeriesIdentity` returns the
+      // same id with one round-trip against the right endpoint, and also
+      // checks `seriesAnimeIds` / in-memory `getCachedAnimeIds` so we
+      // pick up MAL-Sync resolutions from prior runs for free.
+      if (!anilistId) {
         try {
-          const hints = await adapter.getSeriesHints();
-          seriesTitle = hints?.seriesTitle ?? null;
-          seasonTitle = hints?.seasonTitle ?? null;
-        } catch (err) {
-          log.warn('Site series hints lookup failed', err);
-        }
-
-        try {
-          let mapper: any = null;
-
-          if (seriesTitle && seasonTitle) {
-            mapper = await fetchAnimeMapperDataBySeriesAndSeason(seriesTitle, seasonTitle, 'reddit', { isThirdPartySite: true });
-          }
-
-          if (!mapper) {
-            mapper = await fetchAnimeMapperDataBySeriesName(seriesTitle || animeInfoForLookup.animeName, 'reddit', { isThirdPartySite: true });
-          }
-
-          const fromMapper = extractAnilistIdFromMapper(mapper);
-          if (fromMapper) {
-            anilistId = fromMapper;
-            animeInfo.anilistId = fromMapper;
+          const identity = await resolveSeriesIdentity(animeInfoForLookup, {
+            mapping,
+            episode: ctx.mappedEpisode ?? ctx.rawEpisode,
+            requireUserPickForSavedIds: false,
+          });
+          if (identity.anilistId) {
+            anilistId = identity.anilistId;
+            animeInfo.anilistId = identity.anilistId;
           }
         } catch (err) {
-          log.warn('Mapper lookup failed; falling back to AniList search', err);
+          log.warn('Series identity resolution failed; falling back to AniList search', err);
         }
       }
 
+      // Defence-in-depth fallback: `resolveSeriesIdentity` already
+      // consults this cache internally, but if the call itself threw
+      // (network blip, etc.) above, a direct probe gives us one more
+      // chance before bailing.
       if (!anilistId) {
         const ids = await getCachedAnimeIds(animeInfoForLookup.animeName);
         anilistId = ids?.anilistId ?? null;
@@ -237,30 +229,3 @@ export class AniListProvider extends BaseProvider {
   }
 }
 
-function normalizeAnilistId(val: unknown): number | null {
-  if (typeof val === 'number' && Number.isFinite(val)) return val;
-  if (typeof val === 'string' && /^\d+$/.test(val)) return Number(val);
-  return null;
-}
-
-function extractAnilistIdFromMapper(mapper: any): number | null {
-  if (!mapper) return null;
-
-  const direct = normalizeAnilistId(
-    mapper?.matched_result?.anilist_id ?? mapper?.matched_result?.anilistId ?? mapper?.matched_result?.external_sites?.anilist_id,
-  );
-  if (direct) return direct;
-
-  if (Array.isArray(mapper?.results) && mapper.results.length) {
-    const preferredIdx = typeof mapper?.matched_result?.index === 'number' ? mapper.matched_result.index : 0;
-    const order = Array.from(new Set([preferredIdx, ...mapper.results.map((_: unknown, i: number) => i)]));
-    for (const idx of order) {
-      const entry = mapper.results[idx];
-      const candidate = normalizeAnilistId(
-        entry?.anilist_id ?? entry?.anilistId ?? entry?.external_sites?.anilist_id,
-      );
-      if (candidate) return candidate;
-    }
-  }
-  return null;
-}

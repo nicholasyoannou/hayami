@@ -1,4 +1,4 @@
-import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import type { ImgurOdsOption, ImgurVideoCdnOption } from '@/config/storage';
 import { con } from '@/utils/logger';
 

@@ -36,9 +36,9 @@ const shouldShow = computed(() => props.loading || props.hasPending);
   >
     <div class="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <p class="text-sm font-semibold text-amber-100 whitespace-nowrap sm:text-base">KomentoScript host permissions needed</p>
+        <p class="text-sm font-semibold text-amber-100 whitespace-nowrap sm:text-base">Site permissions needed</p>
         <p class="text-xs text-amber-200/80">
-          Approve hosts from synced sources so Hayami can inject on those sites.
+          Approve hosts from your custom sites and synced sources so Hayami can inject on those pages.
         </p>
       </div>
       <button

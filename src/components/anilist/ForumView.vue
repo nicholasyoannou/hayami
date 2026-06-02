@@ -401,6 +401,9 @@ const renderCommentSegment = (segmentText: string): string => {
       if (imgurOds.value === 'swisscows') {
         return `https://cdn.swisscows.com/image?url=${encodeURIComponent(url)}`;
       }
+      if (imgurOds.value === 'mojeek') {
+        return `https://www.mojeek.com/image?img=${encodeURIComponent(url)}&enf=webp`;
+      }
     }
     return url;
   };

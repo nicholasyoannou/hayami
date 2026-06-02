@@ -93,16 +93,16 @@ export function markdownToHtml(text: string): string {
 
   // Apply selected Imgur delivery mode for direct i.imgur.com URLs.
   // This remains synchronous by reading a session cache set by preview handlers.
-  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' => {
+  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' | 'mojeek' => {
     try {
       const raw = sessionStorage.getItem('ri-imgur-ods');
-      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'swisscows' || raw === 'imgur') return raw;
+      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'swisscows' || raw === 'mojeek' || raw === 'imgur') return raw;
     } catch {
       // ignore
     }
     return 'imgur';
   })();
-  
+
   html = html.replace(/<img\s+([^>]*src=["']([^"']+)["'][^>]*)>/gi, (match: string, attrs: string, url: string) => {
     if (/^https?:\/\/i\.imgur\.com\//i.test(url)) {
       let transformedUrl = url;
@@ -112,6 +112,8 @@ export function markdownToHtml(text: string): string {
         transformedUrl = `https://demo.flyimg.io/upload/q_100/${url}`;
       } else if (imgurOds === 'swisscows') {
         transformedUrl = `https://cdn.swisscows.com/image?url=${encodeURIComponent(url)}`;
+      } else if (imgurOds === 'mojeek') {
+        transformedUrl = `https://www.mojeek.com/image?img=${encodeURIComponent(url)}&enf=webp`;
       }
       return `<img ${attrs.replace(/src=["'][^"']+["']/, `src="${transformedUrl}"`)} loading="lazy" />`;
     }
@@ -185,10 +187,10 @@ export function processRedditBodyHtml(bodyHtml: string): string {
   });
 
   // 4. Imgur delivery mode (same logic as markdownToHtml)
-  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' => {
+  const imgurOds = ((): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' | 'mojeek' => {
     try {
       const raw = sessionStorage.getItem('ri-imgur-ods');
-      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'swisscows' || raw === 'imgur') return raw;
+      if (raw === 'duckduckgo' || raw === 'flyimg' || raw === 'swisscows' || raw === 'mojeek' || raw === 'imgur') return raw;
     } catch {}
     return 'imgur';
   })();
@@ -202,6 +204,8 @@ export function processRedditBodyHtml(bodyHtml: string): string {
         transformedUrl = `https://demo.flyimg.io/upload/q_100/${url}`;
       } else if (imgurOds === 'swisscows') {
         transformedUrl = `https://cdn.swisscows.com/image?url=${encodeURIComponent(url)}`;
+      } else if (imgurOds === 'mojeek') {
+        transformedUrl = `https://www.mojeek.com/image?img=${encodeURIComponent(url)}&enf=webp`;
       }
       return `<img ${attrs.replace(/src=["'][^"']+["']/, `src="${transformedUrl}"`)} loading="lazy" />`;
     }

@@ -50,6 +50,12 @@ type Props = {
   onSetDomainInput: (value: string) => void;
   onSaveDomains: () => void | Promise<void>;
   onSaveRawFields?: (draft: CustomSiteRawFieldsDraft) => void | Promise<void>;
+  /**
+   * Spawn the side-by-side form + JSON editor. In the toolbar popup this
+   * pops out to a new tab (the editor needs >=900px); in the enlarged
+   * tab it navigates in-place.
+   */
+  onOpenAdvancedEditor?: (site: CustomSiteMapping) => void | Promise<void>;
   getFaviconUrl: (origin: string) => string;
   formatOrigin: (origin: string) => string;
   formatPlacementLabel: (placement?: DisplayPlacement) => string;
@@ -149,6 +155,22 @@ function formatDomainLabel(origin: string): string {
           <div class="truncate text-sm font-semibold text-white/90">{{ props.formatOrigin(props.selectedCustomSite.origin) }}</div>
           <div class="truncate text-xs text-white/60">{{ props.selectedCustomSite.origin }}</div>
         </div>
+        <button
+          v-if="props.onOpenAdvancedEditor"
+          class="shrink-0 rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] font-semibold text-white/85 hover:bg-white/15"
+          @click="props.onOpenAdvancedEditor!(props.selectedCustomSite)"
+          aria-label="Open advanced editor"
+          title="Edit every field with side-by-side form + JSON. Opens in a larger tab."
+        >
+          <span class="inline-flex items-center gap-1">
+            <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 3h7v7" />
+              <path d="M10 14 21 3" />
+              <path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5" />
+            </svg>
+            Advanced
+          </span>
+        </button>
         <button
           class="shrink-0 rounded-full bg-cyan-500/15 px-2.5 py-1 text-[11px] font-semibold text-cyan-100 hover:bg-cyan-500/25"
           @click="props.onExportMapping(props.selectedCustomSite)"

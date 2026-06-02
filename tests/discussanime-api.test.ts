@@ -16,6 +16,21 @@ function makeThread(episode: number) {
   };
 }
 
+function makeMovieThread(id: number, title: string) {
+  return {
+    id,
+    slug: `movie-thread-${id}`,
+    title,
+    episode_number: null,
+    episode_number_end: null,
+    comment_count: 16,
+    created_at: 1,
+    identifier: `thread-${id}`,
+    url: `https://discussanime.moe/movie-thread-${id}`,
+    forum_shortname: 'discussanime',
+  };
+}
+
 describe('findEpisodeThread', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -97,5 +112,35 @@ describe('findEpisodeThread', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(thread?.id).toBe('thread-5');
+  });
+
+  it('returns the single movie thread when the page labels it "Episode 1"', async () => {
+    // Repro from animepahe: malId=48896 ("Overlord Movie 3: Sei Oukoku-hen"),
+    // candidates=[1], API returns one thread with episode_number=null.
+    // Steps 1-3 all reject it; the single-thread fallback must rescue it.
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        threads: [
+          makeMovieThread(
+            11310,
+            'Overlord Movie 3: The Sacred Kingdom|Discussion(Gekijouban Overlord: Sei Oukoku-hen)',
+          ),
+        ],
+        has_more: false,
+        page: 1,
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const thread = await findEpisodeThread({
+      malId: 48896,
+      anilistId: 133845,
+      episodeCandidates: [1, 1],
+      episodeNameHint: 'Episode 1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(thread?.id).toBe('thread-11310');
   });
 });

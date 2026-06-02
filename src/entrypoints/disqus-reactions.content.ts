@@ -219,28 +219,39 @@ function buildStyle(): HTMLStyleElement {
   // Geometry is copied from the discussanime.moe site CSS so the
   // strip lines up pixel-for-pixel with what readers see on the
   // host site: 95.78px per tile, fit-content row, Helvetica Neue
-  // / Arial fallback to match Disqus's body font. Colours mirror the
-  // on-site reactions widget in the DISQUS site project; the Disqus
-  // iframe adds body.dark when the host page asks it to render dark.
+  // / Arial fallback to match Disqus's body font.
+  //
+  // Hayami's popup chrome is always dark (#0f121c), and the inline
+  // host shells are dark too, so we default to the dark-mode palette
+  // unconditionally rather than gating on `body.dark` — the Disqus
+  // iframe doesn't reliably add that class for every thread (we've
+  // observed it skipped on archive threads on third-party sites),
+  // which left the strip's heading/text rendering as near-black on
+  // the popup's near-black background — unreadable. We keep the
+  // light-mode overrides under an explicit `body.hayami-light-host`
+  // hook for forward-compat if we ever ship a light popup theme.
+  // The `!important` on `font-family` defends against late Disqus
+  // bundle CSS that overrides anonymous sectioning content fonts.
   style.textContent = `
     #${STRIP_ID} {
       --h-rx-accent: #2e9fff;
-      --h-rx-text: #2a2a35;
-      --h-rx-heading: #29246a;
-      --h-rx-hover-bg: #edeff5;
-      box-sizing: border-box;
-      text-align: center;
-      margin: 16px 0 24px;
-      font-family: 'Helvetica Neue', arial, sans-serif;
-      color: var(--h-rx-text);
-    }
-    body.dark #${STRIP_ID} {
       --h-rx-text: #e6e8ee;
       --h-rx-heading: #f5f6fa;
       --h-rx-hover-bg: #1d2028;
+      box-sizing: border-box;
+      text-align: center;
+      margin: 16px 0 24px;
+      font-family: 'Helvetica Neue', arial, sans-serif !important;
+      color: var(--h-rx-text);
+    }
+    body.hayami-light-host #${STRIP_ID} {
+      --h-rx-text: #2a2a35;
+      --h-rx-heading: #29246a;
+      --h-rx-hover-bg: #edeff5;
     }
     #${STRIP_ID} *, #${STRIP_ID} *::before, #${STRIP_ID} *::after {
       box-sizing: inherit;
+      font-family: inherit !important;
     }
     #${STRIP_ID} .h-rx-heading {
       font-size: 20px;
@@ -645,6 +656,87 @@ function watchForRemoval(strip: HTMLElement) {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+/**
+ * Force Disqus's iframe into its dark theme.
+ *
+ * Disqus normally adds `body.dark` itself when the host page asks for
+ * dark rendering — but that hook isn't reliable for our use case. On
+ * third-party streaming sites in popup mode (where the iframe lives
+ * inside the popup shell's Shadow Root) we've seen Disqus default to
+ * its light theme regardless, which produces near-black text + Georgia
+ * serif headings sitting on top of the popup's near-black background
+ * — unreadable and visually wrong. Hayami's popup and inline shells
+ * are always dark, so we add `dark` ourselves the moment the iframe's
+ * body exists, before Disqus's own theme-detect pass runs against
+ * `document.body.classList`.
+ *
+ * We also re-add the class via a MutationObserver because Disqus's
+ * bundle removes it on some internal resets (sort tab switches, "load
+ * more", reply-form mount) — without the observer the light theme
+ * snaps back partway through a session.
+ */
+function forceDarkTheme(): void {
+  if (!document.body) return;
+  if (!document.body.classList.contains('dark')) {
+    document.body.classList.add('dark');
+  }
+  const observer = new MutationObserver(() => {
+    if (!document.body.classList.contains('dark')) {
+      document.body.classList.add('dark');
+    }
+  });
+  observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+}
+
+/**
+ * Override Disqus iframe styling that we can't fix at the source.
+ *
+ * Currently:
+ *  - Forces `Roboto, sans-serif` on every element. The discussanime
+ *    forum's Disqus admin has Typeface set to "Serif", which makes
+ *    Disqus tack `typeface=serif` onto the iframe URL and apply
+ *    Georgia/Times to headings + tabs. The universal `*` selector
+ *    with !important outranks Disqus's class-based rules; the strip's
+ *    own font-family lives on its `#${STRIP_ID}` rule (specificity
+ *    1,0,0) which still beats the universal (0,0,0), so the strip
+ *    keeps its Helvetica Neue stack.
+ *  - Hides Disqus's `indicator-north` / `indicator-south` recommendation
+ *    iframes. Disqus sizes them with `width: 1076px !important` which
+ *    overflows the 647px-wide popup panel and reads as a phantom
+ *    second Disqus widget pinned to the bottom of the thread.
+ */
+function buildIframeOverride(): HTMLStyleElement {
+  const style = document.createElement('style');
+  style.id = 'hayami-disqus-iframe-override';
+  style.textContent = `
+    :root { color-scheme: dark; }
+    * {
+      font-family: Roboto, sans-serif !important;
+    }
+    iframe[id^="indicator-"],
+    iframe[name^="indicator-"] {
+      display: none !important;
+    }
+    /* Disqus injects a centered "D" social-icon SVG as a footer banner
+     * (the SVG carries the disqus-social-icon background URL inline);
+     * its parent div sizes to 917px which overflows the popup panel.
+     * Hide the SVG and the wrapping div via :has() so the banner stops
+     * tacking 80px of empty Disqus branding onto every thread. */
+    svg[style*="disqus-social-icon"],
+    div:has(> svg[style*="disqus-social-icon"]) {
+      display: none !important;
+    }
+  `;
+  return style;
+}
+
+function ensureIframeOverride(): void {
+  if (document.getElementById('hayami-disqus-iframe-override')) return;
+  const head = document.head || document.documentElement;
+  if (!head) return;
+  head.appendChild(buildIframeOverride());
+}
+
 async function main() {
   const identifier = parseIdentifier();
   if (!identifier) {
@@ -653,6 +745,8 @@ async function main() {
   }
 
   await waitForBody();
+  forceDarkTheme();
+  ensureIframeOverride();
   ensureStyle();
 
   const payload = await fetchReactions(identifier);

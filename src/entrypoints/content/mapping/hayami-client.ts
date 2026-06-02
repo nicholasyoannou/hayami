@@ -120,6 +120,108 @@ export async function fetchAnimeMapperDataBySeriesName(
   }
 }
 
+/**
+ * One canonical anime entry returned by the `/anime/resolve` series-identity
+ * endpoint. Fields mirror the Hayami server's `animeMeta` shape — every
+ * external id arrives as a stringified number (server normalises them via
+ * the offline anime DB). We parse them back to integers below so callers
+ * can do arithmetic without re-coercing.
+ *
+ * Designed for "I just need the canonical malId / anilistId for this name
+ * (and maybe a season disambiguation hint)" — i.e. Disqus, AniList forum,
+ * MAL provider. Reddit keeps using `/anime/search` because it also needs
+ * the per-episode thread URL mappings that endpoint returns.
+ */
+export interface AnimeSeriesResolveResult {
+  malId: number | null;
+  anilistId: number | null;
+  anidbId: number | null;
+  kitsuId: number | null;
+  simklId: number | null;
+  title: string | null;
+  synonyms: string[];
+  type: string | null;
+  episodes: number | null;
+  status: string | null;
+  year: number | null;
+  season: string | null;
+  picture: string | null;
+  thumbnail: string | null;
+}
+
+function parseNumeric(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * Call Hayami's series-identity resolver. Accepts any combination of
+ * `series_name`, `season_title`, `mal_id`, `anilist_id` — at least one is
+ * required for a meaningful query. Returns the canonical anime entry on
+ * success, or `null` on 404 / network failure / parse failure.
+ *
+ * This is the lightweight identity path. Unlike `fetchAnimeMapperDataBySeriesName`
+ * (which hits `/anime/search` and is shaped for Reddit thread resolution),
+ * this hits `/anime/resolve` which returns *only* the offline-DB record
+ * for the matched series. No thread URLs, no episode arrays, no platform
+ * coupling. Use this when you need MAL/AniList ids and nothing else.
+ */
+export async function fetchAnimeSeriesResolve(input: {
+  seriesName?: string | null;
+  seasonTitle?: string | null;
+  malId?: number | null;
+  anilistId?: number | null;
+}): Promise<AnimeSeriesResolveResult | null> {
+  const params = new URLSearchParams();
+  const series = String(input.seriesName || '').trim();
+  if (series) params.set('series_name', series);
+  const season = String(input.seasonTitle || '').trim();
+  if (season) params.set('season_title', season);
+  if (input.malId && input.malId > 0) params.set('mal_id', String(input.malId));
+  if (input.anilistId && input.anilistId > 0) params.set('anilist_id', String(input.anilistId));
+
+  if ([...params.keys()].length === 0) {
+    log.log('Series-resolve called with no identifying input; skipping');
+    return null;
+  }
+
+  const url = `https://api.hayami.moe/anime/resolve?${params.toString()}`;
+  try {
+    log.log('Querying series resolver:', { url });
+    const response = await fetchHayami(url);
+    if (!response.ok) {
+      log.log('Series resolver returned non-OK status:', response.status, response.statusText);
+      return null;
+    }
+    const data = await response.json();
+    const meta = data?.animeMeta;
+    if (!meta || typeof meta !== 'object') {
+      log.log('Series resolver response missing animeMeta', data);
+      return null;
+    }
+    return {
+      malId: parseNumeric(meta.malId),
+      anilistId: parseNumeric(meta.anilistId),
+      anidbId: parseNumeric(meta.anidbId),
+      kitsuId: parseNumeric(meta.kitsuId),
+      simklId: parseNumeric(meta.simklId),
+      title: typeof meta.title === 'string' ? meta.title : null,
+      synonyms: Array.isArray(meta.synonyms) ? meta.synonyms.filter((s: unknown): s is string => typeof s === 'string') : [],
+      type: typeof meta.type === 'string' ? meta.type : null,
+      episodes: parseNumeric(meta.episodes),
+      status: typeof meta.status === 'string' ? meta.status : null,
+      year: parseNumeric(meta.year),
+      season: typeof meta.season === 'string' ? meta.season : null,
+      picture: typeof meta.picture === 'string' ? meta.picture : null,
+      thumbnail: typeof meta.thumbnail === 'string' ? meta.thumbnail : null,
+    };
+  } catch (error) {
+    log.error('Error fetching series resolver:', error);
+    return null;
+  }
+}
+
 export async function fetchAnimeMapperDataBySeriesAndSeason(
   seriesName: string,
   seasonTitle: string,

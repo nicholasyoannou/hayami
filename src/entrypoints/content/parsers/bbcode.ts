@@ -24,10 +24,10 @@ function decodeEntities(str: string): string {
   }
 }
 
-function getImgurCdnMode(): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' {
+function getImgurCdnMode(): 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' | 'mojeek' {
   try {
     const value = sessionStorage.getItem('ri-imgur-ods');
-    if (value === 'duckduckgo' || value === 'flyimg' || value === 'swisscows' || value === 'imgur') return value;
+    if (value === 'duckduckgo' || value === 'flyimg' || value === 'swisscows' || value === 'mojeek' || value === 'imgur') return value;
   } catch {}
   return 'imgur';
 }
@@ -44,6 +44,9 @@ function rewriteImgurByCdnMode(url: string): string {
   }
   if (mode === 'swisscows') {
     return `https://cdn.swisscows.com/image?url=${encodeURIComponent(url)}`;
+  }
+  if (mode === 'mojeek') {
+    return `https://www.mojeek.com/image?img=${encodeURIComponent(url)}&enf=webp`;
   }
 
   return url;

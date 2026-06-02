@@ -2,7 +2,7 @@
  * Watch page detection and anime info extraction
  */
 
-import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import type { AnimeInfo } from './types';
 import { con } from '@/utils/logger';
 import {

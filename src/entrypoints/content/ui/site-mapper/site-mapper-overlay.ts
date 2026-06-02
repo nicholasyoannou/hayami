@@ -1,5 +1,5 @@
 // @ts-ignore Missing types for wxt in this context
-import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { con } from '@/utils/logger';
 
 const log = con.m('SiteMapper');

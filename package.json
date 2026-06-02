@@ -27,6 +27,8 @@
     "@tiptap/markdown": "^3.17.1",
     "@tiptap/starter-kit": "^3.17.1",
     "@tiptap/vue-3": "^3.17.1",
+    "baseline-browser-mapping": "^2.10.33",
+    "caniuse-lite": "^1.0.30001793",
     "chrono-node": "^2.9.0",
     "css-ripple-effect": "^1.0.5",
     "pinia": "^3.0.4",
@@ -47,6 +49,6 @@
     "typescript": "^5.9.3",
     "vitest": "^4.1.4",
     "vue-tsc": "^3.2.2",
-    "wxt": "^0.20.13"
+    "wxt": "^0.20.26"
   }
 }

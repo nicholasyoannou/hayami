@@ -109,6 +109,10 @@ export function applyImgurOdsUrl(rawUrl: string, provider: ImgurOdsOption): stri
       return `https://cdn.swisscows.com/image?url=${encodeURIComponent(rawUrl)}`;
     }
 
+    if (provider === 'mojeek') {
+      return `https://www.mojeek.com/image?img=${encodeURIComponent(rawUrl)}&enf=webp`;
+    }
+
     return rawUrl;
   } catch {
     return rawUrl;

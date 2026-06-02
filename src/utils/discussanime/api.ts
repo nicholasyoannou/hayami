@@ -327,17 +327,25 @@ export async function findEpisodeThread(
     }
   }
 
-  // 4) No candidates were parseable AND only one thread exists for this
-  //    anime — return it. Single-episode anime (specials like
-  //    "MHA: More", OVA-only entries, etc.) frequently come from
-  //    streaming-page titles that don't contain a parseable episode
-  //    number ("E-SP - More"), so we can't pass `episodeCandidates` to
-  //    the matcher above. There's no ambiguity to resolve here: the
-  //    anime has exactly one thread, return it.
-  if (!candidates.length && threads.length === 1) {
-    log.log('findEpisodeThread: single thread + no candidates, returning it', {
+  // 4) Single thread exists for this anime and either:
+  //      a) no candidates were parseable (e.g. "E-SP - More" titles with
+  //         nothing for the matcher to bite on), or
+  //      b) the thread has null episode_number (movie / standalone
+  //         discussion thread). Streaming sites label movies as
+  //         "Episode 1" but with only one null-episode thread there's
+  //         nothing to disambiguate against — and animepahe sends
+  //         malId=48896 ("Overlord Movie 3") with candidates=[1],
+  //         which would otherwise leave the user with no thread.
+  //    Single-episode anime (specials like "MHA: More", OVA-only
+  //    entries, movies) fall into one or both of these buckets.
+  if (
+    threads.length === 1 &&
+    (!candidates.length || threads[0].episode_number == null)
+  ) {
+    log.log('findEpisodeThread: single thread, returning it', {
       threadId: threads[0].id,
       episode: threads[0].episode_number,
+      candidates,
     });
     return rowToDisqusThread(threads[0]);
   }

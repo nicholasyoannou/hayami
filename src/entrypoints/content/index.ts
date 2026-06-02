@@ -1,4 +1,4 @@
-import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { bootstrapContent } from './core/bootstrap';
 import { renderYouTubeComments } from './providers/youtube/ui';
 import { bbcodeToHtml } from './parsers/bbcode';

@@ -87,7 +87,7 @@ export const imgurClientIdItem = storage.defineItem<string | null>(
 );
 
 export type ImgurFrontendOption = 'imgur' | 'nerdvpn' | 'bcow';
-export type ImgurOdsOption = 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows';
+export type ImgurOdsOption = 'imgur' | 'duckduckgo' | 'flyimg' | 'swisscows' | 'mojeek';
 export type ImgurVideoCdnOption = 'imgur' | 'ttok';
 
 export const imgurFrontendItem = storage.defineItem<ImgurFrontendOption>(
@@ -227,6 +227,43 @@ export const customSiteMappingsItem = storage.defineItem<Record<string, any>>(
   'local:custom_site_mappings',
   { fallback: {} }
 );
+
+/**
+ * Per-entry record in the episode-index cache. `animeName` is the
+ * snapshotted name from the detail page (after `titleRegex`), `episodeNumber`
+ * is the parsed number from the playlist row, `releaseDate` carries through
+ * when the user configured a release-date selector, and `capturedAt` is an
+ * ISO timestamp used by the read-time TTL sweep.
+ */
+export type EpisodeIndexCacheEntry = {
+  animeName: string;
+  episodeNumber: number;
+  releaseDate?: string;
+  capturedAt: string;
+};
+
+/**
+ * Episode-index cache populated by detail/index pages and consumed by
+ * matching player pages on the linked domain. Keyed by mapping origin so
+ * two unrelated mappings can't collide, then by the canonical per-episode
+ * key the mapping extracts (typically a share-URL hash). See
+ * `episodeIndex` / `episodeKey` on `CustomSiteMapping` for the producer
+ * and consumer.
+ *
+ * Lives in `local` storage so a refreshed player tab keeps working —
+ * `session` would evaporate on every browser restart and force the user
+ * back to the detail page just to thaw the cache. A small TTL applied
+ * on read keeps stale entries from accumulating indefinitely.
+ */
+export const episodeIndexCacheItem = storage.defineItem<
+  Record<string, Record<string, EpisodeIndexCacheEntry>>
+>(
+  'local:episode_index_cache',
+  { fallback: {} }
+);
+
+/** TTL for episode-index entries. 30 days is generous but bounded. */
+export const EPISODE_INDEX_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 // Series mapping (episode offset + optional mapper anime override) per site -> platform -> anime title
 // Kept in local storage because nested mappings can exceed browser.storage.sync's 8KB per-item limit.

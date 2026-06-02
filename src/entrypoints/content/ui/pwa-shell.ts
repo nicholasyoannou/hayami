@@ -1,4 +1,4 @@
-import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { completeAniListImplicitGrant } from '@/utils/anilist/auth';

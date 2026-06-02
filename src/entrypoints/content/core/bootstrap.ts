@@ -1,5 +1,5 @@
 // @ts-ignore Missing types for wxt in this context
-import { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { toast } from 'vue-sonner';
 import { createApp, h } from 'vue';
 import { Toaster } from 'vue-sonner';
@@ -18,7 +18,14 @@ import {
 import { fetchRedditPostFromUrl } from '@/entrypoints/content/providers/reddit/runtime';
 import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
-import { getCustomAnimeInfo, loadCustomMappingForOrigin } from '../ui/site-mapper/site-mapper-utils';
+import {
+  getCustomAnimeInfo,
+  getCustomSiteMapping,
+  getMissingExtraDomainPermissions,
+  loadCustomMappingForOrigin,
+  requestExtraDomainPermissions,
+} from '../ui/site-mapper/site-mapper-utils';
+import { isIndexOnlyPath } from '../ui/site-mapper/episode-index';
 import { setupYouTubeModalListener, setupGalleryModalListener } from '../ui';
 import { isSupportedLocation, initSiteRegistry } from '../sites/registry';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
@@ -39,6 +46,44 @@ import {
 import { getUiManager } from './ui-manager';
 
 let siteMapperHotkeySetupPromise: Promise<void> | null = null;
+
+/**
+ * One-shot gate so the "grant permission for <player domain>" toast
+ * fires at most once per content-script lifetime (per tab). Without it,
+ * every SPA observer tick that lands on a detail page with un-granted
+ * extra domains would queue another toast.
+ */
+let extraDomainPermissionPromptShown = false;
+
+async function maybePromptExtraDomainPermissions(): Promise<void> {
+  if (extraDomainPermissionPromptShown) return;
+  const mapping = getCustomSiteMapping();
+  if (!mapping) return;
+  const missing = await getMissingExtraDomainPermissions(mapping);
+  if (missing.length === 0) return;
+
+  extraDomainPermissionPromptShown = true;
+  const list = missing.map((origin) => new URL(origin).host).join(', ');
+  // vue-sonner's `message` accepts an action — its onClick is a real
+  // user gesture so `browser.permissions.request` is allowed to show
+  // the native consent dialog.
+  toast.message(`Hayami needs permission on ${list} to show comments on the video page.`, {
+    duration: 20_000,
+    action: {
+      label: 'Grant access',
+      onClick: async () => {
+        const granted = await requestExtraDomainPermissions(missing);
+        if (granted) {
+          toast.success('Permission granted. Reload the video page to load comments.');
+        } else {
+          // Reset so the user can re-trigger if they dismissed by accident.
+          extraDomainPermissionPromptShown = false;
+          toast.error('Permission was not granted.');
+        }
+      },
+    },
+  });
+}
 
 async function setupSiteMapperHotkeyLazy(ctx: ContentScriptContext, ensureInit?: () => void): Promise<void> {
   if (siteMapperHotkeySetupPromise) {
@@ -106,6 +151,18 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
     window.dispatchEvent(new CustomEvent('animeInfoLoaded', { detail: info }));
     await searchAndDisplayDiscussion(info);
   } else {
+    // Index-only path (a detail page that lists all episodes but doesn't
+    // play any of them): the user can't watch an episode from here — there's
+    // no current-episode metadata to extract, only a list to snapshot for
+    // the player domain to read later. Skip the 20-second watch wait so we
+    // don't log a misleading timeout.
+    const activeMapping = getCustomSiteMapping();
+    if (activeMapping && isIndexOnlyPath(activeMapping, window.location.pathname)) {
+      log.log('Index-only path detected; snapshot will run for linked player pages, skipping anime-info wait');
+      void maybePromptExtraDomainPermissions();
+      return;
+    }
+
     // If not found, wait for the content to load
     log.log('Anime info not found yet, waiting for content to load...');
     observeAnimeInfoOnce(ctx, searchAndDisplayDiscussion, async () => {

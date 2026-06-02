@@ -1,5 +1,5 @@
 import { con } from '@/utils/logger';
-import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import {
   useImagePreview,
   isImageLink,

@@ -27,6 +27,40 @@ import {
 import { ensureCustomSitesSyncAlarm } from '@/custom-sites-sync';
 import { extractHttpOrigins, originToPattern } from './host-permissions';
 
+/**
+ * Collect every origin we need permission for from one CustomSiteMapping:
+ * the primary `origin` plus every entry in `extraDomains`. Both halves of
+ * a cross-page mapping (e.g. an index domain plus a separate player domain)
+ * must be granted for the feature to work, so both belong on the pending
+ * list. Unparseable extras are silently dropped.
+ *
+ * Exported so the pending-permissions summary logic can be unit-tested
+ * without the rest of the background runtime.
+ */
+export function collectMappingOrigins(
+  mapping: unknown,
+  primaryOrigin: string | null,
+): string[] {
+  const out = new Set<string>();
+  if (primaryOrigin) out.add(primaryOrigin);
+  const m = mapping && typeof mapping === 'object' ? (mapping as Record<string, unknown>) : null;
+  if (!m) return [...out];
+  const extras = Array.isArray(m.extraDomains) ? m.extraDomains : [];
+  for (const raw of extras) {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) continue;
+    try {
+      const normalized = new URL(trimmed).origin;
+      if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+        out.add(normalized);
+      }
+    } catch {
+      // ignore unparseable extras
+    }
+  }
+  return [...out];
+}
+
 // ── Badge state ───────────────────────────────────────────────────────
 let komentoSyncInProgress = false;
 let komentoSyncStartedAt = 0;
@@ -94,33 +128,47 @@ export async function getUniqueCustomMappingOrigins(): Promise<string[]> {
   ]);
   const out = new Set<string>();
 
-  // Manual custom site mappings
-  for (const key of Object.keys(map || {})) {
-    const origin = String(key || '').trim();
-    if (!origin) continue;
+  // Manual custom site mappings — primary origin + every extraDomain.
+  // Both halves of a cross-page mapping must be granted for the feature
+  // to work, so the badge needs to know about extras too — without this,
+  // the "!" indicator stays silent while the player domain remains
+  // unauthorized.
+  const mappingsObj = map && typeof map === 'object' ? map as Record<string, unknown> : {};
+  for (const key of Object.keys(mappingsObj)) {
+    const raw = String(key || '').trim();
+    if (!raw) continue;
+    let primary: string | null = null;
     try {
-      const normalized = new URL(origin).origin;
+      const normalized = new URL(raw).origin;
       if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-        out.add(normalized);
+        primary = normalized;
       }
     } catch {
       // ignore invalid origins
     }
+    for (const origin of collectMappingOrigins(mappingsObj[key], primary)) {
+      out.add(origin);
+    }
   }
 
-  // Synced custom site mappings
+  // Synced custom site mappings — same primary + extras treatment.
   if (syncEnabled && Array.isArray(syncedCached)) {
     for (const entry of syncedCached) {
       for (const mapping of (entry?.mappings || [])) {
-        const origin = String(mapping?.origin || '').trim();
-        if (!origin) continue;
-        try {
-          const normalized = new URL(origin).origin;
-          if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-            out.add(normalized);
+        const raw = String((mapping as any)?.origin || '').trim();
+        let primary: string | null = null;
+        if (raw) {
+          try {
+            const normalized = new URL(raw).origin;
+            if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+              primary = normalized;
+            }
+          } catch {
+            // ignore
           }
-        } catch {
-          // ignore
+        }
+        for (const origin of collectMappingOrigins(mapping, primary)) {
+          out.add(origin);
         }
       }
     }
@@ -255,14 +303,19 @@ export async function getKomentoPendingPermissionsSummary() {
   for (const key of Object.keys(customMappingObject)) {
     const raw = String(key || '').trim();
     if (!raw) continue;
+    let primary: string | null = null;
     try {
       const normalized = new URL(raw).origin;
       if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
-        customOrigins.add(normalized);
-        allOrigins.add(normalized);
+        primary = normalized;
       }
     } catch {
-      // ignore
+      // ignore unparseable keys
+    }
+    const mapping = customMappingObject[key];
+    for (const origin of collectMappingOrigins(mapping, primary)) {
+      customOrigins.add(origin);
+      allOrigins.add(origin);
     }
   }
 
@@ -280,12 +333,17 @@ export async function getKomentoPendingPermissionsSummary() {
       const source = syncSourceIndex.get(sourceId);
       if (source && source.enabled === false) continue;
       if (!bySource.has(`sync:${sourceId}`)) bySource.set(`sync:${sourceId}`, new Set<string>());
+      const bucket = bySource.get(`sync:${sourceId}`)!;
       for (const mapping of ((entry as any)?.mappings || [])) {
         const raw = String(mapping?.origin || '').trim();
-        if (!raw) continue;
+        let primary: string | null = null;
         for (const normalized of extractHttpOrigins(raw)) {
-          bySource.get(`sync:${sourceId}`)?.add(normalized);
-          allOrigins.add(normalized);
+          primary = normalized;
+          break;
+        }
+        for (const origin of collectMappingOrigins(mapping, primary)) {
+          bucket.add(origin);
+          allOrigins.add(origin);
         }
       }
     }

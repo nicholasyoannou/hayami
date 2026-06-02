@@ -3,6 +3,7 @@ import { browser } from 'wxt/browser';
 import { customSiteMappingsItem } from '@/config/storage';
 import { MAX_DOMAINS_PER_CUSTOM_SITE } from '@/entrypoints/content/ui/site-mapper/types';
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
+import { sanitizeCustomSiteMapping } from '@/entrypoints/content/ui/site-mapper/sanitize-mapping';
 import { con } from '@/utils/logger';
 
 const log = con.m('CustomSiteManagement');
@@ -28,6 +29,8 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
   const customSiteExtraDomainsDraft = ref<string[]>([]);
   const customSiteDomainInput = ref('');
   const customSiteDomainsSaving = ref(false);
+  /** Saving indicator for the advanced editor (popout, replaces whole mapping). */
+  const customSiteAdvancedSaving = ref(false);
 
   const sortedCustomSiteMappings = computed(() =>
     [...customSiteMappings.value].sort((a, b) => (a.origin || '').localeCompare(b.origin || '')),
@@ -417,55 +420,92 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     }
   }
 
+  /**
+   * Save a fully-formed mapping from the advanced editor. Unlike the
+   * field-level saves above, this **replaces** the stored mapping rather
+   * than merging — the editor's draft IS the new shape, including any
+   * fields the user blanked out.
+   *
+   * Also requests host permission for any extras that aren't yet
+   * granted, so the user gets a single native Chrome prompt the same
+   * way the popup card's "Approve all hosts" button does it. Missing
+   * permission is the most common reason a freshly-saved cross-page
+   * mapping doesn't work, so closing that loop here saves a round trip
+   * through the toast-on-detail-page UX.
+   */
+  async function saveCustomSiteMappingDirect(next: CustomSiteMapping): Promise<void> {
+    if (!next?.origin || customSiteAdvancedSaving.value) return;
+    customSiteAdvancedSaving.value = true;
+    try {
+      const map = (await customSiteMappingsItem.getValue()) || {};
+      const previousOrigin = selectedCustomSite.value?.origin;
+      // If the user changed the origin in the editor, rekey the entry.
+      if (previousOrigin && previousOrigin !== next.origin && map[previousOrigin]) {
+        delete map[previousOrigin];
+      }
+      map[next.origin] = next;
+      await customSiteMappingsItem.setValue(map);
+      await loadCustomSiteMappings();
+      const updated = customSiteMappings.value.find((entry) => entry.origin === next.origin) || next;
+      selectedCustomSite.value = updated;
+
+      // Sync the field-level draft refs so other panels stay consistent
+      // if the user navigates back to the standard detail view.
+      customSiteExtraDomainsDraft.value = sanitizeExtraDomains(updated.origin, updated.extraDomains);
+      customSiteIncludePathGlobsDraft.value = normalizePathGlobList(updated.includePathGlobs);
+      customSiteExcludePathGlobsDraft.value = normalizePathGlobList(updated.excludePathGlobs);
+      commentsBackgroundColorDraft.value = updated.commentsBackgroundColor || '';
+
+      // Ask Chrome for permission on the primary origin + every extra
+      // in one shot. Already-granted entries are silently allowed
+      // through; the user sees only the truly-new ones.
+      try {
+        const wantedPatterns = [updated.origin, ...(updated.extraDomains || [])]
+          .map((origin) => String(origin || '').trim())
+          .filter(Boolean)
+          .map((origin) => `${origin.replace(/\/$/, '')}/*`);
+        if (wantedPatterns.length > 0 && browser.permissions?.contains && browser.permissions?.request) {
+          const alreadyGranted = await new Promise<boolean>((resolve) => {
+            try {
+              browser.permissions.contains({ origins: wantedPatterns }, (ok) => resolve(Boolean(ok)));
+            } catch {
+              resolve(false);
+            }
+          });
+          if (!alreadyGranted) {
+            await new Promise<boolean>((resolve) => {
+              try {
+                browser.permissions.request({ origins: wantedPatterns }, (ok) => resolve(Boolean(ok)));
+              } catch {
+                resolve(false);
+              }
+            });
+          }
+        }
+      } catch (permError) {
+        log.warn('Failed to request host permissions after save', permError);
+      }
+
+      showSuccess('Mapping saved');
+    } catch (error) {
+      log.warn('Failed to save mapping from advanced editor', error);
+      showError('Could not save mapping');
+    } finally {
+      customSiteAdvancedSaving.value = false;
+    }
+  }
+
   // ── Import / export ──────────────────────────────────────────────
 
+  /**
+   * Thin wrapper around the shared `sanitizeCustomSiteMapping` so the
+   * import path and the advanced editor share validation logic. Prior
+   * versions of this function silently dropped regex variants, XPaths,
+   * and the new `episodeIndex`/`episodeKey` blocks — the shared module
+   * preserves every field defined on `CustomSiteMapping`.
+   */
   function sanitizeImportedCustomSiteMapping(input: unknown): CustomSiteMapping | null {
-    if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
-    const raw = input as Record<string, unknown>;
-    const originRaw = String(raw.origin || '').trim();
-    if (!originRaw) return null;
-
-    let origin = '';
-    try {
-      const url = new URL(originRaw);
-      if (!/^https?:$/.test(url.protocol)) return null;
-      origin = url.origin;
-    } catch {
-      return null;
-    }
-
-    const display = String(raw.display || 'popup');
-    const allowedDisplays: DisplayPlacement[] = ['below', 'insert', 'replace', 'popup', 'icon'];
-    const normalizedDisplay = (allowedDisplays.includes(display as DisplayPlacement)
-      ? display
-      : 'popup') as DisplayPlacement;
-
-    const sanitizeGlobs = (val: unknown): string[] => {
-      if (!Array.isArray(val)) return [];
-      return val
-        .map((item) => String(item || '').trim())
-        .filter((item) => item.length > 0);
-    };
-
-    return {
-      origin,
-      extraDomains: sanitizeExtraDomains(origin, raw.extraDomains),
-      display: normalizedDisplay,
-      iconDisplayKind: raw.iconDisplayKind === 'icon' ? 'icon' : 'text',
-      iconDisplayAction: raw.iconDisplayAction === 'replace' ? 'replace' : 'popup',
-      iconDisplayText: String(raw.iconDisplayText || 'Hayami').trim() || 'Hayami',
-      includePathGlobs: sanitizeGlobs(raw.includePathGlobs),
-      excludePathGlobs: sanitizeGlobs(raw.excludePathGlobs),
-      anchorSelector: String(raw.anchorSelector || ''),
-      mountSelector: String(raw.mountSelector || ''),
-      titleSelector: String(raw.titleSelector || ''),
-      episodeSelector: String(raw.episodeSelector || ''),
-      sidePadding: Number.isFinite(Number(raw.sidePadding)) ? Number(raw.sidePadding) : 0,
-      anchorXPath: String(raw.anchorXPath || ''),
-      mountXPath: String(raw.mountXPath || ''),
-      titleXPath: String(raw.titleXPath || ''),
-      episodeXPath: String(raw.episodeXPath || ''),
-    };
+    return sanitizeCustomSiteMapping(input);
   }
 
   function collectImportedCustomSiteMappings(payload: unknown): CustomSiteMapping[] {
@@ -827,6 +867,7 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     customSiteAdvancedExpanded,
     commentsBackgroundColorDraft,
     customSiteRawFieldsSaving,
+    customSiteAdvancedSaving,
     customSiteExtraDomainsDraft,
     customSiteDomainInput,
     customSiteDomainsSaving,
@@ -844,6 +885,7 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     saveCommentsBackgroundColor,
     clearCommentsBackgroundColor,
     saveSelectedCustomSiteRawFields,
+    saveCustomSiteMappingDirect,
     exportAllCustomSiteMappings,
     exportCustomSiteMapping,
     onImportCustomMappingsFileChange,

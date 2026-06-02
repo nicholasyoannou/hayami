@@ -368,6 +368,22 @@ export default defineBackground(() => {
 
   browser.storage.onChanged.addListener(handleKomentoStorageChange);
 
+  // Permission changes don't write to storage, so the storage listener above
+  // can't see them. Without this, granting a host pattern via chrome://extensions,
+  // the toast in the content script, or even the popup's own "Approve all hosts"
+  // button (when grants happen outside its handler) would leave the badge stuck
+  // on "!" until the next storage write.
+  try {
+    browser.permissions?.onAdded?.addListener?.(() => {
+      void refreshKomentoBadge();
+    });
+    browser.permissions?.onRemoved?.addListener?.(() => {
+      void refreshKomentoBadge();
+    });
+  } catch (error) {
+    bg.warn('Failed to register permission change listeners', error);
+  }
+
   void ensureKomentoSourceRegistryInitialized();
   void ensureKomentoSyncAlarm();
   void ensureCustomSitesSyncSourcesInitialized();

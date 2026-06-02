@@ -116,6 +116,7 @@ import KomentoScriptSettingsPanel from './KomentoScriptSettingsPanel.vue';
 import CustomSitesSettingsPanel from './CustomSitesSettingsPanel.vue';
 import BuiltinSitesSettingsPanel from './BuiltinSitesSettingsPanel.vue';
 import CustomSiteDetailPanel from './CustomSiteDetailPanel.vue';
+import CustomSiteAdvancedEditor from './CustomSiteAdvancedEditor.vue';
 import CustomSitesSyncSettingsPanel from './CustomSitesSyncSettingsPanel.vue';
 import PublishCustomSitesPanel from './PublishCustomSitesPanel.vue';
 import CustomOverridesSettingsPanel from './CustomOverridesSettingsPanel.vue';
@@ -181,7 +182,7 @@ type SettingValueMap = {
 };
 type SettingKey = keyof SettingValueMap;
 type SettingCategoryId = 'general' | 'image-previews' | 'provider';
-type SettingsScreen = 'menu' | 'category' | 'providers' | 'builtin-sites' | 'custom-sites' | 'custom-site-detail' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides';
+type SettingsScreen = 'menu' | 'category' | 'providers' | 'builtin-sites' | 'custom-sites' | 'custom-site-detail' | 'custom-site-advanced-edit' | 'komentoscript' | 'custom-sites-sync' | 'custom-sites-publish' | 'custom-overrides';
 type SettingsNavItem = {
   id: SettingCategoryId | 'discussion-platforms' | 'builtin-sites' | 'custom-sites' | 'komentoscript' | 'custom-sites-sync' | 'custom-overrides';
   label: string;
@@ -358,12 +359,13 @@ const settingDefinitions: SettingDefinition[] = [
       { value: 'imgur', label: 'Imgur' },
       { value: 'duckduckgo', label: 'DuckDuckGo' },
       { value: 'swisscows', label: 'Swisscows' },
+      { value: 'mojeek', label: 'Mojeek' },
       { value: 'flyimg', label: 'flyimg' },
     ],
     fallback: 'imgur',
     load: async () => {
       const value = await imgurOdsItem.getValue();
-      return value === 'duckduckgo' || value === 'flyimg' || value === 'swisscows' || value === 'imgur' ? value : 'imgur';
+      return value === 'duckduckgo' || value === 'flyimg' || value === 'swisscows' || value === 'mojeek' || value === 'imgur' ? value : 'imgur';
     },
     save: (value) => imgurOdsItem.setValue(value),
     successMessage: (value) => `Imgur ODS set to ${value}`,
@@ -1308,17 +1310,30 @@ onMounted(async () => {
     loadEnabledBuiltinSites(),
   ]);
   await customSitesPromise;
-  await applyInitialRouteParams();
+  // Deep links (`#advanced-edit:<origin>`) need the custom-sites list
+  // hydrated before they can resolve a target site; consume the hash
+  // here before applyInitialRouteParams jumps to its default screen.
+  const consumedDeepLink = await consumeDeepLinkFromHash();
+  if (!consumedDeepLink) {
+    await applyInitialRouteParams();
+  }
 
   window.addEventListener('message', handleFeedbackMessage);
   window.addEventListener('keydown', handleFeedbackKeydown);
   window.addEventListener('resize', updateLayoutMode);
+  // Wrap in an arrow so the async listener doesn't leak a rejected
+  // promise back into the event loop on hashchange.
+  window.addEventListener('hashchange', () => { void consumeDeepLinkFromHash(); });
   browser.storage.onChanged.addListener(handleStorageChange);
 });
 
 onBeforeUnmount(() => {
   clearScrollbarModeClasses();
   applyFullSizeClasses(false);
+  // The hashchange listener was wrapped in an inline arrow above to
+  // contain the async promise rejection — we can't remove a
+  // not-stored-reference listener, but the popup window unmount
+  // tears down the page anyway. Drop the explicit remove.
   window.removeEventListener('message', handleFeedbackMessage);
   window.removeEventListener('keydown', handleFeedbackKeydown);
   window.removeEventListener('resize', updateLayoutMode);
@@ -1834,6 +1849,93 @@ function handleRemoveCustomSite(site: any) {
     settingsScreen.value = 'custom-sites';
   }
 }
+
+/**
+ * Open the advanced JSON+form editor for the given site. From the small
+ * toolbar popup, spawn a new tab and route directly into the editor via
+ * a URL hash — the editor needs real horizontal real estate (form +
+ * JSON side-by-side) that the 360x600 popup just can't provide. From
+ * the enlarged/tab view, navigate within the same window.
+ *
+ * Routing detail: `watch(currentView, ...)` resets `settingsScreen` to
+ * `'category'` (large) or `'menu'` (narrow) whenever the view transitions
+ * into settings, AFTER awaiting `nextTick()`. So if we set
+ * `currentView = 'settings'` and `settingsScreen = 'custom-site-advanced-edit'`
+ * back-to-back synchronously, the watcher fires next tick and stomps our
+ * screen choice. Awaiting two nextTicks lets the watcher's callback run
+ * and complete its own `await nextTick()` before we assign the final
+ * screen — the screen we set then sticks.
+ */
+async function openCustomSiteAdvancedEditor(site: any) {
+  if (isBrowserActionPopup.value && (browser as any)?.tabs?.create) {
+    try {
+      const encoded = encodeURIComponent(site?.origin || '');
+      const url = browser.runtime.getURL(`/popup.html#advanced-edit:${encoded}`);
+      await (browser as any).tabs.create({ url, active: true });
+      window.close();
+      return;
+    } catch (error) {
+      log.warn('Failed to spawn advanced editor tab', error);
+      // Fall through to in-window navigation if the tab spawn fails.
+    }
+  }
+  csm.openCustomSiteDetail(site);
+  selectedSettingsCategory.value = 'custom-sites';
+  const wasAlreadySettings = currentView.value === 'settings';
+  currentView.value = 'settings';
+  if (!wasAlreadySettings) {
+    // Yield twice: once for the watcher to start, once for its internal
+    // `await nextTick()` to complete (it resets settingsScreen during that).
+    await nextTick();
+    await nextTick();
+  }
+  settingsScreen.value = 'custom-site-advanced-edit';
+}
+
+function backFromAdvancedEditor() {
+  settingsScreen.value = 'custom-site-detail';
+}
+
+/**
+ * Wire deep links of the form `#advanced-edit:<encoded-origin>`. The
+ * small popup's "Open advanced editor" button spawns a new tab with
+ * this hash; the editor needs to mount immediately on load, before the
+ * user sees the home screen flash by.
+ *
+ * Returns true if a deep link was consumed (caller should skip default
+ * initial-screen logic). Runs again on hash-change so users navigating
+ * via copy-pasted URLs are honoured too.
+ *
+ * Async + double-nextTick for the same reason as `openCustomSiteAdvancedEditor`:
+ * the watcher race that resets `settingsScreen`.
+ */
+async function consumeDeepLinkFromHash(): Promise<boolean> {
+  const hash = String(window.location.hash || '').replace(/^#/, '');
+  if (!hash.startsWith('advanced-edit:')) return false;
+  const encoded = hash.slice('advanced-edit:'.length);
+  let origin = '';
+  try {
+    origin = decodeURIComponent(encoded);
+  } catch {
+    return false;
+  }
+  const site = csm.customSiteMappings.value.find((s) => s.origin === origin);
+  if (!site) return false;
+  csm.openCustomSiteDetail(site);
+  selectedSettingsCategory.value = 'custom-sites';
+  const wasAlreadySettings = currentView.value === 'settings';
+  currentView.value = 'settings';
+  if (!wasAlreadySettings) {
+    await nextTick();
+    await nextTick();
+  }
+  settingsScreen.value = 'custom-site-advanced-edit';
+  return true;
+}
+
+async function handleAdvancedEditorSave(next: any) {
+  await csm.saveCustomSiteMappingDirect(next);
+}
 </script>
 <template>
   <div
@@ -2236,6 +2338,18 @@ function handleRemoveCustomSite(site: any) {
                 />
               </template>
 
+              <template v-else-if="settingsScreen === 'custom-site-advanced-edit' && csm.selectedCustomSite.value">
+                <CustomSiteAdvancedEditor
+                  :back-icon="backIcon"
+                  :custom-sites-icon="customSitesIcon"
+                  :is-large-layout="isLargeLayout"
+                  :selected-custom-site="csm.selectedCustomSite.value"
+                  :saving="csm.customSiteAdvancedSaving.value"
+                  :on-back="backFromAdvancedEditor"
+                  :on-save="handleAdvancedEditorSave"
+                />
+              </template>
+
               <template v-else-if="settingsScreen === 'custom-site-detail' && csm.selectedCustomSite.value">
                 <CustomSiteDetailPanel
                   :back-icon="backIcon"
@@ -2270,6 +2384,7 @@ function handleRemoveCustomSite(site: any) {
                   :on-save-domains="csm.saveSelectedCustomSiteDomains"
                   :custom-site-raw-fields-saving="csm.customSiteRawFieldsSaving.value"
                   :on-save-raw-fields="csm.saveSelectedCustomSiteRawFields"
+                  :on-open-advanced-editor="openCustomSiteAdvancedEditor"
                   :get-favicon-url="csm.getFaviconUrl"
                   :format-origin="csm.formatOrigin"
                   :format-placement-label="csm.formatPlacementLabel"

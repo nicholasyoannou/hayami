@@ -1,4 +1,4 @@
-import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 import { mountPwaShell } from './content/ui/pwa-shell';
 import { con } from '@/utils/logger';
 

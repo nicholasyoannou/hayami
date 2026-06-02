@@ -20,6 +20,13 @@ import {
   type KomentoScriptPack,
   resolveKomentoPlacement,
 } from "@/komentoscript";
+import {
+  lookupPlayerEpisodeInfo,
+  shouldRunIndexSnapshot,
+  shouldRunPlayerLookup,
+  snapshotEpisodeIndex,
+  type ResolvedPlayerInfo,
+} from "./episode-index";
 
 let customSiteMapping: CustomSiteMapping | null = null;
 let komentoExtractedAnimeInfo: {
@@ -27,6 +34,14 @@ let komentoExtractedAnimeInfo: {
   episodeName: string;
   releaseDate?: string;
 } | null = null;
+/**
+ * Resolved anime/episode for the current player page, populated by the
+ * episode-index lookup when the active mapping has an `episodeKey` block.
+ * `getCustomAnimeInfo()` returns this first when present so the lookup
+ * short-circuits the regular title/episode selector path on player URLs
+ * that have no on-page metadata of their own (e.g. ArtPlayer share pages).
+ */
+let cachedPlayerAnimeInfo: ResolvedPlayerInfo | null = null;
 let mapperHotkeyAttached = false;
 let launchButton: HTMLButtonElement | null = null;
 let popupInteractionLockUntil = 0;
@@ -243,16 +258,92 @@ export function applyCommentsBackgroundColor(
   } catch {}
 }
 
+/**
+ * Final step of mapping selection: populate the player-page cache lookup
+ * (so synchronous `getCustomAnimeInfo()` calls see the resolved
+ * anime/episode) and fire-and-forget the index snapshot when this page
+ * is the detail/index side of a cross-page mapping.
+ *
+ * Called from every successful branch of `loadCustomMappingForOrigin`
+ * so the side-effects don't have to be duplicated at each return site.
+ */
+async function finalizeMappingSelection(
+  mapping: CustomSiteMapping,
+): Promise<CustomSiteMapping> {
+  customSiteMapping = mapping;
+
+  // Player-side: await so callers reading `getCustomAnimeInfo()` right after
+  // this resolves see the cached entry rather than null.
+  if (shouldRunPlayerLookup(mapping, location.pathname)) {
+    try {
+      cachedPlayerAnimeInfo = await lookupPlayerEpisodeInfo({ mapping });
+    } catch (e) {
+      log.warn("Episode-index player lookup failed", e);
+      cachedPlayerAnimeInfo = null;
+    }
+  } else {
+    cachedPlayerAnimeInfo = null;
+  }
+
+  // Index-side: fire-and-forget. The snapshot is consumed by *future*
+  // navigations to the player domain, so the user's current page render
+  // doesn't depend on this write completing.
+  if (shouldRunIndexSnapshot(mapping, location.pathname)) {
+    const animeName = readMappingAnimeName(mapping);
+    if (animeName) {
+      void snapshotEpisodeIndex({ mapping, animeName }).catch((e) => {
+        log.warn("Episode-index snapshot failed", e);
+      });
+    }
+  }
+
+  return mapping;
+}
+
+/**
+ * Read the anime name directly off the mapping's title selector/regex
+ * without going through `getCustomAnimeInfo()` (which also requires an
+ * episode and would refuse to return on detail/index pages with no
+ * single current episode).
+ */
+function readMappingAnimeName(mapping: CustomSiteMapping): string | null {
+  const evaluate = (xpath?: string): Element | null => {
+    if (!xpath) return null;
+    try {
+      const result = document.evaluate(
+        xpath,
+        document,
+        null,
+        XPathResult.FIRST_ORDERED_NODE_TYPE,
+        null,
+      );
+      return (result.singleNodeValue as Element) || null;
+    } catch {
+      return null;
+    }
+  };
+  const el = mapping.titleSelector
+    ? safeQuerySelector(mapping.titleSelector)
+    : evaluate(mapping.titleXPath);
+  let text = el?.textContent?.trim();
+  if (!text) return null;
+  if (mapping.titleRegex) {
+    const extracted = applyFieldRegex(text, mapping.titleRegex);
+    if (extracted) text = extracted;
+  }
+  return text || null;
+}
+
 export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | null> {
   komentoExtractedAnimeInfo = null;
+  cachedPlayerAnimeInfo = null;
   try {
     const map = (await customSiteMappingsItem.getValue()) || {};
 
     // Prefer a direct match on the storage key (primary origin).
     const primaryEntry = map[location.origin] as CustomSiteMapping | undefined;
     if (primaryEntry && mappingMatchesPath(primaryEntry, location.pathname)) {
-      customSiteMapping = primaryEntry;
-      return customSiteMapping;
+      return finalizeMappingSelection(primaryEntry);
     }
 
     // Otherwise scan for a mapping whose extraDomains list includes us.
@@ -260,8 +351,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
       for (const entry of Object.values(map) as CustomSiteMapping[]) {
         const extras = Array.isArray(entry?.extraDomains) ? entry.extraDomains : [];
         if (extras.includes(location.origin) && mappingMatchesPath(entry, location.pathname)) {
-          customSiteMapping = entry;
-          return customSiteMapping;
+          return finalizeMappingSelection(entry);
         }
       }
     }
@@ -278,8 +368,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
           if (matchesOrigin) {
             const candidate = mapping as CustomSiteMapping;
             if (mappingMatchesPath(candidate, location.pathname)) {
-              customSiteMapping = candidate;
-              return customSiteMapping;
+              return finalizeMappingSelection(candidate);
             }
           }
         }
@@ -498,7 +587,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
           };
         }
 
-        customSiteMapping = {
+        const komentoMapping: CustomSiteMapping = {
           origin: location.origin,
           display: (placement?.display || "popup") as DisplayPlacement,
           iconDisplayKind:
@@ -542,7 +631,7 @@ export async function loadCustomMappingForOrigin(): Promise<CustomSiteMapping | 
           episodeXPath: episodeExtract.xPath || "",
         };
 
-        return customSiteMapping;
+        return finalizeMappingSelection(komentoMapping);
       }
     }
   } catch (e) {
@@ -634,6 +723,12 @@ export function getCustomAnimeInfo(): {
   releaseDate?: string;
 } | null {
   if (!customSiteMapping) return null;
+  // Cross-page snapshot wins when populated — the player page has no
+  // on-page metadata of its own, so the index-cache lookup is the only
+  // honest answer here.
+  if (cachedPlayerAnimeInfo?.animeName && cachedPlayerAnimeInfo?.episodeName) {
+    return cachedPlayerAnimeInfo;
+  }
   // Pipeline-extracted info has regex/number processing applied — always prefer it over raw element text.
   if (
     komentoExtractedAnimeInfo?.animeName &&
@@ -958,6 +1053,64 @@ export function ensurePermissionForCurrentSite(): Promise<boolean> {
         resolve(Boolean(granted));
       });
     });
+  });
+}
+
+/**
+ * Return the list of `extraDomains` on the current mapping that the
+ * extension does NOT have host permission for. Empty list means
+ * everything's already granted (or there are no extras to worry about).
+ *
+ * Used by the detail-page bootstrap to nag the user once per session
+ * when they've added a cross-page mapping by hand (e.g. via DevTools)
+ * and skipped the popup's permission flow — without permission the
+ * player-domain content script never injects, so the lookup we
+ * snapshot here is never read.
+ */
+export async function getMissingExtraDomainPermissions(
+  mapping: CustomSiteMapping | null | undefined,
+): Promise<string[]> {
+  const permissions = browser.permissions;
+  if (!permissions?.contains) return [];
+  const extras = Array.isArray(mapping?.extraDomains) ? mapping!.extraDomains : [];
+  if (extras.length === 0) return [];
+
+  const missing: string[] = [];
+  for (const origin of extras) {
+    const trimmed = String(origin || "").trim();
+    if (!trimmed) continue;
+    const pattern = `${trimmed}/*`;
+    const granted = await new Promise<boolean>((resolve) => {
+      try {
+        permissions.contains({ origins: [pattern] }, (ok: boolean) => resolve(Boolean(ok)));
+      } catch {
+        resolve(true); // err on the side of not nagging when the API throws
+      }
+    });
+    if (!granted) missing.push(trimmed);
+  }
+  return missing;
+}
+
+/**
+ * Request the missing extra-domain permissions. MUST be called from a
+ * user gesture (button click, keypress) — Chrome rejects programmatic
+ * permission requests outside one.
+ */
+export async function requestExtraDomainPermissions(origins: string[]): Promise<boolean> {
+  const permissions = browser.permissions;
+  if (!permissions?.request) return false;
+  const patterns = origins
+    .map((o) => String(o || "").trim())
+    .filter(Boolean)
+    .map((o) => `${o}/*`);
+  if (patterns.length === 0) return false;
+  return new Promise((resolve) => {
+    try {
+      permissions.request({ origins: patterns }, (granted: boolean) => resolve(Boolean(granted)));
+    } catch {
+      resolve(false);
+    }
   });
 }
 

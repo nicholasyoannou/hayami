@@ -151,10 +151,14 @@ async function getSeriesMappingsBySite(currentSiteKey: string): Promise<SeriesMa
 
 /**
  * Read platform-agnostic MAL/AniList IDs for an anime name from the shared
- * cache. The cache is populated by MAL-Sync (see `cacheAnimeIds`) so that
- * every provider can reuse the resolution instead of re-querying AniList.
+ * cache. The cache is populated by MAL-Sync and the AniList ID resolver
+ * (see `cacheAnimeIds`) so every provider can reuse the resolution
+ * instead of re-querying AniList. Used as a fallback by `resolveAnimeIdentity`
+ * when Hayami doesn't return a match (e.g. a brand-new airing series Hayami
+ * hasn't ingested yet) — the cached ids still let downstream lookups
+ * (discussanime.moe, AniList forum) succeed.
  */
-async function readCachedAnimeIds(animeName: string): Promise<{ malId?: number; anilistId?: number } | null> {
+export async function readCachedAnimeIds(animeName: string): Promise<{ malId?: number; anilistId?: number } | null> {
   const key = normalizeKey(animeName);
   if (!key) return null;
   try {

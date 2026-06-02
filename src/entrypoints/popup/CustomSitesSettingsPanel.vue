@@ -52,6 +52,14 @@ function triggerCustomMappingsImport() {
     <!-- Sync status card -->
     <div class="hy-section-card">
       <div class="hy-row">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-500/15 text-cyan-200">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M21 3v5h-5" />
+            <path d="M3 21v-5h5" />
+          </svg>
+        </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm text-white/85">Custom Sites Sync</p>
           <p class="text-xs text-white/60">Sync custom mappings from third-party JSON sources.</p>
@@ -64,6 +72,13 @@ function triggerCustomMappingsImport() {
         </button>
       </div>
       <div class="hy-row">
+        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-200">
+          <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M16 16l-4-4-4 4" />
+            <path d="M12 12v9" />
+            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
+          </svg>
+        </div>
         <div class="flex-1 min-w-0">
           <p class="text-sm text-white/85">Publish custom sites</p>
           <p class="text-xs text-white/60">Host your mappings on GitHub or GitLab and share a link others can subscribe to.</p>

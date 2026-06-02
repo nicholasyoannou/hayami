@@ -1,4 +1,4 @@
-import type { ContentScriptContext } from 'wxt/utils/content-scripts-context';
+import type { ContentScriptContext } from 'wxt/utils/content-script-context';
 
 let contentScriptContext: ContentScriptContext | null = null;
 

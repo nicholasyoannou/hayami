@@ -26,7 +26,7 @@ import {
   parseEpisodeFromTitle,
   getLastResolvedHayamiName,
 } from '@/entrypoints/content/mapping';
-import { resolveAnimeIdentity } from '@/entrypoints/content/mapping/identity-resolver';
+import { resolveSeriesIdentity } from '@/entrypoints/content/mapping/identity-resolver';
 import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
 import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
 import { dispatchManualSearchRequest } from '../manual-search';
@@ -180,7 +180,13 @@ function dispatchDisqusManualSearch(animeInfo: AnimeInfo): void {
  * archive iframes on the page (unlikely but possible during navigation)
  * stay independent, and by iframe-src origin so a malicious host page
  * can't push arbitrary heights at one of ours.
+ *
+ * We iterate a tracked Set rather than `document.querySelectorAll` because
+ * in popup mode the iframe is mounted inside the popup shell's Shadow Root
+ * and document-wide queries can't pierce it.
  */
+const trackedArchiveIframes = new Set<HTMLIFrameElement>();
+
 let archiveResizeListenerAttached = false;
 function ensureArchiveResizeListener(): void {
   if (archiveResizeListenerAttached) return;
@@ -191,10 +197,11 @@ function ensureArchiveResizeListener(): void {
     if (data.type !== 'discussanime-archive-embed:resize') return;
     const height = Number(data.height);
     if (!Number.isFinite(height) || height <= 0) return;
-    const iframes = document.querySelectorAll<HTMLIFrameElement>(
-      'iframe.ri-discussanime-embed'
-    );
-    for (const iframe of iframes) {
+    for (const iframe of Array.from(trackedArchiveIframes)) {
+      if (!iframe.isConnected) {
+        trackedArchiveIframes.delete(iframe);
+        continue;
+      }
       if (iframe.contentWindow !== ev.source) continue;
       // Defence-in-depth: the message must originate from the same
       // origin we asked the iframe to load. A different origin posting
@@ -259,6 +266,7 @@ async function renderArchiveThread(
 
   const iframe = container.querySelector<HTMLIFrameElement>('iframe.ri-discussanime-embed');
   if (iframe) {
+    trackedArchiveIframes.add(iframe);
     let settled = false;
     const finish = (reason: string) => {
       if (settled) return;
@@ -465,12 +473,25 @@ export class DisqusProvider extends BaseProvider {
       let mapperResolvedEp: number | null = null;
       if (!hasUserPickedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
         try {
-          const identity = await resolveAnimeIdentity(animeInfo, {
+          // Series-only path: hits `/anime/resolve` (Hayami's offline-DB
+          // resolver) instead of the Reddit-shaped `/anime/search`. Disqus
+          // only needs canonical MAL/AniList ids for the discussanime.moe
+          // lookup; we don't want the thread-mapping payload `/anime/search`
+          // returns, and we don't want it to 404 noisily on newly-airing
+          // series that haven't been ingested into the per-episode index yet.
+          const identity = await resolveSeriesIdentity(animeInfo, {
             mapping,
             episode: mappedEp ?? rawEp,
           });
-          if (identity.entry || identity.animeMeta) {
-            applyMapperEntryIdsToAnimeInfo(animeInfo, identity.entry, identity.animeMeta);
+          // Always copy through — `resolveSeriesIdentity` returns `entry: null`
+          // by design (no Reddit threads on this path), so we can't gate on
+          // `entry || animeMeta` like the Reddit path does. Trust whatever
+          // ids the resolver produced.
+          if (identity.malId && !animeInfo.malId) {
+            animeInfo.malId = identity.malId;
+          }
+          if (identity.anilistId && !animeInfo.anilistId) {
+            animeInfo.anilistId = identity.anilistId;
           }
           if (identity.resolvedEpisode !== null) {
             mapperResolvedEp = identity.resolvedEpisode;
@@ -601,9 +622,17 @@ export class DisqusProvider extends BaseProvider {
     // episode mounted. Same intent as the Disqus block above — switching
     // provider flavours mid-session leaves the old iframe orphaned in
     // the comments container otherwise.
+    //
+    // We also tear down iframes via the tracked Set because popup-mode
+    // iframes live inside the popup shell's Shadow Root and are invisible
+    // to `document.querySelectorAll`.
     document
       .querySelectorAll('iframe.ri-discussanime-embed')
       .forEach((el) => el.remove());
+    for (const iframe of Array.from(trackedArchiveIframes)) {
+      try { iframe.remove(); } catch {}
+    }
+    trackedArchiveIframes.clear();
     // Clear the global DISQUS singleton so the embed script reinitializes cleanly.
     const windowAny = window as Window & { DISQUS?: unknown };
     if (windowAny.DISQUS) {
