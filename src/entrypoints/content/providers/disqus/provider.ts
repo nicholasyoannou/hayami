@@ -504,10 +504,10 @@ export class DisqusProvider extends BaseProvider {
       // Custom-mapped sites (animepahe et al.) can expose the page's
       // episode list; when they do, derive a "site offset" from its min
       // visible episode and feed the adjusted candidate to the matcher
-      // first so cumulative-numbered Cour pages resolve to the right
-      // sub-cour thread. Pass `rawEp` so the active episode (often hidden
-      // behind a play icon on grid-style sites like Miruro) is folded into
-      // the min calculation.
+      // so cumulative-numbered Cour pages resolve to the right sub-cour
+      // thread. Pass `rawEp` so the active episode (often hidden behind
+      // a play icon on grid-style sites like Miruro) is folded into the
+      // min calculation.
       const siteEpisodeOffset = getCustomEpisodeListOffset(rawEp);
       const siteAdjustedEp = rawEp !== null && siteEpisodeOffset > 0
         ? rawEp - siteEpisodeOffset
@@ -518,19 +518,29 @@ export class DisqusProvider extends BaseProvider {
           rawEp,
           siteAdjustedEp,
           mapperResolvedEp,
+          hasUserPickedOverride,
         });
       }
+
+      // Candidate priority order. The matcher tries candidates in order
+      // and returns the first thread hit, so position is load-bearing:
+      //  - When the user has explicitly picked a Wrong-anime override
+      //    (which writes `mapperAnimeName` plus the episode offset),
+      //    `mappedEp` is the user's intent and must win against
+      //    `siteAdjustedEp`. Without this priority, an episode-list
+      //    offset that happens to land on a real (wrong) thread would
+      //    silently override the user's pick.
+      //  - Without a user pick, fall back to the previous ordering:
+      //    site-list-derived first (best for sub-cour pages), then the
+      //    Hayami mapper's season-relative answer, then the raw number.
+      const orderedCandidates: Array<number | null | undefined> = hasUserPickedOverride
+        ? [mappedEp, siteAdjustedEp, mapperResolvedEp, rawEp]
+        : [siteAdjustedEp, mapperResolvedEp, mappedEp, rawEp];
 
       const lookupParams = {
         malId: animeInfo.malId ?? null,
         anilistId: animeInfo.anilistId ?? null,
-        // Hand `findEpisodeThread` every plausible episode interpretation:
-        // the site-list-derived adjustment first (best for sub-cour pages),
-        // the Hayami mapper's season-relative answer,
-        // the user-override-adjusted number, and the raw streaming-page
-        // number. The site-side matcher fuzzy-picks the best thread;
-        // CR-continuous vs. season-relative is its problem.
-        episodeCandidates: [siteAdjustedEp, mapperResolvedEp, mappedEp, rawEp],
+        episodeCandidates: orderedCandidates,
         episodeNameHint: animeInfo.episodeName ?? null,
       };
       log.log('findEpisodeThread params', lookupParams);

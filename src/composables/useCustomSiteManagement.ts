@@ -376,6 +376,10 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     titleRegex: string;
     episodeSelector: string;
     episodeRegex: string;
+    releaseDateSelector: string;
+    releaseDateRegex: string;
+    episodeListSelector: string;
+    episodeListItemRegex: string;
     sidePadding: number;
   };
 
@@ -394,6 +398,16 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
       }
 
       const sidePaddingNum = Number(draft.sidePadding);
+      // Optional selector/regex fields are written conditionally: when the
+      // user blanked the field we omit it from `next` AND delete it from
+      // `existing` first, otherwise the spread below would carry the old
+      // value through and the cleared field would silently come back on
+      // the next load. Required fields (mount/anchor/title/episode) keep
+      // their current "save empty string when blank" behaviour.
+      const optionalString = (value: string): string | undefined => {
+        const trimmed = String(value || '').trim();
+        return trimmed || undefined;
+      };
       const next: CustomSiteMapping = {
         ...existing,
         mountSelector: String(draft.mountSelector || '').trim(),
@@ -404,6 +418,18 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
         episodeRegex: String(draft.episodeRegex || '').trim(),
         sidePadding: Number.isFinite(sidePaddingNum) ? sidePaddingNum : 0,
       };
+      const releaseDateSelector = optionalString(draft.releaseDateSelector);
+      if (releaseDateSelector) next.releaseDateSelector = releaseDateSelector;
+      else delete next.releaseDateSelector;
+      const releaseDateRegex = optionalString(draft.releaseDateRegex);
+      if (releaseDateRegex) next.releaseDateRegex = releaseDateRegex;
+      else delete next.releaseDateRegex;
+      const episodeListSelector = optionalString(draft.episodeListSelector);
+      if (episodeListSelector) next.episodeListSelector = episodeListSelector;
+      else delete next.episodeListSelector;
+      const episodeListItemRegex = optionalString(draft.episodeListItemRegex);
+      if (episodeListItemRegex) next.episodeListItemRegex = episodeListItemRegex;
+      else delete next.episodeListItemRegex;
 
       map[site.origin] = next;
       await customSiteMappingsItem.setValue(map);

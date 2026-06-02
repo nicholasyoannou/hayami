@@ -172,6 +172,19 @@ export async function readCachedAnimeIds(animeName: string): Promise<{ malId?: n
   }
 }
 
+/**
+ * Drop fields from a SeriesMapping that only make sense on the platform it
+ * was saved against. Used by the cross-platform fallback in
+ * `getSeriesMapping` so reusing, say, an Aniwave override on Disqus doesn't
+ * drag `aniwaveSlug` / `aniwaveIsDub` into a context where they'd be
+ * misinterpreted. Shareable fields (offset, mapper name, MAL/AniList ids)
+ * pass through unchanged.
+ */
+function stripPlatformSpecificFields(mapping: SeriesMapping): SeriesMapping {
+  const { aniwaveSlug, aniwaveIsDub, ...shareable } = mapping;
+  return shareable;
+}
+
 export async function getSeriesMapping(series: string, platform?: SeriesMappingPlatform): Promise<SeriesMapping | null> {
   const siteKeys = resolveSiteKeyCandidates();
   const siteKey = siteKeys[0] || 'global';
@@ -180,14 +193,49 @@ export async function getSeriesMapping(series: string, platform?: SeriesMappingP
   const normalized = normalizeKey(series);
 
   let platformMapping: SeriesMapping | null = null;
+  let matchSource: 'platform' | 'cross-platform' | 'none' = 'none';
+  let crossPlatformOrigin: string | null = null;
   for (const candidateSiteKey of siteKeys) {
     const siteMappings = mappings[candidateSiteKey] || {};
     const platformMappings = siteMappings[platformKey] || {};
     const byExact = platformMappings[series];
-    if (byExact) { platformMapping = byExact; break; }
+    if (byExact) { platformMapping = byExact; matchSource = 'platform'; break; }
     const byNormalized = platformMappings[normalized];
-    if (byNormalized) { platformMapping = byNormalized; break; }
+    if (byNormalized) { platformMapping = byNormalized; matchSource = 'platform'; break; }
   }
+
+  // Cross-platform fallback: when the requested platform has no mapping,
+  // reuse one the user saved against any other platform for the same anime.
+  // "Wrong anime?" picks and episode-offset edits are almost always meant
+  // to describe the series, not the comment provider, so silently dropping
+  // them when the user switches Reddit → Disqus (or any other pair) breaks
+  // a user expectation. Platform-specific fields like `aniwaveSlug` /
+  // `aniwaveIsDub` are filtered out so an Aniwave-side override doesn't
+  // bleed Aniwave-only fields into a Disqus context. Per-platform mappings
+  // saved explicitly still win — this only kicks in on `null`.
+  if (!platformMapping) {
+    crossPlatformLookup: for (const candidateSiteKey of siteKeys) {
+      const siteMappings = mappings[candidateSiteKey] || {};
+      for (const [otherPlatformKey, platformMappings] of Object.entries(siteMappings)) {
+        if (otherPlatformKey === platformKey) continue;
+        if (!platformMappings || typeof platformMappings !== 'object') continue;
+        const hit = platformMappings[series] || platformMappings[normalized];
+        if (hit) {
+          platformMapping = stripPlatformSpecificFields(hit);
+          matchSource = 'cross-platform';
+          crossPlatformOrigin = otherPlatformKey;
+          break crossPlatformLookup;
+        }
+      }
+    }
+  }
+
+  log.log(
+    `getSeriesMapping series="${series}" normalized="${normalized}"`
+    + ` platform=${platformKey} siteKeys=${JSON.stringify(siteKeys)}`
+    + ` matchSource=${matchSource} crossPlatformOrigin=${crossPlatformOrigin ?? 'null'}`
+    + ` mapping=${JSON.stringify(platformMapping)}`
+  );
 
   // Merge in MAL/AniList IDs from the shared cache when the platform entry
   // doesn't already carry them. Use the effective anime name — if the user
