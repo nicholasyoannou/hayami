@@ -4,10 +4,11 @@
 
 import { toast } from 'vue-sonner';
 import { BaseProvider } from '../base-provider';
-import type { CommentProvider, ProviderContext, AniListForumResult } from '@/entrypoints/content/types/data';
+import type { CommentProvider, ProviderContext, AniListForumResult, AniListUser } from '@/entrypoints/content/types/data';
 import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { fetchAniListThreads, fetchAniListThreadComments } from '@/utils/anilist/forums';
+import { fetchViewer } from '@/utils/anilist/mutations';
 import AniListForumView from '@/components/anilist/ForumView.vue';
 import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
 import { CONTAINER_RETRY_ATTEMPTS, CONTAINER_RETRY_DELAY_MS } from '@/entrypoints/content/constants';
@@ -17,6 +18,28 @@ import { resolveSeriesIdentity } from '@/entrypoints/content/mapping/identity-re
 import { safeClear } from '@/entrypoints/content/utils/dom-helpers';
 import { con } from '@/utils/logger';
 const log = con.m('AniListProvider');
+
+const ANILIST_BG = '#0b1622';
+const ANILIST_FG = '#9fadbd';
+
+/**
+ * The inline discussion shell (#reddit-inline-discussion) and the
+ * `.ri-external-comments` container both paint with
+ * `background: var(--ri-discussion-bg, #0f0f0f)`. When the AniList provider
+ * is active, set the CSS variable on the shell to the AniList navy so the
+ * shell's 16px padding, the area behind the tab strip's rounded corners,
+ * and the comments container all inherit the same backdrop.
+ *
+ * Set variables on the shell (not inline `style.background` on the container)
+ * so {@link AniListProvider.cleanup} can fully revert by removing the
+ * properties — letting the CSS fallback `#0f0f0f` reappear for whichever
+ * provider mounts next.
+ */
+function applyAniListDiscussionBg(container: HTMLElement): void {
+  const shell = container.closest<HTMLElement>('#reddit-inline-discussion') ?? container;
+  shell.style.setProperty('--ri-discussion-bg', ANILIST_BG);
+  shell.style.setProperty('--ri-discussion-fg', ANILIST_FG);
+}
 
 export class AniListProvider extends BaseProvider {
   readonly name: CommentProvider = 'anilist';
@@ -116,6 +139,16 @@ export class AniListProvider extends BaseProvider {
         commentsResult = await fetchAniListThreadComments(threadsResult.selectedThread.id);
       }
 
+      let viewer: AniListUser | null = null;
+      try {
+        const viewerResult = await fetchViewer();
+        if (viewerResult.ok && viewerResult.viewer) {
+          viewer = viewerResult.viewer;
+        }
+      } catch (err) {
+        log.warn('fetchViewer failed; treating as signed-out', err);
+      }
+
       const status = commentsResult?.status === 'auth_required'
         ? 'auth_required'
         : commentsResult?.status === 'error'
@@ -130,6 +163,7 @@ export class AniListProvider extends BaseProvider {
         status,
         errorMessage,
         comments: commentsResult?.comments,
+        viewer,
         pageInfo: commentsResult?.pageInfo ?? { nextPage: null, hasNextPage: false },
       };
 
@@ -144,6 +178,12 @@ export class AniListProvider extends BaseProvider {
       );
 
       container.style.display = 'block';
+      // Override the inline-discussion shell's CSS variables so the navy
+      // cascades to .ri-external-comments via the existing
+      // `background: var(--ri-discussion-bg, #0f0f0f)` rule. Avoid setting
+      // inline `style.background` on the container — that lingers after
+      // cleanup and bleeds navy into the next provider's view.
+      applyAniListDiscussionBg(container);
       safeClear(container);
 
       const appRoot = document.createElement('div');
@@ -158,6 +198,7 @@ export class AniListProvider extends BaseProvider {
         },
         animeTitle: animeInfoForLookup.animeName,
         threadId: threadsResult.selectedThread?.id,
+        viewer,
         wrongAnimeContext: {
           animeName: animeInfo.animeName,
           resolvedAnimeName: mappedAnimeName,
@@ -185,20 +226,34 @@ export class AniListProvider extends BaseProvider {
 
   private renderInlineError(container: HTMLElement, message: string): void {
     container.style.display = 'block';
+    applyAniListDiscussionBg(container);
     safeClear(container);
 
     const box = document.createElement('div');
     box.style.padding = '12px';
     box.style.borderRadius = '8px';
-    box.style.background = '#0f0f0f';
-    box.style.border = '1px solid #1c1c1c';
+    box.style.background = '#151f2e';
+    box.style.border = '1px solid #1c2a3a';
     box.style.color = '#e5e7eb';
     box.textContent = message;
 
     container.appendChild(box);
   }
 
-  // Default cleanup (BaseProvider.cleanup) unmounts the tracked Vue app.
+  /**
+   * Restore the inline-discussion shell's CSS variables and unmount the Vue
+   * app. Without this, switching from AniList back to a provider that doesn't
+   * call `applyCommentsBackgroundColor` (e.g. Reddit) would leave the navy
+   * variables in place.
+   */
+  override cleanup(): void {
+    const shell = document.querySelector<HTMLElement>('#reddit-inline-discussion');
+    if (shell) {
+      shell.style.removeProperty('--ri-discussion-bg');
+      shell.style.removeProperty('--ri-discussion-fg');
+    }
+    super.cleanup();
+  }
 
   async render(container: HTMLElement, context: ProviderContext): Promise<void> {
     const { animeInfo, discussionCache } = context;
@@ -211,10 +266,13 @@ export class AniListProvider extends BaseProvider {
     const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'anilist');
     const renderAnimeName = (renderMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
 
+    applyAniListDiscussionBg(container);
+
     this.mountVueApp(AniListForumView, {
       result: discussionCache.anilist as AniListForumResult,
       animeTitle: renderAnimeName,
       threadId: discussionCache.anilist.selectedThread?.id,
+      viewer: discussionCache.anilist.viewer ?? null,
       wrongAnimeContext: {
         animeName: animeInfo.animeName,
         resolvedAnimeName: renderAnimeName,

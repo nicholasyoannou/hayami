@@ -121,6 +121,32 @@ export function mapEpisodeWithSeasonsData(
     currentCrSeasonEpisodes > 0;
 
   if (sequenceNumber !== undefined && sequenceNumber !== null && !isSequenceNumberContinuous) {
+    // Prefer crEpisodeNumber when CR's sequence_number skips an E0
+    // prologue / special. CR exposes both: `sequence_number` counts every
+    // dispatched video (sequence 1 = E0, sequence 2 = the displayed E1),
+    // while `episode_number` is the on-card label users see ("E1"). Hayami
+    // keys episodes by the displayed number, so a sequence_number that's
+    // offset by an E0 walks straight onto the next episode's thread
+    // (Mushoku Tensei S2E1: crEpisodeNumber=1, sequenceNumber=2 → key "2"
+    // is "Episode 2 discussion"). Only swap when crEpisodeNumber has an
+    // actual key in this season's mapper episodes — otherwise fall through
+    // to the existing sequence-number behaviour.
+    const matchedEpisodes = (matchedSeason.episodes || {}) as Record<string, string>;
+    const hasEpisodeKey = (n: number): boolean =>
+      Object.prototype.hasOwnProperty.call(matchedEpisodes, String(n))
+      || Object.prototype.hasOwnProperty.call(matchedEpisodes, String(n).padStart(2, '0'));
+    if (
+      crEpisodeNumber !== null
+      && crEpisodeNumber >= 1
+      && crEpisodeNumber !== sequenceNumber
+      && hasEpisodeKey(crEpisodeNumber)
+    ) {
+      log.log(' Using crEpisodeNumber over sequence_number (E0 prologue skipped):', {
+        crEpisodeNumber,
+        sequenceNumber,
+      });
+      return crEpisodeNumber;
+    }
     if (sequenceNumber >= 1 && sequenceNumber <= mapperEpisodeCount) {
       log.log(' Using sequence_number directly (season-specific):', sequenceNumber);
       return sequenceNumber;

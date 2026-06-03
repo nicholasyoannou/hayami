@@ -148,6 +148,8 @@ export interface AniListThread {
   title?: string;
   body?: string;
   likeCount?: number;
+  isLiked?: boolean;
+  likes?: AniListUser[];
   replyCount?: number;
   viewCount?: number;
   createdAt?: number;
@@ -163,6 +165,8 @@ export interface AniListThreadComment {
   depth?: number;
   createdAt?: number;
   likeCount?: number;
+  isLiked?: boolean;
+  likes?: AniListUser[];
   user?: AniListUser;
 }
 
@@ -261,6 +265,7 @@ export interface DiscussionCache {
     status?: string;
     errorMessage?: string;
     comments?: AniListThreadComment[];
+    viewer?: AniListUser | null;
     pageInfo?: {
       currentPage?: number;
       nextPage?: number | null;
@@ -328,6 +333,14 @@ export interface ManualSearchRequestDetail {
   episodeNumber?: number;
   /** Reddit flow only: the post visible when "Wrong anime?" was clicked. */
   discussion?: { title?: string; permalink?: string };
+  /**
+   * When true, the manual-search handler skips the per-provider episode-mapping
+   * preflight (e.g. YouTube's AniList episode-count lookup) and pops the
+   * "Find the correct series" overlay immediately. Used by the YouTube
+   * not-found view, where the auto-detected name is presumed wrong and the
+   * preflight would 404 anyway.
+   */
+  openWrongAnimeImmediately?: boolean;
 }
 
 export interface ProviderContext {

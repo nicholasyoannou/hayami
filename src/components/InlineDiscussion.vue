@@ -145,6 +145,11 @@ const redditEmptyMessage = computed(() => {
   // When no discussion thread was resolved, avoid showing a misleading empty-comments message.
   return isNoDiscussion.value ? 'No discussion thread found.' : undefined;
 });
+// True when the manual-search dialog resolved to a film (single isMovie
+// option). Drives "Movie" labels in place of "Series"/"episode" wording.
+const isManualMovieResult = computed(() =>
+  manualEpisodeOptions.value.length === 1 && manualEpisodeOptions.value[0]?.isMovie === true,
+);
 // Counter to force RedditCommentList re-creation when switching back from other providers
 const redditCommentsKey = ref(0);
 const inlineSectionRef = ref<HTMLElement | null>(null);
@@ -193,11 +198,13 @@ const {
   manualAniwaveIsDub, manualAniwaveEpisodeVariants,
   manualMappingAnimeName, manualMappingLookupAnimeName, manualMappingExists, manualResetInProgress,
   wrongAnimeOpen, wrongAnimeQuery, wrongAnimeResults, wrongAnimeLoading, wrongAnimeError,
-  animeCommunityMedia, malManualMedia, disqusManualMedia,
+  animeCommunityMedia, malManualMedia, disqusManualMedia, youtubeManualPlaylist,
   manualEpisodeProviderLabel, isAniwaveManualMode, hasAniwaveDubOptions, hasAniwaveSubOptions,
   showAniwaveDubToggle, isAniListEpisodeManualMode, isMalEpisodeManualMode,
   isDisqusEpisodeManualMode,
-  isYouTubeEpisodeManualMode, isAniListShapedPickerMode, isEpisodeOnlyManualMode,
+  isYouTubeEpisodeManualMode, isAniListShapedPickerMode,
+  isYouTubePlaylistPickerMode, youtubeManualDisplayLabel,
+  isEpisodeOnlyManualMode,
   selectedEpisodeOffset, redditUrl: rawRedditUrl,
   openManualSearchModal, runManualSearch, loadEpisodeOptions,
   openWrongAnimeForm, searchWrongAnime, selectWrongAnime, setManualDialogTab,
@@ -1090,6 +1097,15 @@ onMounted(() => {
       malId: animeInfo?.malId,
       mappingAnimeName: mappingAnimeName || fallbackAnimeName || undefined,
     });
+    // Callers that already know the auto-detected anime is wrong (e.g. the
+    // YouTube not-found view) ask us to skip the episode-mapping preflight
+    // and pop the wrong-anime search overlay so the user can correct the
+    // title immediately. openManualSearchModal kicks off loadEpisodeOptions
+    // synchronously inside an IIFE; opening the overlay here just stacks the
+    // wrong-anime panel on top, which is exactly the UX we want.
+    if (detail?.openWrongAnimeImmediately) {
+      openWrongAnimeForm();
+    }
   };
   const escHandler = (ev: KeyboardEvent) => {
     if (ev.key === 'Escape' && manualSearchOpen.value) {
@@ -1895,21 +1911,33 @@ defineExpose({
           <!-- Series pill: shows current anime + inline "Change" button that opens the wrong-anime overlay -->
           <div class="flex items-center gap-3 rounded-xl border border-[#262626] bg-[#0f0f0f] px-3 py-2.5">
             <div class="min-w-0 flex-1">
-              <div class="text-[11px] uppercase tracking-wide text-[#7f8a99]">Series</div>
-              <div class="truncate text-sm font-semibold text-white" :title="manualWrongAnimePickedName || manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown'">
-                {{ manualWrongAnimePickedName || manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown' }}
+              <div class="text-[11px] uppercase tracking-wide text-[#7f8a99]">
+                {{
+                  isYouTubePlaylistPickerMode && youtubeManualPlaylist
+                    ? 'Playlist'
+                    : isManualMovieResult
+                      ? 'Movie'
+                      : 'Series'
+                }}
+              </div>
+              <div class="truncate text-sm font-semibold text-white" :title="(isYouTubePlaylistPickerMode && youtubeManualDisplayLabel) || manualWrongAnimePickedName || manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown'">
+                {{ (isYouTubePlaylistPickerMode && youtubeManualDisplayLabel) || manualWrongAnimePickedName || manualEpisodeResolvedName || manualEpisodeContext.animeName || 'Unknown' }}
               </div>
             </div>
             <button
               class="shrink-0 rounded-lg border border-[#2f2f2f] bg-[#141414] px-3 py-1.5 text-xs font-semibold text-[#ffd166] hover:border-[#ffd166]/50 hover:text-[#ffe8a1]"
               @click="openWrongAnimeForm"
             >
-              Wrong anime?
+              {{ isYouTubePlaylistPickerMode ? 'Wrong playlist?' : 'Wrong anime?' }}
             </button>
           </div>
 
           <p class="text-xs text-[#9aa5b4] leading-snug">
-            Pick which episode this {{ manualEpisodeProviderLabel }} thread corresponds to. We'll remember the offset so future episodes auto-advance.
+            {{
+              isManualMovieResult
+                ? `Confirm this ${manualEpisodeProviderLabel} thread is the discussion for this movie.`
+                : `Pick which episode this ${manualEpisodeProviderLabel} thread corresponds to. We'll remember the offset so future episodes auto-advance.`
+            }}
           </p>
 
           <div
@@ -1939,8 +1967,12 @@ defineExpose({
 
           <div v-else class="space-y-2">
             <div class="flex items-center justify-between text-[11px] text-[#7f8a99]">
-              <span>{{ manualEpisodeOptions.length }} episodes available</span>
-              <span v-if="manualEpisodeSelected !== null" class="text-[#8dd4ff]">Selected: Episode {{ manualEpisodeSelected }}</span>
+              <span>
+                {{ isManualMovieResult ? 'Movie' : `${manualEpisodeOptions.length} episodes available` }}
+              </span>
+              <span v-if="manualEpisodeSelected !== null" class="text-[#8dd4ff]">
+                {{ isManualMovieResult ? 'Selected: Movie' : `Selected: Episode ${manualEpisodeSelected}` }}
+              </span>
             </div>
             <div
               class="grid gap-1.5 max-h-[280px] overflow-y-auto styled-scroll p-0.5"
@@ -1951,13 +1983,18 @@ defineExpose({
                 :key="opt.episode"
                 type="button"
                 class="relative flex h-10 items-center justify-center rounded-md border text-sm font-semibold transition-colors"
-                :class="manualEpisodeSelected === opt.episode
-                  ? 'border-[#2f6feb] bg-[#2f6feb] text-white shadow-[0_0_0_1px_rgba(47,111,235,0.5)]'
-                  : 'border-[#262626] bg-[#0f0f0f] text-[#d0d0d0] hover:border-[#3a3a3a] hover:bg-[#151515]'"
-                :title="`Episode ${opt.episode}${isAniwaveManualMode ? (opt.isDub ? ' (Dub)' : ' (Sub)') : ''}`"
+                :class="[
+                  manualEpisodeSelected === opt.episode
+                    ? 'border-[#2f6feb] bg-[#2f6feb] text-white shadow-[0_0_0_1px_rgba(47,111,235,0.5)]'
+                    : 'border-[#262626] bg-[#0f0f0f] text-[#d0d0d0] hover:border-[#3a3a3a] hover:bg-[#151515]',
+                  opt.isMovie ? 'col-span-2' : '',
+                ]"
+                :title="opt.isMovie
+                  ? 'Movie'
+                  : `Episode ${opt.episode}${isAniwaveManualMode ? (opt.isDub ? ' (Dub)' : ' (Sub)') : ''}`"
                 @click="manualEpisodeSelected = opt.episode"
               >
-                {{ opt.episode }}
+                {{ opt.isMovie ? 'Movie' : opt.episode }}
               </button>
             </div>
           </div>
@@ -1995,13 +2032,15 @@ defineExpose({
             <h3 class="text-base font-semibold text-white">Find the correct series</h3>
             <p class="text-[11px] text-[#7f8a99] mt-0.5">
               {{
-                isAniListShapedPickerMode
-                  ? 'Searches AniList live as you type.'
-                  : isMalEpisodeManualMode
-                    ? 'Searches MyAnimeList live as you type.'
-                    : isDisqusEpisodeManualMode
-                      ? 'Searches Discuss Anime live as you type.'
-                      : 'Searches the Hayami database live as you type.'
+                isYouTubeEpisodeManualMode
+                  ? 'Searches the Hayami database live as you type.'
+                  : isAniListShapedPickerMode
+                    ? 'Searches AniList live as you type.'
+                    : isMalEpisodeManualMode
+                      ? 'Searches MyAnimeList live as you type.'
+                      : isDisqusEpisodeManualMode
+                        ? 'Searches Discuss Anime live as you type.'
+                        : 'Searches the Hayami database live as you type.'
               }}
             </p>
           </div>
@@ -2036,7 +2075,7 @@ defineExpose({
           <ul v-if="wrongAnimeResults.length" class="space-y-2">
             <li
               v-for="(item, idx) in wrongAnimeResults"
-              :key="String(item?.malId ?? item?._id ?? item?.id ?? `${idx}-${getMapperResultDisplayName(item)}`)"
+              :key="String(item?.playlistId ?? item?.malId ?? item?._id ?? item?.id ?? `${idx}-${getMapperResultDisplayName(item)}`)"
               class="group rounded-lg border border-[#262626] bg-[#0b0b0b] p-3 hover:border-[#2f6feb]/40 transition-colors cursor-pointer"
               @click="selectWrongAnime(item)"
             >
@@ -2069,6 +2108,35 @@ defineExpose({
                       </span>
                       <span v-if="item.status" class="rounded-full bg-[#1f1f1f] px-2 py-0.5 text-[#b8c2cf]">
                         {{ item.status }}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    class="shrink-0 self-center rounded-lg bg-[#2f6feb] hover:bg-[#1f5fcc] px-3 py-1.5 text-xs font-semibold text-white"
+                    @click.stop="selectWrongAnime(item)"
+                  >
+                    Select
+                  </button>
+                </div>
+              </template>
+              <template v-else-if="isYouTubePlaylistPickerMode">
+                <div class="flex items-start gap-3">
+                  <div class="min-w-0 flex-1">
+                    <div class="text-[11px] uppercase tracking-wide text-[#7f8a99]">
+                      {{ item.channelName || 'Unknown channel' }}
+                    </div>
+                    <div class="text-sm font-semibold text-white line-clamp-2 leading-snug">
+                      {{ item.playlistTitle }}
+                    </div>
+                    <div class="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span class="rounded-full bg-[#1a2332] px-2 py-0.5 text-[#8dd4ff]">
+                        {{ item.videos.length }} videos
+                      </span>
+                      <span
+                        v-if="item.isExactMatch"
+                        class="rounded-full bg-[#1f3a1f] px-2 py-0.5 text-[#9fdc9f]"
+                      >
+                        Exact match
                       </span>
                     </div>
                   </div>

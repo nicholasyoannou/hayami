@@ -175,6 +175,50 @@ export async function getVideoComments(
 }
 
 /**
+ * Fetches the canonical comment count for a video.
+ *
+ * `commentThreads.list` only returns `pageInfo.totalResults` for the current
+ * page (capped by `maxResults`, so it tops out at 50/100/whatever was asked
+ * for), which is why the comment bubble previously showed "50" regardless of
+ * the video's actual comment count. The Data API exposes the real number via
+ * `videos.list?part=statistics`'s `statistics.commentCount`, returned as a
+ * string. Returns null when statistics are absent (e.g. comments disabled,
+ * the video was unlisted, or auth is missing).
+ */
+export async function getVideoCommentCount(videoId: string): Promise<number | null> {
+  try {
+    const token = await getYouTubeAccessToken();
+    if (!token) return null;
+
+    const params = new URLSearchParams({ part: 'statistics', id: videoId });
+    const response = await fetch(
+      `https://www.googleapis.com/youtube/v3/videos?${params.toString()}`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+        credentials: 'omit',
+      },
+    );
+
+    if (!response.ok) {
+      log.error('YouTube video statistics fetch failed:', response.status);
+      return null;
+    }
+
+    const data = await response.json();
+    const raw = data?.items?.[0]?.statistics?.commentCount;
+    if (raw === undefined || raw === null) return null;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : null;
+  } catch (error) {
+    log.error('Error fetching YouTube video statistics:', error);
+    return null;
+  }
+}
+
+/**
  * Fetches more replies for a comment thread
  */
 export async function getCommentReplies(
@@ -376,6 +420,122 @@ function pickBestChannelResult(data: any, seriesName: string): any | null {
   }
 
   return bestMatch;
+}
+
+/**
+ * Per-channel "best playlist" record returned by the picker-facing search
+ * below. Mirrors the `best_match` shape Hayami returns inside each
+ * `channel_results[]` entry, but with the channel metadata folded back in
+ * so a single flat list can be rendered without losing which channel
+ * (Muse Asia / Muse Indonesia / etc.) each playlist came from.
+ */
+export interface YouTubeChannelPlaylistMatch {
+  playlistId: string;
+  playlistTitle: string;
+  channelName: string;
+  channelId: string;
+  platform: YouTubePlatform;
+  videos: Array<{
+    video_id: string;
+    title: string;
+    position?: number;
+    published_at?: string;
+  }>;
+  isExactMatch: boolean;
+  matchedName: string;
+  publishedAt: string | null;
+}
+
+/**
+ * Picker-facing variant of `searchYouTubePlaylist`. Instead of collapsing to a
+ * single "best playlist across all channels" via `pickBestChannelResult`, this
+ * returns every channel's `best_match` so the wrong-anime modal can show one
+ * row per channel (Muse Asia, Muse Indonesia, ...) and let the user pick.
+ *
+ * Used by the YouTube branch in `useManualSearch.searchWrongAnime` —
+ * `pickBestChannelResult` would silently drop everything except the highest-
+ * ranked option, which is the wrong behaviour for a picker.
+ */
+export async function searchYouTubePlaylistsForPicker(
+  seriesName: string,
+): Promise<YouTubeChannelPlaylistMatch[]> {
+  const trimmed = seriesName.trim();
+  if (!trimmed) return [];
+
+  try {
+    const params = new URLSearchParams({ series_name: trimmed, platform: 'youtube' });
+    const response = await fetchHayami(
+      `https://api.hayami.moe/anime/search?${params.toString()}`,
+      { credentials: 'omit' },
+    );
+    if (!response.ok) {
+      log.error('YouTube picker search failed:', response.status);
+      return [];
+    }
+    const data = await response.json();
+    if (!Array.isArray(data?.channel_results)) return [];
+
+    const items: YouTubeChannelPlaylistMatch[] = [];
+    for (const channel of data.channel_results) {
+      if (!channel?.has_match) continue;
+      const candidate = channel.best_match;
+      if (!candidate || !Array.isArray(candidate.videos)) continue;
+
+      const playlistId = String(candidate._id || candidate.id || '').trim();
+      if (!playlistId) continue;
+
+      const videos = candidate.videos
+        .filter((v: any) => v && typeof v.video_id === 'string' && v.video_id)
+        .map((v: any) => ({
+          video_id: String(v.video_id),
+          title: typeof v.title === 'string' ? v.title : '',
+          position: typeof v.position === 'number' ? v.position : undefined,
+          published_at: typeof v.published_at === 'string' ? v.published_at : undefined,
+        }));
+
+      items.push({
+        playlistId,
+        playlistTitle: typeof candidate.title === 'string' ? candidate.title : 'Unknown playlist',
+        channelName: typeof channel.channel_name === 'string'
+          ? channel.channel_name
+          : typeof candidate.channel_name === 'string'
+            ? candidate.channel_name
+            : 'Unknown channel',
+        channelId: typeof channel.channel_id === 'string'
+          ? channel.channel_id
+          : typeof candidate.channel_id === 'string'
+            ? candidate.channel_id
+            : '',
+        platform: typeof channel.platform === 'string' ? channel.platform as YouTubePlatform : 'youtube',
+        videos,
+        isExactMatch: !!candidate.is_exact_match,
+        // Hayami's canonical anime name for this playlist's series. Saved into
+        // the mapping so the provider can re-query and resolve back to the
+        // same Hayami entry — see useManualSearch's selectWrongAnime/YouTube.
+        matchedName: (() => {
+          // The matched_name lives inside matched_results[], not best_match itself.
+          const matched = Array.isArray(channel.matched_results) ? channel.matched_results : [];
+          for (const m of matched) {
+            if (m && String(m._id || m.id || '').trim() === playlistId && typeof m.matched_name === 'string') {
+              return m.matched_name.trim();
+            }
+          }
+          return typeof candidate.title === 'string' ? candidate.title : '';
+        })(),
+        publishedAt: typeof candidate.published_at === 'string' ? candidate.published_at : null,
+      });
+    }
+
+    // Sort: exact matches first, then by number of videos (most complete first).
+    items.sort((a, b) => {
+      if (a.isExactMatch !== b.isExactMatch) return a.isExactMatch ? -1 : 1;
+      return b.videos.length - a.videos.length;
+    });
+    return items;
+  } catch (error) {
+    log.error('Error fetching YouTube playlists for picker:', error);
+    return [];
+  }
 }
 
 /**

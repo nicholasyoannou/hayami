@@ -11,6 +11,7 @@ import { extractEpisodeNumber } from '@/utils/episode-utils';
 import { resolveAdapter } from '@/entrypoints/content/mapping';
 import { getSeriesMapping } from '@/entrypoints/content/storage/series-mapping';
 import YouTubeCommentList from '@/components/youtube/CommentList.vue';
+import YouTubeNotFoundView from '@/components/youtube/NotFoundView.vue';
 import ProviderAuthRequired from '@/components/ProviderAuthRequired.vue';
 import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
 import {
@@ -176,17 +177,29 @@ export class YouTubeProvider extends BaseProvider {
         toast.error('YouTube playlist not found', {
           description: `Could not find a YouTube playlist for ${animeInfo.animeName}`,
         });
+        await this.renderNotFound(
+          getExternalCommentsContainer,
+          'YouTube playlist not found',
+          `Could not find a YouTube playlist for ${animeInfo.animeName}.`,
+          wrongAnimeContext,
+        );
         clearLoadingState('YouTube no playlist');
         return;
       }
 
       // Find the video matching the current episode
       const video = findVideoInPlaylist(playlist, episodeNum);
-      
+
       if (!video) {
         toast.error('Episode video not found', {
           description: `Could not find video for episode ${episodeNum} in the playlist.`,
         });
+        await this.renderNotFound(
+          getExternalCommentsContainer,
+          'Episode video not found',
+          `Could not find a video for episode ${episodeNum} in the playlist.`,
+          wrongAnimeContext,
+        );
         clearLoadingState('YouTube no video');
         return;
       }
@@ -255,6 +268,36 @@ export class YouTubeProvider extends BaseProvider {
       handleProviderError(error, 'YouTube', 'switchTo');
       clearLoadingState('YouTube error');
       throw error;
+    }
+  }
+
+  /**
+   * Mount the "no result" placeholder into the external comments container.
+   * Used by both the "no playlist" and "no episode video" failure branches
+   * so the user gets a visible "Wrong anime?" affordance instead of a blank
+   * tab when the toast disappears.
+   */
+  private async renderNotFound(
+    getExternalCommentsContainer: () => HTMLElement | null,
+    title: string,
+    description: string,
+    wrongAnimeContext: { animeName?: string; resolvedAnimeName?: string; episodeNumber?: number },
+  ): Promise<void> {
+    try {
+      const container = await this.getContainerWithRetry(
+        getExternalCommentsContainer,
+        CONTAINER_RETRY_ATTEMPTS,
+        CONTAINER_RETRY_DELAY_MS,
+      );
+      container.style.display = 'block';
+      safeClear(container);
+      this.mountVueApp(YouTubeNotFoundView, {
+        title,
+        description,
+        wrongAnimeContext,
+      }, container);
+    } catch (err) {
+      log.warn('Failed to render YouTube not-found placeholder', err);
     }
   }
 

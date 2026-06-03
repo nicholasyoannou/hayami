@@ -16,6 +16,12 @@ import type {
 export interface DispatchManualSearchOptions {
   /** Reddit flow only — the discussion the user was browsing. */
   discussion?: { title?: string; permalink?: string };
+  /**
+   * Skip the per-provider episode preflight and pop the wrong-anime search
+   * overlay immediately. Set by callers that already know the auto-detected
+   * anime is wrong (e.g. the YouTube not-found view).
+   */
+  openWrongAnimeImmediately?: boolean;
 }
 
 export function buildManualSearchRequestDetail(
@@ -37,6 +43,7 @@ export function buildManualSearchRequestDetail(
     resolvedAnimeName: context.resolvedAnimeName,
     episodeNumber: context.episodeNumber,
     discussion: options?.discussion,
+    openWrongAnimeImmediately: options?.openWrongAnimeImmediately,
   };
 }
 

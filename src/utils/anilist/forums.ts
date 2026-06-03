@@ -54,7 +54,7 @@ async function graphqlRequest<T>(query: string, variables: Record<string, any>, 
   }
 }
 
-function normalizeUser(user: any): { id?: number; name?: string; avatar?: string } | undefined {
+export function normalizeUser(user: any): { id?: number; name?: string; avatar?: string } | undefined {
   if (!user) return undefined;
   return {
     id: typeof user.id === 'number' ? user.id : undefined,
@@ -101,17 +101,27 @@ function pickEpisodeThread(threads: AniListThread[] = [], episode?: number | nul
 
 function normalizeThreads(rawThreads: any[] = []): AniListThread[] {
   return rawThreads
-    .map((thread) => ({
-      id: thread?.id ?? thread?.threadId ?? 'unknown',
-      title: thread?.title || 'Untitled',
-      body: typeof thread?.body === 'string' ? thread.body : undefined,
-      likeCount: typeof thread?.likeCount === 'number' ? thread.likeCount : undefined,
-      replyCount: typeof thread?.replyCount === 'number' ? thread.replyCount : undefined,
-      viewCount: typeof thread?.viewCount === 'number' ? thread.viewCount : undefined,
-      createdAt: typeof thread?.createdAt === 'number' ? thread.createdAt : undefined,
-      siteUrl: typeof thread?.siteUrl === 'string' ? thread.siteUrl : undefined,
-      user: normalizeUser(thread?.user),
-    }))
+    .map((thread) => {
+      const rawLikes = thread?.likes;
+      const likes = Array.isArray(rawLikes)
+        ? rawLikes
+            .map((u: any) => normalizeUser(u))
+            .filter((u: any): u is { id?: number; name?: string; avatar?: string } => !!u)
+        : undefined;
+      return {
+        id: thread?.id ?? thread?.threadId ?? 'unknown',
+        title: thread?.title || 'Untitled',
+        body: typeof thread?.body === 'string' ? thread.body : undefined,
+        likeCount: typeof thread?.likeCount === 'number' ? thread.likeCount : undefined,
+        isLiked: typeof thread?.isLiked === 'boolean' ? thread.isLiked : undefined,
+        likes,
+        replyCount: typeof thread?.replyCount === 'number' ? thread.replyCount : undefined,
+        viewCount: typeof thread?.viewCount === 'number' ? thread.viewCount : undefined,
+        createdAt: typeof thread?.createdAt === 'number' ? thread.createdAt : undefined,
+        siteUrl: typeof thread?.siteUrl === 'string' ? thread.siteUrl : undefined,
+        user: normalizeUser(thread?.user),
+      };
+    })
     .filter((t) => t.id !== 'unknown');
 }
 
@@ -141,7 +151,7 @@ function parseChildComments(rawChildComments: unknown): any[] {
   return [];
 }
 
-function normalizeComment(comment: any, depth: number = 0): AniListThreadComment | null {
+export function normalizeComment(comment: any, depth: number = 0): AniListThreadComment | null {
   const id = comment?.id ?? comment?.commentId;
   if (id === undefined || id === null) return null;
 
@@ -150,12 +160,20 @@ function normalizeComment(comment: any, depth: number = 0): AniListThreadComment
     .map((child: any) => normalizeComment(child, depth + 1))
     .filter((child: AniListThreadComment | null): child is AniListThreadComment => !!child);
 
+  const likes = Array.isArray(comment?.likes)
+    ? comment.likes
+        .map((u: any) => normalizeUser(u))
+        .filter((u: any): u is { id?: number; name?: string; avatar?: string } => !!u)
+    : undefined;
+
   return {
     id,
     comment: typeof comment?.comment === 'string' ? comment.comment : undefined,
     parentCommentId: typeof comment?.parentCommentId === 'number' ? comment.parentCommentId : undefined,
     createdAt: typeof comment?.createdAt === 'number' ? comment.createdAt : undefined,
     likeCount: typeof comment?.likeCount === 'number' ? comment.likeCount : undefined,
+    isLiked: typeof comment?.isLiked === 'boolean' ? comment.isLiked : undefined,
+    likes,
     user: normalizeUser(comment?.user),
     replies,
     depth,
@@ -202,11 +220,20 @@ export async function fetchAniListThreads(
           title
           body
           likeCount
+          isLiked
           replyCount
           viewCount
           createdAt
           siteUrl
           user {
+            id
+            name
+            avatar {
+              large
+              medium
+            }
+          }
+          likes {
             id
             name
             avatar {
@@ -259,8 +286,10 @@ export async function fetchAniListThreadComments(
           id
           comment
           likeCount
+          isLiked
           createdAt
           user { id name avatar { large medium } }
+          likes { id name avatar { large medium } }
           childComments
         }
       }

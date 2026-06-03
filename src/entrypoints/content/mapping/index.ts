@@ -47,7 +47,7 @@ import { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll/ref
 import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll/episode-mapper';
 
 export { SERIES_MAPPING_KEY } from '../mapping-keys';
-export { getSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from '../storage/series-mapping';
+export { getSeriesMapping, hasSavedSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from '../storage/series-mapping';
 import { cacheAnimeIds } from '../storage/series-mapping';
 export {
   parseEpisodeFromTitle,
@@ -81,15 +81,18 @@ import {
 import {
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
+  fetchAnimeSeriesResolve,
   extractSeasonTitleFromAnimeName,
 } from './hayami-client';
 import { inferCourRelativeEpisode, inferPlannedCountEpisode, inferPreviousEpisodeCountEpisode } from './episode-numbering';
+import { toPositiveInt } from '@/utils/numbers';
 
 export {
   extractEpisodeNumberFromUrlHints,
   extractEpisodeTableFromRedditSelftext,
   fetchAnimeMapperDataBySeriesName,
   fetchAnimeMapperDataBySeriesAndSeason,
+  fetchAnimeSeriesResolve,
   extractSeasonTitleFromAnimeName,
 };
 
@@ -763,7 +766,21 @@ export async function tryMapperFailover(
         const res = results[idx];
         if (!res) continue;
         if (res.year === 'movies' && Array.isArray(res.movies) && res.movies.length > 0) {
-          if (!movieFallbackUrl) movieFallbackUrl = res.movies[0];
+          // When Hayami returns multiple films in the same franchise (e.g.
+          // SAO Progressive returns both "Aria of a Starless Night" and
+          // "Scherzo of Deep Night"), `matched_result` can land on the
+          // wrong sibling and a plain first-seen policy routes the user
+          // to the wrong Reddit thread. Prefer the entry whose mal_id
+          // matches the hint we sent — that's the user's authoritative
+          // identification — and fall back to first-seen otherwise.
+          const resEntryMalId = toPositiveInt(
+            res.external_sites?.mal_id ?? (res as MapperResultEntry & { mal_id?: unknown }).mal_id,
+          );
+          if (mapperMalId && resEntryMalId === mapperMalId) {
+            movieFallbackUrl = res.movies[0];
+          } else if (!movieFallbackUrl) {
+            movieFallbackUrl = res.movies[0];
+          }
           continue;
         }
         const eps = res.episodes;

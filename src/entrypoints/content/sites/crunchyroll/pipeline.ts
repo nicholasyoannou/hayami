@@ -363,7 +363,19 @@ export async function runCrunchyrollDeepPipeline(
           name: m.anime_name,
           episodeCount: m.episode_count,
         }))
-        .sort((a, b) => (a.year ?? 9999) - (b.year ?? 9999));
+        .sort((a, b) => {
+          const yearDiff = (a.year ?? 9999) - (b.year ?? 9999);
+          if (yearDiff !== 0) return yearDiff;
+          // Within the same year, prefer the entry whose Part-2 marker
+          // matches CR's season title — otherwise a "S1 Part 2" entry
+          // shadows the "S1 Part 1" sibling for S1E1 when both share a
+          // release year (Mushoku Tensei: both 2021 cours both look like
+          // valid earliest-year matches).
+          const aMatchesCrPart2 = hasPart2(a.name) === crHasPart2;
+          const bMatchesCrPart2 = hasPart2(b.name) === crHasPart2;
+          if (aMatchesCrPart2 !== bMatchesCrPart2) return aMatchesCrPart2 ? -1 : 1;
+          return 0;
+        });
 
       // For season_number/sequence_number = 1, prefer the earliest exact-match season (by year) to avoid jumping to later cours.
       // Skip this preference when CR collapsed seasons (single CR season with a high absolute episode number),
@@ -403,21 +415,129 @@ export async function runCrunchyrollDeepPipeline(
         }
       }
 
-      if (mapperHasPart2 && !crHasPart2) {
-        const alternatives = mapperResult.matched_results!.filter(
-          (m: MapperMatchedMeta) => m?.is_exact_match === true && m?.has_episodes && (m?.episode_count ?? 0) > 0 && !hasPart2(m?.anime_name),
-        );
-        if (alternatives.length > 0) {
-          const alt = alternatives[0];
-          if (typeof alt.index === 'number' && alt.index !== matchedIndex) {
-            matchedIndex = alt.index;
-            log.log(' Swapping to non-Part-2 exact match to align with CR season title', {
-              previous: matchedResult?.index,
-              next: matchedIndex,
-              crHasPart2,
-              mapperHasPart2,
+      // Re-evaluate Part-2 status against the entry we'd USE right now —
+      // not against `matchedResult.anime_name`, which is the original
+      // mapper pick before the season-number / air-year corrections above
+      // ran. Otherwise we keep swapping a freshly-corrected S1 pick back
+      // to a sibling S2 entry (Mushoku Tensei S1E1 → S2 non-Part-2)
+      // simply because the original match was an S2 Part-2 entry.
+      const currentMatchedName = (typeof matchedIndex === 'number' ? results[matchedIndex]?.anime_name : null)
+        ?? matchedResult?.anime_name;
+      const currentHasPart2 = hasPart2(currentMatchedName);
+      if (currentHasPart2 && !crHasPart2) {
+        // For Part-2 swap we trust the parsed date even when CR has
+        // flagged it unreliable (pre-2022-03 backfill). The reliability
+        // gate is there to stop the mapper from PINNING a wrong season
+        // from a bogus date; here we're just disambiguating siblings of
+        // the SAME franchise (a wrong-by-1 year still finds the right
+        // cour). Falling back to `animeInfo.releaseDate` ("Released on
+        // Jan 10, 2021"-style) covers cases where CR sent no air_date.
+        const releaseDateFallback = (() => {
+          const raw = String(animeInfo?.releaseDate || '').trim();
+          if (!raw) return null;
+          const yearMatch = raw.match(/\b(19|20)\d{2}\b/);
+          if (yearMatch) return Number(yearMatch[0]);
+          const d = new Date(raw);
+          return Number.isNaN(d.getTime()) ? null : d.getUTCFullYear();
+        })();
+        const normalizedAirYearForPart2 =
+          (parsedAirDate && !Number.isNaN(parsedAirDate.getTime()) ? parsedAirDate.getUTCFullYear() : null)
+          ?? releaseDateFallback;
+        const currentYear = typeof matchedIndex === 'number' ? parseMapperYear(results[matchedIndex]?.year) : null;
+        const nonPart2Alternatives = mapperResult.matched_results!
+          .filter(
+            (m: MapperMatchedMeta) => m?.is_exact_match === true
+              && m?.has_episodes
+              && (m?.episode_count ?? 0) > 0
+              && !hasPart2(m?.anime_name),
+          )
+          .map((m: MapperMatchedMeta) => ({ idx: m.index, year: parseMapperYear(m.year), name: m.anime_name }));
+        // Pick a non-Part-2 sibling, but only when it's a CLOSER match to
+        // the CR air year than the current pick. Without this guard the
+        // swap happily picks a wrong-season sibling (Mushoku Tensei S1E1
+        // would land on S2 2023 just to escape the "Part 2" suffix on the
+        // year-correct S1 Cour 2 entry), which is worse than staying.
+        let alt: { idx?: number; year: number | null; name?: string } | undefined;
+        if (normalizedAirYearForPart2 !== null) {
+          // 1. matched_results: exact air-year match.
+          alt = nonPart2Alternatives.find((m) => m.year === normalizedAirYearForPart2);
+
+          // 2. Widen to the full `results` array when matched_results has
+          // no air-year-aligned non-Part-2 sibling. Hayami's
+          // matched_results sometimes carries only the Part-2 cour for a
+          // given year — dropping into `results` can recover the
+          // year-aligned Cour 1 entry that's there but not flagged
+          // exact-match. Filtered to entries that share the air year,
+          // lack Part-2 markers, and overlap with the CR series title so
+          // we don't pull in unrelated anime from the same year.
+          if (!alt) {
+            const wideCandidates = results
+              .map((r, idx) => ({
+                idx,
+                year: parseMapperYear(r?.year),
+                name: r?.anime_name,
+                hasEpisodes: !!(r?.episodes && typeof r.episodes === 'object' && Object.keys(r.episodes).length > 0),
+                seriesScore: scoreSeriesTitleMatch(r?.anime_name, seriesTitle),
+              }))
+              .filter((r) =>
+                r.hasEpisodes
+                && !hasPart2(r.name)
+                && r.year === normalizedAirYearForPart2
+                && r.seriesScore > 0,
+              )
+              .sort((a, b) => b.seriesScore - a.seriesScore);
+            log.log(' Non-Part-2 wide-search candidates', {
+              airYear: normalizedAirYearForPart2,
+              count: wideCandidates.length,
+              top: wideCandidates.slice(0, 3),
             });
+            if (wideCandidates[0]) {
+              alt = { idx: wideCandidates[0].idx, year: wideCandidates[0].year, name: wideCandidates[0].name };
+            }
           }
+
+          // 3. matched_results: nearest past year — but only when its year
+          // distance is strictly smaller than the current pick's. Skipping
+          // this guard is how the earlier code swapped S1 Cour 2 (2021)
+          // for S2 (2023) on CR S1E1 (air year 2021): "nearest past year"
+          // matched S2's 2023 (no past entries exist) by falling through
+          // to the next stage. Anchoring on year-distance keeps a
+          // year-correct but cour-wrong entry over a year-wrong sibling.
+          if (!alt) {
+            const nearestPast = [...nonPart2Alternatives]
+              .filter((m) => m.year !== null && m.year < normalizedAirYearForPart2)
+              .sort((a, b) => (b.year ?? -9999) - (a.year ?? -9999))[0];
+            if (nearestPast) {
+              const altDistance = Math.abs((nearestPast.year ?? 0) - normalizedAirYearForPart2);
+              const currentDistance = currentYear !== null ? Math.abs(currentYear - normalizedAirYearForPart2) : Infinity;
+              if (altDistance < currentDistance) alt = nearestPast;
+            }
+          }
+        }
+        // No more "earliest non-Part-2 when crSeasonNum === 1" or
+        // "first non-Part-2 last resort" fallbacks — those produced the
+        // S1E1 → S2 misroute. If nothing closer than the current pick is
+        // available, KEEP the current matchedIndex (year-correct Part-2
+        // cour) and let downstream episode-mapping work with it.
+        if (alt && typeof alt.idx === 'number' && alt.idx !== matchedIndex) {
+          log.log(' Swapping to non-Part-2 exact match to align with CR season title', {
+            previous: matchedIndex,
+            next: alt.idx,
+            crHasPart2,
+            currentHasPart2,
+            chosenYear: alt.year,
+            airYear: normalizedAirYearForPart2,
+            crSeasonNum,
+          });
+          matchedIndex = alt.idx;
+        } else if (!alt) {
+          log.log(' Keeping current Part-2 match (no closer non-Part-2 sibling)', {
+            currentIndex: matchedIndex,
+            currentYear,
+            currentName: currentMatchedName,
+            airYear: normalizedAirYearForPart2,
+            matchedResultsNonPart2Count: nonPart2Alternatives.length,
+          });
         }
       }
     }
@@ -664,11 +784,109 @@ export async function runCrunchyrollDeepPipeline(
           return a.idx - b.idx;
         });
 
-      const matchedSeasonScore = scoreSeasonTitleMatch(matchedSeason?.anime_name, seasonTitle);
       const rawAirYear = getEpisodeAirYear(episodeMetadata);
       const airYearForEpisode = rawAirYear !== null && rawAirYear >= 2021 ? rawAirYear : null; // Ignore pre-2021 CR years.
-      const matchedSeasonYear = parseMapperYear(matchedSeason?.year);
-      const lockMatchedSeason = seasonsData.length === 1 || matchedSeasonScore >= 8 || (airYearForEpisode !== null && matchedSeasonYear === airYearForEpisode);
+
+      // Wide-results air-year alignment: when CR's air year is known and the
+      // current matchedIndex's year doesn't match perfectly, scan ALL results
+      // for an entry whose year is strictly closer to the CR air year AND has
+      // a key for the current CR episode number. Prefer the year-closest
+      // candidate, tie-broken by series-title alignment.
+      //
+      // Why: Hayami's `is_exact_match` flag misses some siblings (e.g. AoT
+      // Final Chapters Special 2 — CR S5E2 aired 2023-11-04 — should map to
+      // Kanketsu-hen (idx 0, year 2023, key "2") but Hayami flags it as
+      // is_exact_match=false because the title is Japanese-only). The earlier
+      // air-year alignment pass only walks `matched_results`, so it never
+      // considers Kanketsu-hen. The slice-derived fallback then picks a
+      // wrong-franchise entry because `orderedMapper` includes unrelated
+      // entries Hayami pulled in via the "Shingeki" prefix (Bahamut Genesis,
+      // Chuugakkou). Anchoring on year distance + CR-episode key existence
+      // sidesteps both failure modes.
+      let matchedSeasonYear = parseMapperYear(matchedSeason?.year);
+      if (
+        airYearForEpisode !== null
+        && typeof crEpisodeNumber === 'number'
+        && crEpisodeNumber > 0
+      ) {
+        const hasCrKey = (entry: MapperResultEntry | undefined): boolean => {
+          const eps = entry?.episodes;
+          if (!eps || typeof eps !== 'object') return false;
+          const key = String(crEpisodeNumber);
+          const padded = key.padStart(2, '0');
+          return Object.prototype.hasOwnProperty.call(eps, key)
+            || Object.prototype.hasOwnProperty.call(eps, padded);
+        };
+        const matchedYearDistance = matchedSeasonYear !== null
+          ? Math.abs(matchedSeasonYear - airYearForEpisode)
+          : Infinity;
+        if (matchedYearDistance > 0) {
+          const candidates = results
+            .map((r, idx) => ({
+              idx,
+              year: parseMapperYear(r?.year),
+              hasCrKey: hasCrKey(r),
+              seriesScore: scoreSeriesTitleMatch(r?.anime_name, seriesTitle),
+              episodeCount: r?.episodes && typeof r.episodes === 'object' ? Object.keys(r.episodes).length : 0,
+            }))
+            .filter((r) => r.hasCrKey && r.episodeCount > 0 && r.year !== null);
+          if (candidates.length > 0) {
+            candidates.sort((a, b) => {
+              const distA = Math.abs((a.year ?? 0) - airYearForEpisode);
+              const distB = Math.abs((b.year ?? 0) - airYearForEpisode);
+              if (distA !== distB) return distA - distB;
+              return b.seriesScore - a.seriesScore;
+            });
+            const bestDist = Math.abs((candidates[0].year ?? 0) - airYearForEpisode);
+            if (bestDist < matchedYearDistance && candidates[0].idx !== matchedIndex) {
+              log.log(' Air-year wide pick: closer-year entry with CR-episode key', {
+                previous: matchedIndex,
+                next: candidates[0].idx,
+                airYear: airYearForEpisode,
+                prevYear: matchedSeasonYear,
+                newYear: candidates[0].year,
+                prevDistance: matchedYearDistance,
+                newDistance: bestDist,
+                candidatesCount: candidates.length,
+                crEpisodeNumber,
+              });
+              matchedIndex = candidates[0].idx;
+              matchedSeason = results[matchedIndex];
+              matchedSeasonYear = parseMapperYear(matchedSeason?.year);
+            }
+          }
+        }
+      }
+
+      const matchedSeasonScore = scoreSeasonTitleMatch(matchedSeason?.anime_name, seasonTitle);
+      // Disable the lock when CR's episode number clearly exceeds the matched
+      // cour's length — the user is past that cour and the slice-derived
+      // sibling is more correct than the title/year match. Without this,
+      // Mushoku Tensei CR S1E14 (continuous numbering across two 2021 cours)
+      // locks onto Part 1 (11 eps) because the title and year both align,
+      // and the slice override that would move to Part 2 Ep 3 is rejected.
+      const matchedSeasonEpisodeKeyCount = Object.keys(matchedSeason?.episodes || {}).length;
+      const matchedSeasonReportedCount = matchedEpisodeCountForIndex(mapperResult, matchedIndex);
+      const matchedCourCount = Math.max(matchedSeasonEpisodeKeyCount, matchedSeasonReportedCount);
+      const crOverranMatchedCour = matchedCourCount > 0 && crEpisodeNumber > matchedCourCount;
+      // Air-year mismatch is a strong "matched_result picked the wrong
+      // sibling" signal — even a high title score can't justify locking the
+      // pick to a year that doesn't align with the CR air year. Example: AoT
+      // Final Chapters Special 2 (CR S5E2, aired Nov 2023) → Hayami's
+      // matched_result picks Part 2 (2022) with title score 78. The slice
+      // math correctly finds the Kanketsu-hen sibling for CR season 5, but
+      // the old `matchedSeasonScore >= 8` lock keeps Part 2, sending the
+      // user to "Episode 77 discussion" instead of "Special Episode 2".
+      // Require the title-score lock to ALSO agree on the year (or have no
+      // air year to compare against). Single-season-data and exact
+      // year-match locks still fire as before.
+      const matchedYearAgreesWithAir =
+        airYearForEpisode === null || matchedSeasonYear === airYearForEpisode;
+      const lockMatchedSeason = !crOverranMatchedCour && (
+        seasonsData.length === 1
+        || (matchedSeasonScore >= 8 && matchedYearAgreesWithAir)
+        || (airYearForEpisode !== null && matchedSeasonYear === airYearForEpisode)
+      );
 
       // If Crunchyroll numbers the season far beyond the matched cour length (e.g., cour 2 starts at 25 while mapper has 12 eps),
       // fold the CR number back into the cour length when the season is clearly longer than the matched cour.
@@ -950,7 +1168,7 @@ export async function runCrunchyrollDeepPipeline(
 
     if (!mappedUrl) {
       log.log(`No ${platform} URL found for episode ${seasonEpisode} (tried keys: ${keyCandidates.join(', ')}) in matched season`);
-      log.log('Available episode keys:', Object.keys(matchedSeason.episodes));
+      log.log('Available episode keys:', Object.keys(matchedSeason?.episodes ?? {}));
       // Even though no Reddit thread URL exists for this episode, expose
       // the matched entry on `out` so non-Reddit consumers (Disqus, MAL,
       // AniList) can still pick up the season-disambiguated MAL/AniList

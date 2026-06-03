@@ -178,7 +178,7 @@ const baseSteps: StepDef[] = [
   {
     id: 'connect-accounts',
     title: 'Connect your accounts',
-    content: 'Connect the accounts for platforms you intend to view comments from.',
+    content: 'Connect the accounts for platforms you intend to view comments from. You can connect or disconnect accounts at any time from Hayami’s settings.',
     icon: '\uD83D\uDD10'
   },
   {
@@ -290,7 +290,7 @@ async function persistMediaKeys() {
     <div class="onboarding-modal fixed-size">
       <div class="modal-content">
         <div class="step-title-row">
-          <img v-if="currentStepDef.id === 'malsync'" src="https://malsync.moe/icons/mal-sync-icon.svg" alt="MAL-Sync" class="step-icon-inline-img" />
+          <img v-if="currentStepDef.id === 'malsync'" src="https://hayami.moe/images/mal-sync-icon.svg" alt="MAL-Sync" class="step-icon-inline-img" />
           <span v-else-if="currentStepDef.icon" class="step-icon-inline">{{ currentStepDef.icon }}</span>
           <h1 class="step-title">{{ currentStepDef.title }}</h1>
           <a
@@ -388,7 +388,7 @@ async function persistMediaKeys() {
             <img
               class="preview-gif"
               :class="{ 'img-loaded': imageLoaded['preview'] }"
-              src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/Animation2-ezgif.com-optimize.gif"
+              src="https://hayami.moe/images/image_previews_preview.gif"
               alt="Animated preview of image previews in Hayami"
               @load="onImageLoad('preview')"
             />

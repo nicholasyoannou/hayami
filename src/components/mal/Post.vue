@@ -2,29 +2,33 @@
 defineOptions({ name: 'MALPost' });
 
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { toast } from 'vue-sonner';
 import type { MalPost } from '@/entrypoints/content/types/data';
 import { escapeHtml } from '@/utils/html-utils';
 
 const props = defineProps<{
   post: MalPost;
+  topicId?: number | string;
   formatTimestamp: (ts: string | undefined) => string;
   bbcodeToHtml: (input: string) => string;
 }>();
 
 const authorName = computed(() => props.post?.author?.name ? escapeHtml(props.post.author.name) : 'Unknown');
+const profileUrl = computed(() => props.post?.author?.name
+  ? `https://myanimelist.net/profile/${encodeURIComponent(props.post.author.name)}`
+  : null);
 const timestamp = computed(() => props.formatTimestamp(props.post?.created_at));
-const avatar = computed(() => {
+const avatarUrl = computed(() => {
   const av = props.post?.author?.forum_avatar || props.post?.author?.forum_avator || props.post?.author?.avatar || '';
   return av.trim();
 });
-const hasAvatar = computed(() => {
-  const av = avatar.value;
-  return av && av.length > 0 && !av.includes('kaomoji_mal_white.png');
+// MAL's default placeholder is `kaomoji_mal_white.png` — treat it the same as
+// no avatar so we can render the fallback box instead of a tiny stretched glyph.
+const hasRealAvatar = computed(() => {
+  const av = avatarUrl.value;
+  return av.length > 0 && !av.includes('kaomoji_mal_white.png');
 });
-const forumTitle = computed(() => {
-  const title = props.post?.author?.forum_title;
-  return title ? `<div style="color:#aaa; font-size:11px; margin-top:2px;">${escapeHtml(title)}</div>` : '';
-});
+const forumTitle = computed(() => props.post?.author?.forum_title || '');
 const bodyHtml = computed(() => {
   const body = props.post?.body;
   return body ? props.bbcodeToHtml(String(body)) : '<em style="color:#666;">(empty)</em>';
@@ -34,6 +38,13 @@ const sigHtml = computed(() => {
   return sig ? props.bbcodeToHtml(String(sig)) : '';
 });
 const postNum = computed(() => props.post?.number ? `#${props.post.number}` : '');
+
+const permalinkUrl = computed(() => {
+  if (!props.topicId || !props.post?.id) return null;
+  // MAL's canonical per-post permalink format. `goto=post` makes MAL paginate
+  // to the right page and scroll-anchor to the message; `id` is the post id.
+  return `https://myanimelist.net/forum/?goto=post&topicid=${props.topicId}&id=${props.post.id}`;
+});
 
 const bodyRef = ref<HTMLElement | null>(null);
 const signatureRef = ref<HTMLElement | null>(null);
@@ -48,6 +59,47 @@ const handleSpoilerClick = (event: Event) => {
   }
 };
 
+async function handleShare() {
+  const url = permalinkUrl.value;
+  if (!url) {
+    toast.error('No link available for this post.');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success('Link copied', { description: 'Permalink to this post is on your clipboard.' });
+  } catch {
+    // Fallback for restricted clipboard environments
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'absolute';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      toast.success('Link copied');
+    } catch {
+      toast.error('Could not copy link', { description: url });
+    } finally {
+      document.body.removeChild(ta);
+    }
+  }
+}
+
+function handleReply() {
+  const url = permalinkUrl.value;
+  if (!url) {
+    toast.error('No link available for this post.');
+    return;
+  }
+  // Native reply isn't wired up yet — deep-link to the post on MAL so the
+  // user can reply there. Replace with an inline editor when MAL write-auth
+  // and a ReplyEditor land (mirrors the AniList flow).
+  window.open(url, '_blank', 'noopener');
+}
+
 onMounted(() => {
   bodyRef.value?.addEventListener('click', handleSpoilerClick);
   signatureRef.value?.addEventListener('click', handleSpoilerClick);
@@ -60,34 +112,70 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <li class="ri-mal-post" style="display:flex; gap:12px; padding:12px 0; border-bottom:1px solid #2a2a2a;">
-    <div style="width:140px; min-width:140px; text-align:center; color:#aaa; font-size:12px;">
-      <div style="font-weight:700; color:#e0e0e0; margin-bottom:6px;">{{ authorName }}</div>
-      <div v-if="forumTitle" v-html="forumTitle"></div>
-      <div 
-        v-if="hasAvatar" 
-        style="width:110px; height:110px; margin:6px auto; overflow:hidden; border-radius:6px; background:#151515;"
-      >
-        <img :src="avatar" style="width:100%; height:100%; object-fit:cover;" alt="" />
-      </div>
+  <li class="ri-mal-post">
+    <div class="ri-mal-post-header">
+      <span class="ri-mal-post-date">{{ timestamp }}</span>
+      <a
+        v-if="permalinkUrl"
+        :href="permalinkUrl"
+        target="_blank"
+        rel="noopener"
+        class="ri-mal-post-num"
+      >{{ postNum }}</a>
+      <span v-else class="ri-mal-post-num">{{ postNum }}</span>
     </div>
-    <div style="flex:1; color:#ddd; line-height:1.6; font-size:14px;">
-      <div style="display:flex; justify-content:space-between; color:#9cf; font-size:12px; margin-bottom:6px;">
-        <span>{{ postNum }}</span>
-        <span>{{ timestamp }}</span>
+    <div class="ri-mal-post-row">
+      <div class="ri-mal-post-profile">
+        <a
+          v-if="profileUrl"
+          :href="profileUrl"
+          target="_blank"
+          rel="noopener"
+          class="ri-mal-post-username"
+        >{{ authorName }}</a>
+        <span v-else class="ri-mal-post-username">{{ authorName }}</span>
+        <div v-if="forumTitle" class="ri-mal-post-forum-title">{{ forumTitle }}</div>
+        <div class="ri-mal-post-avatar" :class="{ 'ri-mal-post-avatar-fallback': !hasRealAvatar }">
+          <img v-if="hasRealAvatar" :src="avatarUrl" alt="" loading="lazy" />
+          <svg v-else viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M12 12a5 5 0 1 0-5-5 5 5 0 0 0 5 5zm0 2c-4.42 0-8 2.69-8 6v2h16v-2c0-3.31-3.58-6-8-6z" />
+          </svg>
+        </div>
       </div>
-      <div ref="bodyRef" class="ri-mal-body" style="margin-bottom:8px;" v-html="bodyHtml"></div>
-      <div 
-        v-if="sigHtml" 
-        class="ri-mal-signature"
-        style="margin-top:10px; color:#8a8a8a; font-size:12px; border-top:1px dashed #2a2a2a; padding-top:8px; width:100%;"
-        ref="signatureRef"
-        v-html="sigHtml"
-      ></div>
-      <div style="display:flex; gap:12px; color:#888; font-size:12px; align-items:center; margin-top:6px;">
-        <span style="cursor:pointer;">More</span>
-        <span style="cursor:pointer;">Gift</span>
-        <span style="cursor:pointer;">Reply</span>
+      <div class="ri-mal-post-content">
+        <div ref="bodyRef" class="ri-mal-body" v-html="bodyHtml"></div>
+        <div
+          v-if="sigHtml"
+          ref="signatureRef"
+          class="ri-mal-signature"
+          v-html="sigHtml"
+        ></div>
+        <div class="ri-mal-post-actions">
+          <button
+            type="button"
+            class="ri-mal-post-action"
+            aria-label="Copy link to this post"
+            @click="handleShare"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+            </svg>
+            <span>Share</span>
+          </button>
+          <button
+            type="button"
+            class="ri-mal-post-action"
+            aria-label="Reply on MyAnimeList"
+            @click="handleReply"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                d="M9 14L4 9l5-5M4 9h11a5 5 0 0 1 5 5v6" />
+            </svg>
+            <span>Reply</span>
+          </button>
+        </div>
       </div>
     </div>
   </li>
@@ -96,13 +184,163 @@ onUnmounted(() => {
 <style scoped>
 .ri-mal-post {
   list-style: none;
+  margin-bottom: 14px;
+  background: #121212;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.ri-mal-post-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: #1c1c1c;
+  border-bottom: 1px solid #2a2a2a;
+  color: #9bb3d6;
+  font-size: 12px;
+}
+
+.ri-mal-post-date {
+  color: #aaa;
+}
+
+.ri-mal-post-num {
+  color: #9bb3d6;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+a.ri-mal-post-num:hover {
+  text-decoration: underline;
+}
+
+.ri-mal-post-row {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+}
+
+.ri-mal-post-profile {
+  flex: 0 0 140px;
+  width: 140px;
+  text-align: center;
+  color: #aaa;
+  font-size: 12px;
+}
+
+.ri-mal-post-username {
+  display: block;
+  color: #e0e0e0;
+  font-weight: 700;
+  font-size: 13px;
+  text-decoration: none;
+  word-break: break-word;
+}
+
+a.ri-mal-post-username {
+  color: #9bb3d6;
+}
+
+a.ri-mal-post-username:hover {
+  text-decoration: underline;
+}
+
+.ri-mal-post-forum-title {
+  color: #888;
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.ri-mal-post-avatar {
+  width: 110px;
+  height: 110px;
+  margin: 8px auto 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #1a1a1a;
+}
+
+.ri-mal-post-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ri-mal-post-avatar-fallback {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  color: rgba(159, 173, 189, 0.25);
+}
+
+.ri-mal-post-avatar-fallback svg {
+  width: 72%;
+  height: auto;
+  margin-bottom: -4px;
+}
+
+.ri-mal-post-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  color: #ddd;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.ri-mal-body {
+  margin-bottom: 8px;
 }
 
 .ri-mal-signature {
+  margin-top: 10px;
+  color: #8a8a8a;
+  font-size: 12px;
+  border-top: 1px dashed #2a2a2a;
+  padding-top: 8px;
+  width: 100%;
   white-space: normal;
   overflow-x: hidden;
   word-break: break-word;
   max-width: 100%;
+}
+
+.ri-mal-post-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #1f1f1f;
+}
+
+.ri-mal-post-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  color: rgba(255, 255, 255, 0.65);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ri-mal-post-action:hover {
+  background: #1c2435;
+  border-color: #3a4a66;
+  color: #c7dbff;
+}
+
+.ri-mal-post-action svg {
+  width: 13px;
+  height: 13px;
 }
 
 .ri-mal-signature :deep(table.ri-mal-table) {

@@ -161,18 +161,18 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
     </div>
     
     <!-- Open on MAL link -->
-    <div style="margin-bottom:12px; display:flex; align-items:center; gap:12px;">
-      <a 
-        :href="topicUrl" 
-        target="_blank" 
+    <div class="ri-mal-header-actions">
+      <a
+        :href="topicUrl"
+        target="_blank"
         rel="noopener"
-        style="color:#8ab4ff; font-weight:600;"
+        class="ri-mal-pill ri-mal-pill-primary"
       >
         Open on MyAnimeList
       </a>
       <button
         type="button"
-        class="ri-mal-wrong-anime"
+        class="ri-mal-pill"
         @click="handleWrongAnimeClick"
       >
         Wrong anime?
@@ -192,6 +192,7 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
           v-for="post in posts"
           :key="post.id || post.number"
           :post="post"
+          :topic-id="topicId ?? selectedTopic?.id"
           :format-timestamp="formatTimestamp"
           :bbcode-to-html="bbcodeToHtml"
         />
@@ -238,19 +239,47 @@ watch(() => props.result.nextPageUrl, (newUrl) => {
   position: relative;
 }
 
-.ri-mal-wrong-anime {
-  appearance: none;
-  border: 1px solid #4f6078;
-  background: #141b28;
-  color: #c7dbff;
-  font-size: 12px;
-  border-radius: 999px;
-  padding: 4px 10px;
-  cursor: pointer;
+.ri-mal-header-actions {
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.ri-mal-wrong-anime:hover {
-  background: #1b2739;
-  border-color: #6482a8;
+.ri-mal-pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #2f2f2f;
+  background: #1a1a1a;
+  color: #d0d0d0;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.ri-mal-pill:hover {
+  background: #222;
+  border-color: #444;
+  color: #fff;
+}
+
+.ri-mal-pill-primary {
+  background: #1f1f1f;
+  border-color: #3a3a3a;
+  color: #ececec;
+  font-weight: 600;
+}
+
+.ri-mal-pill-primary:hover {
+  background: #262626;
+  border-color: #555;
 }
 </style>

@@ -2,7 +2,7 @@
 defineOptions({ name: 'YouTubeCommentList' });
 
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
-import { getVideoComments } from '@/utils/youtube/api';
+import { getVideoComments, getVideoCommentCount } from '@/utils/youtube/api';
 import type { YouTubeComment as YouTubeCommentData, WrongAnimeContext } from '@/entrypoints/content/types/data';
 import { dispatchManualSearchRequest } from '@/entrypoints/content/providers/manual-search';
 import type { YouTubeCommentsResult } from '@/utils/youtube/api';
@@ -55,14 +55,22 @@ async function loadComments(order: 'relevance' | 'time' = 'relevance') {
   nextPageToken.value = undefined;
   
   try {
-    const result = await getVideoComments(props.videoId, 50, order);
+    // Fire the comment fetch and the canonical comment-count fetch in
+    // parallel. `commentThreads.list` only reports the *current page* count
+    // in `pageInfo.totalResults` (≤ maxResults), which made the bubble show
+    // "50" regardless of the video's real comment total. `videos.list?
+    // part=statistics` returns the canonical figure.
+    const [result, canonicalCount] = await Promise.all([
+      getVideoComments(props.videoId, 50, order),
+      getVideoCommentCount(props.videoId),
+    ]);
     comments.value = result.comments || [];
-    totalComments.value = result.pageInfo?.totalResults || comments.value.length;
+    totalComments.value = canonicalCount ?? result.pageInfo?.totalResults ?? comments.value.length;
     nextPageToken.value = result.nextPageToken;
-    
+
     renderedCount.value = Math.min(PAGE_SIZE, comments.value.length);
     hasMore.value = renderedCount.value < comments.value.length || !!nextPageToken.value;
-    
+
     emit('commentsLoaded', comments.value.length);
   } catch (e) {
     error.value = e instanceof Error ? e.message : 'Failed to load comments';

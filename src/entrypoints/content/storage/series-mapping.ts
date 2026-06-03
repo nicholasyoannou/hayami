@@ -258,6 +258,43 @@ export async function getSeriesMapping(series: string, platform?: SeriesMappingP
   return platformMapping;
 }
 
+/**
+ * Returns true only when the user actually saved a mapping for this anime
+ * on the requested platform (or any other platform, via the same
+ * cross-platform fallback `getSeriesMapping` uses). Unlike `getSeriesMapping`,
+ * this skips the cached-MAL/AniList-id merge — that merge synthesises a
+ * non-null object purely from auto-populated ID cache hits, which would
+ * otherwise make Reset-style UI think every visited anime has a saved
+ * mapping.
+ */
+export async function hasSavedSeriesMapping(
+  series: string,
+  platform?: SeriesMappingPlatform,
+): Promise<boolean> {
+  const siteKeys = resolveSiteKeyCandidates();
+  const siteKey = siteKeys[0] || 'global';
+  const platformKey = resolvePlatformKey(platform);
+  const mappings = await getSeriesMappingsBySite(siteKey);
+  const normalized = normalizeKey(series);
+
+  for (const candidateSiteKey of siteKeys) {
+    const siteMappings = mappings[candidateSiteKey] || {};
+    const platformMappings = siteMappings[platformKey] || {};
+    if (platformMappings[series] || platformMappings[normalized]) return true;
+  }
+
+  for (const candidateSiteKey of siteKeys) {
+    const siteMappings = mappings[candidateSiteKey] || {};
+    for (const [otherPlatformKey, platformMappings] of Object.entries(siteMappings)) {
+      if (otherPlatformKey === platformKey) continue;
+      if (!platformMappings || typeof platformMappings !== 'object') continue;
+      if (platformMappings[series] || platformMappings[normalized]) return true;
+    }
+  }
+
+  return false;
+}
+
 async function upsertRecentOverride(entry: ManualOverrideRecentEntry): Promise<void> {
   try {
     const existing = (await manualOverridesRecentItem.getValue()) || [];

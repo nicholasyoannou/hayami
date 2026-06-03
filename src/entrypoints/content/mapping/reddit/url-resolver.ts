@@ -368,23 +368,50 @@ export function resolveRedditUrlFromMapperResults(
 }
 
 /**
- * Movie short-circuit — returns the first movie URL on a single-entry
- * movie result, or null. Kept separate from
- * `resolveRedditUrlFromMapperResults` because the rest of that walk
- * filters movie entries out (they don't have an `episodes` map).
+ * Movie short-circuit — picks a Reddit URL for a movie response. Kept
+ * separate from `resolveRedditUrlFromMapperResults` because the rest of
+ * that walk filters movie entries out (they don't have an `episodes`
+ * map).
+ *
+ * Multi-movie responses are common for franchises like SAO Progressive
+ * (Hayami returns both "Aria of a Starless Night" and "Scherzo of Deep
+ * Night" for the series name). When `malId` is supplied we prefer the
+ * matching sibling; without that hint we only short-circuit when there's
+ * exactly one movie entry, since picking arbitrarily would just send
+ * users to the wrong film's discussion.
  */
 export function resolveRedditUrlForMovieEntry(
   results: MapperResultEntry[],
   malId: number | null,
   season: number | null,
 ): RedditUrlResolverHit | null {
-  if (results.length !== 1) return null;
-  const entry = results[0];
-  if (entry.year !== 'movies' || !Array.isArray(entry.movies) || entry.movies.length === 0) return null;
-  if (malId && entryMalId(entry) && entryMalId(entry) !== malId) return null;
-  const entrySeason = extractSeasonNumber(entryDisplayName(entry));
-  if ((entrySeason && season && entrySeason !== season) || (entrySeason && !season && entrySeason > 1)) {
-    return null;
+  if (!results?.length) return null;
+
+  const movieEntries = results.filter(
+    (entry): entry is MapperResultEntry =>
+      entry?.year === 'movies'
+      && Array.isArray(entry.movies)
+      && entry.movies.length > 0,
+  );
+  if (movieEntries.length === 0) return null;
+
+  const isAcceptableSeason = (entry: MapperResultEntry): boolean => {
+    const entrySeason = extractSeasonNumber(entryDisplayName(entry));
+    if (entrySeason && season && entrySeason !== season) return false;
+    if (entrySeason && !season && entrySeason > 1) return false;
+    return true;
+  };
+
+  if (malId) {
+    const malMatch = movieEntries.find((entry) => entryMalId(entry) === malId);
+    if (malMatch && isAcceptableSeason(malMatch)) {
+      return { url: malMatch.movies![0], entry: malMatch, episode: 0, via: 'movie' };
+    }
   }
-  return { url: entry.movies[0], entry, episode: 0, via: 'movie' };
+
+  if (movieEntries.length !== 1) return null;
+  const entry = movieEntries[0];
+  if (malId && entryMalId(entry) && entryMalId(entry) !== malId) return null;
+  if (!isAcceptableSeason(entry)) return null;
+  return { url: entry.movies![0], entry, episode: 0, via: 'movie' };
 }

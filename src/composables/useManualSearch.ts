@@ -9,8 +9,13 @@ import {
   extractEpisodeTableFromRedditSelftext,
   fetchAnimeMapperDataBySeriesName,
   getSeriesMapping,
+  hasSavedSeriesMapping,
   getLastResolvedHayamiName,
 } from '@/entrypoints/content/mapping';
+import {
+  searchYouTubePlaylistsForPicker,
+  type YouTubeChannelPlaylistMatch,
+} from '@/utils/youtube/api';
 import { extractSeasonNumber } from '@/utils/mal/title-parsing';
 import {
   searchAnimeCatalog,
@@ -76,7 +81,7 @@ export function useManualSearch(params: {
   const manualSearchLoading = ref(false);
   const manualSearchError = ref<string | null>(null);
   const manualDialogTab = ref<'search' | 'episode'>('episode');
-  const manualEpisodeOptions = ref<Array<{ episode: number; url: string; isDub?: boolean }>>([]);
+  const manualEpisodeOptions = ref<Array<{ episode: number; url: string; isDub?: boolean; isMovie?: boolean }>>([]);
   const manualEpisodeLoading = ref(false);
   const manualEpisodeError = ref<string | null>(null);
   const manualEpisodeSelected = ref<number | null>(null);
@@ -114,6 +119,11 @@ export function useManualSearch(params: {
   // Wrong-anime pick — drives the 1..N episode grid for Disqus exactly
   // like `malManualMedia` does for the MAL provider.
   const disqusManualMedia = ref<DiscussAnimeSearchHit | null>(null);
+  // Picked / auto-resolved YouTube playlist. Drives the episode grid via the
+  // playlist's actual video titles (parsed for "Episode N") so the saved
+  // offset matches what `findVideoInPlaylist` will look for at playback time.
+  // Reset every time the modal opens.
+  const youtubeManualPlaylist = ref<YouTubeChannelPlaylistMatch | null>(null);
   const manualAniwaveIsDub = ref(false);
   const manualAniwaveEpisodeVariants = ref<Array<{ episode: number; subUrl: string; dubUrl: string }>>([]);
 
@@ -158,12 +168,27 @@ export function useManualSearch(params: {
 
   const isYouTubeEpisodeManualMode = computed(() => manualEpisodeProvider.value === 'youtube');
 
-  // YouTube's wrong-anime picker reuses the AniList search UI (covers, episode
-  // counts, romaji/english titles). Grouping it with the AniList-shaped
-  // display lets us share one template branch in the modal.
+  // YouTube renders its own picker row shape (channel + playlist title +
+  // episode count parsed from videos), so it is NOT bundled with the
+  // AniList-shaped picker. The AniList-shaped picker covers the providers
+  // whose live search returns AniList media records.
   const isAniListShapedPickerMode = computed(
-    () => isAniListEpisodeManualMode.value || isYouTubeEpisodeManualMode.value,
+    () => isAniListEpisodeManualMode.value,
   );
+
+  // Gates the YouTube-specific picker row template in InlineDiscussion.vue.
+  const isYouTubePlaylistPickerMode = computed(() => isYouTubeEpisodeManualMode.value);
+
+  // Series-pill display for YouTube: include the channel and playlist so the
+  // user can see *which* playlist their episode grid is being drawn from.
+  // Display-only — the saved `mapperAnimeName` still comes from the existing
+  // wrongAnimePicked / resolvedName / contextAnimeName chain.
+  const youtubeManualDisplayLabel = computed(() => {
+    const pl = youtubeManualPlaylist.value;
+    if (!pl) return null;
+    const channel = pl.channelName ? `${pl.channelName} · ` : '';
+    return `${channel}${pl.playlistTitle}`;
+  });
 
   const isEpisodeOnlyManualMode = computed(() => manualEpisodeProvider.value !== 'reddit');
 
@@ -276,6 +301,59 @@ export function useManualSearch(params: {
 
     const payload = await response.json();
     return normalizeAniListMedia(payload?.data?.Media);
+  }
+
+  // ── Hayami YouTube playlist helpers ──────────────────────────────────────
+  // YouTube goes through Hayami's `/anime/search?platform=youtube` endpoint,
+  // which returns `channel_results[]` — one entry per indexed channel
+  // (Muse Asia, Muse Indonesia, ...), each with a best-match playlist and its
+  // actual video list. The picker shows one row per channel; the episode grid
+  // is built from the picked playlist's actual video titles (parsed for
+  // "Episode N" patterns) so the saved offset matches what the YouTube
+  // provider's `findVideoInPlaylist` will look for. The previous revision
+  // showed AniList's canonical episode count instead, which silently produced
+  // wrong offsets whenever the playlist used series-wide numbering (e.g. S2
+  // labelled Episode 13..18).
+
+  function parseYouTubeEpisodeFromTitle(title: string): number | null {
+    if (!title) return null;
+    // Mirrors the patterns in `findVideoInPlaylist` so what the picker shows
+    // is exactly what the provider will later be able to match.
+    const patterns: RegExp[] = [
+      /[Ee]pisode\s+(\d+)\b/,
+      /\bEP\s*(\d+)\b/i,
+      /\bE(\d+)\b/i,
+      /S\d+E(\d+)\b/i,
+    ];
+    for (const pattern of patterns) {
+      const match = title.match(pattern);
+      if (match) {
+        const num = Number(match[1]);
+        if (Number.isFinite(num) && num > 0) return num;
+      }
+    }
+    return null;
+  }
+
+  function buildYouTubeEpisodeOptions(
+    playlist: YouTubeChannelPlaylistMatch | null,
+  ): Array<{ episode: number; url: string }> {
+    if (!playlist) return [];
+    const byEpisode = new Map<number, string>();
+    for (const video of playlist.videos) {
+      const ep = parseYouTubeEpisodeFromTitle(video.title);
+      if (ep === null) continue;
+      if (!byEpisode.has(ep)) byEpisode.set(ep, video.video_id || '');
+    }
+    return Array.from(byEpisode.entries())
+      .map(([episode, url]) => ({ episode, url }))
+      .sort((a, b) => a.episode - b.episode);
+  }
+
+  async function loadYouTubePlaylistCandidates(query: string): Promise<YouTubeChannelPlaylistMatch[]> {
+    const trimmed = query.trim();
+    if (!trimmed) return [];
+    return searchYouTubePlaylistsForPicker(trimmed);
   }
 
   function normalizeMalMedia(media: any): MalSearchMedia | null {
@@ -538,8 +616,29 @@ export function useManualSearch(params: {
   function getMapperEpisodeOptions(
     result: any,
     options?: { provider?: Provider; aniwaveIsDub?: boolean },
-  ): Array<{ episode: number; url: string; isDub?: boolean }> {
+  ): Array<{ episode: number; url: string; isDub?: boolean; isMovie?: boolean }> {
     const episodes = result?.episodes;
+
+    // Movie short-circuit — when the entry carries `movies[]` and either
+    // no episode map or an empty one, present a single mapping option
+    // pointing at the film's Reddit URL. Without this, the caller falls
+    // through to Reddit selftext extraction which scrapes unrelated link
+    // tables out of the post body (e.g. SAO Aria's post happens to
+    // include a 12-row link list that gets misread as 12 episodes).
+    const hasEpisodeKeys = !!episodes && (
+      (Array.isArray(episodes) && episodes.length > 0)
+      || (typeof episodes === 'object' && !Array.isArray(episodes) && Object.keys(episodes).length > 0)
+    );
+    if (
+      !hasEpisodeKeys
+      && result?.year === 'movies'
+      && Array.isArray(result?.movies)
+      && result.movies.length > 0
+      && options?.provider !== 'aniwave'
+    ) {
+      return [{ episode: 1, url: String(result.movies[0]), isMovie: true }];
+    }
+
     if (!episodes) return [];
 
     // Newer Aniwave payload shape: episodes[] with episode_number + docID
@@ -651,9 +750,14 @@ export function useManualSearch(params: {
 
     try {
       const platform = getManualMappingPlatform();
-      const mapping = await getSeriesMapping(animeName, platform);
-      manualMappingExists.value = !!mapping;
+      // Use the raw-store check (no cached-ID merge) so the Reset button
+      // only shows for anime the user actually configured. Without this,
+      // `getSeriesMapping` synthesises a non-null mapping from cached
+      // MAL/AniList IDs alone, and the Reset button appears for every
+      // anime the user has merely visited.
+      manualMappingExists.value = await hasSavedSeriesMapping(animeName, platform);
       if (platform === 'aniwave') {
+        const mapping = await getSeriesMapping(animeName, platform);
         manualAniwaveIsDub.value = mapping?.aniwaveIsDub === true;
       }
     } catch (error) {
@@ -716,6 +820,7 @@ export function useManualSearch(params: {
     animeCommunityMedia.value = null;
     malManualMedia.value = null;
     disqusManualMedia.value = null;
+    youtubeManualPlaylist.value = null;
     manualAniwaveIsDub.value = false;
     manualAniwaveEpisodeVariants.value = [];
     if (wrongAnimeDebounceHandle) {
@@ -775,12 +880,7 @@ export function useManualSearch(params: {
       if (
         manualEpisodeProvider.value === 'animecommunity'
         || manualEpisodeProvider.value === 'anilist'
-        || manualEpisodeProvider.value === 'youtube'
       ) {
-        // YouTube reuses the AniList search path to discover the correct series
-        // and its episode count. The stored mapping still lives under the
-        // 'youtube' platform; the AniList id is only kept in-modal for the
-        // episode-count lookup and is not saved for YouTube overrides.
         let media = animeCommunityMedia.value;
 
         if (!media && Number.isFinite(Number(manualEpisodeContext.value.anilistId))) {
@@ -808,6 +908,44 @@ export function useManualSearch(params: {
 
         if (manualEpisodeOptions.value.length === 0) {
           manualEpisodeError.value = 'AniList does not expose a fixed episode count for this title yet.';
+          return;
+        }
+
+        populatedFromMapper = true;
+      }
+
+      if (manualEpisodeProvider.value === 'youtube') {
+        // YouTube hits Hayami's playlist-aware endpoint and builds the grid
+        // from the picked playlist's actual videos, so the offset the user
+        // saves matches what `findVideoInPlaylist` will look for at playback.
+        // A previous revision used AniList's canonical "episodes" count
+        // (1..N), which silently broke whenever the playlist used series-wide
+        // numbering (e.g. S2 labelled Episode 13..18) — the saved offset
+        // would point at an episode the playlist doesn't contain.
+        let playlist = youtubeManualPlaylist.value;
+
+        if (!playlist) {
+          const query = (manualEpisodeContext.value.animeName || '').trim();
+          if (query) {
+            const candidates = await loadYouTubePlaylistCandidates(query);
+            // Candidates come pre-sorted (exact match first, then most
+            // videos). That matches `pickBestChannelResult`'s heuristic
+            // so the modal's default selection lines up with what the
+            // YouTube provider would have picked anyway.
+            playlist = candidates[0] || null;
+          }
+        }
+
+        if (!playlist) {
+          manualEpisodeError.value = 'No YouTube playlist found via Hayami. Try Wrong anime? and search manually.';
+          return;
+        }
+
+        youtubeManualPlaylist.value = playlist;
+        manualEpisodeOptions.value = buildYouTubeEpisodeOptions(playlist);
+
+        if (manualEpisodeOptions.value.length === 0) {
+          manualEpisodeError.value = 'No episode-numbered videos detected in this playlist yet.';
           return;
         }
 
@@ -1058,12 +1196,20 @@ export function useManualSearch(params: {
       if (
         manualEpisodeProvider.value === 'animecommunity'
         || manualEpisodeProvider.value === 'anilist'
-        || manualEpisodeProvider.value === 'youtube'
       ) {
         const results = await searchAniListMedia(q);
         wrongAnimeResults.value = results;
         if (results.length === 0) {
           wrongAnimeError.value = 'No AniList matches found.';
+        }
+        return;
+      }
+
+      if (manualEpisodeProvider.value === 'youtube') {
+        const candidates = await loadYouTubePlaylistCandidates(q);
+        wrongAnimeResults.value = candidates;
+        if (candidates.length === 0) {
+          wrongAnimeError.value = 'No matching playlists found via Hayami.';
         }
         return;
       }
@@ -1107,16 +1253,12 @@ export function useManualSearch(params: {
     if (
       manualEpisodeProvider.value === 'animecommunity'
       || manualEpisodeProvider.value === 'anilist'
-      || manualEpisodeProvider.value === 'youtube'
     ) {
       const media = result as AniListSearchMedia;
       animeCommunityMedia.value = media;
       const name = media.title || wrongAnimeQuery.value.trim();
       manualWrongAnimePickedName.value = name || null;
       manualEpisodeContext.value.animeName = name;
-      // The AniList id is only used to fetch episode counts for the modal.
-      // confirmEpisodeSelection() gates whether it gets persisted — for
-      // 'youtube' it is never written into the saved mapping.
       manualEpisodeContext.value.anilistId = media.id;
       manualEpisodeResolvedName.value = name;
       wrongAnimeOpen.value = false;
@@ -1126,6 +1268,45 @@ export function useManualSearch(params: {
       manualMappingAnimeName.value = name;
       void refreshManualMappingState();
       void loadEpisodeOptions();
+      return;
+    }
+
+    if (manualEpisodeProvider.value === 'youtube') {
+      const playlist = result as YouTubeChannelPlaylistMatch;
+      youtubeManualPlaylist.value = playlist;
+      // Save `wrongAnimeQuery` (the user's typed/seeded query) as the picked
+      // name so the YouTube provider's re-query reproduces the same Hayami
+      // response when this mapping is replayed. The playlist's matchedName
+      // would also work, but it routinely matches multiple playlists across
+      // seasons (e.g. "Wistoria: Wand and Sword" matches both S1 and S2),
+      // and `pickBestChannelResult` would then prefer the entry with the
+      // most videos — not necessarily the season the user clicked.
+      const pickedName = (wrongAnimeQuery.value || '').trim() || playlist.matchedName || playlist.playlistTitle;
+      manualWrongAnimePickedName.value = pickedName || null;
+      manualEpisodeContext.value.animeName = pickedName;
+      manualEpisodeResolvedName.value = pickedName;
+      wrongAnimeOpen.value = false;
+      wrongAnimeResults.value = [];
+      wrongAnimeError.value = null;
+      wrongAnimeQuery.value = pickedName;
+      manualMappingAnimeName.value = pickedName;
+      void refreshManualMappingState();
+
+      // Populate the grid from the picked playlist directly so a stray
+      // background `loadEpisodeOptions` (e.g. from the wrongAnimeQuery
+      // watcher) can't replace it with a different channel's playlist.
+      const directOptions = buildYouTubeEpisodeOptions(playlist);
+      if (directOptions.length > 0) {
+        manualEpisodeError.value = null;
+        manualEpisodeOptions.value = directOptions;
+        const crEp = manualEpisodeContext.value.episodeNumber;
+        const candidate = crEp ? directOptions.find((opt) => opt.episode === crEp) : null;
+        manualEpisodeSelected.value = candidate ? candidate.episode : directOptions[0]?.episode ?? null;
+        manualEpisodeLoading.value = false;
+      } else {
+        manualEpisodeOptions.value = [];
+        manualEpisodeError.value = 'No episode-numbered videos detected in this playlist yet.';
+      }
       return;
     }
 
@@ -1600,6 +1781,7 @@ export function useManualSearch(params: {
     animeCommunityMedia,
     malManualMedia,
     disqusManualMedia,
+    youtubeManualPlaylist,
 
     // Computed
     manualEpisodeProviderLabel,
@@ -1612,6 +1794,8 @@ export function useManualSearch(params: {
     isDisqusEpisodeManualMode,
     isYouTubeEpisodeManualMode,
     isAniListShapedPickerMode,
+    isYouTubePlaylistPickerMode,
+    youtubeManualDisplayLabel,
     isEpisodeOnlyManualMode,
     selectedEpisodeOffset,
     redditUrl,
