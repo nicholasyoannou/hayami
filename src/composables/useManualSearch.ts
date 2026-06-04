@@ -318,12 +318,16 @@ export function useManualSearch(params: {
   function parseYouTubeEpisodeFromTitle(title: string): number | null {
     if (!title) return null;
     // Mirrors the patterns in `findVideoInPlaylist` so what the picker shows
-    // is exactly what the provider will later be able to match.
+    // is exactly what the provider will later be able to match. The `#NN`
+    // form covers Ani-One Asia's pure absolute numbering (e.g.
+    // `《咒術迴戰 死滅迴游 前篇》#48`). Lookbehind prevents grabbing the
+    // digits in hashtags like `#ULTRA48Bird`.
     const patterns: RegExp[] = [
       /[Ee]pisode\s+(\d+)\b/,
       /\bEP\s*(\d+)\b/i,
       /\bE(\d+)\b/i,
       /S\d+E(\d+)\b/i,
+      /(?<!\w)#(\d+)\b/,
     ];
     for (const pattern of patterns) {
       const match = title.match(pattern);
@@ -755,7 +759,15 @@ export function useManualSearch(params: {
       // `getSeriesMapping` synthesises a non-null mapping from cached
       // MAL/AniList IDs alone, and the Reset button appears for every
       // anime the user has merely visited.
-      manualMappingExists.value = await hasSavedSeriesMapping(animeName, platform);
+      //
+      // `includeCrossPlatform: false` — a mapping borrowed from another
+      // platform isn't resettable here (this platform's `deleteSeriesMapping`
+      // only clears its own bucket), so the button must not appear for it.
+      // Otherwise the user sees "Reset mapping" on Disqus for an override they
+      // actually saved on AniList, clicks it, and gets "no saved mapping found".
+      manualMappingExists.value = await hasSavedSeriesMapping(animeName, platform, {
+        includeCrossPlatform: false,
+      });
       if (platform === 'aniwave') {
         const mapping = await getSeriesMapping(animeName, platform);
         manualAniwaveIsDub.value = mapping?.aniwaveIsDub === true;

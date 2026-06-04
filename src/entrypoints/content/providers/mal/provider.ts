@@ -140,9 +140,21 @@ export class MalProvider extends BaseProvider {
         }
       }
 
-      const effectiveStatus = postsStatus === 'auth_required'
-        ? 'auth_required'
-        : forumResult.status;
+      // The post fetch we just ran is authoritative for the auth/ok state, so
+      // do NOT fall back to `forumResult.status` once posts load. On the
+      // post-sign-in refresh, the cache-reuse branch above seeds
+      // `forumResult.status` from `discussionCache.mal.status` — the stale
+      // `auth_required` written by the pre-sign-in run. Falling through to it
+      // would re-show the "MAL sign-in required" prompt even though the
+      // now-authenticated `fetchMalTopicPosts` succeeded with real posts.
+      let effectiveStatus: MalForumResult['status'];
+      if (postsStatus === 'auth_required') {
+        effectiveStatus = 'auth_required';
+      } else if (postsStatus === 'ok') {
+        effectiveStatus = 'ok';
+      } else {
+        effectiveStatus = forumResult.status;
+      }
 
       // Cache the result
       discussionCache.mal = {

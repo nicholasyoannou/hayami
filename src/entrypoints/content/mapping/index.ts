@@ -143,6 +143,78 @@ export function getLastResolvedHayamiName(baseAnimeName: string | null | undefin
   return lastResolvedHayami.baseKey === baseKey ? lastResolvedHayami.resolvedName : null;
 }
 
+// --- Mapper outcome cache (shared across providers on the same page) ---
+//
+// `tryMapperFailover` runs the full CR pipeline (Hayami /anime/search +
+// season-relative episode computation). Without sharing its outcome,
+// every provider re-runs the same work — and providers like Disqus that
+// reach for a lightweight resolver instead lose the season-relative
+// episode entirely (e.g. JJK E48 → discussanime.moe needs episode=1, not 48).
+// We cache by (anime name, raw episode) so a navigation to a new episode
+// invalidates and re-resolves.
+
+export interface LastMapperOutcomeRecord {
+  baseKey: string;
+  rawEpisode: number | null;
+  episode: number | null;
+  malId: number | null;
+  anilistId: number | null;
+}
+
+let lastMapperOutcome: LastMapperOutcomeRecord | null = null;
+
+function recordLastMapperOutcome(
+  baseAnimeName: string | null | undefined,
+  rawEpisode: number | null | undefined,
+  out: MapperFailoverOut,
+): void {
+  const baseKey = normalizeHayamiBaseKey(baseAnimeName);
+  if (!baseKey) return;
+
+  const entry = out.entry ?? null;
+  const animeMeta = out.animeMeta ?? null;
+  const entryMalId = toPositiveInt(entry?.external_sites?.mal_id);
+  const entryAnilistId = toPositiveInt(entry?.external_sites?.anilist_id);
+  const metaMalId = toPositiveInt(animeMeta?.malId);
+  const metaAnilistId = toPositiveInt(animeMeta?.anilistId);
+
+  const episode = typeof out.episode === 'number' && Number.isFinite(out.episode) ? out.episode : null;
+  const malId = entryMalId ?? metaMalId ?? null;
+  const anilistId = entryAnilistId ?? metaAnilistId ?? null;
+
+  // Only record when at least one useful field was populated — otherwise
+  // a no-op call (e.g. mapper miss) would clobber a prior good entry.
+  if (episode === null && malId === null && anilistId === null) return;
+
+  lastMapperOutcome = {
+    baseKey,
+    rawEpisode: typeof rawEpisode === 'number' && Number.isFinite(rawEpisode) ? rawEpisode : null,
+    episode,
+    malId,
+    anilistId,
+  };
+}
+
+export function getLastMapperOutcome(
+  baseAnimeName: string | null | undefined,
+  rawEpisode?: number | null,
+): LastMapperOutcomeRecord | null {
+  const baseKey = normalizeHayamiBaseKey(baseAnimeName);
+  if (!baseKey || !lastMapperOutcome || lastMapperOutcome.baseKey !== baseKey) return null;
+  // Episode-scoped freshness — a different episode of the same series
+  // needs a fresh mapper run because `episode` is per-episode data.
+  // Tolerate either side being null (e.g. lightweight callers that don't
+  // pass rawEpisode) by only invalidating when both are known and differ.
+  if (
+    typeof rawEpisode === 'number' &&
+    typeof lastMapperOutcome.rawEpisode === 'number' &&
+    rawEpisode !== lastMapperOutcome.rawEpisode
+  ) {
+    return null;
+  }
+  return lastMapperOutcome;
+}
+
 // --- MAL-Sync helpers ---
 
 /** Cross-extension messaging fallback (requires Discord RPC enabled in MAL-Sync). */
@@ -916,6 +988,13 @@ export async function tryMapperFailover(
   } catch (error) {
     log.error('Error in mapper failover:', error);
     return null;
+  } finally {
+    // Surface the mapper outcome for cross-provider sharing. Disqus
+    // (and any future provider that needs the season-relative episode)
+    // reads this instead of re-running the full pipeline.
+    if (out) {
+      recordLastMapperOutcome(animeInfo?.animeName, episodeOverride ?? null, out);
+    }
   }
 }
 

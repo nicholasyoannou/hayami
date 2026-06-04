@@ -185,7 +185,32 @@ function stripPlatformSpecificFields(mapping: SeriesMapping): SeriesMapping {
   return shareable;
 }
 
-export async function getSeriesMapping(series: string, platform?: SeriesMappingPlatform): Promise<SeriesMapping | null> {
+export interface SeriesMappingResolution {
+  /** The resolved mapping (after cross-platform fallback + cached-id merge), or null. */
+  mapping: SeriesMapping | null;
+  /**
+   * How the mapping was found:
+   *  - `platform`: saved explicitly for the requested platform.
+   *  - `cross-platform`: borrowed from another platform the user saved against.
+   *  - `none`: no saved mapping (the returned `mapping` is null or a pure
+   *    cached-id synthesis).
+   */
+  matchSource: 'platform' | 'cross-platform' | 'none';
+  /** The platform a `cross-platform` mapping was borrowed from, else null. */
+  crossPlatformOrigin: string | null;
+}
+
+/**
+ * Like {@link getSeriesMapping}, but also reports HOW the mapping was found.
+ * Providers need this to distinguish a native pick from a cross-platform
+ * borrowed one: a borrowed "Wrong anime?" override is keyed by the bare
+ * series name and so bleeds onto every season of a continuous-numbered
+ * series — it must not be trusted as authoritatively as a native pick.
+ */
+export async function resolveSeriesMappingDetailed(
+  series: string,
+  platform?: SeriesMappingPlatform,
+): Promise<SeriesMappingResolution> {
   const siteKeys = resolveSiteKeyCandidates();
   const siteKey = siteKeys[0] || 'global';
   const platformKey = resolvePlatformKey(platform);
@@ -247,15 +272,23 @@ export async function getSeriesMapping(series: string, platform?: SeriesMappingP
     const cached = await readCachedAnimeIds(effectiveName);
     if (cached) {
       return {
-        episodeOffset: platformMapping?.episodeOffset ?? 0,
-        ...(platformMapping || {}),
-        malId: platformMapping?.malId ?? cached.malId,
-        anilistId: platformMapping?.anilistId ?? cached.anilistId,
+        mapping: {
+          episodeOffset: platformMapping?.episodeOffset ?? 0,
+          ...(platformMapping || {}),
+          malId: platformMapping?.malId ?? cached.malId,
+          anilistId: platformMapping?.anilistId ?? cached.anilistId,
+        },
+        matchSource,
+        crossPlatformOrigin,
       };
     }
   }
 
-  return platformMapping;
+  return { mapping: platformMapping, matchSource, crossPlatformOrigin };
+}
+
+export async function getSeriesMapping(series: string, platform?: SeriesMappingPlatform): Promise<SeriesMapping | null> {
+  return (await resolveSeriesMappingDetailed(series, platform)).mapping;
 }
 
 /**
@@ -270,7 +303,9 @@ export async function getSeriesMapping(series: string, platform?: SeriesMappingP
 export async function hasSavedSeriesMapping(
   series: string,
   platform?: SeriesMappingPlatform,
+  options?: { includeCrossPlatform?: boolean },
 ): Promise<boolean> {
+  const includeCrossPlatform = options?.includeCrossPlatform !== false;
   const siteKeys = resolveSiteKeyCandidates();
   const siteKey = siteKeys[0] || 'global';
   const platformKey = resolvePlatformKey(platform);
@@ -282,6 +317,13 @@ export async function hasSavedSeriesMapping(
     const platformMappings = siteMappings[platformKey] || {};
     if (platformMappings[series] || platformMappings[normalized]) return true;
   }
+
+  // Cross-platform mappings are borrowed read-only — they can't be deleted via
+  // this platform's `deleteSeriesMapping`. Callers gating a "Reset mapping"
+  // button (which only clears the native platform bucket) pass
+  // `includeCrossPlatform: false` so the button doesn't appear for a mapping
+  // it can't actually reset.
+  if (!includeCrossPlatform) return false;
 
   for (const candidateSiteKey of siteKeys) {
     const siteMappings = mappings[candidateSiteKey] || {};

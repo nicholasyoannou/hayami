@@ -149,11 +149,20 @@ export class AniListProvider extends BaseProvider {
         log.warn('fetchViewer failed; treating as signed-out', err);
       }
 
+      // The comment fetch we just ran is authoritative for the auth/ok state,
+      // so don't fall through to `threadsResult.status` once comments load (the
+      // `'ok'` branch). On the post-sign-in refresh, the cache-reuse branch
+      // above seeds `threadsResult.status` from `discussionCache.anilist.status`
+      // — the stale `auth_required` from the pre-sign-in run — which would
+      // re-show the sign-in prompt despite the now-authenticated fetch
+      // succeeding. Fall back to the thread status only when no comments ran.
       const status = commentsResult?.status === 'auth_required'
         ? 'auth_required'
         : commentsResult?.status === 'error'
           ? 'error'
-          : threadsResult.status;
+          : commentsResult?.status === 'ok'
+            ? 'ok'
+            : threadsResult.status;
 
       const errorMessage = threadsResult.errorMessage ?? (commentsResult as any)?.errorMessage;
 

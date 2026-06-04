@@ -550,13 +550,17 @@ export function findVideoInPlaylist(
   }
 
   // Try to find video by episode number in title
-  // Look for patterns like "Episode 19", "EP19", "E19", "S2E07", etc.
+  // Look for patterns like "Episode 19", "EP19", "E19", "S2E07", "#48", etc.
+  // The `#NN` form covers Ani-One Asia's pure absolute numbering (e.g.
+  // `《咒術迴戰 死滅迴游 前篇》#48`). Lookbehind keeps it from grabbing
+  // digits embedded in hashtags like `#ULTRA48Bird`.
   const episodePatterns = [
     new RegExp(`[Ee]pisode\\s+${episodeNumber}\\b`, 'i'),
     new RegExp(`EP${episodeNumber}\\b`, 'i'),
     new RegExp(`E${episodeNumber}\\b`, 'i'),
     new RegExp(`S\\d+E${String(episodeNumber).padStart(2, '0')}`, 'i'),
     new RegExp(`S\\d+E${episodeNumber}\\b`, 'i'),
+    new RegExp(`(?<!\\w)#${episodeNumber}\\b`),
   ];
 
   for (const video of playlist.videos) {

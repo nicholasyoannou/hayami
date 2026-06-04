@@ -19,7 +19,7 @@ import { fetchAniListThreads } from '@/utils/anilist/forums';
 import { findEpisodeThread } from '@/utils/discussanime/api';
 import {
   tryMapperFailover,
-  getLastResolvedHayamiName,
+  getLastMapperOutcome,
   type MapperFailoverOut,
 } from '@/entrypoints/content/mapping';
 import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
@@ -217,32 +217,40 @@ async function prefetchDisqus(
   // PRIORITY 2: no saved override — run the same season-aware Hayami
   // match Reddit uses so multi-season titles (e.g. "MHA FINAL SEASON" →
   // "MHA: More") resolve to the right MAL id before we hit the site.
-  // Skip when Reddit's foreground flow already resolved this series AND
-  // the disambiguated ids are still on `animeInfo`. The cache hit alone
-  // isn't enough — `lastResolvedHayami` is module-scoped and outlives
-  // the original `animeInfo`, so on SPA navigation between episodes of
-  // the same series the new `animeInfo` arrives without the prior
-  // episode's id mutations and we still need the failover to run.
-  const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
-  const hasResolvedIds = !!animeInfo.malId || !!animeInfo.anilistId;
+  //
+  // Read from the shared `lastMapperOutcome` cache first: Reddit's
+  // foreground flow already runs `tryMapperFailover` and the new
+  // finally-block caches its season-relative episode + ids there.
+  // Hitting that cache avoids a duplicate /anime/search + CR-pipeline
+  // round-trip while still giving us the answer we need for the
+  // continuous-numbering case (Science Future E32 → Part 3 E8).
   let mapperResolvedEp: number | null = null;
-  if (!hasSavedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
-    try {
-      const failoverOut: MapperFailoverOut = {};
-      await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);
-      if (failoverOut.entry || failoverOut.animeMeta) {
-        applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
+  if (!hasSavedOverride) {
+    const cached = getLastMapperOutcome(animeInfo.animeName, rawEp);
+    if (cached) {
+      if (cached.malId && !animeInfo.malId) {
+        animeInfo.malId = cached.malId;
       }
-      // Keep the mapper's season-relative answer as a candidate. Without it,
-      // continuous-numbered CR shows (e.g. Science Future E32 → Part 3 E8)
-      // prefetch with only the raw streaming number and miss the thread,
-      // leaving the cache cold for the foreground switchTo to refill.
-      if (typeof failoverOut.episode === 'number') {
-        mapperResolvedEp = failoverOut.episode;
+      if (cached.anilistId && !animeInfo.anilistId) {
+        animeInfo.anilistId = cached.anilistId;
       }
-    } catch {
-      // Background prefetch — swallow failures, the provider's switchTo
-      // will retry on user click.
+      if (cached.episode !== null) {
+        mapperResolvedEp = cached.episode;
+      }
+    } else {
+      try {
+        const failoverOut: MapperFailoverOut = {};
+        await tryMapperFailover(animeInfo, 'reddit', mappedEp ?? rawEp ?? null, failoverOut);
+        if (failoverOut.entry || failoverOut.animeMeta) {
+          applyMapperEntryIdsToAnimeInfo(animeInfo, failoverOut.entry, failoverOut.animeMeta);
+        }
+        if (typeof failoverOut.episode === 'number') {
+          mapperResolvedEp = failoverOut.episode;
+        }
+      } catch {
+        // Background prefetch — swallow failures, the provider's switchTo
+        // will retry on user click.
+      }
     }
   }
 

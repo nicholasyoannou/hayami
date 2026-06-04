@@ -24,11 +24,10 @@ import { removeScripts, removeIframes, safeClear } from '@/entrypoints/content/u
 import { handleProviderError } from '@/entrypoints/content/utils/error-handler';
 import {
   parseEpisodeFromTitle,
-  getLastResolvedHayamiName,
+  getLastMapperOutcome,
 } from '@/entrypoints/content/mapping';
-import { resolveSeriesIdentity } from '@/entrypoints/content/mapping/identity-resolver';
+import { resolveAnimeIdentity } from '@/entrypoints/content/mapping/identity-resolver';
 import { getSavedIds } from '@/entrypoints/content/mapping/trust-policy';
-import { applyMapperEntryIdsToAnimeInfo } from '@/entrypoints/content/mapping/apply-ids';
 import { dispatchManualSearchRequest } from '../manual-search';
 import { getRuntimeUrl } from '@/utils/runtime';
 import { linkOnlyModeItem } from '@/config/storage';
@@ -433,7 +432,7 @@ export class DisqusProvider extends BaseProvider {
 
     try {
       const ctx = await this.loadProviderContext(animeInfo, 'disqus');
-      const { mapping, rawEpisode: rawEp, mappedEpisode: mappedEp, hasUserPickedOverride } = ctx;
+      const { mapping, rawEpisode: rawEp, mappedEpisode: mappedEp, hasUserPickedOverride, isCrossPlatformOverride } = ctx;
 
       // PRIORITY 1: a real "Wrong anime?" pick lives in the mapping with
       // `mapperAnimeName` set. Pin its ids and skip the Hayami round-trip
@@ -457,47 +456,51 @@ export class DisqusProvider extends BaseProvider {
         animeInfo.anilistId = null;
       }
 
-      // PRIORITY 2: no saved override — run the same season-aware Hayami
-      // match Reddit uses so multi-season titles ("My Hero Academia FINAL
-      // SEASON" = "MHA: More", not "MHA S4") resolve to the right MAL id.
-      //
-      // Skip when Reddit's foreground flow already resolved this series
-      // AND the disambiguated ids are still on `animeInfo`. The cache hit
-      // alone isn't enough — `lastResolvedHayami` is module-scoped and
-      // outlives the original `animeInfo`, so on SPA navigation between
-      // episodes of the same series the new `animeInfo` arrives without
-      // the prior episode's id mutations and we still need the resolver
-      // to populate `malId`/`anilistId` before `findEpisodeThread`.
-      const alreadyResolvedByReddit = !!getLastResolvedHayamiName(animeInfo.animeName);
-      const hasResolvedIds = !!animeInfo.malId || !!animeInfo.anilistId;
+      // PRIORITY 2: no saved override — resolve via the shared mapper outcome.
+      // Reddit's foreground flow and the background prefetcher both run
+      // `tryMapperFailover`, which caches its season-relative episode +
+      // ids in `lastMapperOutcome`. Reading that cache here gives us the
+      // same answer Reddit got (e.g. JJK E48 → season-relative 1) without
+      // re-running the CR pipeline. Falling back to `resolveAnimeIdentity`
+      // when the cache is cold covers the Disqus-as-default case — the
+      // previous lightweight `resolveSeriesIdentity` path returned only
+      // ids and dropped the episode mapping, which left the discussanime.moe
+      // lookup asking for `episode=48` on a 12-episode season.
       let mapperResolvedEp: number | null = null;
-      if (!hasUserPickedOverride && !(alreadyResolvedByReddit && hasResolvedIds)) {
-        try {
-          // Series-only path: hits `/anime/resolve` (Hayami's offline-DB
-          // resolver) instead of the Reddit-shaped `/anime/search`. Disqus
-          // only needs canonical MAL/AniList ids for the discussanime.moe
-          // lookup; we don't want the thread-mapping payload `/anime/search`
-          // returns, and we don't want it to 404 noisily on newly-airing
-          // series that haven't been ingested into the per-episode index yet.
-          const identity = await resolveSeriesIdentity(animeInfo, {
-            mapping,
-            episode: mappedEp ?? rawEp,
-          });
-          // Always copy through — `resolveSeriesIdentity` returns `entry: null`
-          // by design (no Reddit threads on this path), so we can't gate on
-          // `entry || animeMeta` like the Reddit path does. Trust whatever
-          // ids the resolver produced.
-          if (identity.malId && !animeInfo.malId) {
-            animeInfo.malId = identity.malId;
+      if (!hasUserPickedOverride) {
+        const cached = getLastMapperOutcome(animeInfo.animeName, rawEp);
+        if (cached) {
+          if (cached.malId && !animeInfo.malId) {
+            animeInfo.malId = cached.malId;
           }
-          if (identity.anilistId && !animeInfo.anilistId) {
-            animeInfo.anilistId = identity.anilistId;
+          if (cached.anilistId && !animeInfo.anilistId) {
+            animeInfo.anilistId = cached.anilistId;
           }
-          if (identity.resolvedEpisode !== null) {
-            mapperResolvedEp = identity.resolvedEpisode;
+          if (cached.episode !== null) {
+            mapperResolvedEp = cached.episode;
           }
-        } catch (e) {
-          log.warn('Identity resolution failed; falling back to detected ids', e);
+        } else {
+          try {
+            // No cache → run the full mapper failover. This computes the
+            // season-relative episode for CR continuous-numbering shows
+            // and falls back to MAL-Sync / `readCachedAnimeIds` when
+            // Hayami doesn't know the series yet (LIAR GAME case).
+            const identity = await resolveAnimeIdentity(animeInfo, {
+              mapping,
+              episode: mappedEp ?? rawEp,
+            });
+            if (identity.malId && !animeInfo.malId) {
+              animeInfo.malId = identity.malId;
+            }
+            if (identity.anilistId && !animeInfo.anilistId) {
+              animeInfo.anilistId = identity.anilistId;
+            }
+            if (identity.resolvedEpisode !== null) {
+              mapperResolvedEp = identity.resolvedEpisode;
+            }
+          } catch (e) {
+            log.warn('Identity resolution failed; falling back to detected ids', e);
+          }
         }
       }
 
@@ -544,8 +547,57 @@ export class DisqusProvider extends BaseProvider {
         episodeNameHint: animeInfo.episodeName ?? null,
       };
       log.log('findEpisodeThread params', lookupParams);
-      const thread = await findEpisodeThread(lookupParams);
+      let thread = await findEpisodeThread(lookupParams);
       logThreadSnapshot('findEpisodeThread-result', thread);
+
+      // A "Wrong anime?" override saved on ANOTHER platform (e.g. an AniList
+      // pick of "Jujutsu Kaisen 2nd Season") is borrowed here via the
+      // cross-platform mapping fallback. Because mappings are keyed by the
+      // bare series name, that S2 override (id 145064 + offset -24) also gets
+      // applied to S3 episodes of the same continuous-numbered series — e.g.
+      // CR "E56" → episode 32 against the 23-episode S2 id → no thread.
+      //
+      // When a borrowed override resolves to nothing, fall back to the
+      // season-aware mapper, which ignores the saved override and derives the
+      // correct season + season-relative episode straight from the CR episode
+      // metadata (the same path Reddit uses). A NATIVE pick is left strict —
+      // the user chose it for THIS provider, so we don't second-guess it.
+      if (!thread && isCrossPlatformOverride) {
+        try {
+          const identity = await resolveAnimeIdentity(animeInfo, {
+            // Pass no mapping so the resolver ignores the borrowed override
+            // (which would otherwise short-circuit it) and actually runs
+            // Hayami's CR deep-mapping pipeline.
+            mapping: null,
+            episode: rawEp,
+          });
+          const fbMalId = identity.malId ?? null;
+          const fbAnilistId = identity.anilistId ?? null;
+          if (fbMalId || fbAnilistId) {
+            const fbCandidates = [identity.resolvedEpisode, siteAdjustedEp, rawEp];
+            log.log('cross-platform override resolved no thread; retrying via mapper', {
+              fbMalId,
+              fbAnilistId,
+              fbCandidates,
+            });
+            thread = await findEpisodeThread({
+              malId: fbMalId,
+              anilistId: fbAnilistId,
+              episodeCandidates: fbCandidates,
+              episodeNameHint: animeInfo.episodeName ?? null,
+            });
+            logThreadSnapshot('findEpisodeThread-result (mapper fallback)', thread);
+            if (thread) {
+              // Adopt the mapper's ids so any downstream lookups on this
+              // animeInfo use the correct season rather than the borrowed one.
+              if (fbMalId) animeInfo.malId = fbMalId;
+              if (fbAnilistId) animeInfo.anilistId = fbAnilistId;
+            }
+          }
+        } catch (e) {
+          log.warn('Mapper fallback after cross-platform override miss failed', e);
+        }
+      }
 
       if (thread) {
         discussionCache.disqus = { thread, animeKey: cacheKey || undefined };
