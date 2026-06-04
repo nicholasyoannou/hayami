@@ -531,50 +531,66 @@ const modhashCache = {
 };
 const MODHASH_TTL_MS = 5 * 60 * 1000;
 
+/**
+ * Resolve the session modhash — the `uh` anti-CSRF token required by the
+ * cookie-authenticated old.reddit write endpoints (comment/edit/del/vote/save).
+ *
+ * This previously scraped the old.reddit.com homepage HTML for `modhash`/
+ * `vote_hash`. Reddit's edge now blocks programmatic (non-navigation) fetches
+ * of that document route ("blocked by network security"), and the request
+ * shape that gives it away — `Sec-Fetch-Mode: cors` / `Sec-Fetch-Dest: empty`
+ * / cross-origin `Origin` — is browser-controlled, so it can't be disguised
+ * as a navigation from a background `fetch()` (those headers are forbidden to
+ * `fetch()` and excluded from declarativeNetRequest's modifiable allowlist).
+ *
+ * Instead we read `modhash` from `/api/me.json`, a JSON endpoint meant to be
+ * fetched. `vote_hash` is not exposed there; callers already fall back to
+ * `modhash` for the `vh` field, so losing it is non-fatal.
+ */
 export async function getModhash(): Promise<{ modhash: string | null; voteHash: string | null; username: string | null }> {
   const now = Date.now();
   if (modhashCache.modhash && now - modhashCache.fetchedAt < MODHASH_TTL_MS) {
     return { modhash: modhashCache.modhash, voteHash: modhashCache.voteHash, username: modhashCache.username };
   }
 
-  try {
-    // Use the old.reddit homepage to avoid 404/redirect issues with hardcoded posts
-    const pageUrl = 'https://old.reddit.com/';
-    log.log('[getModhash] Fetching Reddit page to extract modhash:', pageUrl);
+  // Prefer www — its edge doesn't gate the JSON API the way old's document
+  // route is gated. Fall back to old in case www is unavailable. modhash is
+  // tied to the reddit_session cookie, not the host, so a modhash obtained
+  // from www is valid for POSTing to old.reddit's write endpoints.
+  const endpoints = ['https://www.reddit.com/api/me.json', 'https://old.reddit.com/api/me.json'];
+  for (const url of endpoints) {
+    try {
+      const resp = await extensionFetch(url, { credentials: 'include' });
+      if (!resp.ok) {
+        log.log('[getModhash] me.json non-OK:', url, resp.status);
+        continue;
+      }
 
-    const resp = await extensionFetch(pageUrl, { credentials: 'include' });
-    if (!resp.ok) {
-      log.log('[getModhash] Failed to fetch Reddit page:', resp.status);
-      return { modhash: null, voteHash: null, username: null };
-    }
+      const data = await resp.json();
+      const root = data?.data && typeof data.data === 'object' ? data.data : data;
+      const modhash = typeof root?.modhash === 'string' && root.modhash ? root.modhash : null;
+      const username = typeof root?.name === 'string' ? root.name : null;
 
-    const html = await resp.text();
-    log.log('[getModhash] Successfully fetched Reddit page HTML');
-    
-    // Extract modhash from the page's JavaScript config
-    const modhashMatch = html.match(/"modhash":\s*"([^"]+)"/);
-    const voteHashMatch = html.match(/"vote_hash":\s*"([^"]+)"/i);
-    const userMatch = html.match(/"logged":\s*"([^"]*)"/);
-    const modhash = modhashMatch?.[1] || null;
-    const voteHash = voteHashMatch?.[1] || null;
-    const username = userMatch?.[1] || null;
-    if (!modhash) {
-      log.warn('Could not find modhash in HTML');
-    }
-    if (!voteHash) {
-      log.warn('Could not find vote_hash in HTML');
-    }
-    if (modhash) {
+      if (!modhash) {
+        // Populated only for a logged-in cookie session; skip to next endpoint.
+        log.warn('[getModhash] me.json returned no modhash (logged out?):', url);
+        continue;
+      }
+
+      // vote_hash isn't part of me.json — leave it null so callers fall back
+      // to modhash for `vh`.
       modhashCache.modhash = modhash;
-      modhashCache.voteHash = voteHash;
+      modhashCache.voteHash = null;
       modhashCache.username = username;
       modhashCache.fetchedAt = now;
+      return { modhash, voteHash: null, username };
+    } catch (error) {
+      log.warn('[getModhash] me.json fetch failed:', url, error);
     }
-    return { modhash, voteHash, username };
-  } catch (error) {
-    log.error('Error fetching modhash from HTML:', error);
-    return { modhash: null, voteHash: null, username: null };
   }
+
+  log.error('[getModhash] Could not obtain modhash from any me.json endpoint');
+  return { modhash: null, voteHash: null, username: null };
 }
 
 /**
