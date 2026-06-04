@@ -147,7 +147,18 @@ export function mapEpisodeWithSeasonsData(
       });
       return crEpisodeNumber;
     }
-    if (sequenceNumber >= 1 && sequenceNumber <= mapperEpisodeCount) {
+    // Recover from truncated mapper data: Hayami sometimes returns only the
+    // episode being viewed in `episodes` (Solo Leveling S2 came back with the
+    // single key "13"), making `mapperEpisodeCount` 1 so the `<= mapperEpisodeCount`
+    // bound wrongly rejected a valid season-relative sequence_number — dropping
+    // E24/E25 into the continuous fallback, which computed
+    // `crEp − totalPreviousCrEpisodes` off by one (25 − 13 = 12 instead of 13).
+    // Also accept when the matched season literally has the sequence_number as
+    // an episode key: that's proof it's the right in-season episode. This stays
+    // correct for COLLAPSED CR seasons (Mushoku Tensei = Part 1 + Part 2 in one
+    // CR season) — the matched part has keys 1..11, not the collapsed index 24,
+    // so those still fall through to the remap logic below.
+    if (sequenceNumber >= 1 && (sequenceNumber <= mapperEpisodeCount || hasEpisodeKey(sequenceNumber))) {
       log.log(' Using sequence_number directly (season-specific):', sequenceNumber);
       return sequenceNumber;
     }

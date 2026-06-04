@@ -1171,7 +1171,15 @@ export function useManualSearch(params: {
 
       if (manualEpisodeContext.value.episodeNumber && manualEpisodeSelected.value === null) {
         const candidate = manualEpisodeOptions.value.find((opt) => opt.episode === manualEpisodeContext.value.episodeNumber);
-        manualEpisodeSelected.value = candidate ? candidate.episode : manualEpisodeOptions.value[0]?.episode ?? null;
+        // For YouTube, don't default to the first grid entry when the current
+        // episode isn't present — the grid is one channel's parsed titles, and
+        // a wrong default gets saved as a bogus episodeOffset that shifts every
+        // channel's lookup (E1 → "Episode 02"). Force a conscious pick. Other
+        // providers keep the first-entry default.
+        const fallbackEpisode = manualEpisodeProvider.value === 'youtube'
+          ? null
+          : (manualEpisodeOptions.value[0]?.episode ?? null);
+        manualEpisodeSelected.value = candidate ? candidate.episode : fallbackEpisode;
       }
     } catch (e: any) {
       manualEpisodeError.value = e?.message || 'Failed to load episode list.';
@@ -1313,7 +1321,15 @@ export function useManualSearch(params: {
         manualEpisodeOptions.value = directOptions;
         const crEp = manualEpisodeContext.value.episodeNumber;
         const candidate = crEp ? directOptions.find((opt) => opt.episode === crEp) : null;
-        manualEpisodeSelected.value = candidate ? candidate.episode : directOptions[0]?.episode ?? null;
+        // Pre-select the grid entry matching the current CR episode so simply
+        // switching channels keeps the same episode (offset 0). Do NOT fall
+        // back to the first grid entry: the grid is built from ONE channel's
+        // parsed video titles, and a channel whose episode-1 title doesn't
+        // parse (so its grid starts at 2) would otherwise pre-select episode 2.
+        // Confirming then saves offset = 2 − 1 = +1, which the provider applies
+        // to whatever channel it re-picks → "E1 → Episode 02". Leave it null so
+        // the user makes a conscious pick instead.
+        manualEpisodeSelected.value = candidate ? candidate.episode : null;
         manualEpisodeLoading.value = false;
       } else {
         manualEpisodeOptions.value = [];

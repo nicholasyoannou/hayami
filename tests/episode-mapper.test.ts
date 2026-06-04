@@ -253,6 +253,47 @@ describe('mapEpisodeWithSeasonsData', () => {
       expect(result).toBe(2);
     });
 
+    // Solo Leveling S2: CR reports a SEPARATE S2 (clean 1:1 season), but Hayami
+    // returned truncated `episodes` (only the viewed episode's key). CR also
+    // over-counts S1 as 13 (the "-1.5" recap), so the continuous fallback would
+    // compute crEp − totalPreviousCrEpisodes off by one (25 − 13 = 12, 24 − 13
+    // = 11). The season-relative answer is CR's own sequence_number (13, 12),
+    // and the truncated mapper data still carries that exact key — so the
+    // sequence-number-direct path must accept it via `hasEpisodeKey`.
+    it('Solo Leveling S2E25 (finale): uses sequence_number when mapper data is truncated to that key', () => {
+      const s1 = makeMapperEntry({
+        anime_name: 'Solo Leveling',
+        year: '2024',
+        episodes: makeEpisodes(1, 12),
+      });
+      const s2 = makeMapperEntry({
+        anime_name: 'Solo Leveling Season 2: Arise from the Shadow',
+        year: '2025',
+        episodes: { '13': 'https://reddit.com/r/anime/comments/ep13' }, // truncated to the viewed ep
+      });
+      // CR over-counts S1 as 13 (12 eps + recap); S2 is a clean 13-ep season.
+      const crSeasons = [makeCrSeason(1, 13), makeCrSeason(2, 13)];
+      // crEpisodeNumber=25, sequenceNumber=13, seasonNumber=2
+      const result = mapEpisodeWithSeasonsData(25, 13, 2, crSeasons, s2, [s1, s2], 1);
+      expect(result).toBe(13);
+    });
+
+    it('Solo Leveling S2E24: uses sequence_number 12 (not the off-by-one continuous 11)', () => {
+      const s1 = makeMapperEntry({
+        anime_name: 'Solo Leveling',
+        year: '2024',
+        episodes: makeEpisodes(1, 12),
+      });
+      const s2 = makeMapperEntry({
+        anime_name: 'Solo Leveling Season 2: Arise from the Shadow',
+        year: '2025',
+        episodes: { '12': 'https://reddit.com/r/anime/comments/ep12' },
+      });
+      const crSeasons = [makeCrSeason(1, 13), makeCrSeason(2, 13)];
+      const result = mapEpisodeWithSeasonsData(24, 12, 2, crSeasons, s2, [s1, s2], 1);
+      expect(result).toBe(12);
+    });
+
     // Classroom of the Elite: single mapper entry covering latest season only
     it('CotE S1E1 maps to episode 1 with single mapper result', () => {
       const cote = makeMapperEntry({

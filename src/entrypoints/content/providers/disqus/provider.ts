@@ -434,40 +434,50 @@ export class DisqusProvider extends BaseProvider {
       const ctx = await this.loadProviderContext(animeInfo, 'disqus');
       const { mapping, rawEpisode: rawEp, mappedEpisode: mappedEp, hasUserPickedOverride, isCrossPlatformOverride } = ctx;
 
-      // PRIORITY 1: a real "Wrong anime?" pick lives in the mapping with
-      // `mapperAnimeName` set. Pin its ids and skip the Hayami round-trip
-      // below so a follow-up resolve can't re-introduce the wrong-series
-      // ids the user explicitly corrected against.
-      //
-      // The trust-policy helper enforces "only trust saved ids when the
-      // user actually picked them" — without it, MAL-Sync's parent-series
-      // id (cached by `cacheAnimeIds`) would silently win and resolve the
-      // wrong thread (e.g. MHA S4 38408 for an MHA: More episode).
+      // A "Wrong anime?" pick writes `mapperAnimeName` to the mapping. WHERE it
+      // was saved decides how much we trust it:
+      //  - NATIVE pick (saved on Disqus itself): authoritative. Pin its ids and
+      //    skip the Hayami round-trip so a follow-up resolve can't re-introduce
+      //    the wrong-series ids the user explicitly corrected against.
+      //  - BORROWED pick (saved on another provider, reused here via the
+      //    cross-platform mapping fallback): a HINT only. Borrowed overrides are
+      //    keyed by the bare series name, so they bleed onto other seasons of a
+      //    continuous-numbered franchise (a JJK S2 pick on an S3 episode; a
+      //    Dr. STONE Part 3 offset on a different part). So we DON'T pin its ids
+      //    and DON'T skip the mapper — the mapper leads on identity, the
+      //    override's offset episode becomes a top candidate (below), and its
+      //    ids are only a fallback when the mapper resolves none.
+      const nativeUserPick = hasUserPickedOverride && !isCrossPlatformOverride;
+
+      // The trust-policy helper enforces "only trust saved ids when the user
+      // actually picked them" — without it, MAL-Sync's parent-series id (cached
+      // by `cacheAnimeIds`) would silently win and resolve the wrong thread
+      // (e.g. MHA S4 38408 for an MHA: More episode).
       const saved = getSavedIds(mapping, { requireUserPick: true });
-      if (saved.malId) {
-        animeInfo.malId = saved.malId;
-      }
-      if (saved.anilistId) {
-        animeInfo.anilistId = saved.anilistId;
-      } else if (saved.malId) {
-        // The saved override only carries a MAL id — drop the stale
-        // anilistId from the original detection so the discussanime.moe
-        // lookup doesn't get confused by mismatched ids.
-        animeInfo.anilistId = null;
+      if (nativeUserPick) {
+        if (saved.malId) {
+          animeInfo.malId = saved.malId;
+        }
+        if (saved.anilistId) {
+          animeInfo.anilistId = saved.anilistId;
+        } else if (saved.malId) {
+          // The saved override only carries a MAL id — drop the stale
+          // anilistId from the original detection so the discussanime.moe
+          // lookup doesn't get confused by mismatched ids.
+          animeInfo.anilistId = null;
+        }
       }
 
-      // PRIORITY 2: no saved override — resolve via the shared mapper outcome.
-      // Reddit's foreground flow and the background prefetcher both run
-      // `tryMapperFailover`, which caches its season-relative episode +
-      // ids in `lastMapperOutcome`. Reading that cache here gives us the
-      // same answer Reddit got (e.g. JJK E48 → season-relative 1) without
-      // re-running the CR pipeline. Falling back to `resolveAnimeIdentity`
-      // when the cache is cold covers the Disqus-as-default case — the
-      // previous lightweight `resolveSeriesIdentity` path returned only
-      // ids and dropped the episode mapping, which left the discussanime.moe
-      // lookup asking for `episode=48` on a 12-episode season.
+      // Resolve via the shared mapper outcome unless a NATIVE pick already
+      // pinned the answer. Reddit's foreground flow and the background
+      // prefetcher both run `tryMapperFailover`, which caches its
+      // season-relative episode + ids in `lastMapperOutcome`. Reading that
+      // cache here gives us the same answer Reddit got (e.g. JJK E48 →
+      // season-relative 1) without re-running the CR pipeline. Falling back to
+      // `resolveAnimeIdentity` when the cache is cold covers the
+      // Disqus-as-default case.
       let mapperResolvedEp: number | null = null;
-      if (!hasUserPickedOverride) {
+      if (!nativeUserPick) {
         const cached = getLastMapperOutcome(animeInfo.animeName, rawEp);
         if (cached) {
           if (cached.malId && !animeInfo.malId) {
@@ -481,13 +491,14 @@ export class DisqusProvider extends BaseProvider {
           }
         } else {
           try {
-            // No cache → run the full mapper failover. This computes the
-            // season-relative episode for CR continuous-numbering shows
-            // and falls back to MAL-Sync / `readCachedAnimeIds` when
-            // Hayami doesn't know the series yet (LIAR GAME case).
+            // Pass `mapping: null` for a borrowed override so the resolver
+            // doesn't short-circuit on the borrowed pick and actually runs
+            // Hayami's CR deep-mapping pipeline. For the no-override case keep
+            // passing the mapping (it carries a non-pick episodeOffset some
+            // users set) and its offset-applied episode.
             const identity = await resolveAnimeIdentity(animeInfo, {
-              mapping,
-              episode: mappedEp ?? rawEp,
+              mapping: isCrossPlatformOverride ? null : mapping,
+              episode: isCrossPlatformOverride ? rawEp : (mappedEp ?? rawEp),
             });
             if (identity.malId && !animeInfo.malId) {
               animeInfo.malId = identity.malId;
@@ -500,6 +511,19 @@ export class DisqusProvider extends BaseProvider {
             }
           } catch (e) {
             log.warn('Identity resolution failed; falling back to detected ids', e);
+          }
+        }
+
+        // Borrowed-override id FALLBACK: when the mapper couldn't resolve ids
+        // (e.g. Hayami 404 on a freshly-airing series the user corrected on
+        // another provider), use the override's saved ids so the lookup can
+        // still run instead of bailing with no id.
+        if (isCrossPlatformOverride) {
+          if (!animeInfo.malId && saved.malId) {
+            animeInfo.malId = saved.malId;
+          }
+          if (!animeInfo.anilistId && saved.anilistId) {
+            animeInfo.anilistId = saved.anilistId;
           }
         }
       }
@@ -525,20 +549,24 @@ export class DisqusProvider extends BaseProvider {
         });
       }
 
-      // Candidate priority order. The matcher tries candidates in order
-      // and returns the first thread hit, so position is load-bearing:
-      //  - When the user has explicitly picked a Wrong-anime override
-      //    (which writes `mapperAnimeName` plus the episode offset),
-      //    `mappedEp` is the user's intent and must win against
-      //    `siteAdjustedEp`. Without this priority, an episode-list
-      //    offset that happens to land on a real (wrong) thread would
-      //    silently override the user's pick.
-      //  - Without a user pick, fall back to the previous ordering:
-      //    site-list-derived first (best for sub-cour pages), then the
-      //    Hayami mapper's season-relative answer, then the raw number.
-      const orderedCandidates: Array<number | null | undefined> = hasUserPickedOverride
+      // Candidate priority order. The matcher tries candidates in order and
+      // returns the first thread hit (exact-match across ALL candidates before
+      // any lower-or-equal fallback), so position is load-bearing:
+      //  - NATIVE pick: `mappedEp` (the user's offset intent) must win against
+      //    `siteAdjustedEp`, else an episode-list offset that lands on a real
+      //    (wrong) thread would silently override the user's pick.
+      //  - BORROWED pick (hint): try `mappedEp` first too — it wins ONLY when
+      //    it exact-matches a thread for the mapper-resolved anime (Dr. STONE
+      //    Part 3 → ep 10), and is harmlessly skipped when the borrowed offset
+      //    targets a different season (JJK S2 offset → 32 doesn't exist for the
+      //    resolved S3) so the mapper's `mapperResolvedEp` wins.
+      //  - No override: site-list-derived first (best for sub-cour pages), then
+      //    the mapper's season-relative answer, then the raw number.
+      const orderedCandidates: Array<number | null | undefined> = nativeUserPick
         ? [mappedEp, siteAdjustedEp, mapperResolvedEp, rawEp]
-        : [siteAdjustedEp, mapperResolvedEp, mappedEp, rawEp];
+        : hasUserPickedOverride
+          ? [mappedEp, mapperResolvedEp, siteAdjustedEp, rawEp]
+          : [siteAdjustedEp, mapperResolvedEp, mappedEp, rawEp];
 
       const lookupParams = {
         malId: animeInfo.malId ?? null,
@@ -547,57 +575,8 @@ export class DisqusProvider extends BaseProvider {
         episodeNameHint: animeInfo.episodeName ?? null,
       };
       log.log('findEpisodeThread params', lookupParams);
-      let thread = await findEpisodeThread(lookupParams);
+      const thread = await findEpisodeThread(lookupParams);
       logThreadSnapshot('findEpisodeThread-result', thread);
-
-      // A "Wrong anime?" override saved on ANOTHER platform (e.g. an AniList
-      // pick of "Jujutsu Kaisen 2nd Season") is borrowed here via the
-      // cross-platform mapping fallback. Because mappings are keyed by the
-      // bare series name, that S2 override (id 145064 + offset -24) also gets
-      // applied to S3 episodes of the same continuous-numbered series — e.g.
-      // CR "E56" → episode 32 against the 23-episode S2 id → no thread.
-      //
-      // When a borrowed override resolves to nothing, fall back to the
-      // season-aware mapper, which ignores the saved override and derives the
-      // correct season + season-relative episode straight from the CR episode
-      // metadata (the same path Reddit uses). A NATIVE pick is left strict —
-      // the user chose it for THIS provider, so we don't second-guess it.
-      if (!thread && isCrossPlatformOverride) {
-        try {
-          const identity = await resolveAnimeIdentity(animeInfo, {
-            // Pass no mapping so the resolver ignores the borrowed override
-            // (which would otherwise short-circuit it) and actually runs
-            // Hayami's CR deep-mapping pipeline.
-            mapping: null,
-            episode: rawEp,
-          });
-          const fbMalId = identity.malId ?? null;
-          const fbAnilistId = identity.anilistId ?? null;
-          if (fbMalId || fbAnilistId) {
-            const fbCandidates = [identity.resolvedEpisode, siteAdjustedEp, rawEp];
-            log.log('cross-platform override resolved no thread; retrying via mapper', {
-              fbMalId,
-              fbAnilistId,
-              fbCandidates,
-            });
-            thread = await findEpisodeThread({
-              malId: fbMalId,
-              anilistId: fbAnilistId,
-              episodeCandidates: fbCandidates,
-              episodeNameHint: animeInfo.episodeName ?? null,
-            });
-            logThreadSnapshot('findEpisodeThread-result (mapper fallback)', thread);
-            if (thread) {
-              // Adopt the mapper's ids so any downstream lookups on this
-              // animeInfo use the correct season rather than the borrowed one.
-              if (fbMalId) animeInfo.malId = fbMalId;
-              if (fbAnilistId) animeInfo.anilistId = fbAnilistId;
-            }
-          }
-        } catch (e) {
-          log.warn('Mapper fallback after cross-platform override miss failed', e);
-        }
-      }
 
       if (thread) {
         discussionCache.disqus = { thread, animeKey: cacheKey || undefined };
