@@ -583,40 +583,57 @@ function inject(strip: HTMLElement) {
       slot.parent.appendChild(strip);
     }
   }
-  notifyParentResize();
 }
 
-/** Nudge Disqus's iframe-side bundle to re-measure `body.scrollHeight`
- *  and tell the parent page the new iframe height. Disqus does that
- *  measurement once on load and on a handful of internal triggers
- *  (window resize, comment count change, reply expansion) — it does
- *  not continuously observe the DOM. Our strip mounts AFTER the
- *  initial measurement (we wait on a network fetch first), so without
- *  this nudge the parent iframe stays at its pre-injection height and
- *  clips the bottom of the comment list. Reported on discussanime.moe
- *  where the last comment's body rendered below the iframe boundary.
+/** Continuous iframe-height sync. Disqus measures `body.scrollHeight`
+ *  and posts the new iframe height to the parent on a handful of
+ *  internal triggers (`window.resize`, comment-count change, reply
+ *  expansion) — it does NOT continuously observe the DOM. Anything
+ *  that changes layout outside those triggers leaves the parent
+ *  iframe at its stale height and clips the bottom of the comment
+ *  list. Originally reported on discussanime.moe where the last
+ *  comment rendered below the iframe boundary after our reaction
+ *  strip mounted; the same gap also bites when Disqus's own comment
+ *  images / avatars / embeds decode in *after* the initial paint, or
+ *  when a sort-tab / "load more" click pulls in more content than
+ *  Disqus's internal triggers re-measure for.
  *
- *  We fire twice: once after the next paint so layout is settled, and
- *  again ~200ms later in case Disqus's listener is debounced and
- *  swallowed the first signal. The synthetic `resize` event is cheap
- *  and doesn't require knowing Disqus's internal postMessage protocol. */
-function notifyParentResize() {
+ *  We install a single `ResizeObserver` on `document.documentElement`
+ *  and re-dispatch `window.resize` (leading-edge with a 50ms refractory
+ *  window) on every observed change. Disqus's existing resize listener
+ *  then re-runs its own measurement and posts the proper height —
+ *  staying inside their protocol means we don't race their own resize
+ *  messages or have to reverse-engineer the wire format. The observe()
+ *  call itself triggers an initial callback with the current size, so
+ *  the first dispatch after mount is free.
+ *
+ *  Observe `document.documentElement` rather than `document.body`
+ *  because some Disqus themes set `html` as the scroll container; both
+ *  work in practice but documentElement is the safer choice across
+ *  theme variants. We never disconnect — lazy comment-image decode and
+ *  "load more" expansion happen throughout the session, so a fixed
+ *  window (e.g. 10/30s) would re-introduce the bug for users who
+ *  scroll the thread or sort-switch later. */
+function startContinuousHeightSync(): void {
+  if (typeof ResizeObserver === 'undefined') return;
+  if (!document.documentElement) return;
+
+  let timer: number | null = null;
   const fire = () => {
+    timer = null;
     try {
       window.dispatchEvent(new Event('resize'));
     } catch {
       /* no-op */
     }
   };
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(() => {
-      fire();
-      setTimeout(fire, 200);
-    });
-  } else {
-    fire();
-    setTimeout(fire, 200);
-  }
+  const schedule = () => {
+    if (timer !== null) return;
+    timer = window.setTimeout(fire, 50);
+  };
+
+  const observer = new ResizeObserver(schedule);
+  observer.observe(document.documentElement);
 }
 
 /** Wait until `document.body` exists. The content script runs at
@@ -758,6 +775,7 @@ async function main() {
   const strip = renderStrip(identifier, payload);
   inject(strip);
   watchForRemoval(strip);
+  startContinuousHeightSync();
 }
 
 export default defineContentScript({
