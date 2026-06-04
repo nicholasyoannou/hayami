@@ -599,13 +599,24 @@ function inject(strip: HTMLElement) {
  *  Disqus's internal triggers re-measure for.
  *
  *  We install a single `ResizeObserver` on `document.documentElement`
- *  and re-dispatch `window.resize` (leading-edge with a 50ms refractory
- *  window) on every observed change. Disqus's existing resize listener
- *  then re-runs its own measurement and posts the proper height —
- *  staying inside their protocol means we don't race their own resize
- *  messages or have to reverse-engineer the wire format. The observe()
- *  call itself triggers an initial callback with the current size, so
- *  the first dispatch after mount is free.
+ *  and re-dispatch `window.resize` whenever the observed box changes.
+ *  Disqus's existing resize listener then re-runs its own measurement
+ *  and posts the proper height — staying inside their protocol means
+ *  we don't race their own resize messages or have to reverse-engineer
+ *  the wire format.
+ *
+ *  Trailing-edge debouncing with a long settle window is load-bearing.
+ *  Disqus's deep-link scroll-to-anchor (`#comment-...`) waits for
+ *  layout to be quiet before it fires; the earlier leading-edge variant
+ *  with a 50ms refractory dispatched a synthetic resize every 50ms
+ *  during initial render, which kept "unsettling" Disqus's quiet-period
+ *  detection and broke the auto-scroll entirely (regression reported on
+ *  discussanime.moe `#comment-6884974542`). With trailing-edge, the
+ *  burst of initial-render mutations keeps resetting the timer so we
+ *  never fire while Disqus is actively laying out — Disqus completes
+ *  its own initial measurement + deep-link scroll uninterrupted, then
+ *  any LATE size change (a slow comment image decoding 3s after the
+ *  initial paint) waits out the 1s settle and fires exactly once.
  *
  *  Observe `document.documentElement` rather than `document.body`
  *  because some Disqus themes set `html` as the scroll container; both
@@ -628,8 +639,10 @@ function startContinuousHeightSync(): void {
     }
   };
   const schedule = () => {
-    if (timer !== null) return;
-    timer = window.setTimeout(fire, 50);
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+    timer = window.setTimeout(fire, 1000);
   };
 
   const observer = new ResizeObserver(schedule);
