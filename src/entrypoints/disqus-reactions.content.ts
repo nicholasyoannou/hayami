@@ -586,52 +586,74 @@ function inject(strip: HTMLElement) {
 }
 
 /** Continuous iframe-height sync. Disqus measures `body.scrollHeight`
- *  and posts the new iframe height to the parent on a handful of
- *  internal triggers (`window.resize`, comment-count change, reply
- *  expansion) — it does NOT continuously observe the DOM. Anything
- *  that changes layout outside those triggers leaves the parent
- *  iframe at its stale height and clips the bottom of the comment
- *  list. Originally reported on discussanime.moe where the last
- *  comment rendered below the iframe boundary after our reaction
- *  strip mounted; the same gap also bites when Disqus's own comment
- *  images / avatars / embeds decode in *after* the initial paint, or
- *  when a sort-tab / "load more" click pulls in more content than
- *  Disqus's internal triggers re-measure for.
+ *  on its own internal triggers (a body `MutationObserver` with
+ *  `attributeFilter: ["class", "style"] | childList | characterData |
+ *  subtree`, plus a throttled `window.resize` listener) and posts
+ *  the new height to the parent as
+ *  `{scope:'host', sender, name:'resize', data:{height}}`. The parent
+ *  replies with `embed.resized`, which the iframe wires into its
+ *  height book-keeping.
  *
- *  We install a single `ResizeObserver` on `document.documentElement`
- *  and re-dispatch `window.resize` whenever the observed box changes.
- *  Disqus's existing resize listener then re-runs its own measurement
- *  and posts the proper height — staying inside their protocol means
- *  we don't race their own resize messages or have to reverse-engineer
- *  the wire format.
+ *  THE GAP: Disqus's `MutationObserver` does NOT fire on `<img>` load
+ *  events — image decode is a paint-time effect, not a DOM mutation.
+ *  When the strip's emoji sprites, Disqus's comment images, or lazy
+ *  avatars finish loading after the initial paint, body height grows
+ *  but Disqus never re-measures, and the parent iframe stays clipped
+ *  at the bottom. (Reported on discussanime.moe — last comment renders
+ *  below the iframe boundary; the user can fix it by collapse/expand
+ *  on any comment, which mutates a class and re-triggers Disqus's
+ *  observer.)
  *
- *  Trailing-edge debouncing with a long settle window is load-bearing.
- *  Disqus's deep-link scroll-to-anchor (`#comment-...`) waits for
- *  layout to be quiet before it fires; the earlier leading-edge variant
- *  with a 50ms refractory dispatched a synthetic resize every 50ms
- *  during initial render, which kept "unsettling" Disqus's quiet-period
- *  detection and broke the auto-scroll entirely (regression reported on
- *  discussanime.moe `#comment-6884974542`). With trailing-edge, the
- *  burst of initial-render mutations keeps resetting the timer so we
- *  never fire while Disqus is actively laying out — Disqus completes
- *  its own initial measurement + deep-link scroll uninterrupted, then
- *  any LATE size change (a slow comment image decoding 3s after the
- *  initial paint) waits out the 1s settle and fires exactly once.
+ *  THE FIX: a single `ResizeObserver` on `document.documentElement`
+ *  re-dispatches `window.resize` whenever the observed box changes.
+ *  Disqus's existing resize listener then re-runs its measurement
+ *  (`resize()` short-circuits on unchanged `_lastHeight`, so over-
+ *  firing is free) and posts the proper height. Staying inside their
+ *  protocol means we don't race their own resize messages or have to
+ *  reverse-engineer the wire format / sender id.
+ *
+ *  WHY THE STARTUP GRACE PERIOD: Disqus's deep-link scroll-to-anchor
+ *  for comments not on the initial page is brittle. After the first
+ *  attempt finds the target absent, `scrollToPost` calls
+ *  `fetchContext()` to paginate and arms a `.once("embed.resized",
+ *  scrollToPost)` listener to retry once the new page is rendered.
+ *  Any `embed.resized` event during that window consumes the listener
+ *  — and our synthetic resizes during initial render WILL trigger
+ *  `embed.resized` (parent re-sends it on every iframe `resize`
+ *  message). That fired the retry with a half-rendered DOM and landed
+ *  the user nowhere near the linked comment (regression on
+ *  discussanime.moe `#comment-6884974542`).
+ *
+ *  A long flat trailing-edge debounce (1s) avoided the deep-link race
+ *  but introduced a "massive delay" for the legitimate use case:
+ *  when the user scrolls to the bottom of a long thread and Disqus
+ *  lazy-loads more comments, iframe height takes a full second to
+ *  catch up. So instead: stay quiet for the first 3s (covers initial
+ *  render + a typical fetchContext round-trip + the scroll), then a
+ *  100ms leading-edge refractory afterwards (imperceptible lag for
+ *  late image decodes). The initial-deep-link path uses
+ *  `.once("embed.rendered")` not `embed.resized` — our messages don't
+ *  consume that one — so on-page-1 deep-links work either way; the
+ *  3s grace is specifically for the paginated case.
  *
  *  Observe `document.documentElement` rather than `document.body`
- *  because some Disqus themes set `html` as the scroll container; both
- *  work in practice but documentElement is the safer choice across
- *  theme variants. We never disconnect — lazy comment-image decode and
- *  "load more" expansion happen throughout the session, so a fixed
- *  window (e.g. 10/30s) would re-introduce the bug for users who
- *  scroll the thread or sort-switch later. */
+ *  because some Disqus themes set `html` as the scroll container.
+ *  We never disconnect — lazy comment-image decode and "load more"
+ *  expansion happen throughout the session. */
+const HEIGHT_SYNC_GRACE_MS = 3000;
+const HEIGHT_SYNC_REFRACTORY_MS = 100;
+
 function startContinuousHeightSync(): void {
   if (typeof ResizeObserver === 'undefined') return;
   if (!document.documentElement) return;
 
   let timer: number | null = null;
+  let armed = false;
+  window.setTimeout(() => { armed = true; }, HEIGHT_SYNC_GRACE_MS);
+
   const fire = () => {
     timer = null;
+    if (!armed) return;
     try {
       window.dispatchEvent(new Event('resize'));
     } catch {
@@ -639,10 +661,8 @@ function startContinuousHeightSync(): void {
     }
   };
   const schedule = () => {
-    if (timer !== null) {
-      clearTimeout(timer);
-    }
-    timer = window.setTimeout(fire, 1000);
+    if (timer !== null) return;
+    timer = window.setTimeout(fire, HEIGHT_SYNC_REFRACTORY_MS);
   };
 
   const observer = new ResizeObserver(schedule);
