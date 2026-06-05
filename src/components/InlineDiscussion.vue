@@ -332,8 +332,11 @@ function handleRedditAuthRequired(reason?: string) {
 function refreshRedditCommentsAfterLogin() {
   redditAuthenticated.value = true;
   showRedditAuthPrompt.value = false;
-  isLoading.value = true;
-  discussionStore.startLoading();
+  // RedditCommentList's v-if requires !isLoading; setting it true here would
+  // keep the child unmounted and nothing would ever clear the flag.
+  // The child renders its own skeleton internally while loadComments() runs.
+  isLoading.value = false;
+  discussionStore.clearLoading();
   redditCommentsKey.value++;
 }
 
