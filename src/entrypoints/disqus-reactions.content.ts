@@ -583,6 +583,11 @@ function inject(strip: HTMLElement) {
       slot.parent.appendChild(strip);
     }
   }
+  // Late-binding the host palette as inline CSS vars on the strip itself
+  // outranks the stylesheet defaults from `buildStyle()` and keeps the
+  // strip in lockstep with the admin-configured site colours. A no-op
+  // when we haven't heard from the host yet (popup/inline shells).
+  applyPaletteToStrip();
 }
 
 /** Continuous iframe-height sync. Disqus measures `body.scrollHeight`
@@ -730,7 +735,20 @@ function watchForRemoval(strip: HTMLElement) {
  * theme snaps back partway through a session.
  */
 type HostTheme = 'light' | 'dark';
+/**
+ * Subset of the host's CSS custom properties the strip needs to mirror.
+ * Pinned to the variable names the on-site `.dq-reactions` widget reads
+ * in app.css — we forward the same four so admin colour-overrides in
+ * /admin/settings flow through to the iframe strip without code changes.
+ */
+interface HostPalette {
+  brand: string;       // --color-brand        → --h-rx-accent
+  text: string;        // --color-text         → --h-rx-text
+  heading: string;     // --color-text-heading → --h-rx-heading
+  surfaceSoft: string; // --color-surface-soft → --h-rx-hover-bg
+}
 let currentHostTheme: HostTheme = 'dark';
+let currentPalette: HostPalette | null = null;
 
 function applyHostTheme(theme: HostTheme): void {
   currentHostTheme = theme;
@@ -745,6 +763,38 @@ function applyHostTheme(theme: HostTheme): void {
   }
 }
 
+/**
+ * Push the host palette onto the strip element as inline custom
+ * properties. Inline styles outrank `buildStyle`'s rules so the
+ * admin's chosen colours always win; if `currentPalette` is null
+ * (popup/inline shells that never receive a message) the strip
+ * falls back to the dark defaults baked into `buildStyle`.
+ *
+ * Safe to call before the strip is injected — it no-ops when the
+ * element isn't in the DOM yet, and `inject()` calls it again after
+ * mount.
+ */
+function applyPaletteToStrip(): void {
+  if (!currentPalette) return;
+  const strip = document.getElementById(STRIP_ID);
+  if (!strip) return;
+  strip.style.setProperty('--h-rx-accent', currentPalette.brand);
+  strip.style.setProperty('--h-rx-text', currentPalette.text);
+  strip.style.setProperty('--h-rx-heading', currentPalette.heading);
+  strip.style.setProperty('--h-rx-hover-bg', currentPalette.surfaceSoft);
+}
+
+function isPalette(value: unknown): value is HostPalette {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.brand === 'string' &&
+    typeof v.text === 'string' &&
+    typeof v.heading === 'string' &&
+    typeof v.surfaceSoft === 'string'
+  );
+}
+
 function startThemeEnforcement(): void {
   applyHostTheme(currentHostTheme);
   const observer = new MutationObserver(() => applyHostTheme(currentHostTheme));
@@ -753,11 +803,20 @@ function startThemeEnforcement(): void {
 
 function listenForHostTheme(): void {
   window.addEventListener('message', (event) => {
-    const data = (event.data || {}) as { source?: string; type?: string; theme?: string };
+    const data = (event.data || {}) as {
+      source?: string;
+      type?: string;
+      theme?: string;
+      palette?: unknown;
+    };
     if (data.source !== 'hayami-site') return;
     if (data.type !== 'hayami_host_theme') return;
     if (data.theme !== 'light' && data.theme !== 'dark') return;
     applyHostTheme(data.theme);
+    if (isPalette(data.palette)) {
+      currentPalette = data.palette;
+      applyPaletteToStrip();
+    }
   });
   // Ask the top frame for the current host theme. The host
   // (discussanime-presence) replies with a `hayami_host_theme` message.

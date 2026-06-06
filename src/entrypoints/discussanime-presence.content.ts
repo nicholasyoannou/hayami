@@ -44,19 +44,38 @@ export default defineContentScript({
 
     // Theme bridge to the disqus.com iframe. The iframe content script
     // (`disqus-reactions.content.ts`) can't read this page's DOM because
-    // it's cross-origin, so it asks us for the host theme via postMessage
-    // and we push updates whenever the user flips themes. Without this
-    // the iframe would default to dark — wrong on light pages, where
-    // Disqus's light stylesheet collides with `body.dark` and leaves
-    // comment bodies unreadable.
+    // it's cross-origin, so it asks us for the host theme + palette via
+    // postMessage and we push updates whenever the user flips themes.
+    // Without this the iframe would default to dark — wrong on light
+    // pages, where Disqus's light stylesheet collides with `body.dark`
+    // and leaves comment bodies unreadable. We also forward the live
+    // `--color-brand` / `--color-text` / `--color-text-heading` /
+    // `--color-surface-soft` so the strip mirrors any admin colour
+    // override set in /admin/settings.
     const DISQUS_ORIGIN = 'https://disqus.com'
     const readTheme = (): 'light' | 'dark' =>
       document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
 
+    const readPalette = () => {
+      const cs = getComputedStyle(document.documentElement)
+      const v = (name: string) => cs.getPropertyValue(name).trim()
+      return {
+        brand: v('--color-brand'),
+        text: v('--color-text'),
+        heading: v('--color-text-heading'),
+        surfaceSoft: v('--color-surface-soft'),
+      }
+    }
+
     const pushThemeToIframe = (target: Window) => {
       try {
         target.postMessage(
-          { source: 'hayami-site', type: 'hayami_host_theme', theme: readTheme() },
+          {
+            source: 'hayami-site',
+            type: 'hayami_host_theme',
+            theme: readTheme(),
+            palette: readPalette(),
+          },
           DISQUS_ORIGIN,
         )
       } catch { /* iframe gone */ }
@@ -71,11 +90,14 @@ export default defineContentScript({
       }
     }
 
+    // Watch both `data-theme` (user toggle) and `style` on `<html>`
+    // because the site applies admin colour overrides as inline CSS
+    // custom properties on the root. Either change should re-push.
     const watchHtmlThemeAttr = () => {
       const observer = new MutationObserver(pushThemeToAllDisqusIframes)
       observer.observe(document.documentElement, {
         attributes: true,
-        attributeFilter: ['data-theme'],
+        attributeFilter: ['data-theme', 'style'],
       })
     }
 
