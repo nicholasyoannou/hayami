@@ -700,7 +700,7 @@ async function handleUpvote(ev?: MouseEvent) {
   isVoting.value = true;
   try {
     const fullname = getCommentFullname(props.comment);
-    const res = await voteThing(fullname, newDir, props.subreddit);
+    const res = await voteThing(fullname, newDir, resolveSubreddit() ?? undefined);
     
     if (!res.success) {
       // Revert
@@ -734,7 +734,7 @@ async function handleDownvote() {
   isVoting.value = true;
   try {
     const fullname = getCommentFullname(props.comment);
-    const res = await voteThing(fullname, newDir, props.subreddit);
+    const res = await voteThing(fullname, newDir, resolveSubreddit() ?? undefined);
     
     if (!res.success) {
       // Revert
@@ -1364,6 +1364,8 @@ function getCommentRenderKey(comment: RedditComment, index: number): string {
           v-for="(reply, replyIndex) in visibleReplies"
           :key="getCommentRenderKey(reply, replyIndex)"
           :comment="reply"
+          :subreddit="resolveSubreddit() ?? undefined"
+          :current-username="props.currentUsername"
           :depth="depth + 1"
           :tree-is-last-sibling="replyIndex === visibleReplies.length - 1"
           :tree-continuation-columns="childTreeContinuations"

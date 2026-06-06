@@ -42,6 +42,43 @@ export default defineContentScript({
       )
     }
 
+    // Theme bridge to the disqus.com iframe. The iframe content script
+    // (`disqus-reactions.content.ts`) can't read this page's DOM because
+    // it's cross-origin, so it asks us for the host theme via postMessage
+    // and we push updates whenever the user flips themes. Without this
+    // the iframe would default to dark — wrong on light pages, where
+    // Disqus's light stylesheet collides with `body.dark` and leaves
+    // comment bodies unreadable.
+    const DISQUS_ORIGIN = 'https://disqus.com'
+    const readTheme = (): 'light' | 'dark' =>
+      document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+
+    const pushThemeToIframe = (target: Window) => {
+      try {
+        target.postMessage(
+          { source: 'hayami-site', type: 'hayami_host_theme', theme: readTheme() },
+          DISQUS_ORIGIN,
+        )
+      } catch { /* iframe gone */ }
+    }
+
+    const pushThemeToAllDisqusIframes = () => {
+      const iframes = document.querySelectorAll<HTMLIFrameElement>(
+        'iframe[src*="disqus.com/embed/comments"]',
+      )
+      for (const f of iframes) {
+        if (f.contentWindow) pushThemeToIframe(f.contentWindow)
+      }
+    }
+
+    const watchHtmlThemeAttr = () => {
+      const observer = new MutationObserver(pushThemeToAllDisqusIframes)
+      observer.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme'],
+      })
+    }
+
     mark()
     announce()
 
@@ -51,17 +88,29 @@ export default defineContentScript({
     window.addEventListener('DOMContentLoaded', () => {
       mark()
       announce()
+      watchHtmlThemeAttr()
+      pushThemeToAllDisqusIframes()
     }, { once: true })
 
     // Let the site request re-announcement (e.g. after route-level mount
-    // of a component that cares about extension presence).
+    // of a component that cares about extension presence). Also reply to
+    // the disqus iframe when it requests the current host theme.
     window.addEventListener('message', (event) => {
-      if (event.source !== window) return
       const data = (event.data || {}) as { source?: string; type?: string }
-      if (data.source !== 'hayami-site') return
-      if (data.type !== 'hayami_site_request_presence') return
-      mark()
-      announce()
+      if (data.source === 'hayami-site' && data.type === 'hayami_site_request_presence') {
+        if (event.source !== window) return
+        mark()
+        announce()
+        return
+      }
+      if (
+        data.source === 'hayami-disqus-iframe' &&
+        data.type === 'hayami_iframe_request_theme' &&
+        event.origin === DISQUS_ORIGIN &&
+        event.source && 'postMessage' in event.source
+      ) {
+        pushThemeToIframe(event.source as Window)
+      }
     })
   },
 })

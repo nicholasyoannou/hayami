@@ -707,7 +707,7 @@ function watchForRemoval(strip: HTMLElement) {
 }
 
 /**
- * Force Disqus's iframe into its dark theme.
+ * Apply the host page's theme to Disqus's iframe.
  *
  * Disqus normally adds `body.dark` itself when the host page asks for
  * dark rendering — but that hook isn't reliable for our use case. On
@@ -715,27 +715,62 @@ function watchForRemoval(strip: HTMLElement) {
  * inside the popup shell's Shadow Root) we've seen Disqus default to
  * its light theme regardless, which produces near-black text + Georgia
  * serif headings sitting on top of the popup's near-black background
- * — unreadable and visually wrong. Hayami's popup and inline shells
- * are always dark, so we add `dark` ourselves the moment the iframe's
- * body exists, before Disqus's own theme-detect pass runs against
- * `document.body.classList`.
+ * — unreadable and visually wrong. So we pin the body class ourselves
+ * the moment the iframe's body exists, before Disqus's own theme-detect
+ * pass runs against `document.body.classList`.
  *
- * We also re-add the class via a MutationObserver because Disqus's
- * bundle removes it on some internal resets (sort tab switches, "load
- * more", reply-form mount) — without the observer the light theme
- * snaps back partway through a session.
+ * The host page tells us which theme to render via a postMessage from
+ * `hayami-site` (see `discussanime-presence.content.ts`). Until that
+ * arrives — and on every page where it never arrives (popup/inline
+ * shells, which are always dark) — we default to dark.
+ *
+ * We re-apply the chosen theme via a MutationObserver because Disqus's
+ * bundle strips body classes on some internal resets (sort tab
+ * switches, "load more", reply-form mount) — without the observer the
+ * theme snaps back partway through a session.
  */
-function forceDarkTheme(): void {
+type HostTheme = 'light' | 'dark';
+let currentHostTheme: HostTheme = 'dark';
+
+function applyHostTheme(theme: HostTheme): void {
+  currentHostTheme = theme;
   if (!document.body) return;
-  if (!document.body.classList.contains('dark')) {
-    document.body.classList.add('dark');
+  const cls = document.body.classList;
+  if (theme === 'dark') {
+    if (!cls.contains('dark')) cls.add('dark');
+    if (cls.contains('hayami-light-host')) cls.remove('hayami-light-host');
+  } else {
+    if (cls.contains('dark')) cls.remove('dark');
+    if (!cls.contains('hayami-light-host')) cls.add('hayami-light-host');
   }
-  const observer = new MutationObserver(() => {
-    if (!document.body.classList.contains('dark')) {
-      document.body.classList.add('dark');
-    }
-  });
+}
+
+function startThemeEnforcement(): void {
+  applyHostTheme(currentHostTheme);
+  const observer = new MutationObserver(() => applyHostTheme(currentHostTheme));
   observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+}
+
+function listenForHostTheme(): void {
+  window.addEventListener('message', (event) => {
+    const data = (event.data || {}) as { source?: string; type?: string; theme?: string };
+    if (data.source !== 'hayami-site') return;
+    if (data.type !== 'hayami_host_theme') return;
+    if (data.theme !== 'light' && data.theme !== 'dark') return;
+    applyHostTheme(data.theme);
+  });
+  // Ask the top frame for the current host theme. The host
+  // (discussanime-presence) replies with a `hayami_host_theme` message.
+  // Popup/inline shells don't respond, so the default `dark` sticks.
+  // We target `window.top` rather than `window.parent` because Disqus
+  // mounts sub-iframes (reply form, etc.) under its own bundle, and only
+  // the topmost frame on discussanime.moe runs discussanime-presence.
+  try {
+    window.top?.postMessage(
+      { source: 'hayami-disqus-iframe', type: 'hayami_iframe_request_theme' },
+      '*',
+    );
+  } catch { /* top frame unreachable */ }
 }
 
 /**
@@ -759,7 +794,8 @@ function buildIframeOverride(): HTMLStyleElement {
   const style = document.createElement('style');
   style.id = 'hayami-disqus-iframe-override';
   style.textContent = `
-    :root { color-scheme: dark; }
+    :root:has(body.dark) { color-scheme: dark; }
+    :root:has(body.hayami-light-host) { color-scheme: light; }
     * {
       font-family: Roboto, sans-serif !important;
     }
@@ -795,7 +831,8 @@ async function main() {
   }
 
   await waitForBody();
-  forceDarkTheme();
+  listenForHostTheme();
+  startThemeEnforcement();
   ensureIframeOverride();
   ensureStyle();
 
