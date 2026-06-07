@@ -448,7 +448,7 @@ const settingDefinitions: SettingDefinition[] = [
     category: 'provider',
     providerId: 'reddit',
     label: 'Reddit editor',
-    description: 'Choose between rich editor or plain markdown box',
+    description: 'Choose between rich editor or Markdown Editor',
     options: redditEditorOptions,
     fallback: 'editor',
     load: async () => {
@@ -456,7 +456,7 @@ const settingDefinitions: SettingDefinition[] = [
       return redditEditorOptions.some((option) => option.value === value) ? value : 'editor';
     },
     save: (value) => redditEditorModeItem.setValue(value),
-    successMessage: (value) => (value === 'editor' ? 'Rich editor enabled' : 'Plain markdown box enabled'),
+    successMessage: (value) => (value === 'editor' ? 'Rich editor enabled' : 'Markdown Editor enabled'),
     errorMessage: 'Failed to save Reddit editor',
   },
   {

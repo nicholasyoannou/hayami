@@ -21,7 +21,7 @@ export type CommentProviderOption = (typeof commentProviderOptions)[number]['val
 
 export const redditEditorOptions = [
   { value: 'editor', label: 'Rich editor' },
-  { value: 'markdown', label: 'Plain markdown box' },
+  { value: 'markdown', label: 'Markdown Editor' },
 ] as const;
 
 export type RedditEditorMode = (typeof redditEditorOptions)[number]['value'];

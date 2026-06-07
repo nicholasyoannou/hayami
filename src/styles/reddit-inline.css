@@ -2472,6 +2472,13 @@
   color: var(--ri-discussion-fg, #c9d1d9);
 }
 
+/* Markdown mode: the textarea owns its own horizontal padding (16px), so the
+   container must not add the 10px gutter above — otherwise the placeholder
+   sits indented past the header/buttons. Keeps all three rows aligned. */
+#reddit-inline-discussion .ri-reply-editor.editor-container .editor-area.md-area {
+  padding: 0;
+}
+
 #reddit-inline-discussion
   .ri-reply-editor.editor-container
   .editor-area

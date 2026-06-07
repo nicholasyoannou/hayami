@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { con } from '@/utils/logger';
 import { useEditor, EditorContent } from '@tiptap/vue-3';
 
@@ -18,6 +18,7 @@ import { Markdown } from '@tiptap/markdown';
 const props = defineProps<{
   placeholder?: string;
   disabled?: boolean;
+  startInMarkdown?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -26,6 +27,16 @@ const emit = defineEmits<{
 }>();
 
 const cachedHtml = ref('');
+
+// Reddit-style "Switch to Markdown" view + overflow ("...") menu.
+// Scoped to this editor instance only. Opens in markdown when the
+// `startInMarkdown` prop is set (the user's chosen Reddit editor default),
+// otherwise in rich text; resets on each fresh mount.
+const isMarkdownMode = ref(props.startInMarkdown ?? false);
+const markdownText = ref('');
+const markdownTextareaRef = ref<HTMLTextAreaElement | null>(null);
+const showMenu = ref(false);
+const showMarkdownHelp = ref(false);
 
 // Custom Spoiler mark (Reddit uses >! !<)
 const Spoiler = Mark.create({
@@ -163,6 +174,14 @@ onBeforeUnmount(() => {
   editor.value?.destroy();
 });
 
+onMounted(() => {
+  // When the editor opens directly in markdown mode, size the (empty) textarea
+  // to its content so it starts compact instead of at the browser default.
+  if (isMarkdownMode.value) {
+    nextTick(autoResizeMarkdown);
+  }
+});
+
 function htmlToMarkdown(html: string): string {
   const temp = document.createElement('div');
   temp.innerHTML = html;
@@ -256,14 +275,51 @@ function setLink() {
 
 
 
-function submit() {
+function autoResizeMarkdown() {
+  const el = markdownTextareaRef.value;
+  if (!el) return;
+  // Grow the textarea to fit its content (Reddit-style auto-expand).
+  // height:auto first so it can shrink, then match scrollHeight. The CSS
+  // min/max-height clamp the result; overflow only kicks in past the max.
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
+}
+
+function switchToMarkdown() {
+  showMenu.value = false;
   if (!editor.value) return;
-  const md = htmlToMarkdown(editor.value.getHTML());
+  // Convert via the same path used on submit so the markdown the user sees
+  // matches exactly what would be posted.
+  markdownText.value = htmlToMarkdown(editor.value.getHTML());
+  isMarkdownMode.value = true;
+  nextTick(() => {
+    markdownTextareaRef.value?.focus();
+    autoResizeMarkdown();
+  });
+}
+
+function switchToRichText() {
+  if (editor.value) {
+    editor.value.commands.setContent(markdownText.value, { contentType: 'markdown' });
+    cachedHtml.value = editor.value.getHTML();
+  }
+  isMarkdownMode.value = false;
+  nextTick(() => editor.value?.commands.focus());
+}
+
+function submit() {
+  const md = isMarkdownMode.value
+    ? markdownText.value.trim()
+    : editor.value
+      ? htmlToMarkdown(editor.value.getHTML())
+      : '';
   if (!md) return;
   log.log('Submitted Markdown:', md);
 
   emit('submit', md);
-  editor.value.commands.clearContent();
+  editor.value?.commands.clearContent();
+  markdownText.value = '';
+  nextTick(autoResizeMarkdown);
 }
 
 
@@ -280,7 +336,7 @@ const isReady = computed(() => !!editor.value);
 
 <template>
   <div class="editor-container">
-    <div v-if="editor" class="toolbar">
+    <div v-if="editor && !isMarkdownMode" class="toolbar">
       <button
         type="button"
         class="icon-btn"
@@ -465,36 +521,69 @@ const isReady = computed(() => !!editor.value);
 
       <div class="toolbar-spacer" />
 
-      <button
-        type="button"
-        class="icon-btn"
-        :disabled="props.disabled || !editor.can().undo()"
-        @click="editor.chain().focus().undo().run()"
-        title="Undo"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
-          <path fill-rule="evenodd" d="M8 3a5 5 0 1 1-4.546 2.914.5.5 0 0 0-.908-.417A6 6 0 1 0 8 2z"/>
-          <path d="M8 4.466V.534a.25.25 0 0 0-.41-.192L5.23 2.308a.25.25 0 0 0 0 .384l2.36 1.966A.25.25 0 0 0 8 4.466"/>
-        </svg>
-      </button>
+      <!-- Overflow ("...") menu. Undo/redo remain available via Ctrl+Z / Ctrl+Y. -->
+      <div class="menu-wrap">
+        <button
+          type="button"
+          class="icon-btn"
+          :class="{ 'is-active': showMenu }"
+          :disabled="props.disabled"
+          @click="showMenu = !showMenu"
+          title="More options"
+          aria-label="More options"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M3 9.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3"/>
+          </svg>
+        </button>
 
-      <button
-        type="button"
-        class="icon-btn"
-        :disabled="props.disabled || !editor.can().redo()"
-        @click="editor.chain().focus().redo().run()"
-        title="Redo"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
-          <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
-          <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
-        </svg>
+        <div v-if="showMenu" class="menu-dropdown">
+          <button type="button" class="menu-item" @click="switchToMarkdown">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M14.5 3a.5.5 0 0 1 .5.5v9a.5.5 0 0 1-.5.5h-13a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5zm-13-1A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 14.5 2z"/>
+              <path d="M3 5.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9a.5.5 0 0 1-.5-.5M3 8a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 0 1h-9A.5.5 0 0 1 3 8m0 2.5a.5.5 0 0 1 .5-.5h6a.5.5 0 0 1 0 1h-6a.5.5 0 0 1-.5-.5"/>
+            </svg>
+            <span>Switch to Markdown</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Markdown mode header (replaces the toolbar) -->
+    <div v-if="isMarkdownMode" class="md-header">
+      <div class="md-header-left">
+        <span class="md-title">Markdown Editor</span>
+        <button
+          type="button"
+          class="md-info-btn"
+          @click="showMarkdownHelp = true"
+          title="Markdown Help"
+          aria-label="Markdown Help"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
+          </svg>
+        </button>
+      </div>
+      <button type="button" class="md-switch-btn" @click="switchToRichText">
+        Switch to Rich Text Editor
       </button>
     </div>
 
-    <div class="editor-area" :class="{ disabled: props.disabled }">
+    <div class="editor-area" :class="{ disabled: props.disabled, 'md-area': isMarkdownMode }">
+      <textarea
+        v-if="isMarkdownMode"
+        ref="markdownTextareaRef"
+        v-model="markdownText"
+        class="md-textarea"
+        :placeholder="props.placeholder || 'Write a comment...'"
+        :disabled="props.disabled"
+        @input="autoResizeMarkdown"
+        @keydown="handleKeydown"
+      />
       <EditorContent
-        v-if="isReady"
+        v-else-if="isReady"
         :editor="editor"
         @keydown="handleKeydown"
       />
@@ -508,6 +597,43 @@ const isReady = computed(() => !!editor.value);
       <button type="button" class="action-btn comment" :disabled="props.disabled" @click="submit">
         Comment
       </button>
+    </div>
+
+    <!-- Click-catcher that dismisses the overflow ("...") menu -->
+    <div v-if="showMenu" class="menu-backdrop" @click="showMenu = false" />
+
+    <!-- Markdown Help modal (mirrors Reddit's) -->
+    <div v-if="showMarkdownHelp" class="md-help-overlay" @click.self="showMarkdownHelp = false">
+      <div class="md-help-modal" role="dialog" aria-modal="true" aria-label="Markdown Help">
+        <button type="button" class="md-help-close" @click="showMarkdownHelp = false" aria-label="Close">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+          </svg>
+        </button>
+        <h3 class="md-help-title">Markdown Help</h3>
+        <p class="md-help-intro">
+          Markdown is a way to quickly format text using typed symbols instead of a toolbar. For more help, check the
+          <a href="https://support.reddithelp.com/hc/en-us/articles/360043033952-Formatting-Guide" target="_blank" rel="noopener noreferrer">Reddit Markdown Guide</a>.
+        </p>
+        <table class="md-help-table">
+          <thead>
+            <tr>
+              <th>Type this</th>
+              <th>To get this</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>*italics*</td><td><em>italics</em></td></tr>
+            <tr><td>**bold**</td><td><strong>bold</strong></td></tr>
+            <tr><td>[reddit!](https://reddit.com)</td><td><a href="https://reddit.com" target="_blank" rel="noopener noreferrer">reddit!</a></td></tr>
+            <tr><td>*item 1<br>*item 2<br>*item 3</td><td><ul class="md-help-list"><li>item 1</li><li>item 2</li><li>item 3</li></ul></td></tr>
+            <tr><td>&gt;quoted text</td><td><blockquote class="md-help-quote">quoted text</blockquote></td></tr>
+            <tr><td>~~strikethrough~~</td><td><del>strikethrough</del></td></tr>
+            <tr><td>super^script</td><td>super<sup>script</sup></td></tr>
+            <tr><td>&gt;!spoilers!&lt;</td><td><span class="md-help-spoiler">spoilers</span></td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </template>
@@ -526,7 +652,7 @@ const isReady = computed(() => !!editor.value);
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 6px 12px;
+  padding: 4px 10px;
   background: #0F0F0F;
 }
 
@@ -635,7 +761,7 @@ const isReady = computed(() => !!editor.value);
 }
 
 .editor-area {
-  min-height: 60px;
+  min-height: 40px;
   padding: 0px 10px;
   background: #0F0F0F;
   color: #c9d1d9;
@@ -707,7 +833,7 @@ const isReady = computed(() => !!editor.value);
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 8px 16px;
   background: #0F0F0F;
   /* border-top: 1px solid #30363d; */
 }
@@ -803,6 +929,271 @@ const isReady = computed(() => !!editor.value);
   border: none;
   border-top: 1px solid #30363d;
   margin: 16px 0;
+}
+
+/* --- Overflow ("...") menu --- */
+.menu-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.menu-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  padding: 6px;
+  background: #1a1a1b;
+  border: 1px solid #30363d;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #c9d1d9;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.menu-item svg {
+  flex: none;
+  color: #8b949e;
+}
+
+.menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  background: transparent;
+}
+
+/* --- Markdown mode header --- */
+.md-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #0F0F0F;
+}
+
+.md-header-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.md-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #8b949e;
+}
+
+.md-info-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: 9999px;
+  color: #8b949e;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.md-info-btn:hover {
+  color: #c9d1d9;
+}
+
+.md-switch-btn {
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #e6edf3;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.md-switch-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* --- Markdown textarea --- */
+.editor-area.md-area {
+  padding: 0;
+}
+
+.md-textarea {
+  display: block;
+  width: 100%;
+  min-height: 72px;
+  max-height: 400px;
+  box-sizing: border-box;
+  padding: 8px 16px;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #c9d1d9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.md-textarea::placeholder {
+  color: #8b949e;
+}
+
+/* --- Markdown Help modal --- */
+.md-help-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483607;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.md-help-modal {
+  position: relative;
+  width: min(420px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 20px;
+  background: #0F0F0F;
+  border: 1px solid #2a2a2c;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  color: #c9d1d9;
+}
+
+.md-help-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  border-radius: 9999px;
+  color: #c9d1d9;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.md-help-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.md-help-title {
+  margin: 0 0 12px;
+  padding-right: 24px;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.md-help-intro {
+  margin: 0 0 16px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #c9d1d9;
+}
+
+.md-help-intro a {
+  color: #58a6ff;
+  text-decoration: underline;
+}
+
+.md-help-table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #30363d;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.md-help-table th,
+.md-help-table td {
+  width: 50%;
+  padding: 6px 8px;
+  border: 1px solid #30363d;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-help-table th {
+  font-weight: 700;
+  color: #e6edf3;
+}
+
+.md-help-table td:first-child {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  color: #c9d1d9;
+}
+
+.md-help-table em { font-style: italic; }
+.md-help-table strong { font-weight: 700; }
+.md-help-table del { text-decoration: line-through; }
+.md-help-table sup { vertical-align: super; font-size: 0.8em; line-height: 0; }
+.md-help-table a { color: #58a6ff; text-decoration: underline; }
+
+.md-help-list {
+  margin: 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.md-help-list li {
+  list-style: disc;
+}
+
+.md-help-quote {
+  display: inline-block;
+  margin: 0;
+  padding-left: 8px;
+  border-left: 3px solid #30363d;
+  color: #8b949e;
+}
+
+.md-help-spoiler {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #3a3a3a;
+  color: transparent;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.md-help-spoiler:hover {
+  color: #c9d1d9;
 }
 
 </style>

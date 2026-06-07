@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted, onUnmounted, reactive } from 'vue';
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue';
 import { toast } from 'vue-sonner';
 import { getRuntimeUrl, sendMessageWithRetry } from '@/utils/runtime';
 import RiTopStrip from './RiTopStrip.vue';
@@ -68,7 +68,7 @@ const currentUsername = ref<string | null>(null);
 const redditListRef = ref<any>(null);
 const pendingLocalComments = ref<Array<{ comment: RedditComment; parentId?: string }>>([]);
 const showTopReplyEditor = ref(false);
-const replyTarget = ref<{ id: string; key: string; draftKey: string; author?: string; parentFullname: string } | null>(null);
+const replyTarget = ref<{ id: string; key: string; author?: string; parentFullname: string } | null>(null);
 const redditEditorMode = ref<'editor' | 'markdown'>('editor');
 const redditShowFlairs = ref(true);
 const redditFlairPosition = ref<'inline' | 'below'>('inline');
@@ -82,9 +82,6 @@ const malWrongAnimeTitleFormat = ref<WrongAnimeTitleFormatOption>('romaji');
 const anilistWrongAnimeTitleFormat = ref<WrongAnimeTitleFormatOption>('romaji');
 const providerBadgesEnabled = ref(false);
 const providerCounts = ref<Partial<Record<Provider, number | null>>>({});
-const replyDrafts = reactive<Record<string, string>>({});
-replyDrafts.root = '';
-
 function extractCommentIdFromPermalink(permalink?: string): string {
   if (!permalink) return '';
   const clean = permalink.split('?')[0] || '';
@@ -117,11 +114,6 @@ function getReplyTargetKey(comment: Pick<RedditComment, 'id' | 'permalink' | 'cr
   return `fallback:${parent}:${created}`;
 }
 
-function getReplyDraftKey(comment: Pick<RedditComment, 'id' | 'permalink' | 'created_utc' | 'parent_id'>): string {
-  const id = resolveCommentId(comment);
-  if (id) return `id:${id}`;
-  return getReplyTargetKey(comment);
-}
 const loadDefaultSort = async () => {
   try {
     const stored = await redditDefaultSortItem.getValue();
@@ -878,11 +870,9 @@ function handleReplyToComment(comment: RedditComment) {
   }
   const fullname = `t1_${resolvedCommentId}`;
   const replyKey = getReplyTargetKey(comment);
-  const draftKey = getReplyDraftKey(comment);
   replyTarget.value = {
     id: resolvedCommentId,
     key: replyKey,
-    draftKey,
     author: comment.author,
     parentFullname: fullname,
   };
@@ -898,11 +888,10 @@ function handleCommentCollapse(commentId: string, collapsed: boolean) {
   if (replyTarget.value?.id === normalizeCommentId(commentId)) {
     showTopReplyEditor.value = false;
     replyTarget.value = null;
-    replyDrafts[`id:${normalizeCommentId(commentId)}`] = '';
   }
 }
 
-async function handleTopCommentSubmit(text: string, draftKey?: string) {
+async function handleTopCommentSubmit(text: string) {
   if (!isRedditConnected.value) {
     toast.error("You're not logged in to Reddit. Please sign in to add comments.");
     return;
@@ -979,9 +968,6 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
     totalComments.value = totalComments.value + 1;
     showTopReplyEditor.value = false;
     replyTarget.value = null;
-    if (draftKey) {
-      replyDrafts[draftKey] = '';
-    }
     toast.success('Comment posted');
   } catch (err: any) {
     log.error('Failed to submit comment', err);
@@ -993,17 +979,7 @@ async function handleTopCommentSubmit(text: string, draftKey?: string) {
 
 function handleTopReplyCancel() {
   showTopReplyEditor.value = false;
-  if (replyTarget.value?.draftKey) {
-    replyDrafts[replyTarget.value.draftKey] = '';
-  } else {
-    replyDrafts.root = '';
-  }
   replyTarget.value = null;
-}
-
-function handlePlainSubmit(draftKey: string) {
-  const text = replyDrafts[draftKey] || '';
-  void handleTopCommentSubmit(text, draftKey);
 }
 
 function handleCommentsLoaded(count: number) {
@@ -1656,30 +1632,14 @@ defineExpose({
         id="ri-top-reply-host"
         class="ri-top-reply-container"
       >
-        <template v-if="redditEditorMode === 'editor'">
-          <TipTapCommentEditor
-            :disabled="isPostingTopComment"
-            :placeholder="replyPlaceholder"
-            class="ri-reply-editor"
-            @submit="handleTopCommentSubmit"
-            @cancel="handleTopReplyCancel"
-          />
-        </template>
-        <template v-else>
-          <div class="ri-reply-editor ri-plain-editor">
-            <textarea
-              v-model="replyDrafts.root"
-              class="ri-plain-textarea"
-              :placeholder="replyPlaceholder"
-              :disabled="isPostingTopComment"
-              rows="4"
-            />
-            <div class="ri-plain-actions">
-              <button class="ri-plain-btn primary" :disabled="isPostingTopComment" @click="handlePlainSubmit('root')">Comment</button>
-              <button class="ri-plain-btn" @click="handleTopReplyCancel">Cancel</button>
-            </div>
-          </div>
-        </template>
+        <TipTapCommentEditor
+          :disabled="isPostingTopComment"
+          :placeholder="replyPlaceholder"
+          :start-in-markdown="redditEditorMode === 'markdown'"
+          class="ri-reply-editor"
+          @submit="handleTopCommentSubmit"
+          @cancel="handleTopReplyCancel"
+        />
       </div>
 
       <!-- Archived notice - only visible for Reddit provider -->
@@ -1786,29 +1746,14 @@ defineExpose({
         >
           <template #reply-editor="{ comment }">
             <TipTapCommentEditor
-              v-if="redditEditorMode === 'editor' && replyTarget?.key === getReplyTargetKey(comment) && showTopReplyEditor"
+              v-if="replyTarget?.key === getReplyTargetKey(comment) && showTopReplyEditor"
               :disabled="isPostingTopComment"
               :placeholder="replyPlaceholder"
+              :start-in-markdown="redditEditorMode === 'markdown'"
               class="ri-reply-editor"
               @submit="handleTopCommentSubmit"
               @cancel="handleTopReplyCancel"
             />
-            <div
-              v-else-if="redditEditorMode === 'markdown' && replyTarget?.key === getReplyTargetKey(comment) && showTopReplyEditor"
-              class="ri-reply-editor ri-plain-editor"
-            >
-              <textarea
-                v-model="replyDrafts[getReplyDraftKey(comment)]"
-                class="ri-plain-textarea"
-                :placeholder="replyPlaceholder"
-                :disabled="isPostingTopComment"
-                rows="4"
-              />
-              <div class="ri-plain-actions">
-                <button class="ri-plain-btn primary" :disabled="isPostingTopComment" @click="handlePlainSubmit(getReplyDraftKey(comment))">Comment</button>
-                <button class="ri-plain-btn" @click="handleTopReplyCancel">Cancel</button>
-              </div>
-            </div>
           </template>
         </RedditCommentList>
         <div v-else-if="currentProvider === 'reddit' && !isLoading && isNoDiscussion">
@@ -2346,51 +2291,6 @@ defineExpose({
 .ri-reply-editor {
   display: block;
   margin-top: 18px;
-}
-
-.ri-plain-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ri-plain-textarea {
-  width: 100%;
-  resize: vertical;
-  min-height: 96px;
-  padding: 6px 8px;
-  background: #0f0f10;
-  color: #e5e5e5;
-  border: 1px solid #2d2f36;
-  border-radius: 10px;
-  font-size: 14px;
-  line-height: 1.4;
-}
-
-.ri-plain-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.ri-plain-btn {
-  padding: 8px 12px;
-  border-radius: 10px;
-  border: 1px solid #2d2f36;
-  background: #1b1e24;
-  color: #e5e5e5;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.ri-plain-btn.primary {
-  background: #2f6feb;
-  border-color: #2f6feb;
-  color: #fff;
-}
-
-.ri-plain-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 /* Fallback skeleton styles for inline Reddit loading states.
