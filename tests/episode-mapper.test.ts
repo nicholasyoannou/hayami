@@ -12,6 +12,7 @@ import {
   mapEpisodeToSeasonEpisode,
   foldCrEpisodeIntoCour,
   resolveAirDateMatchedEpisode,
+  airDateMatchedEpisodeCandidates,
 } from '@/entrypoints/content/sites/crunchyroll/episode-mapper';
 import type { MapperResultEntry, MapperResponse, CrunchyrollSeason } from '@/entrypoints/content/types/data';
 
@@ -465,6 +466,66 @@ describe('resolveAirDateMatchedEpisode', () => {
       results: [matched],
     });
     expect(resolveAirDateMatchedEpisode(response, matched)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// airDateMatchedEpisodeCandidates
+//
+// Usually one date-matched key, but two episodes can legitimately share an air
+// date (same-day double-release, or AoT's earthquake-delayed E73 landing on
+// E74's date). All tied keys are returned for the caller to disambiguate.
+// ---------------------------------------------------------------------------
+describe('airDateMatchedEpisodeCandidates', () => {
+  function makeResponse(overrides: Partial<MapperResponse>): MapperResponse {
+    return { results: [], ...overrides } as MapperResponse;
+  }
+
+  it('returns both keys when two episodes share the requested air date (AoT E73/E74)', () => {
+    const matched = makeMapperEntry({
+      anime_name: 'Shingeki no Kyojin: The Final Season (Attack on Titan Final Season)',
+      year: '2021',
+      episodes: {
+        '14': 'https://www.reddit.com/r/anime/comments/ma083t',
+        '15': 'https://www.reddit.com/r/anime/comments/ma16ut',
+      },
+      episode_dates: { '14': '2021-03-21', '15': '2021-03-21' },
+    });
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2021-03-21',
+      results: [matched],
+    });
+    expect(airDateMatchedEpisodeCandidates(response, matched)).toEqual([14, 15]);
+    // The single-pick wrapper still returns the date-order primary (lowest key).
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBe(14);
+  });
+
+  it('returns a single key for the common unique-date case', () => {
+    const matched = makeMapperEntry({
+      episodes: { '2': 'url2' },
+      episode_dates: { '2': '2020-12-13' },
+    });
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2020-12-13',
+      results: [matched],
+    });
+    expect(airDateMatchedEpisodeCandidates(response, matched)).toEqual([2]);
+  });
+
+  it('returns [] when the flag is absent or no key matches the date', () => {
+    const matched = makeMapperEntry({
+      episodes: { '5': 'u5', '6': 'u6' },
+      episode_dates: { '5': '2024-01-01', '6': '2024-01-08' },
+    });
+    expect(airDateMatchedEpisodeCandidates(makeResponse({ results: [matched] }), matched)).toEqual([]);
+    expect(
+      airDateMatchedEpisodeCandidates(
+        makeResponse({ episode_date_matched: true, episode_date_requested: '2024-02-02' }),
+        matched,
+      ),
+    ).toEqual([]);
   });
 });
 

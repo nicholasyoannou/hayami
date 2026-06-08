@@ -37,7 +37,8 @@ import {
   findSliceEpisodeMatch,
 } from '../shared';
 import { refineMatchedIndexUsingCrunchyrollData } from './refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode, foldCrEpisodeIntoCour, resolveAirDateMatchedEpisode } from './episode-mapper';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode, foldCrEpisodeIntoCour, airDateMatchedEpisodeCandidates } from './episode-mapper';
+import { disambiguateRedditEpisodeByThreadNumber } from '../../mapping/reddit/disambiguate';
 import { cacheAnimeIds } from '../../storage/series-mapping';
 import {
   fetchAnimeMapperDataBySeriesAndSeason,
@@ -746,13 +747,33 @@ export async function runCrunchyrollDeepPipeline(
     // `{ "2": url }`, but the offset math computed 1 and missed key "2"). Gated
     // on `episode_date_matched === true`, so non-date / unconfirmed-date flows
     // are unchanged.
-    const airDateMatchedEpisode = resolveAirDateMatchedEpisode(mapperResult, matchedSeason);
+    const airDateCandidates = airDateMatchedEpisodeCandidates(mapperResult, matchedSeason);
+    let airDateMatchedEpisode: number | null = airDateCandidates.length > 0 ? airDateCandidates[0] : null;
+    // Air dates aren't always unique: two episodes can legitimately share one (a
+    // same-day double-release, or a broadcast delayed onto the next episode's
+    // date — e.g. AoT S4 "Savagery"/E73 was earthquake-delayed onto "Sole
+    // Salvation"/E74's date). When several episodes match the date, the lowest
+    // key (above) is a coin-flip; disambiguate by matching the Reddit thread's
+    // episode number to CR's. Falls back to the date-order pick on no match.
+    if (
+      airDateCandidates.length > 1 &&
+      platform === 'reddit' &&
+      (Number.isFinite(crEpisodeNumber) || Number.isFinite(sequenceNumber as number))
+    ) {
+      const disambiguated = await disambiguateRedditEpisodeByThreadNumber(
+        matchedSeason,
+        airDateCandidates,
+        [crEpisodeNumber, sequenceNumber ?? null, hasManualEpisodeOverride ? Number(overrideEpisode) : null],
+      );
+      if (disambiguated !== null) airDateMatchedEpisode = disambiguated;
+    }
     if (airDateMatchedEpisode !== null) {
       seasonEpisode = airDateMatchedEpisode;
       log.log(' Using backend air-date-matched episode (authoritative; skipping CR-number heuristics):', {
         seasonEpisode,
         requestedDate: mapperResult?.episode_date_requested,
         matchedName: matchedSeason?.anime_name,
+        airDateCandidates,
       });
       // When we have CR seasons data, always use smart mapping even if an override
       // was provided – the override comes from the episode title (absolute numbering

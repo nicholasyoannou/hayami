@@ -32,14 +32,14 @@ const log = con.m('Mapper');
  * `episode_date_matched === true` so non-date and unconfirmed-date flows are
  * byte-for-byte unaffected.
  */
-export function resolveAirDateMatchedEpisode(
+export function airDateMatchedEpisodeCandidates(
   response: MapperResponse | null | undefined,
   matchedSeason: MapperResultEntry | null | undefined,
-): number | null {
-  if (!response || response.episode_date_matched !== true) return null;
+): number[] {
+  if (!response || response.episode_date_matched !== true) return [];
 
   const episodes = matchedSeason?.episodes;
-  if (!episodes || typeof episodes !== 'object') return null;
+  if (!episodes || typeof episodes !== 'object') return [];
 
   const toEpisodeNumber = (key: string): number | null => {
     if (!Object.prototype.hasOwnProperty.call(episodes, key)) return null;
@@ -47,17 +47,22 @@ export function resolveAirDateMatchedEpisode(
     return Number.isFinite(n) ? n : null;
   };
 
-  // Preferred: the key whose stored air date equals the requested date. The
-  // backend filters `episode_dates` alongside `episodes`, so this is exact.
+  // Preferred: every key whose stored air date equals the requested date. The
+  // backend filters `episode_dates` alongside `episodes`, so these are exact.
+  // Usually one key — but two episodes can legitimately share a date (a same-day
+  // double-release, or a broadcast delayed onto the next episode's date), in
+  // which case all of them are returned for the caller to disambiguate.
   const dates = matchedSeason?.episode_dates;
   const requested = response.episode_date_requested;
+  const out: number[] = [];
   if (dates && typeof dates === 'object' && requested) {
     for (const [key, value] of Object.entries(dates)) {
       if (value === requested) {
         const resolved = toEpisodeNumber(key);
-        if (resolved !== null) return resolved;
+        if (resolved !== null && !out.includes(resolved)) out.push(resolved);
       }
     }
+    return out;
   }
 
   // Fallback: the backend already trimmed `episodes` to date matches, so a sole
@@ -65,10 +70,24 @@ export function resolveAirDateMatchedEpisode(
   // when several keys remain and none was date-confirmed above.
   const keys = Object.keys(episodes);
   if (keys.length === 1) {
-    return toEpisodeNumber(keys[0]);
+    const resolved = toEpisodeNumber(keys[0]);
+    if (resolved !== null) out.push(resolved);
   }
+  return out;
+}
 
-  return null;
+/**
+ * Single best air-date-matched episode (the first date-matching key). When the
+ * air date is ambiguous (multiple episodes share it) this returns the lowest
+ * key; callers that can disambiguate further (e.g. by Reddit thread number)
+ * should use {@link airDateMatchedEpisodeCandidates} instead.
+ */
+export function resolveAirDateMatchedEpisode(
+  response: MapperResponse | null | undefined,
+  matchedSeason: MapperResultEntry | null | undefined,
+): number | null {
+  const candidates = airDateMatchedEpisodeCandidates(response, matchedSeason);
+  return candidates.length > 0 ? candidates[0] : null;
 }
 
 /** Sort sentinel for year comparisons — movies (and unparseable years) sort last. */

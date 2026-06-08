@@ -7,12 +7,49 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseEpisodeFromTitle,
+  parseEpisodeNumberFromRedditTitle,
   normalizeForMatch,
   scoreSeasonTitleMatch,
   buildMapperSlicesForCrSeasons,
   findSliceEpisodeMatch,
   type OrderedMapperEntry,
 } from '@/entrypoints/content/sites/shared';
+
+// ---------------------------------------------------------------------------
+// parseEpisodeNumberFromRedditTitle
+// ---------------------------------------------------------------------------
+describe('parseEpisodeNumberFromRedditTitle', () => {
+  it('parses the canonical r/anime episode-thread title', () => {
+    expect(
+      parseEpisodeNumberFromRedditTitle('Shingeki no Kyojin: The Final Season - Episode 74 discussion'),
+    ).toBe(74);
+    expect(
+      parseEpisodeNumberFromRedditTitle('Shingeki no Kyojin: The Final Season - Episode 73 discussion'),
+    ).toBe(73);
+  });
+
+  it('parses zero-padded and high episode numbers', () => {
+    expect(parseEpisodeNumberFromRedditTitle('Some Show - Episode 07 discussion')).toBe(7);
+    expect(parseEpisodeNumberFromRedditTitle('My Hero Academia 6th Season - Episode 113 discussion')).toBe(113);
+  });
+
+  it('prefers the number tied to "discussion" over a number in the series name', () => {
+    // A season marker ("2") must not win over the real episode number.
+    expect(parseEpisodeNumberFromRedditTitle('Re:Zero Season 2 - Episode 1 discussion')).toBe(1);
+  });
+
+  it('does not match combined "Episodes N-M" threads (no standalone "Episode N")', () => {
+    expect(parseEpisodeNumberFromRedditTitle('Show - Episodes 73-74 discussion')).toBeNull();
+  });
+
+  it('returns null when no episode number is present', () => {
+    expect(parseEpisodeNumberFromRedditTitle('Show - Series discussion')).toBeNull();
+    expect(parseEpisodeNumberFromRedditTitle('Episode Discussion')).toBeNull();
+    expect(parseEpisodeNumberFromRedditTitle('')).toBeNull();
+    expect(parseEpisodeNumberFromRedditTitle(null as unknown as string)).toBeNull();
+    expect(parseEpisodeNumberFromRedditTitle(undefined as unknown as string)).toBeNull();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // parseEpisodeFromTitle

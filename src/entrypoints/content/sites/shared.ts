@@ -64,6 +64,42 @@ export function parseEpisodeFromTitle(title: unknown): number | null {
   return result;
 }
 
+/**
+ * Extract the episode number from an r/anime discussion thread title, e.g.
+ * "Shingeki no Kyojin: The Final Season - Episode 74 discussion" → 74.
+ *
+ * r/anime episode threads encode the (usually continuous) episode number as
+ * "Episode N discussion". Used to disambiguate when two episodes legitimately
+ * share an air date (same-day double-release or an earthquake-delayed episode
+ * landing on the next one's date) and the air-date filter alone returns both —
+ * the thread number is matched against Crunchyroll's episode number to pick the
+ * right one. Returns `null` when no "Episode N" token is present (the caller
+ * then keeps its existing pick).
+ */
+export function parseEpisodeNumberFromRedditTitle(title: unknown): number | null {
+  if (typeof title !== 'string') return null;
+  const trimmed = title.trim();
+  if (!trimmed) return null;
+
+  // Prefer the "Episode N" immediately tied to "discussion" (the canonical
+  // r/anime episode-thread shape), so a number in the series name can't win.
+  const tied = trimmed.match(/\bepisode\s+0*(\d+)\b[^\d]*\bdiscussion\b/i);
+  if (tied?.[1]) {
+    const n = Number.parseInt(tied[1], 10);
+    if (Number.isFinite(n)) return n;
+  }
+
+  // Fallback: the last standalone "Episode N" in the title. Requires whitespace
+  // after "Episode" so "Episodes 73-74" (combined threads) does not match.
+  const all = [...trimmed.matchAll(/\bepisode\s+0*(\d+)\b/gi)];
+  if (all.length > 0) {
+    const n = Number.parseInt(all[all.length - 1][1], 10);
+    if (Number.isFinite(n)) return n;
+  }
+
+  return null;
+}
+
 export function parseMapperYear(year: any): number | null {
   if (!year || year === 'movies') {
     return null;
