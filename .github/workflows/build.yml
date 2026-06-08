@@ -27,17 +27,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Use Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Build and zip (${{ matrix.target }})
-        run: npx wxt zip -b ${{ matrix.target }}
+        run: bunx wxt zip -b ${{ matrix.target }}
 
       - name: Upload ${{ matrix.target }} artifact
         uses: actions/upload-artifact@v4
