@@ -1027,7 +1027,7 @@ const isReady = computed(() => !!editor.value);
   border: none;
   border-radius: 6px;
   color: #e6edf3;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.12s;

@@ -18,7 +18,7 @@ const props = defineProps<{
   animeTitle: string;
   topicId?: number | string;
   wrongAnimeContext?: WrongAnimeContext;
-  bbcodeToHtml: (input: string) => string;
+  bbcodeToHtml: (input: string, opts?: { context?: 'body' | 'signature' }) => string;
 }>();
 
 const posts = ref<MalPost[]>(Array.isArray(props.result.posts) ? props.result.posts : []);

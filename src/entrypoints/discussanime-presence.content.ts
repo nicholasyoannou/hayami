@@ -1,4 +1,5 @@
 import { browser } from 'wxt/browser'
+import { isDiscussanimeHost } from '@/utils/hostnames'
 
 /**
  * Presence marker for *.discussanime.moe. Flips a dataset attribute and
@@ -13,6 +14,19 @@ export default defineContentScript({
   allFrames: false,
   cssInjectionMode: 'manual',
   main() {
+    // `webext-dynamic-content-scripts` (imported in background.ts) re-registers
+    // EVERY manifest content script onto each origin the user grants for a
+    // custom site — it registers with `matches: [grantedOrigin]` and
+    // `excludeMatches: <this script's original matches>`. Our original match
+    // (`https://discussanime.moe/*`) doesn't exclude e.g. `animepahe.pw`, so
+    // this presence/theme bridge gets injected there too. On a non-discussanime
+    // host `readTheme()` returns 'light' (the host `<html>` has no
+    // `data-theme="dark"`), and we'd post a bogus `light` host theme to the
+    // Disqus iframe — flipping the reactions strip to its light palette
+    // (near-black text on the dark iframe) and stripping `body.dark` off
+    // Disqus's own comments. Bail unless we're genuinely on discussanime.moe.
+    if (!isDiscussanimeHost(location.hostname)) return
+
     const version = browser?.runtime?.getManifest?.()?.version ?? 'unknown'
 
     const mark = () => {

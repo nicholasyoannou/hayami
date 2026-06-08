@@ -405,14 +405,39 @@ export interface MapperMatchedMeta {
   is_exact_match?: boolean;
   has_episodes?: boolean;
   episode_count?: number;
+  /**
+   * Stringified Mongo _id of the matched document. The backend now attaches
+   * this so a match stays locatable even when `results` is a paginated window
+   * (the `index` field refers to the full, unpaginated result set).
+   */
+  docID?: string;
+}
+
+/** Pagination metadata for the Reddit-path search response. */
+export interface MapperPagination {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  returned: number;
+  has_more: boolean;
 }
 
 /** Top-level response from the Hayami mapper API search endpoint. */
 export interface MapperResponse {
+  /** Total number of matched documents (full set, not just this page). */
   count?: number;
+  /** Same as `count`; total matched documents across all pages. */
+  total?: number;
   matched_result?: MapperMatchedMeta;
   matched_results?: MapperMatchedMeta[];
   results?: MapperResultEntry[];
+  /**
+   * Present on Reddit-path responses. The endpoint defaults to returning the
+   * full result set in one page, so existing single-call consumers are
+   * unaffected; pass `page`/`page_size` query params to opt into windowing.
+   */
+  pagination?: MapperPagination;
   /** Canonical MAL/AniList ids for the season-disambiguated anime, when the backend resolves them. */
   animeMeta?: { malId?: number | null; anilistId?: number | null } | null;
 }

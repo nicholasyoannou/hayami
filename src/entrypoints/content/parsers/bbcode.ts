@@ -71,12 +71,55 @@ function rewriteImgurInHtmlFragment(html: string): string {
 }
 
 /**
+ * MAL signatures are frequently a single banner image sliced into horizontal
+ * strips and reassembled with <br>-separated rows — some strips are further cut
+ * into side-by-side pieces (optionally wrapped in profile/PM/blog links). To
+ * rebuild that mosaic seamlessly we wrap each <br>-delimited row in a block:
+ * image-only rows collapse their line-height so strips butt together with no
+ * gap, while text rows keep a normal line-height. Rows inherit the parent's
+ * text-align, so the banner stays flush to whichever edge the user aligned it
+ * to — mirroring MAL's own rendering.
+ *
+ * Skipped for signatures containing tables/quotes/spoilers, whose nested <br>
+ * must not be split across rows.
+ */
+function wrapSignatureRows(html: string): string {
+  if (!html) return html;
+  if (/<blockquote|ri-spoiler|<table/i.test(html)) return html;
+
+  const wrapRows = (inner: string): string => inner
+    .split(/<br\s*\/?>/i)
+    .map((seg) => {
+      const row = seg.trim();
+      if (!row) return '';
+      // A row is "image-only" once anchors/images/whitespace are stripped away.
+      const withoutMedia = row
+        .replace(/<img\b[^>]*>/gi, '')
+        .replace(/<\/?a\b[^>]*>/gi, '')
+        .replace(/\s+/g, '');
+      const isImageRow = withoutMedia === '' && /<img/i.test(row);
+      return `<div class="${isImageRow ? 'ri-sig-imgrow' : 'ri-sig-textrow'}">${row}</div>`;
+    })
+    .join('');
+
+  // Process inside the alignment wrapper when present so its text-align survives.
+  const aligned = html.match(/^(\s*<div style="text-align:[^"]*;">)([\s\S]*)(<\/div>\s*)$/i);
+  if (aligned) {
+    return `${aligned[1]}${wrapRows(aligned[2])}${aligned[3]}`;
+  }
+  return wrapRows(html);
+}
+
+/**
  * Converts BBCode markup to HTML
  * @param input - BBCode formatted string
+ * @param opts.context - 'signature' enables sliced-banner mosaic reconstruction
+ *   (inline natural-size slices, no rounding, seamless rows). Defaults to 'body'.
  * @returns HTML formatted string
  */
-export function bbcodeToHtml(input: string): string {
+export function bbcodeToHtml(input: string, opts: { context?: 'body' | 'signature' } = {}): string {
   if (!input) return '';
+  const isSignature = opts.context === 'signature';
   // Decode HTML entities first
   let out = decodeEntities(input);
 
@@ -119,7 +162,11 @@ export function bbcodeToHtml(input: string): string {
     if (align === 'left') classNames += ' img-a-l';
     if (align === 'right') classNames += ' img-a-r';
 
-    const styles: string[] = ['max-width:100%;border-radius:4px;'];
+    // Signature slices must keep natural size and seamless edges; body images
+    // get the rounded-corner treatment.
+    const styles: string[] = isSignature
+      ? ['max-width:100%;height:auto;object-fit:contain;']
+      : ['max-width:100%;border-radius:4px;'];
     if (width) styles.push(`width:${width}px;`);
     if (height) styles.push(`height:${height}px;`);
     if (align === 'center') styles.push('display:block;margin:0 auto;');
@@ -213,11 +260,18 @@ export function bbcodeToHtml(input: string): string {
 
   // When two plain BBCode images are stacked with a single <br>, MAL renders them flush.
   // Remove that separator between adjacent non-floating userimg elements.
-  out = out.replace(
-    /(<img\b[^>]*class=["'][^"']*\buserimg\b[^"']*["'][^>]*>)(?:\s*<br\s*\/?>\s*)(<img\b[^>]*class=["'][^"']*\buserimg\b[^"']*["'][^>]*>)/gi,
-    '$1$2',
-  );
-  
+  // Skipped for signatures: row separators there are meaningful (sliced-banner
+  // mosaics) and are handled seamlessly by wrapSignatureRows instead.
+  if (!isSignature) {
+    out = out.replace(
+      /(<img\b[^>]*class=["'][^"']*\buserimg\b[^"']*["'][^>]*>)(?:\s*<br\s*\/?>\s*)(<img\b[^>]*class=["'][^"']*\buserimg\b[^"']*["'][^>]*>)/gi,
+      '$1$2',
+    );
+  }
+
+  // Center-div fixups below target post bodies; signatures rebuild their own
+  // layout via wrapSignatureRows, so skip them to keep slice output predictable.
+  if (!isSignature) {
   // Ensure divs with text-align:center are properly preserved (for signatures with pre-existing HTML)
   // This fixes cases where the HTML already contains <div style="text-align: center;"> but it's not working
   out = out.replace(/<div\s+style\s*=\s*["']([^"']*text-align\s*:\s*center[^"']*)["']([^>]*)>/gi, (match, styleContent, rest) => {
@@ -272,9 +326,15 @@ export function bbcodeToHtml(input: string): string {
     });
     return match.replace(content, updatedContent);
   });
+  }
 
   // Final pass for pre-existing raw HTML from MAL payloads.
   out = rewriteImgurInHtmlFragment(out);
-  
+
+  // Reassemble sliced-banner signatures into seamless, alignment-preserving rows.
+  if (isSignature) {
+    out = wrapSignatureRows(out);
+  }
+
   return out;
 }

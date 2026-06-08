@@ -72,34 +72,77 @@ async function persistSubredditModeratorCache(cache: SubredditModeratorCache) {
   }
 }
 
+/**
+ * A valid `/r/<sub>/about.json` response is `{ kind: 't5', data: { … } }`.
+ * Reddit's edge serves a 200-but-HTML block page in some failure modes, and
+ * the proxy transport returns that HTML as a plain string — guard against
+ * caching that (or any non-object payload) as if it were real about data.
+ */
+function isSubredditAboutPayload(payload: any): boolean {
+  return !!(
+    payload &&
+    typeof payload === 'object' &&
+    !Array.isArray(payload) &&
+    payload.data &&
+    typeof payload.data === 'object' &&
+    !Array.isArray(payload.data)
+  );
+}
+
 async function fetchSubredditAboutFromNetwork(subreddit: string): Promise<any | null> {
   const sub = subreddit.trim().replace(/^r\//i, '');
   if (!sub) return null;
-  const webUrl = `https://www.reddit.com/r/${encodeURIComponent(sub)}/about.json?raw_json=1`;
-  const apiUrl = `https://api.reddit.com/r/${encodeURIComponent(sub)}/about.json`;
+  const encoded = encodeURIComponent(sub);
 
-  const doFetch = async (url: string) => {
+  // Reddit now 403-blocks ANONYMOUS subreddit about.json requests, returning an
+  // HTML "network security" block page instead of JSON. Authenticated requests
+  // still succeed, so try those first — OAuth Bearer (best rate limits), then
+  // the logged-in cookie session against oauth.reddit.com (works without an
+  // OAuth token; this is the path the comments runtime uses successfully), then
+  // www with cookies. The anonymous public endpoints are kept only as a
+  // last-resort fallback for logged-out users. Mirrors
+  // fetchSubredditModeratorsFromNetwork below.
+  const endpoints: Array<{ url: string; init: RequestInit }> = [];
+
+  const token = await getAccessToken();
+  if (token) {
+    endpoints.push({
+      url: `https://oauth.reddit.com/r/${encoded}/about.json?raw_json=1`,
+      init: {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'chrome-extension:crunchyroll-comments:v1.0.0',
+        },
+      } as any,
+    });
+  }
+  endpoints.push({ url: `https://oauth.reddit.com/r/${encoded}/about.json?raw_json=1`, init: { credentials: 'include' } as any });
+  endpoints.push({ url: `https://www.reddit.com/r/${encoded}/about.json?raw_json=1`, init: { credentials: 'include' } as any });
+  endpoints.push({ url: `https://www.reddit.com/r/${encoded}/about.json?raw_json=1`, init: { credentials: 'omit' } as any });
+  endpoints.push({ url: `https://api.reddit.com/r/${encoded}/about.json`, init: { credentials: 'omit' } as any });
+
+  for (const endpoint of endpoints) {
     try {
-      const resp = await extensionFetchTransport(url, { credentials: 'omit' } as any);
-      if (resp.ok) {
-        try {
-          return await resp.json();
-        } catch (parseErr) {
-          devDebug('[subredditAbout] parse error', { url, err: parseErr });
-          return null;
-        }
+      const resp = await extensionFetchTransport(endpoint.url, endpoint.init as any);
+      if (!resp.ok) {
+        devDebug('[subredditAbout] non-ok', { url: endpoint.url, status: resp.status });
+        continue;
       }
-      devDebug('[subredditAbout] non-ok', { url, status: resp.status });
-      return null;
+      let payload: any = null;
+      try {
+        payload = await resp.json();
+      } catch (parseErr) {
+        devDebug('[subredditAbout] parse error', { url: endpoint.url, err: parseErr });
+        continue;
+      }
+      if (isSubredditAboutPayload(payload)) return payload;
+      devDebug('[subredditAbout] unexpected payload shape', { url: endpoint.url });
     } catch (e) {
-      devDebug('[subredditAbout] fetch threw', { url, err: e });
-      return null;
+      devDebug('[subredditAbout] fetch threw', { url: endpoint.url, err: e });
     }
-  };
+  }
 
-  const dataFromWeb = await doFetch(webUrl);
-  if (dataFromWeb) return dataFromWeb;
-  return await doFetch(apiUrl);
+  return null;
 }
 
 export async function getSubredditAboutCachedInternal(subreddit: string): Promise<any | null> {

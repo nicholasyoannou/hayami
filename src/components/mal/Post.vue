@@ -10,7 +10,7 @@ const props = defineProps<{
   post: MalPost;
   topicId?: number | string;
   formatTimestamp: (ts: string | undefined) => string;
-  bbcodeToHtml: (input: string) => string;
+  bbcodeToHtml: (input: string, opts?: { context?: 'body' | 'signature' }) => string;
 }>();
 
 const authorName = computed(() => props.post?.author?.name ? escapeHtml(props.post.author.name) : 'Unknown');
@@ -35,7 +35,7 @@ const bodyHtml = computed(() => {
 });
 const sigHtml = computed(() => {
   const sig = props.post?.signature;
-  return sig ? props.bbcodeToHtml(String(sig)) : '';
+  return sig ? props.bbcodeToHtml(String(sig), { context: 'signature' }) : '';
 });
 const postNum = computed(() => props.post?.number ? `#${props.post.number}` : '');
 
@@ -355,20 +355,18 @@ a.ri-mal-post-username:hover {
   padding: 0;
 }
 
-:deep(.ri-mal-body img.userimg),
-.ri-mal-signature :deep(img.userimg) {
+/* Post-body images keep the block-per-line + rounded-corner treatment. */
+:deep(.ri-mal-body img.userimg) {
   max-width: 100%;
   height: auto;
   vertical-align: middle;
 }
 
-:deep(.ri-mal-body img.userimg:not(.img-a-l):not(.img-a-r)),
-.ri-mal-signature :deep(img.userimg:not(.img-a-l):not(.img-a-r)) {
+:deep(.ri-mal-body img.userimg:not(.img-a-l):not(.img-a-r)) {
   display: block;
 }
 
-:deep(.ri-mal-body div[style*="text-align:center"] img.userimg),
-.ri-mal-signature :deep(div[style*="text-align:center"] img.userimg) {
+:deep(.ri-mal-body div[style*="text-align:center"] img.userimg) {
   display: inline-block;
 }
 
@@ -384,6 +382,32 @@ a.ri-mal-post-username:hover {
   float: right;
   padding-left: 8px;
   padding-top: 4px;
+}
+
+/* Signature slices stay inline at natural size, so sliced banners reassemble
+   side-by-side instead of stacking each slice on its own line. */
+.ri-mal-signature :deep(img.userimg) {
+  display: inline;
+  max-width: 100%;
+  height: auto;
+  vertical-align: top;
+  border-radius: 0;
+}
+
+/* Image rows collapse their line-height so strips butt together with no seam;
+   caption (text) rows keep a normal line-height so the text stays readable. */
+.ri-mal-signature :deep(.ri-sig-imgrow) {
+  line-height: 0;
+  white-space: nowrap;
+}
+
+.ri-mal-signature :deep(.ri-sig-textrow) {
+  line-height: normal;
+}
+
+/* Signature links (e.g. banner captions) read as links, mirroring MAL. */
+.ri-mal-signature :deep(a) {
+  color: #9bb3d6;
 }
 
 .ri-mal-signature :deep(br) {

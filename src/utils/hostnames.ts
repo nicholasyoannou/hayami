@@ -11,3 +11,11 @@ export function isCrunchyrollHost(hostname: string): boolean {
 export function isHayamiHost(hostname: string): boolean {
   return hostname === 'hayami.moe' || hostname.endsWith('.hayami.moe');
 }
+
+export function isDiscussanimeHost(hostname: string): boolean {
+  return hostname === 'discussanime.moe' || hostname.endsWith('.discussanime.moe');
+}
+
+export function isDisqusHost(hostname: string): boolean {
+  return hostname === 'disqus.com' || hostname.endsWith('.disqus.com');
+}

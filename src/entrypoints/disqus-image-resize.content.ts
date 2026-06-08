@@ -3,6 +3,7 @@ import {
   disqusImageResizeEnabledItem,
   disqusImageMaxWidthItem,
 } from '@/config/storage';
+import { isDisqusHost } from '@/utils/hostnames';
 
 /**
  * Injects a CSS rule into Disqus comment iframes (loaded from disqus.com)
@@ -67,6 +68,15 @@ export default defineContentScript({
   allFrames: true,
   cssInjectionMode: 'manual',
   async main() {
+    // `webext-dynamic-content-scripts` (imported in background.ts) re-registers
+    // this script onto every user-granted custom-site origin, not just disqus.com.
+    // Its CSS targets generic `.post-message` / `[class*="post-content"]`
+    // selectors that could collide with a host site's own markup (capping image
+    // widths on the page) whenever the opt-in toggle is on. Only act inside an
+    // actual Disqus frame. Mirrors the guards on the other origin-specific
+    // content scripts (e.g. discussanime-presence, hayami-handshake).
+    if (!isDisqusHost(location.hostname)) return;
+
     await refresh();
 
     disqusImageResizeEnabledItem.watch(() => { void refresh(); });
