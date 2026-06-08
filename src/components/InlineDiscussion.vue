@@ -190,6 +190,7 @@ const {
   manualAniwaveIsDub, manualAniwaveEpisodeVariants,
   manualMappingAnimeName, manualMappingLookupAnimeName, manualMappingExists, manualResetInProgress,
   wrongAnimeOpen, wrongAnimeQuery, wrongAnimeResults, wrongAnimeLoading, wrongAnimeError,
+  wrongAnimeHasMore, wrongAnimeLoadingMore,
   animeCommunityMedia, malManualMedia, disqusManualMedia, youtubeManualPlaylist,
   manualEpisodeProviderLabel, isAniwaveManualMode, hasAniwaveDubOptions, hasAniwaveSubOptions,
   showAniwaveDubToggle, isAniListEpisodeManualMode, isMalEpisodeManualMode,
@@ -199,7 +200,7 @@ const {
   isEpisodeOnlyManualMode,
   selectedEpisodeOffset, redditUrl: rawRedditUrl,
   openManualSearchModal, runManualSearch, loadEpisodeOptions,
-  openWrongAnimeForm, searchWrongAnime, selectWrongAnime, setManualDialogTab,
+  openWrongAnimeForm, searchWrongAnime, loadMoreWrongAnime, selectWrongAnime, setManualDialogTab,
   getManualMappingPlatform, refreshManualMappingState, resetCurrentMapping,
   confirmEpisodeSelection, selectManualResult, handleManualSearch, handleManualSearchNoDiscussion,
   applyAniwaveEpisodeToggleFromVariants, resolveManualEpisodeProvider, cleanSeriesForMapper,
@@ -208,6 +209,51 @@ const {
   getAniListPreferredTitle, normalizeAniListMedia, searchAniListMedia, fetchAniListMediaById,
   normalizeMalMedia, searchMalMedia, fetchMalMediaById, buildMalEpisodeOptions, buildAnimeCommunityEpisodeOptions,
 } = manualSearch;
+
+// ── Wrong-anime infinite scroll ─────────────────────────────────────────────
+// A sentinel sits below the results list; when it scrolls into view (within the
+// modal's own scroll container) and more pages exist, the next page loads and
+// appends automatically. The sentinel is conditionally rendered, so we
+// (re)attach the observer whenever it appears or disappears.
+const wrongAnimeSentinel = ref<HTMLElement | null>(null);
+const wrongAnimeScrollEl = ref<HTMLElement | null>(null);
+let wrongAnimeObserver: IntersectionObserver | null = null;
+
+function teardownWrongAnimeObserver() {
+  wrongAnimeObserver?.disconnect();
+  wrongAnimeObserver = null;
+}
+
+watch(wrongAnimeSentinel, (el) => {
+  teardownWrongAnimeObserver();
+  if (!el) return;
+  wrongAnimeObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMoreWrongAnime();
+    },
+    // Root = the modal's scroll container so intersection tracks scrolling
+    // within it (not the page); fire a little before it's fully visible.
+    { root: wrongAnimeScrollEl.value ?? null, rootMargin: '160px' },
+  );
+  wrongAnimeObserver.observe(el);
+});
+
+// After a page appends, re-observe so a sentinel that's still in view (results
+// didn't fill the container) gets a fresh intersection callback and keeps
+// loading — until the list overflows or there's nothing more.
+watch(
+  () => wrongAnimeResults.value.length,
+  () => {
+    const el = wrongAnimeSentinel.value;
+    if (wrongAnimeObserver && el) {
+      wrongAnimeObserver.unobserve(el);
+      wrongAnimeObserver.observe(el);
+    }
+  },
+  { flush: 'post' },
+);
+
+onUnmounted(teardownWrongAnimeObserver);
 
 // Apply the user's link domain preference (reddit.com vs old.reddit.com) to the thread URL
 const redditUrl = computed(() => {
@@ -1999,7 +2045,7 @@ defineExpose({
           >✕</button>
         </div>
 
-        <div class="p-4 space-y-3 overflow-y-auto styled-scroll">
+        <div ref="wrongAnimeScrollEl" class="p-4 space-y-3 overflow-y-auto styled-scroll">
           <div class="relative">
             <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-[#7f8a99]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8" />
@@ -2194,14 +2240,29 @@ defineExpose({
               </template>
             </li>
           </ul>
+          <!-- Infinite scroll: this sentinel sits below the list; when it
+               scrolls into view and more pages exist, the next page loads and
+               appends automatically. -->
           <div
-            v-else-if="!wrongAnimeLoading && !wrongAnimeError && wrongAnimeQuery.trim().length >= 2"
+            v-if="wrongAnimeResults.length && wrongAnimeHasMore"
+            ref="wrongAnimeSentinel"
+            class="h-px w-full"
+          ></div>
+          <div
+            v-if="wrongAnimeResults.length && wrongAnimeLoadingMore"
+            class="py-3 text-center text-xs text-[#9aa5b4] flex items-center justify-center gap-2"
+          >
+            <span class="inline-block h-3 w-3 rounded-full border-2 border-[#2f6feb] border-t-transparent animate-spin"></span>
+            Loading more…
+          </div>
+          <div
+            v-if="!wrongAnimeResults.length && !wrongAnimeLoading && !wrongAnimeError && wrongAnimeQuery.trim().length >= 2"
             class="py-6 text-center text-xs text-[#7f8a99]"
           >
             No matches found.
           </div>
           <div
-            v-else-if="!wrongAnimeLoading && !wrongAnimeError && wrongAnimeQuery.trim().length < 2"
+            v-else-if="!wrongAnimeResults.length && !wrongAnimeLoading && !wrongAnimeError && wrongAnimeQuery.trim().length < 2"
             class="py-6 text-center text-xs text-[#7f8a99]"
           >
             Type at least 2 characters to search.

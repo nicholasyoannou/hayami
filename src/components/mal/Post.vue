@@ -303,7 +303,11 @@ a.ri-mal-post-username:hover {
   padding-top: 8px;
   width: 100%;
   white-space: normal;
-  overflow-x: hidden;
+  /* Contain wide signatures horizontally WITHOUT `overflow-x: hidden` — that
+     value makes overflow-y compute to `auto` (CSS spec), which inside the post's
+     flex column turns the signature into a height-capped, scrollable box. `clip`
+     keeps overflow-y `visible`, so signatures render at full height, no scrollbar. */
+  overflow-x: clip;
   word-break: break-word;
   max-width: 100%;
 }

@@ -516,3 +516,48 @@ export async function searchAnimeCatalog(input: {
     return [];
   }
 }
+
+/**
+ * Paged variant of {@link searchAnimeCatalog} for the infinite-scroll
+ * "Wrong anime?" picker. Returns the page's hits plus the server's `has_more`
+ * flag so the caller knows whether to keep loading further pages.
+ */
+export async function searchAnimeCatalogPaged(input: {
+  query: string;
+  page?: number;
+  limit?: number;
+}): Promise<{ items: DiscussAnimeSearchHit[]; hasMore: boolean; page: number }> {
+  const page = input.page && input.page > 0 ? Math.floor(input.page) : 1;
+  const q = input.query?.trim();
+  if (!q) return { items: [], hasMore: false, page };
+
+  const params = new URLSearchParams();
+  params.set('q', q);
+  params.set('limit', String(input.limit ?? 25));
+  if (page > 1) params.set('page', String(page));
+
+  const url = `${DISCUSSANIME_ORIGIN}/api/anime/search?${params.toString()}`;
+  try {
+    const res = await fetch(url, { credentials: 'omit' });
+    if (!res.ok) {
+      log.warn('searchAnimeCatalogPaged: non-OK response', { status: res.status, url });
+      return { items: [], hasMore: false, page };
+    }
+    const body = (await res.json()) as AnimeSearchResponse;
+    const rows = Array.isArray(body?.results) ? body.results : [];
+    const items = rows
+      .filter((row) => Number.isFinite(row?.mal_id) && row.mal_id > 0)
+      .map((row) => ({
+        malId: row.mal_id,
+        title: row.title,
+        titleEnglish: row.title_english,
+        imageUrl: row.image_url,
+        year: row.year,
+        episodes: row.episodes,
+      }));
+    return { items, hasMore: !!body?.has_more, page };
+  } catch (error) {
+    log.warn('searchAnimeCatalogPaged: request failed', error);
+    return { items: [], hasMore: false, page };
+  }
+}

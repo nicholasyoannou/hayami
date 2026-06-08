@@ -68,6 +68,10 @@ export async function fetchAnimeMapperDataBySeriesName(
     maxEpisodeCount?: number | null;
     preserveSeasonSuffix?: boolean;
     episodeDate?: string | Date | null;
+    /** 1-based page for the Reddit/aniwave result list. Omit for page 1. */
+    page?: number;
+    /** Results per page (server caps this, default 30). */
+    pageSize?: number;
   },
 ): Promise<MapperResponse | null> {
   try {
@@ -96,7 +100,11 @@ export async function fetchAnimeMapperDataBySeriesName(
       episodeDateParam = `&episode_date=${encodeURIComponent(normalizedDate)}`;
     }
 
-    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}${episodeDateParam}`;
+    let pageParams = '';
+    if (options?.page && options.page > 0) pageParams += `&page=${options.page}`;
+    if (options?.pageSize && options.pageSize > 0) pageParams += `&page_size=${options.pageSize}`;
+
+    const url = `https://api.hayami.moe/anime/search?series_name=${encodedSeries}${platformParam}${idParams}${episodeCountParam}${episodeDateParam}${pageParams}`;
     log.log('Querying mapper by series name:', { 
       url, 
       platform, 

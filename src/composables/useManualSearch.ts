@@ -19,6 +19,7 @@ import {
 import { extractSeasonNumber } from '@/utils/mal/title-parsing';
 import {
   searchAnimeCatalog,
+  searchAnimeCatalogPaged,
   fetchAnimeByMalId,
   fetchAvailableEpisodeNumbers,
   type DiscussAnimeSearchHit,
@@ -111,6 +112,13 @@ export function useManualSearch(params: {
   const wrongAnimeLoading = ref(false);
   const wrongAnimeError = ref<string | null>(null);
   let wrongAnimeDebounceHandle: ReturnType<typeof setTimeout> | null = null;
+  // Infinite-scroll pagination for the wrong-anime picker.
+  const wrongAnimePage = ref(1);
+  const wrongAnimeHasMore = ref(false);
+  const wrongAnimeLoadingMore = ref(false);
+  // Monotonic token so an in-flight page fetch from a stale query is ignored
+  // once the user types a new one.
+  let wrongAnimeSearchToken = 0;
 
   const animeCommunityMedia = ref<AniListSearchMedia | null>(null);
   const malManualMedia = ref<MalSearchMedia | null>(null);
@@ -1201,6 +1209,89 @@ export function useManualSearch(params: {
     wrongAnimeQuery.value = seed;
     wrongAnimeResults.value = [];
     wrongAnimeError.value = null;
+    wrongAnimePage.value = 1;
+    wrongAnimeHasMore.value = false;
+  }
+
+  function wrongAnimeNoMatchMessage(): string {
+    switch (manualEpisodeProvider.value) {
+      case 'animecommunity':
+      case 'anilist': return 'No AniList matches found.';
+      case 'youtube': return 'No matching playlists found via Hayami.';
+      case 'mal': return 'No MAL matches found.';
+      case 'disqus': return 'No matches on Discuss Anime.';
+      default: return 'No matches found via Hayami.';
+    }
+  }
+
+  // Stable per-result key so appended pages can't introduce duplicates.
+  function wrongAnimeResultKey(item: any): string {
+    if (!item) return '';
+    return String(
+      item.id ?? item._id ?? item.malId ?? item.mal_id
+        ?? item.slug ?? item.playlist_id ?? item.title ?? JSON.stringify(item),
+    );
+  }
+
+  // MAL/Jikan paged search. The array helper `searchMalMedia` above stays for
+  // the episode-options path; this variant adds page + has_next_page.
+  async function fetchMalSearchPage(
+    queryText: string,
+    page: number,
+  ): Promise<{ items: MalSearchMedia[]; hasMore: boolean }> {
+    const trimmed = queryText.trim();
+    if (!trimmed) return { items: [], hasMore: false };
+    const url = new URL('https://api.jikan.moe/v4/anime');
+    url.searchParams.set('q', trimmed);
+    url.searchParams.set('limit', '12');
+    if (page > 1) url.searchParams.set('page', String(page));
+    const response = await fetch(url.toString(), { method: 'GET', headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`MAL search failed (${response.status})`);
+    const payload = await response.json();
+    const entries = Array.isArray(payload?.data) ? payload.data : [];
+    const items = entries
+      .map((entry: any) => normalizeMalMedia(entry))
+      .filter((entry: MalSearchMedia | null): entry is MalSearchMedia => !!entry);
+    return { items, hasMore: !!payload?.pagination?.has_next_page };
+  }
+
+  // Unified per-provider page fetcher: returns one page of picker results plus
+  // whether more pages exist. Drives both the initial search and load-more.
+  async function fetchWrongAnimePage(q: string, page: number): Promise<{ items: any[]; hasMore: boolean }> {
+    const provider = manualEpisodeProvider.value;
+
+    if (provider === 'animecommunity' || provider === 'anilist') {
+      const r = await searchAniListMediaPrimitive({ query: q, page, perPage: 12 });
+      if (r.error) throw new Error(r.error.message);
+      const items = r.results
+        .map((media) => normalizeAniListMedia(media))
+        .filter((entry): entry is AniListSearchMedia => !!entry);
+      return { items, hasMore: !!r.hasNextPage };
+    }
+
+    if (provider === 'youtube') {
+      // Hayami returns one best playlist per channel in a single response —
+      // there are no further pages, so only page 1 yields results.
+      const items = page <= 1 ? await loadYouTubePlaylistCandidates(q) : [];
+      return { items, hasMore: false };
+    }
+
+    if (provider === 'mal') {
+      return fetchMalSearchPage(q, page);
+    }
+
+    if (provider === 'disqus') {
+      const { items, hasMore } = await searchAnimeCatalogPaged({ query: q, page, limit: 25 });
+      return { items, hasMore };
+    }
+
+    // reddit / aniwave → Hayami /anime/search (paginated, 30/page)
+    const cleaned = cleanSeriesForMapper(q) || q;
+    const platform = provider === 'aniwave' ? 'aniwave' : 'reddit';
+    const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, platform, { page, pageSize: 30 });
+    const items: any[] = Array.isArray((mapper as any)?.results) ? (mapper as any).results : [];
+    const hasMore = !!(mapper as any)?.pagination?.has_more;
+    return { items, hasMore };
   }
 
   async function searchWrongAnime() {
@@ -1209,61 +1300,49 @@ export function useManualSearch(params: {
       wrongAnimeError.value = 'Enter a title to search.';
       return;
     }
+    const token = ++wrongAnimeSearchToken;
     wrongAnimeLoading.value = true;
     wrongAnimeError.value = null;
     wrongAnimeResults.value = [];
+    wrongAnimePage.value = 1;
+    wrongAnimeHasMore.value = false;
     try {
-      if (
-        manualEpisodeProvider.value === 'animecommunity'
-        || manualEpisodeProvider.value === 'anilist'
-      ) {
-        const results = await searchAniListMedia(q);
-        wrongAnimeResults.value = results;
-        if (results.length === 0) {
-          wrongAnimeError.value = 'No AniList matches found.';
-        }
-        return;
-      }
-
-      if (manualEpisodeProvider.value === 'youtube') {
-        const candidates = await loadYouTubePlaylistCandidates(q);
-        wrongAnimeResults.value = candidates;
-        if (candidates.length === 0) {
-          wrongAnimeError.value = 'No matching playlists found via Hayami.';
-        }
-        return;
-      }
-
-      if (manualEpisodeProvider.value === 'mal') {
-        const results = await searchMalMedia(q);
-        wrongAnimeResults.value = results;
-        if (results.length === 0) {
-          wrongAnimeError.value = 'No MAL matches found.';
-        }
-        return;
-      }
-
-      if (manualEpisodeProvider.value === 'disqus') {
-        const results = await searchAnimeCatalog({ query: q, limit: 25 });
-        wrongAnimeResults.value = results;
-        if (results.length === 0) {
-          wrongAnimeError.value = 'No matches on Discuss Anime.';
-        }
-        return;
-      }
-
-      const cleaned = cleanSeriesForMapper(q) || q;
-      const mapperPlatform = manualEpisodeProvider.value === 'aniwave' ? 'aniwave' : 'reddit';
-      const mapper = await fetchAnimeMapperDataBySeriesName(cleaned, mapperPlatform);
-      const results: any[] = (mapper as any)?.results || [];
-      wrongAnimeResults.value = Array.isArray(results) ? results : [];
-      if (wrongAnimeResults.value.length === 0) {
-        wrongAnimeError.value = 'No matches found via Hayami.';
+      const { items, hasMore } = await fetchWrongAnimePage(q, 1);
+      if (token !== wrongAnimeSearchToken) return; // superseded by a newer query
+      wrongAnimeResults.value = items;
+      wrongAnimeHasMore.value = hasMore;
+      wrongAnimePage.value = 1;
+      if (items.length === 0) {
+        wrongAnimeError.value = wrongAnimeNoMatchMessage();
       }
     } catch (e: any) {
+      if (token !== wrongAnimeSearchToken) return;
       wrongAnimeError.value = e?.message || 'Search failed.';
     } finally {
-      wrongAnimeLoading.value = false;
+      if (token === wrongAnimeSearchToken) wrongAnimeLoading.value = false;
+    }
+  }
+
+  async function loadMoreWrongAnime() {
+    if (wrongAnimeLoading.value || wrongAnimeLoadingMore.value || !wrongAnimeHasMore.value) return;
+    const q = wrongAnimeQuery.value.trim();
+    if (!q) return;
+    const token = wrongAnimeSearchToken;
+    const nextPage = wrongAnimePage.value + 1;
+    wrongAnimeLoadingMore.value = true;
+    try {
+      const { items, hasMore } = await fetchWrongAnimePage(q, nextPage);
+      if (token !== wrongAnimeSearchToken) return; // query changed mid-flight
+      const seen = new Set(wrongAnimeResults.value.map(wrongAnimeResultKey));
+      const fresh = items.filter((it) => !seen.has(wrongAnimeResultKey(it)));
+      wrongAnimeResults.value = wrongAnimeResults.value.concat(fresh);
+      wrongAnimePage.value = nextPage;
+      wrongAnimeHasMore.value = hasMore;
+    } catch {
+      // Stop trying further pages but keep what's already shown.
+      if (token === wrongAnimeSearchToken) wrongAnimeHasMore.value = false;
+    } finally {
+      if (token === wrongAnimeSearchToken) wrongAnimeLoadingMore.value = false;
     }
   }
 
@@ -1804,6 +1883,8 @@ export function useManualSearch(params: {
     wrongAnimeResults,
     wrongAnimeLoading,
     wrongAnimeError,
+    wrongAnimeHasMore,
+    wrongAnimeLoadingMore,
 
     // Media refs
     animeCommunityMedia,
@@ -1859,6 +1940,7 @@ export function useManualSearch(params: {
     loadEpisodeOptions,
     openWrongAnimeForm,
     searchWrongAnime,
+    loadMoreWrongAnime,
     selectWrongAnime,
     setManualDialogTab,
     confirmEpisodeSelection,
