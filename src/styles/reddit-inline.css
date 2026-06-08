@@ -2479,6 +2479,45 @@
   padding: 0;
 }
 
+/* Markdown-header buttons — re-asserted here because the global
+   `#reddit-inline-discussion button` reset above sets font-size/color/padding
+   to inherit/0 and (being ID-scoped) outranks the component's scoped styles.
+   Same pattern as .icon-btn / .action-btn below. Edit sizes HERE for the
+   in-discussion editor, not just in TipTapCommentEditor.vue. */
+#reddit-inline-discussion .ri-reply-editor.editor-container .md-switch-btn {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #e6edf3;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .md-switch-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .md-info-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  border-radius: 9999px;
+  background: none;
+  color: #8b949e;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+#reddit-inline-discussion .ri-reply-editor.editor-container .md-info-btn:hover {
+  color: #c9d1d9;
+}
+
 #reddit-inline-discussion
   .ri-reply-editor.editor-container
   .editor-area
