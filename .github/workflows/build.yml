@@ -41,4 +41,8 @@ jobs:
         with:
           name: ${{ matrix.target }}-build
           path: .output/*.zip
+          # The zips live in .output/, a dotfile dir. upload-artifact@v4 treats
+          # anything under a hidden parent as hidden and skips it by default,
+          # which makes the glob match nothing and fail with if-no-files-found.
+          include-hidden-files: true
           if-no-files-found: error
