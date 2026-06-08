@@ -41,38 +41,23 @@ export function airDateMatchedEpisodeCandidates(
   const episodes = matchedSeason?.episodes;
   if (!episodes || typeof episodes !== 'object') return [];
 
-  const toEpisodeNumber = (key: string): number | null => {
-    if (!Object.prototype.hasOwnProperty.call(episodes, key)) return null;
-    const n = Number(key);
-    return Number.isFinite(n) ? n : null;
-  };
-
-  // Preferred: every key whose stored air date equals the requested date. The
-  // backend filters `episode_dates` alongside `episodes`, so these are exact.
-  // Usually one key — but two episodes can legitimately share a date (a same-day
-  // double-release, or a broadcast delayed onto the next episode's date), in
-  // which case all of them are returned for the caller to disambiguate.
-  const dates = matchedSeason?.episode_dates;
-  const requested = response.episode_date_requested;
+  // When `episode_date_matched` is true the backend has already narrowed
+  // `episodes` to the air-date match — exact, OR within ±1 day when Crunchyroll's
+  // metadata date is timezone-shifted from the thread's broadcast date (e.g. CR
+  // "2021-10-11" → the thread dated "2021-10-10"). Every remaining key is
+  // therefore a valid candidate; do NOT re-require `episode_dates === requested`
+  // here — the matched episode's stored date can legitimately differ from the
+  // requested date by a day, and re-checking it would discard the backend's
+  // correct ±1-day match (the bug that sent Mushoku Tensei Part 2 E13 to the
+  // numeric fallback). Returned ascending for a deterministic primary pick;
+  // multi-key (same-window) collisions are disambiguated by the caller via the
+  // Reddit thread number.
   const out: number[] = [];
-  if (dates && typeof dates === 'object' && requested) {
-    for (const [key, value] of Object.entries(dates)) {
-      if (value === requested) {
-        const resolved = toEpisodeNumber(key);
-        if (resolved !== null && !out.includes(resolved)) out.push(resolved);
-      }
-    }
-    return out;
+  for (const key of Object.keys(episodes)) {
+    const n = Number(key);
+    if (Number.isFinite(n) && !out.includes(n)) out.push(n);
   }
-
-  // Fallback: the backend already trimmed `episodes` to date matches, so a sole
-  // remaining key IS the answer even when `episode_dates` is absent. Never guess
-  // when several keys remain and none was date-confirmed above.
-  const keys = Object.keys(episodes);
-  if (keys.length === 1) {
-    const resolved = toEpisodeNumber(keys[0]);
-    if (resolved !== null) out.push(resolved);
-  }
+  out.sort((a, b) => a - b);
   return out;
 }
 

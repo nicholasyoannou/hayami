@@ -400,17 +400,24 @@ describe('resolveAirDateMatchedEpisode', () => {
     expect(resolveAirDateMatchedEpisode(response, matched)).toBeNull();
   });
 
-  it('picks the key whose episode_dates value equals the requested date', () => {
+  // Regression (Mushoku Tensei Part 2 E13): the backend matched CR's "2021-10-11"
+  // to the thread dated "2021-10-10" within ±1 day and narrowed episodes to key 2.
+  // The client must trust that and return 2 — NOT re-require the stored date to
+  // equal the requested date (which previously dropped the match and let the
+  // numeric fallback pick the wrong episode).
+  it('trusts the backend ±1-day match even when the stored date is a day off', () => {
     const matched = makeMapperEntry({
-      episodes: { '5': 'url5', '6': 'url6' },
-      episode_dates: { '5': '2024-01-01', '6': '2024-01-08' },
+      anime_name: 'Mushoku Tensei: Isekai Ittara Honki Dasu Part 2',
+      year: '2021',
+      episodes: { '2': 'https://www.reddit.com/r/anime/comments/q5b0ld' },
+      episode_dates: { '2': '2021-10-10' },
     });
     const response = makeResponse({
       episode_date_matched: true,
-      episode_date_requested: '2024-01-08',
+      episode_date_requested: '2021-10-11',
       results: [matched],
     });
-    expect(resolveAirDateMatchedEpisode(response, matched)).toBe(6);
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBe(2);
   });
 
   it('falls back to the sole remaining key when episode_dates is missing', () => {
@@ -450,22 +457,6 @@ describe('resolveAirDateMatchedEpisode', () => {
     const movie = makeMapperEntry({ year: 'movies', movies: ['murl'], episodes: undefined } as any);
     const response = makeResponse({ episode_date_matched: true, episode_date_requested: '2024-01-01' });
     expect(resolveAirDateMatchedEpisode(response, movie)).toBeNull();
-  });
-
-  it('does not single-key-fallback when multiple keys remain but none match the date', () => {
-    // Defensive: episode_date_matched=true but the matched season carries two
-    // keys neither of which equals the requested date (shouldn't happen given
-    // backend filtering, but must not guess) → null so heuristics run.
-    const matched = makeMapperEntry({
-      episodes: { '5': 'url5', '6': 'url6' },
-      episode_dates: { '5': '2024-01-01', '6': '2024-01-08' },
-    });
-    const response = makeResponse({
-      episode_date_matched: true,
-      episode_date_requested: '2024-02-02',
-      results: [matched],
-    });
-    expect(resolveAirDateMatchedEpisode(response, matched)).toBeNull();
   });
 });
 
@@ -514,7 +505,22 @@ describe('airDateMatchedEpisodeCandidates', () => {
     expect(airDateMatchedEpisodeCandidates(response, matched)).toEqual([2]);
   });
 
-  it('returns [] when the flag is absent or no key matches the date', () => {
+  it('trusts the backend-filtered key on a ±1-day match (Mushoku E13)', () => {
+    // Backend matched CR "2021-10-11" to the thread dated "2021-10-10" and kept
+    // only key 2 — the client returns it without re-checking the date.
+    const matched = makeMapperEntry({
+      episodes: { '2': 'https://www.reddit.com/r/anime/comments/q5b0ld' },
+      episode_dates: { '2': '2021-10-10' },
+    });
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2021-10-11',
+      results: [matched],
+    });
+    expect(airDateMatchedEpisodeCandidates(response, matched)).toEqual([2]);
+  });
+
+  it('returns [] when episode_date_matched is not true', () => {
     const matched = makeMapperEntry({
       episodes: { '5': 'u5', '6': 'u6' },
       episode_dates: { '5': '2024-01-01', '6': '2024-01-08' },
@@ -522,7 +528,7 @@ describe('airDateMatchedEpisodeCandidates', () => {
     expect(airDateMatchedEpisodeCandidates(makeResponse({ results: [matched] }), matched)).toEqual([]);
     expect(
       airDateMatchedEpisodeCandidates(
-        makeResponse({ episode_date_matched: true, episode_date_requested: '2024-02-02' }),
+        makeResponse({ episode_date_matched: false, episode_date_requested: '2024-01-01', results: [matched] }),
         matched,
       ),
     ).toEqual([]);
