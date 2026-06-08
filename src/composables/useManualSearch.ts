@@ -1233,6 +1233,57 @@ export function useManualSearch(params: {
     );
   }
 
+  // Lowercase + strip punctuation + collapse whitespace, for comparing a typed
+  // query against result titles.
+  function _normForMatch(s: string): string {
+    return String(s || '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // All comparable name variants for a result across provider shapes. Reddit
+  // titles often pack romaji + an English title in parentheses
+  // ("Shingeki no Kyojin: The Final Season (Attack on Titan Final Season)"),
+  // so we also split out the text before "(" and inside "(...)" — that's where
+  // a user's exact English query usually matches.
+  function _pickerResultNameVariants(item: any): string[] {
+    if (!item) return [];
+    const raw = [
+      item.anime_name, item.title, item.matched_title,
+      item.playlistTitle, item.romajiTitle, item.englishTitle,
+    ].filter((v): v is string => typeof v === 'string' && !!v);
+    const variants = new Set<string>();
+    for (const name of raw) {
+      variants.add(name);
+      const before = name.split('(')[0];
+      if (before) variants.add(before);
+      const paren = name.match(/\(([^)]+)\)/);
+      if (paren && paren[1]) variants.add(paren[1]);
+    }
+    return [...variants];
+  }
+
+  // Move results whose title EXACTLY matches what the user typed to the front
+  // (preserving the backend's relative order otherwise). Deliberately
+  // exact-only — a looser prefix/contains match would, for a base query like
+  // "Attack on Titan", wrongly promote a later season whose English title also
+  // contains the base. Fixes "I searched the exact title but it wasn't first":
+  // the season suffix is stripped before the backend search and the no-season
+  // ranking surfaces Season 1, leaving the exact match in the tail.
+  function prioritizeWrongAnimeExactMatches(results: any[], query: string): any[] {
+    const q = _normForMatch(query);
+    if (!q || results.length < 2) return results;
+    const isExact = (item: any): boolean =>
+      _pickerResultNameVariants(item).some((n) => _normForMatch(n) === q);
+    const exact: any[] = [];
+    const rest: any[] = [];
+    for (const item of results) (isExact(item) ? exact : rest).push(item);
+    return exact.length ? exact.concat(rest) : results;
+  }
+
   // MAL/Jikan paged search. The array helper `searchMalMedia` above stays for
   // the episode-options path; this variant adds page + has_next_page.
   async function fetchMalSearchPage(
@@ -1309,7 +1360,8 @@ export function useManualSearch(params: {
     try {
       const { items, hasMore } = await fetchWrongAnimePage(q, 1);
       if (token !== wrongAnimeSearchToken) return; // superseded by a newer query
-      wrongAnimeResults.value = items;
+      // Surface the closest match to what the user typed (exact title first).
+      wrongAnimeResults.value = prioritizeWrongAnimeExactMatches(items, q);
       wrongAnimeHasMore.value = hasMore;
       wrongAnimePage.value = 1;
       if (items.length === 0) {

@@ -37,7 +37,7 @@ import {
   findSliceEpisodeMatch,
 } from '../shared';
 import { refineMatchedIndexUsingCrunchyrollData } from './refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode, foldCrEpisodeIntoCour } from './episode-mapper';
+import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode, foldCrEpisodeIntoCour, resolveAirDateMatchedEpisode } from './episode-mapper';
 import { cacheAnimeIds } from '../../storage/series-mapping';
 import {
   fetchAnimeMapperDataBySeriesAndSeason,
@@ -737,11 +737,28 @@ export async function runCrunchyrollDeepPipeline(
     const hasManualEpisodeOverride = Number.isFinite(overrideEpisode);
     let seasonEpisode: number | null = null;
 
-    // When we have CR seasons data, always use smart mapping even if an override
-    // was provided – the override comes from the episode title (absolute numbering
-    // like "E56") while the mapper uses within-season numbering (like "9").
-    // The override is kept as a fallback if smart mapping fails.
-    if (hasManualEpisodeOverride && seasonsData.length === 0) {
+    // Air-date authority: when the backend confirmed a strict episode-airdate
+    // match (`episode_date_matched`) it already narrowed `matchedSeason.episodes`
+    // to exactly the episode that aired on the date the user is watching. Trust
+    // that over the CR continuous-numbering heuristics below — for date-filtered
+    // responses those heuristics lack the franchise's prior cours and degenerate
+    // to "episode 1" (e.g. AoT "The Final Season" CR E61 comes back as just
+    // `{ "2": url }`, but the offset math computed 1 and missed key "2"). Gated
+    // on `episode_date_matched === true`, so non-date / unconfirmed-date flows
+    // are unchanged.
+    const airDateMatchedEpisode = resolveAirDateMatchedEpisode(mapperResult, matchedSeason);
+    if (airDateMatchedEpisode !== null) {
+      seasonEpisode = airDateMatchedEpisode;
+      log.log(' Using backend air-date-matched episode (authoritative; skipping CR-number heuristics):', {
+        seasonEpisode,
+        requestedDate: mapperResult?.episode_date_requested,
+        matchedName: matchedSeason?.anime_name,
+      });
+      // When we have CR seasons data, always use smart mapping even if an override
+      // was provided – the override comes from the episode title (absolute numbering
+      // like "E56") while the mapper uses within-season numbering (like "9").
+      // The override is kept as a fallback if smart mapping fails.
+    } else if (hasManualEpisodeOverride && seasonsData.length === 0) {
       seasonEpisode = Number(overrideEpisode);
       log.log(' Using manual episode override as authoritative mapper key (no seasons data)', {
         overrideEpisode: seasonEpisode,

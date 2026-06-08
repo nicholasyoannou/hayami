@@ -146,6 +146,11 @@ const isManualMovieResult = computed(() =>
 const redditCommentsKey = ref(0);
 const inlineSectionRef = ref<HTMLElement | null>(null);
 const isNoDiscussion = ref(false);
+// Mirror of host.dataset.noDiscussionTitle in reactive state. DOM dataset reads
+// are NOT tracked by Vue, so the title must be captured into a ref (refreshed by
+// the MutationObserver below) — otherwise the inline "No discussion thread found
+// for: …" title caches the first not-found episode and never updates on SPA nav.
+const noDiscussionHostTitle = ref<string | null>(null);
 const showRedditAuthPrompt = ref(false);
 const redditAuthReason = ref('Please log in to Reddit to load episode discussions.');
 const isStartingGuidedRedditLogin = ref(false);
@@ -165,10 +170,7 @@ const displayTitle = computed(() => {
 });
 const displayAuthor = computed(() => fetchedDiscussionAuthor.value || props.discussion.author || 'unknown');
 const noDiscussionDetailTitle = computed(() => {
-  const host = inlineSectionRef.value;
-  const fromHost = host?.dataset?.noDiscussionTitle;
-  if (fromHost) return fromHost;
-  return props.discussion.title || 'No discussion thread found';
+  return noDiscussionHostTitle.value || props.discussion.title || 'No discussion thread found';
 });
 
 // Manual search, wrong anime, and episode selection (composable)
@@ -270,6 +272,9 @@ const updateNoDiscussionFlag = () => {
   const host = inlineSectionRef.value;
   const noDisc = host?.dataset?.noDiscussion === 'true';
   isNoDiscussion.value = noDisc;
+  // Re-read the title from the dataset on every observer fire so SPA navigation
+  // between not-found episodes refreshes the displayed episode (62, 63, …).
+  noDiscussionHostTitle.value = host?.dataset?.noDiscussionTitle || null;
   // When the no-discussion flag is set, ensure loading state is cleared so
   // the title shows "No Reddit thread found" instead of "Loading discussion…"
   // and the avatar shimmer in RiTopStrip stops.
@@ -286,6 +291,7 @@ const clearNoDiscussionFlag = () => {
     host.removeAttribute('data-no-discussion-title');
   }
   isNoDiscussion.value = false;
+  noDiscussionHostTitle.value = null;
 };
 
 const flagNoDiscussionHost = () => {
@@ -1469,7 +1475,10 @@ onMounted(() => {
   const host = inlineSectionRef.value;
   if (host) {
     noDiscussionObserver = new MutationObserver(updateNoDiscussionFlag);
-    noDiscussionObserver.observe(host, { attributes: true, attributeFilter: ['data-no-discussion'] });
+    noDiscussionObserver.observe(host, {
+      attributes: true,
+      attributeFilter: ['data-no-discussion', 'data-no-discussion-title'],
+    });
   }
 });
 

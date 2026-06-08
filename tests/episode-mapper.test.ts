@@ -11,8 +11,9 @@ import {
   mapEpisodeWithSeasonsData,
   mapEpisodeToSeasonEpisode,
   foldCrEpisodeIntoCour,
+  resolveAirDateMatchedEpisode,
 } from '@/entrypoints/content/sites/crunchyroll/episode-mapper';
-import type { MapperResultEntry, CrunchyrollSeason } from '@/entrypoints/content/types/data';
+import type { MapperResultEntry, MapperResponse, CrunchyrollSeason } from '@/entrypoints/content/types/data';
 
 // ---------------------------------------------------------------------------
 // Helpers to build test data
@@ -339,6 +340,131 @@ describe('foldCrEpisodeIntoCour', () => {
   // to the mapper cour (CR season not ≥ 2× the cour length).
   it('returns null when the CR season is not a collapsed multi-cour season', () => {
     expect(foldCrEpisodeIntoCour(32, 8, 10)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveAirDateMatchedEpisode
+//
+// When the backend confirms a strict episode-airdate match it sets
+// `episode_date_matched: true` and filters each result's `episodes` map down to
+// exactly the episode(s) that aired on the requested date. The client must
+// trust that authoritative resolution over its CR continuous-numbering
+// heuristics — which, for date-filtered responses, lack the prior-cour data the
+// heuristics need and degenerate to "episode 1".
+// ---------------------------------------------------------------------------
+describe('resolveAirDateMatchedEpisode', () => {
+  function makeResponse(overrides: Partial<MapperResponse>): MapperResponse {
+    return { results: [], ...overrides } as MapperResponse;
+  }
+
+  // The exact production failure: Attack on Titan "The Final Season" viewed at
+  // CR continuous episode 61 (air date 2020-12-13). The backend date-filters
+  // the matched doc's episodes to just `{ "2": url }` (with episode_dates
+  // `{ "2": "2020-12-13" }`) and reports episode_date_matched=true. The old
+  // CR-number heuristic computed episode 1 and missed; the air-date resolver
+  // must return 2.
+  it('AoT Final Season CR E61: resolves to episode 2 via air-date match', () => {
+    const matched = makeMapperEntry({
+      anime_name: 'Shingeki no Kyojin: The Final Season (Attack on Titan Final Season)',
+      year: '2021',
+      episodes: { '2': 'https://www.reddit.com/r/anime/comments/kch08e' },
+      episode_dates: { '2': '2020-12-13' },
+    });
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2020-12-13',
+      results: [matched],
+      matched_result: { index: 0, is_exact_match: true },
+    });
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBe(2);
+  });
+
+  it('returns null when episode_date_matched is false (heuristics take over)', () => {
+    const matched = makeMapperEntry({
+      episodes: { '2': 'url2' },
+      episode_dates: { '2': '2020-12-13' },
+    });
+    const response = makeResponse({
+      episode_date_matched: false,
+      episode_date_requested: '2020-12-13',
+      results: [matched],
+    });
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBeNull();
+  });
+
+  it('returns null when the flag is absent (legacy/no episode_date)', () => {
+    const matched = makeMapperEntry({ episodes: makeEpisodes(1, 12) });
+    const response = makeResponse({ results: [matched] });
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBeNull();
+  });
+
+  it('picks the key whose episode_dates value equals the requested date', () => {
+    const matched = makeMapperEntry({
+      episodes: { '5': 'url5', '6': 'url6' },
+      episode_dates: { '5': '2024-01-01', '6': '2024-01-08' },
+    });
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2024-01-08',
+      results: [matched],
+    });
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBe(6);
+  });
+
+  it('falls back to the sole remaining key when episode_dates is missing', () => {
+    const matched = makeMapperEntry({ episodes: { '9': 'url9' } } as any);
+    delete (matched as any).episode_dates;
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2024-01-01',
+      results: [matched],
+    });
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBe(9);
+  });
+
+  it('resolves a zero-index special (episode 0) by air date', () => {
+    const matched = makeMapperEntry({
+      episodes: { '0': 'url0' },
+      episode_dates: { '0': '2024-01-01' },
+    });
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2024-01-01',
+      results: [matched],
+    });
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBe(0);
+  });
+
+  it('returns null for null/empty inputs', () => {
+    expect(resolveAirDateMatchedEpisode(null, null)).toBeNull();
+    expect(resolveAirDateMatchedEpisode(undefined as any, undefined as any)).toBeNull();
+    const empty = makeMapperEntry({ episodes: {} });
+    expect(
+      resolveAirDateMatchedEpisode(makeResponse({ episode_date_matched: true, episode_date_requested: '2024-01-01' }), empty),
+    ).toBeNull();
+  });
+
+  it('returns null when matched is a movie entry with no episodes', () => {
+    const movie = makeMapperEntry({ year: 'movies', movies: ['murl'], episodes: undefined } as any);
+    const response = makeResponse({ episode_date_matched: true, episode_date_requested: '2024-01-01' });
+    expect(resolveAirDateMatchedEpisode(response, movie)).toBeNull();
+  });
+
+  it('does not single-key-fallback when multiple keys remain but none match the date', () => {
+    // Defensive: episode_date_matched=true but the matched season carries two
+    // keys neither of which equals the requested date (shouldn't happen given
+    // backend filtering, but must not guess) → null so heuristics run.
+    const matched = makeMapperEntry({
+      episodes: { '5': 'url5', '6': 'url6' },
+      episode_dates: { '5': '2024-01-01', '6': '2024-01-08' },
+    });
+    const response = makeResponse({
+      episode_date_matched: true,
+      episode_date_requested: '2024-02-02',
+      results: [matched],
+    });
+    expect(resolveAirDateMatchedEpisode(response, matched)).toBeNull();
   });
 });
 

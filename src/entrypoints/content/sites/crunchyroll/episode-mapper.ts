@@ -8,9 +8,68 @@
 
 import { con } from '@/utils/logger';
 import { normalizeForMatch, isSequelTitle, parseMapperYear } from '../shared';
-import type { MapperResultEntry, CrunchyrollSeason } from '../../types/data';
+import type { MapperResultEntry, MapperResponse, CrunchyrollSeason } from '../../types/data';
 
 const log = con.m('Mapper');
+
+/**
+ * Resolve the episode the backend already pinpointed by exact air date.
+ *
+ * When the client passes `episode_date` (the CR release date of the episode the
+ * user is watching) and the backend confirms a strict match, it sets
+ * `episode_date_matched: true` and narrows each result's `episodes`/
+ * `episode_dates` maps to just the episode(s) that aired on that date. That
+ * date→episode resolution is strictly more reliable than the CR
+ * continuous-numbering heuristics in `mapEpisodeWithSeasonsData`: those need the
+ * franchise's prior cours to compute an offset, but a date-filtered response
+ * intentionally returns only the single matched cour (e.g. AoT "The Final
+ * Season" CR E61 comes back as just `{ "2": url }`), so the heuristics have no
+ * baseline and degenerate to "episode 1" — missing the real key.
+ *
+ * Returns the resolved episode number (matching a key in `matchedSeason.episodes`)
+ * or `null` when the backend did NOT confirm a strict date match, so the caller
+ * falls through to its existing heuristics unchanged. Narrowly gated on
+ * `episode_date_matched === true` so non-date and unconfirmed-date flows are
+ * byte-for-byte unaffected.
+ */
+export function resolveAirDateMatchedEpisode(
+  response: MapperResponse | null | undefined,
+  matchedSeason: MapperResultEntry | null | undefined,
+): number | null {
+  if (!response || response.episode_date_matched !== true) return null;
+
+  const episodes = matchedSeason?.episodes;
+  if (!episodes || typeof episodes !== 'object') return null;
+
+  const toEpisodeNumber = (key: string): number | null => {
+    if (!Object.prototype.hasOwnProperty.call(episodes, key)) return null;
+    const n = Number(key);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  // Preferred: the key whose stored air date equals the requested date. The
+  // backend filters `episode_dates` alongside `episodes`, so this is exact.
+  const dates = matchedSeason?.episode_dates;
+  const requested = response.episode_date_requested;
+  if (dates && typeof dates === 'object' && requested) {
+    for (const [key, value] of Object.entries(dates)) {
+      if (value === requested) {
+        const resolved = toEpisodeNumber(key);
+        if (resolved !== null) return resolved;
+      }
+    }
+  }
+
+  // Fallback: the backend already trimmed `episodes` to date matches, so a sole
+  // remaining key IS the answer even when `episode_dates` is absent. Never guess
+  // when several keys remain and none was date-confirmed above.
+  const keys = Object.keys(episodes);
+  if (keys.length === 1) {
+    return toEpisodeNumber(keys[0]);
+  }
+
+  return null;
+}
 
 /** Sort sentinel for year comparisons — movies (and unparseable years) sort last. */
 function yearSortKey(year: string | number | undefined): number {

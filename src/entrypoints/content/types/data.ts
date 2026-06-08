@@ -357,6 +357,13 @@ export interface MapperResultEntry {
   anime_name?: string;
   year?: string | number; // numeric string like "2024", or "movies"
   episodes?: Record<string, string>; // episode key → discussion URL
+  /**
+   * Episode key → air date (YYYY-MM-DD). Present on Reddit-path docs. When the
+   * caller passes `episode_date` and the backend confirms a strict match, both
+   * `episodes` and `episode_dates` are narrowed to just the date-matched key(s)
+   * (see `MapperResponse.episode_date_matched`).
+   */
+  episode_dates?: Record<string, string>;
   movies?: string[]; // movie discussion URLs
   last_updated?: string;
   external_sites?: {
@@ -440,6 +447,21 @@ export interface MapperResponse {
   pagination?: MapperPagination;
   /** Canonical MAL/AniList ids for the season-disambiguated anime, when the backend resolves them. */
   animeMeta?: { malId?: number | null; anilistId?: number | null } | null;
+  /**
+   * Tri-state air-date resolution, present only when the caller passed
+   * `episode_date`:
+   *  - `true`  → the backend strictly matched the requested date to an episode
+   *              and narrowed each result's `episodes`/`episode_dates` to just
+   *              that episode. The matched key is authoritative — clients should
+   *              use it directly and skip CR continuous-numbering heuristics.
+   *  - `false` → no strict match (CR's release_date isn't always the airdate, or
+   *              the doc predates the episode_dates backfill); results are
+   *              un-filtered with date-carrying docs floated to the front.
+   *  - absent  → the caller didn't request date filtering.
+   */
+  episode_date_matched?: boolean;
+  /** The normalized (YYYY-MM-DD) date the backend filtered against, echoed back. */
+  episode_date_requested?: string;
 }
 
 // ==================== Crunchyroll Metadata Types ====================
