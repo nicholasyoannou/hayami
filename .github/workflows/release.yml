@@ -1,0 +1,84 @@
+name: Release
+
+# Publish to the Chrome Web Store and Firefox Add-ons (AMO) when a GitHub
+# Release is published. Cutting the release (drafting the tag + version in the
+# GitHub UI) is the ONLY manual step — everything below is automated:
+#   1. build + zip each target with WXT (bun)
+#   2. `wxt submit` uploads to the stores using credentials kept as GitHub secrets
+#   3. the build zips are attached to the Release for archival / manual installs
+#
+# Safari is built and attached for download but must be submitted to the App
+# Store manually (requires Xcode + notarization, which CI can't do here).
+#
+# First-time setup: run `bunx wxt submit init` locally to learn the exact
+# credentials, then add them as repository secrets (see list at the bottom).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build and validate, but do NOT submit to the stores'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write # needed to attach build artifacts to the Release
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    name: Build & submit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Chrome + Firefox first so a later (non-critical) Safari hiccup can't
+      # undo a successful store submission.
+      - name: Build & zip (Chrome, Firefox)
+        run: |
+          bunx wxt zip
+          bunx wxt zip -b firefox
+
+      - name: Submit to Chrome Web Store & Firefox Add-ons
+        run: |
+          bunx wxt submit $DRY_RUN \
+            --chrome-zip .output/*-chrome.zip \
+            --firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip
+        env:
+          DRY_RUN: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '' }}
+          CHROME_EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_ID }}
+          CHROME_CLIENT_ID: ${{ secrets.CHROME_CLIENT_ID }}
+          CHROME_CLIENT_SECRET: ${{ secrets.CHROME_CLIENT_SECRET }}
+          CHROME_REFRESH_TOKEN: ${{ secrets.CHROME_REFRESH_TOKEN }}
+          FIREFOX_EXTENSION_ID: ${{ secrets.FIREFOX_EXTENSION_ID }}
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+
+      - name: Build & zip (Safari, for download only)
+        run: bunx wxt zip -b safari
+
+      - name: Attach build zips to the Release
+        if: github.event_name == 'release'
+        run: >
+          gh release upload "${{ github.event.release.tag_name }}"
+          .output/*-chrome.zip .output/*-firefox.zip .output/*-sources.zip .output/*-safari.zip
+          --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+# ── Required repository secrets ───────────────────────────────────────────────
+#   Chrome Web Store : CHROME_EXTENSION_ID, CHROME_CLIENT_ID,
+#                      CHROME_CLIENT_SECRET, CHROME_REFRESH_TOKEN
+#   Firefox AMO      : FIREFOX_EXTENSION_ID, FIREFOX_JWT_ISSUER, FIREFOX_JWT_SECRET
+#   (GITHUB_TOKEN is provided automatically by Actions.)
