@@ -1,6 +1,6 @@
 {
-  "name": "wxt-vue-starter",
-  "description": "manifest.json description",
+  "name": "hayami",
+  "description": "Brings anime episode discussions from multiple sources (Reddit, Disqus, YouTube, MyAnimeList) to Crunchyroll and any user-added streaming site.",
   "private": true,
   "version": "0.0.0",
   "type": "module",
