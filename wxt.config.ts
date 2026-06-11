@@ -20,8 +20,8 @@ const filteredEntrypointSet = process.env.NODE_ENV === 'production'
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
-  manifest: ({ browser }) => ({
-    name: 'Hayami: Anime comments & discussions',
+  manifest: ({browser}) => ({
+    name: 'Hayami' + (browser === 'safari' ? '' : ': Anime comments & discussions'),
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -63,10 +63,11 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    // Apple rejects 4-segment versions (ITMS-90258: CFBundleShortVersionString
-    // allows at most three period-separated integers), while Chrome/Firefox
-    // accept them. Collapse to 3 segments for the Safari target only.
-    version: browser === 'safari' ? '0.1.8' : '0.1.0.8',
+    // Single 3-segment version for ALL targets. Apple's CFBundleShortVersionString
+    // allows at most three period-separated integers (ITMS-90258); Chrome and
+    // Firefox accept 3 segments too, so one scheme works everywhere. Keep it
+    // major.minor.patch (e.g. 0.12.3) and never add a 4th segment.
+    version: '0.1.8',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
