@@ -67,7 +67,7 @@ export default defineConfig({
     // allows at most three period-separated integers (ITMS-90258); Chrome and
     // Firefox accept 3 segments too, so one scheme works everywhere. Keep it
     // major.minor.patch (e.g. 0.12.3) and never add a 4th segment.
-    version: '0.1.8',
+    version: '0.1.9',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
