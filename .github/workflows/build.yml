@@ -1,10 +1,10 @@
 name: Build extension
 
-# Builds the extension for Chrome, Firefox, and Safari on every push to master.
+# Builds the extension for Chrome, Firefox, and Safari on every push to main.
 # Each target's zip(s) are uploaded as a downloadable workflow artifact.
 on:
   push:
-    branches: [master]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
