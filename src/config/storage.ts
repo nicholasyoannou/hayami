@@ -274,6 +274,9 @@ export const seriesMappingItem = storage.defineItem<
     malId?: number;
     anilistId?: number;
     aniwaveIsDub?: boolean;
+    aniwaveSlug?: string;
+    // Season this override was captured on (see SeriesMapping.seasonKey).
+    seasonKey?: string;
   }>>>
 >(
   'local:series_mapping',
@@ -307,6 +310,8 @@ export type ManualOverrideRecentEntry = {
     malId?: number;
     anilistId?: number;
     aniwaveIsDub?: boolean;
+    aniwaveSlug?: string;
+    seasonKey?: string;
   };
   updatedAt: string;
 };

@@ -272,7 +272,7 @@ export class AniListProvider extends BaseProvider {
       throw new Error('No AniList data in cache');
     }
 
-    const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'anilist');
+    const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'anilist', animeInfo.seasonKey);
     const renderAnimeName = (renderMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
 
     applyAniListDiscussionBg(container);

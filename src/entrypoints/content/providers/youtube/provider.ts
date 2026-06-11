@@ -323,7 +323,7 @@ export class YouTubeProvider extends BaseProvider {
     let mappedAnimeName = animeInfo?.animeName;
     try {
       if (animeInfo?.animeName) {
-        const mapping = await getSeriesMapping(animeInfo.animeName, 'youtube');
+        const mapping = await getSeriesMapping(animeInfo.animeName, 'youtube', animeInfo.seasonKey);
         const overrideName = (mapping?.mapperAnimeName || '').trim();
         if (overrideName) mappedAnimeName = overrideName;
       }

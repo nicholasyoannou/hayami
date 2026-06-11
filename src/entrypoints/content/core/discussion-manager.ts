@@ -305,7 +305,7 @@ export async function searchAndDisplayDiscussion(animeInfo: AnimeInfo, options?:
       || resolvedProvider === 'mal'
       || resolvedProvider === 'youtube'
     ) ? resolvedProvider : 'reddit';
-    const seriesMapping = animeInfo.animeName ? await getSeriesMapping(animeInfo.animeName, mappingPlatform) : null;
+    const seriesMapping = animeInfo.animeName ? await getSeriesMapping(animeInfo.animeName, mappingPlatform, animeInfo.seasonKey) : null;
     const episodeOffset = seriesMapping?.episodeOffset ?? 0;
     const mapperAnimeName = (seriesMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
     const animeInfoForMapper = mapperAnimeName !== animeInfo.animeName

@@ -42,7 +42,7 @@ export async function resolveProviderContext(
   platform: SeriesMappingPlatform,
 ): Promise<ProviderResolutionContext> {
   const detailed = animeInfo.animeName
-    ? await resolveSeriesMappingDetailed(animeInfo.animeName, platform)
+    ? await resolveSeriesMappingDetailed(animeInfo.animeName, platform, animeInfo.seasonKey)
     : { mapping: null, matchSource: 'none' as const, crossPlatformOrigin: null };
   const mapping = detailed.mapping;
   const overrideName = (mapping?.mapperAnimeName || '').trim();

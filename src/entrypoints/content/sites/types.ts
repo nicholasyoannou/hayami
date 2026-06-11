@@ -44,6 +44,12 @@ export interface PlacementTargets {
 export interface SiteSeriesHints {
   seriesTitle?: string | null;
   seasonTitle?: string | null;
+  /**
+   * Opaque, stable identifier of the current episode's season, used to scope
+   * "Wrong anime?" overrides to the season they were captured on. Sites that
+   * can't distinguish seasons return `null` and overrides stay season-agnostic.
+   */
+  seasonKey?: string | null;
 }
 
 export interface SiteAdapter {

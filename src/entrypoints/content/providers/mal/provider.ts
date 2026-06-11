@@ -230,7 +230,7 @@ export class MalProvider extends BaseProvider {
     safeClear(container);
     
     // Check for a "wrong anime" override so the render reflects the corrected title
-    const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'mal');
+    const renderMapping = await getSeriesMapping(animeInfo.animeName || '', 'mal', animeInfo.seasonKey);
     const renderAnimeName = (renderMapping?.mapperAnimeName || '').trim() || animeInfo.animeName;
 
     // Mount MAL forum component

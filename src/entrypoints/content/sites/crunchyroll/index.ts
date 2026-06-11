@@ -8,6 +8,7 @@ import {
 import { DetectedContext, PlacementTargets, SiteAdapter, SiteDeepMappingContext, SiteEpisodeMetadata, SiteSeriesHints } from '../types';
 import type { SiteProviderDefinition } from '../provider-definition';
 import { buildLocationMatcher } from '../provider-definition';
+import { computeCrunchyrollSeasonKey } from './season-key';
 import { con } from '@/utils/logger';
 const log = con.m('Crunchyroll');
 
@@ -106,6 +107,7 @@ export const crunchyrollAdapter: SiteAdapter = {
       return {
         seriesTitle: epMeta?.series_title ?? null,
         seasonTitle: epMeta?.season_title ?? null,
+        seasonKey: computeCrunchyrollSeasonKey(epMeta),
       };
     } catch (err) {
       log.warn('getSeriesHints failed', err);
@@ -136,6 +138,37 @@ export const crunchyrollAdapter: SiteAdapter = {
     const episodeId = extractEpisodeIdFromUrl();
     if (!episodeId) return null;
 
+    // Memoize per episode: the Reddit search and every provider identity
+    // resolution each run the failover, and each failover call lands here —
+    // without the memo a single provider switch re-pays the full token POST +
+    // metadata GET + seasons GET chain for the same episode. Short TTL bounds
+    // staleness of the seasons list (episode counts grow weekly for airing
+    // shows); failures are not cached so transient errors retry.
+    const now = Date.now();
+    if (
+      deepMappingMemo &&
+      deepMappingMemo.episodeId === episodeId &&
+      now - deepMappingMemo.at < DEEP_MAPPING_TTL_MS
+    ) {
+      return deepMappingMemo.promise;
+    }
+    const promise = resolveDeepMappingUncached(episodeId).then((ctx) => {
+      if (!ctx && deepMappingMemo?.promise === promise) deepMappingMemo = null;
+      return ctx;
+    });
+    deepMappingMemo = { episodeId, at: now, promise };
+    return promise;
+  },
+};
+
+const DEEP_MAPPING_TTL_MS = 5 * 60 * 1000;
+let deepMappingMemo: {
+  episodeId: string;
+  at: number;
+  promise: Promise<SiteDeepMappingContext | null>;
+} | null = null;
+
+async function resolveDeepMappingUncached(episodeId: string): Promise<SiteDeepMappingContext | null> {
     log.log('resolveDeepMapping: fetching CR episode metadata for', episodeId);
     const metaResult = await fetchCrunchyrollEpisodeMetadata(episodeId);
     if (!metaResult.ok) {
@@ -208,8 +241,7 @@ export const crunchyrollAdapter: SiteAdapter = {
       seasonsData,
       rawEpisodeMetadata: epMeta,
     };
-  },
-};
+}
 
 export async function detectCrunchyrollAnimeInfo() {
   try {

@@ -20,6 +20,18 @@ export interface SeriesMapping {
   // different season than the one the user picked (multiple results tied at
   // priority -1), which otherwise silently reverts the override.
   aniwaveSlug?: string;
+  /**
+   * Opaque per-site identifier of the SEASON this override was captured on
+   * (e.g. Crunchyroll `cr:<series_id>:s<season_sequence_number>`). Streaming
+   * sites reuse ONE series title across every season/cour, so a bare-name
+   * override silently bleeds onto seasons it was never meant for. When this
+   * stamp is present and differs from the season the user is currently
+   * watching, the override is treated as not-applicable and resolution falls
+   * back to the per-episode season-aware path. Absent on legacy entries (saved
+   * before season scoping) and on sites with no season signal — both degrade
+   * to the prior "applies everywhere" behavior. See {@link isStaleForSeason}.
+   */
+  seasonKey?: string;
 }
 
 export type { ManualOverrideRecentEntry };
@@ -185,6 +197,21 @@ function stripPlatformSpecificFields(mapping: SeriesMapping): SeriesMapping {
   return shareable;
 }
 
+/**
+ * True when a saved mapping is stamped for a different season than the one the
+ * user is currently watching. Only fires when BOTH the stored stamp and the
+ * current season are known — a missing stamp (legacy entry) or unknown current
+ * season (no site season signal / fetch failure) fails open, preserving the
+ * pre-season-scoping behavior of applying the override everywhere.
+ */
+function isStaleForSeason(
+  mapping: SeriesMapping | null | undefined,
+  currentSeasonKey?: string | null,
+): boolean {
+  if (!mapping?.seasonKey || !currentSeasonKey) return false;
+  return mapping.seasonKey !== currentSeasonKey;
+}
+
 export interface SeriesMappingResolution {
   /** The resolved mapping (after cross-platform fallback + cached-id merge), or null. */
   mapping: SeriesMapping | null;
@@ -210,6 +237,7 @@ export interface SeriesMappingResolution {
 export async function resolveSeriesMappingDetailed(
   series: string,
   platform?: SeriesMappingPlatform,
+  currentSeasonKey?: string | null,
 ): Promise<SeriesMappingResolution> {
   const siteKeys = resolveSiteKeyCandidates();
   const siteKey = siteKeys[0] || 'global';
@@ -220,13 +248,24 @@ export async function resolveSeriesMappingDetailed(
   let platformMapping: SeriesMapping | null = null;
   let matchSource: 'platform' | 'cross-platform' | 'none' = 'none';
   let crossPlatformOrigin: string | null = null;
+  let staleSeasonSkipped = false;
   for (const candidateSiteKey of siteKeys) {
     const siteMappings = mappings[candidateSiteKey] || {};
     const platformMappings = siteMappings[platformKey] || {};
-    const byExact = platformMappings[series];
-    if (byExact) { platformMapping = byExact; matchSource = 'platform'; break; }
-    const byNormalized = platformMappings[normalized];
-    if (byNormalized) { platformMapping = byNormalized; matchSource = 'platform'; break; }
+    // saveSeriesMapping only ever writes under `normalized`, so a bucket holds
+    // at most one of these keys — the `||` can't shadow a distinct normalized
+    // sibling behind a stale exact-case entry. (Revisit if a raw-cased import
+    // writer is ever added.)
+    const byExact = platformMappings[series] || platformMappings[normalized];
+    if (byExact) {
+      // A mapping stamped for another season is not applicable here; skip it
+      // (continue, don't break) so resolution falls through to the per-episode
+      // season-aware path instead of pinning the wrong season's override — and
+      // so a stale entry under one site-key can't shadow a valid one under
+      // another.
+      if (isStaleForSeason(byExact, currentSeasonKey)) { staleSeasonSkipped = true; continue; }
+      platformMapping = byExact; matchSource = 'platform'; break;
+    }
   }
 
   // Cross-platform fallback: when the requested platform has no mapping,
@@ -246,6 +285,9 @@ export async function resolveSeriesMappingDetailed(
         if (!platformMappings || typeof platformMappings !== 'object') continue;
         const hit = platformMappings[series] || platformMappings[normalized];
         if (hit) {
+          // Same season scoping as the native lookup: a borrowed override
+          // stamped for another season must not bleed across platforms either.
+          if (isStaleForSeason(hit, currentSeasonKey)) { staleSeasonSkipped = true; continue; }
           platformMapping = stripPlatformSpecificFields(hit);
           matchSource = 'cross-platform';
           crossPlatformOrigin = otherPlatformKey;
@@ -258,6 +300,7 @@ export async function resolveSeriesMappingDetailed(
   log.log(
     `getSeriesMapping series="${series}" normalized="${normalized}"`
     + ` platform=${platformKey} siteKeys=${JSON.stringify(siteKeys)}`
+    + ` currentSeasonKey=${currentSeasonKey ?? 'null'} staleSeasonSkipped=${staleSeasonSkipped}`
     + ` matchSource=${matchSource} crossPlatformOrigin=${crossPlatformOrigin ?? 'null'}`
     + ` mapping=${JSON.stringify(platformMapping)}`
   );
@@ -287,8 +330,12 @@ export async function resolveSeriesMappingDetailed(
   return { mapping: platformMapping, matchSource, crossPlatformOrigin };
 }
 
-export async function getSeriesMapping(series: string, platform?: SeriesMappingPlatform): Promise<SeriesMapping | null> {
-  return (await resolveSeriesMappingDetailed(series, platform)).mapping;
+export async function getSeriesMapping(
+  series: string,
+  platform?: SeriesMappingPlatform,
+  currentSeasonKey?: string | null,
+): Promise<SeriesMapping | null> {
+  return (await resolveSeriesMappingDetailed(series, platform, currentSeasonKey)).mapping;
 }
 
 /**
@@ -388,8 +435,18 @@ export async function saveSeriesMapping(
   const siteMappings = mappings[existingSiteKey] || {};
   const platformMappings = siteMappings[platformKey] || {};
   const normalized = normalizeKey(series);
-  const existing = platformMappings[normalized] || platformMappings[series] || {};
+  const existing: SeriesMapping = platformMappings[normalized] || platformMappings[series] || { episodeOffset: 0 };
   const merged = { ...existing, ...mapping };
+  // An object spread copies an explicit `undefined` over the prior value, so a
+  // re-save whose `seasonKey` couldn't be resolved (e.g. a transient CR
+  // metadata-fetch failure) would otherwise WIPE a previously-stamped season
+  // and re-open the cross-season bleed. When the incoming stamp is unresolved,
+  // keep the prior one (or drop the key entirely if there was none) instead of
+  // clobbering it with undefined.
+  if (mapping.seasonKey === undefined) {
+    if (existing.seasonKey !== undefined) merged.seasonKey = existing.seasonKey;
+    else delete merged.seasonKey;
+  }
   platformMappings[normalized] = merged;
   siteMappings[platformKey] = platformMappings;
   mappings[existingSiteKey] = siteMappings;

@@ -174,7 +174,7 @@ export async function resolveRedditPostOnDemand(info: AnimeInfo): Promise<{
 } | null> {
   if (!info?.animeName) return null;
 
-  const mapping = await getSeriesMapping(info.animeName, 'reddit');
+  const mapping = await getSeriesMapping(info.animeName, 'reddit', info.seasonKey);
   const episodeOffset = mapping?.episodeOffset ?? 0;
   const mapperAnimeName = (mapping?.mapperAnimeName || '').trim() || info.animeName;
   const infoForMapper = mapperAnimeName !== info.animeName

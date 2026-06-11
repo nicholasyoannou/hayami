@@ -9,6 +9,15 @@ export type AnimeInfo = {
   malId?: number | null;
   anilistId?: number | null;
   hayamiDocId?: string | null;
+  /**
+   * Opaque per-site identifier of the season the current episode belongs to,
+   * populated once per navigation from the active site adapter (Crunchyroll
+   * only today). Threaded into the series-mapping lookup so a "Wrong anime?"
+   * override saved on one season isn't applied to the others — streaming sites
+   * reuse one series title across every season. Undefined on sites with no
+   * season signal, where mapping resolution stays season-agnostic.
+   */
+  seasonKey?: string | null;
 };
 
 // ==================== Reddit Types ====================

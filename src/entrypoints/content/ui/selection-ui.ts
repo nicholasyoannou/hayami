@@ -131,7 +131,7 @@ export function showManualSearchUI(animeInfo: AnimeInfo, episodeNumber?: number)
 
   const resolveHasMapping = async (): Promise<boolean> => {
     if (!animeInfo?.animeName) return false;
-    return Boolean(await getSeriesMapping(animeInfo.animeName, 'reddit'));
+    return Boolean(await getSeriesMapping(animeInfo.animeName, 'reddit', animeInfo.seasonKey));
   };
 
   void resolveHasMapping().then((hasMapping) => {
@@ -151,7 +151,7 @@ export function showManualSearchUI(animeInfo: AnimeInfo, episodeNumber?: number)
           const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
             const offset = redditEp - episodeNumber;
-            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
+            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset, seasonKey: animeInfo.seasonKey ?? undefined }, 'reddit');
           }
         }
         close();
@@ -171,7 +171,7 @@ export function showManualSearchUI(animeInfo: AnimeInfo, episodeNumber?: number)
           const redditEp = parseEpisodeFromTitle(post.title);
           if (redditEp !== null) {
             const offset = redditEp - episodeNumber;
-            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset }, 'reddit');
+            await saveSeriesMapping(animeInfo.animeName, { episodeOffset: offset, seasonKey: animeInfo.seasonKey ?? undefined }, 'reddit');
           }
         }
         close();

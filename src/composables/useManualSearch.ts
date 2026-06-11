@@ -1681,7 +1681,7 @@ export function useManualSearch(params: {
       }
 
       try {
-        const existingMapping = await getSeriesMapping(baseAnimeName, providerForMapping);
+        const existingMapping = await getSeriesMapping(baseAnimeName, providerForMapping, info?.seasonKey);
         const mappedName = (existingMapping?.mapperAnimeName || '').trim();
         const preferredLookupName = mappedName || baseAnimeName;
         const hasSavedMapping = Boolean(existingMapping);

@@ -18,6 +18,7 @@ import {
 import { fetchRedditPostFromUrl } from '@/entrypoints/content/providers/reddit/runtime';
 import { setContentScriptContext } from './content-script-context';
 import { detectAnimeInfo, observeAnimeInfoOnce } from './anime-info-extractor';
+import type { AnimeInfo } from '../types';
 import {
   getCustomAnimeInfo,
   getCustomSiteMapping,
@@ -112,6 +113,25 @@ function isTopFrameWindow(): boolean {
 }
 
 /**
+ * Stamp the current episode's season identifier onto `info` so the
+ * series-mapping lookup can scope "Wrong anime?" overrides to the season they
+ * were captured on (streaming sites reuse one series title across every
+ * season). Best-effort: sites with no season signal — or a failed adapter
+ * call — leave `seasonKey` undefined and mapping resolution stays
+ * season-agnostic, exactly as before this feature existed.
+ */
+async function enrichAnimeInfoSeasonKey(info: AnimeInfo): Promise<void> {
+  try {
+    const hints = await resolveAdapter()?.getSeriesHints?.();
+    if (hints?.seasonKey) {
+      info.seasonKey = hints.seasonKey;
+    }
+  } catch (err) {
+    log.warn('Failed to resolve season key for override scoping', err);
+  }
+}
+
+/**
  * Debounced watch page handler
  */
 export function queueHandleWatchPage(ctx: ContentScriptContext): void {
@@ -148,6 +168,7 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
       return;
     }
     setLastProcessedKey(key);
+    await enrichAnimeInfoSeasonKey(info);
     window.dispatchEvent(new CustomEvent('animeInfoLoaded', { detail: info }));
     await searchAndDisplayDiscussion(info);
   } else {
@@ -165,7 +186,10 @@ export async function handleWatchPage(ctx: ContentScriptContext): Promise<void> 
 
     // If not found, wait for the content to load
     log.log('Anime info not found yet, waiting for content to load...');
-    observeAnimeInfoOnce(ctx, searchAndDisplayDiscussion, async () => {
+    observeAnimeInfoOnce(ctx, async (detected) => {
+      await enrichAnimeInfoSeasonKey(detected);
+      await searchAndDisplayDiscussion(detected);
+    }, async () => {
       let detected = getCustomAnimeInfo();
       if (detected) return detected;
 
@@ -410,6 +434,11 @@ export async function bootstrapContent(ctx: ContentScriptContext): Promise<void>
           malId: (mappingPlatform === 'mal' || mappingPlatform === 'disqus') ? eventMalId : undefined,
           anilistId: (mappingPlatform === 'anilist' || mappingPlatform === 'animecommunity') ? eventAnilistId : undefined,
           aniwaveIsDub: mappingPlatform === 'aniwave' ? aniwaveIsDub : undefined,
+          // Scope this override to the season it was captured on so it can't
+          // bleed onto the other seasons the streaming site lists under the
+          // same series title. Undefined when the site exposes no season
+          // signal — the override then stays season-agnostic (legacy behavior).
+          seasonKey: getState().lastAnimeInfo?.seasonKey ?? undefined,
         };
         // Only write aniwaveSlug when the user actually picked a mapper entry
         // via Wrong Anime. Omitting the key (rather than writing undefined)
