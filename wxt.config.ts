@@ -20,7 +20,7 @@ const filteredEntrypointSet = process.env.NODE_ENV === 'production'
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
-  manifest: {
+  manifest: ({ browser }) => ({
     name: 'Hayami: Anime comments & discussions',
     icons: {
       16: 'icon-16.png',
@@ -63,7 +63,10 @@ export default defineConfig({
     host_permissions: [
       ...hostPermissions
     ],
-    version: '0.1.0.8',
+    // Apple rejects 4-segment versions (ITMS-90258: CFBundleShortVersionString
+    // allows at most three period-separated integers), while Chrome/Firefox
+    // accept them. Collapse to 3 segments for the Safari target only.
+    version: browser === 'safari' ? '0.1.8' : '0.1.0.8',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
@@ -91,7 +94,7 @@ export default defineConfig({
       }
     ],
     key: "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5tUjhS1LlB+2swSeTrPztDTGBkXlhkE9cr9wJ8jQHWpPZZjdqm3YxR3jL08vhUYkWQwBJ48jLBJV9KLBk//+Q5bTPlWe5BFXPS4tKFy1Wyzb4xqXoSqSRZRtQJPwZ9aXQkHOd6Va1yy4IuhJZmPrTEmudVPJIx+h1rK8IZxM/qhU9GMbb7Y8My3nhnh/1Lz163lIFcBehuOZd2hfqebv0bdtmawYDUgXddqJxdRlsunhwH/w6wu+BEry501F5hUJMRK2uRsAHWEq+NbR4RZuuuAXS7NbiGL/BUBvuKXrPu6UuzTJCjlzKvJmJopk3zZS4ynbNtPTASvGs/xcYQzoyQIDAQAB"
-  },
+  }),
 
   hooks: {
     "entrypoints:found": (_wxt, infos) => {
