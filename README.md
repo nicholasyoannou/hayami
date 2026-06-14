@@ -5,7 +5,7 @@
 Makes it possible to view episode discussions on the episode page itself supporting a plethora of comments sections.
 By use of this extension, you agree to the Hayami [Usage Policy](https://hayami.moe/usagepolicy).
 
-[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/nhkggpiaeaeeeimohfpchnjobbamfcbg?label=Chrome%20Web%20Store&logo=google-chrome&style=flat-square)](https://chromewebstore.google.com/detail/hayami-anime-comments-dis/nhkggpiaeaeeeimohfpchnjobbamfcbg) [![Firefox Add-ons](https://img.shields.io/amo/v/hayami?label=Firefox%20Add-ons&logo=mozilla-firefox&style=flat-square)](https://addons.mozilla.org/en-GB/firefox/addon/hayami/) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](LICENSE)
+[![Chrome Web Store](https://img.shields.io/chrome-web-store/v/nhkggpiaeaeeeimohfpchnjobbamfcbg?label=Chrome%20Web%20Store&logo=google-chrome&style=flat-square)](https://chromewebstore.google.com/detail/hayami-anime-comments-dis/nhkggpiaeaeeeimohfpchnjobbamfcbg) [![Firefox Add-ons](https://img.shields.io/amo/v/hayami?label=Firefox%20Add-ons&logo=firefox&style=flat-square)](https://addons.mozilla.org/en-GB/firefox/addon/hayami/) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white&style=flat-square)](https://discord.gg/EqefXt7tHn) [![Ko-fi](https://img.shields.io/badge/Ko--fi-donate-FF5E5B?logo=ko-fi&logoColor=white&style=flat-square)](https://ko-fi.com/nicholasdev) [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](LICENSE)
 
 #### **Supported sites** <a id="anchor-link"></a>
 
@@ -22,7 +22,7 @@ By use of this extension, you agree to the Hayami [Usage Policy](https://hayami.
       </tr>
       <tr>
          <td><img src="https://www.google.com/s2/favicons?domain=https://www.netflix.com"> <a href="https://www.netflix.com/">Netflix</a></td>
-         <td><img src="https://www.google.com/s2/favicons?domain=https://disqus.com"> <a href="https://disqus.com/">Disqus</a></td>
+         <td><img src="https://www.google.com/s2/favicons?domain=https://discussanime.moe"> <a href="https://discussanime.moe/">Disqus</a></td>
       </tr>
       <tr>
       <td>+ Manually-added anime sites</td>
