@@ -51,3 +51,8 @@ If you enjoy using Hayami and want to help improve the project, you can support 
 - share feedback, reporting bugs or ideas you'd like to see implemented.
 - [donate monetarily](https://ko-fi.com/nicholasdev) to help fund development and maintenance of the project.
 - if you want to contribute, feel free to join the [Discord server](https://discord.gg/EqefXt7tHn) to discuss development and contribute to the project.
+
+Additional thanks to:
+- Mintlify for providing enhanced documentation hosting
+- Instatus for providing a status page for backend services
+- BrowserStack for providing cross-browser testing capabilities. This project is tested with BrowserStack.
