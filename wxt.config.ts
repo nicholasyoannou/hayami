@@ -115,6 +115,7 @@ export default defineConfig({
           js: ["content-scripts/content.js"],
         });
       }
+      manifest.options_ui = { page: 'popup.html' };
     },
   },
   vite: () => ({
