@@ -9,8 +9,10 @@
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
+    "build:safari": "wxt build -b safari",
     "zip": "wxt zip",
     "zip:firefox": "wxt zip -b firefox",
+    "zip:safari": "wxt zip -b safari",
     "test": "vitest run",
     "test:watch": "vitest",
     "compile": "vue-tsc --noEmit",
@@ -49,6 +51,7 @@
     "typescript": "^5.9.3",
     "vitest": "^4.1.4",
     "vue-tsc": "^3.2.2",
-    "wxt": "^0.20.26"
+    "wxt": "^0.20.26",
+    "@types/bun": "latest"
   }
 }
