@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { browser } from 'wxt/browser';
 import { getRuntimeUrl } from '@/utils/runtime';
 import AccountManagement from '@/components/AccountManagement.vue';
@@ -10,9 +10,13 @@ import {
   onboardingCompleteItem,
   enabledBuiltinSitesItem,
   BUILTIN_SITE_IDS,
+  builtinSiteHostPatterns,
   type BuiltinSiteId,
 } from '@/config/storage';
+import { essentialSafariHosts } from '@/config';
 import { con } from '@/utils/logger';
+import { isSafari } from '@/utils/browser-env';
+import { requestOrigins, containsAllOrigins } from '@/utils/permissions';
 
 const log = con.m('Onboarding');
 
@@ -56,8 +60,20 @@ function faviconFor(origin: string): string {
   }
 }
 
-const enabledSites = ref<BuiltinSiteId[]>([...BUILTIN_SITE_IDS]);
+// Safari defaults to no built-in sites enabled (host access isn't auto-granted
+// there, so sites are opt-in + permission-requested on Next); other browsers
+// keep all enabled, matching their install-time host grant.
+const enabledSites = ref<BuiltinSiteId[]>(isSafari ? [] : [...BUILTIN_SITE_IDS]);
 const sitesSaving = ref(false);
+
+// Safari only: request access to the currently-selected built-in streaming sites.
+// Called from the Next button (a user gesture) so permissions.request can prompt.
+// Patterns come from the single typed source in config/storage.
+async function requestSelectedStreamingPermissions(): Promise<void> {
+  const origins = enabledSites.value.flatMap((id) => builtinSiteHostPatterns[id] ?? []);
+  if (origins.length === 0) return;
+  await requestOrigins(origins);
+}
 
 function isSiteEnabled(id: BuiltinSiteId): boolean {
   return enabledSites.value.includes(id);
@@ -220,15 +236,71 @@ const malSyncStep: StepDef = {
   icon: ''
 };
 
+// Safari grants extension access per-site and never auto-grants the declared
+// host permissions, so nothing works (no comment injection, no login detection)
+// until the user explicitly allows access. Surface this prominently on Safari.
+const safariStep: StepDef = {
+  id: 'safari-access',
+  title: 'Enable Hayami in Safari',
+  content: "If you're a Safari user, Safari by-default asks permissions per-site, but also simultaneously causes bundled sites with the extension itself not to function properly unless given permission by you while onboarding. Because of that, you may see warnings that you need to accept permissions to more sites when onboarding.\n\n**On the next screen, ensure you click 'Allow Always' when Safari asks you to allow access to requested sites. If discussion platforms are added in-future, the Hayami will have a popup asking for permissions.**",
+  icon: '🧭'
+};
+
 const steps = computed<StepDef[]>(() => {
-  if (!malSyncDetected.value) return baseSteps;
-  // Insert after "Connect your accounts" (index 2)
   const result = [...baseSteps];
-  result.splice(3, 0, malSyncStep);
+  if (isSafari) {
+    // After "Understanding how Hayami works" — granting access gates the rest.
+    // No MAL-Sync step on Safari: it can't be detected (no cross-extension
+    // messaging) and the step doesn't apply there.
+    result.splice(2, 0, safariStep);
+  } else if (malSyncDetected.value) {
+    // Insert the MAL-Sync step after "Connect your accounts" (index 2).
+    result.splice(3, 0, malSyncStep);
+  }
   return result;
 });
 
 const currentStepDef = computed(() => steps.value[currentStep.value]);
+
+// Safari only: force a short read on the "Enable Hayami in Safari" step before
+// Next is clickable, so the per-site permission guidance is actually seen.
+// Counts down only on that step; instant everywhere else / on other browsers.
+const SAFARI_STEP_WAIT_SECONDS = 3;
+const nextCountdown = ref(0);
+let countdownTimer: ReturnType<typeof setInterval> | null = null;
+
+function clearCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+}
+
+function startSafariStepCountdown() {
+  clearCountdown();
+  nextCountdown.value = SAFARI_STEP_WAIT_SECONDS;
+  countdownTimer = setInterval(() => {
+    nextCountdown.value -= 1;
+    if (nextCountdown.value <= 0) {
+      nextCountdown.value = 0;
+      clearCountdown();
+    }
+  }, 1000);
+}
+
+const nextLocked = computed(() => nextCountdown.value > 0);
+// Safari "Allow all and continue" step: set when the user denies the access
+// sheet, so we keep them on the step and show a prompt to allow.
+const safariAccessDenied = ref(false);
+const nextButtonLabel = computed(() => {
+  if (isSafari && currentStepDef.value.id === 'safari-access') return 'Allow all and continue';
+  return currentStep.value === steps.value.length - 1 ? 'Get Started' : 'Next';
+});
+
+watch(() => currentStepDef.value.id, (id) => {
+  safariAccessDenied.value = false;
+  if (isSafari && id === 'safari-access') startSafariStepCountdown();
+  else { clearCountdown(); nextCountdown.value = 0; }
+}, { immediate: true });
+
+onUnmounted(clearCountdown);
 
 async function toggleMalSync() {
   malSyncToggling.value = true;
@@ -243,10 +315,52 @@ async function toggleMalSync() {
   }
 }
 
-function nextStep() {
+async function nextStep() {
   const step = currentStepDef.value;
   if (step.id === 'image-previews') {
     persistMediaKeys();
+  }
+  // Safari "Allow all and continue": request every essential host up front in one
+  // Safari sheet. MUST be the first `await` so it runs in the click's user gesture
+  // (persistMediaKeys above isn't awaited). Only advance if the user allows; on
+  // deny/dismiss, stay on the step and surface the alert.
+  if (step.id === 'safari-access' && isSafari) {
+    // FIRST await so request() runs in the click's user gesture. Discard its
+    // return: Safari resolves it true even on Deny (Apple 702031), so it carries
+    // no grant/deny signal.
+    await requestOrigins(essentialSafariHosts);
+    // Verify the ACTUAL grant. Either signal means "granted":
+    //  - the background cookie-store probe yields data — authoritative, because the
+    //    cookie read only succeeds under LIVE Safari host access (distinguishes a
+    //    real grant from a deny that contains() can't); or
+    //  - AND-contains across one host per family — catches a granted-but-logged-out
+    //    user whose cookies are empty. NOT containsAnyOrigin: its OR let a single
+    //    leftover/Safari-broadened grant pass the gate even with every site denied.
+    const familyReps = [
+      'https://reddit.com/*',
+      'https://disqus.com/*',
+      'https://myanimelist.net/*',
+      'https://anilist.co/*',
+      'https://hayami.moe/*',
+    ];
+    const cheap = await containsAllOrigins(familyReps);
+    let probe: { granted?: boolean; anyStore?: boolean } | null = null;
+    try {
+      probe = await browser.runtime.sendMessage({
+        action: 'hayami_probeHostAccess',
+        urls: ['https://www.reddit.com/', 'https://disqus.com/', 'https://myanimelist.net/'],
+      });
+    } catch { /* probe unavailable — fall back to AND-contains alone */ }
+    const granted = Boolean(probe?.granted) || (cheap && probe?.anyStore !== false);
+    if (!granted) { safariAccessDenied.value = true; return; }
+    safariAccessDenied.value = false;
+  }
+  // Safari: request the chosen streaming sites. This MUST remain the first `await`
+  // in nextStep so it runs inside the click's user-gesture window (Safari/Chrome
+  // reject permissions.request otherwise). persistMediaKeys() above is fire-and-
+  // forget (not awaited), so the gesture is preserved.
+  if (step.id === 'choose-sites' && isSafari) {
+    await requestSelectedStreamingPermissions();
   }
   if (currentStep.value < steps.value.length - 1) {
     currentStep.value++;
@@ -287,7 +401,7 @@ async function persistMediaKeys() {
       <div class="progress-bar" :style="{ width: progress + '%' }"></div>
     </div>
 
-    <div class="onboarding-modal fixed-size">
+    <div class="onboarding-modal fixed-size" :class="{ 'modal-auto': currentStepDef.id === 'safari-access' }">
       <div class="modal-content">
         <div class="step-title-row">
           <img v-if="currentStepDef.id === 'malsync'" src="https://hayami.moe/images/mal-sync-icon.svg" alt="MAL-Sync" class="step-icon-inline-img" />
@@ -334,11 +448,34 @@ async function persistMediaKeys() {
         </div>
 
         <p
+          v-if="isSafari && currentStepDef.id === 'choose-sites'"
+          style="margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: rgba(255, 255, 255, 0.62);"
+        >
+          On Safari, you’ll be asked to allow the sites you pick when you tap <strong>Next</strong>. You can change this later in settings.
+        </p>
+
+        <p
           v-if="currentStepDef.id !== 'choose-sites'"
           class="step-content"
           :class="{ 'step-content--connect-padding': currentStepDef.id === 'connect-accounts' }"
           v-html="formattedStepContentHtml"
         ></p>
+
+        <img
+          v-if="currentStepDef.id === 'safari-access'"
+          class="safari-allow-img"
+          src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/main/images/safariSetup_allowAlways.png"
+          alt="In Safari's permission prompt, choose Always Allow on Every Website"
+        />
+
+        <div
+          v-if="isSafari && currentStepDef.id === 'safari-access' && safariAccessDenied"
+          class="safari-deny-alert"
+          role="alert"
+        >
+          <span class="safari-deny-icon" aria-hidden="true">⚠️</span>
+          <p>You denied site access — Hayami can't detect your logins without it. Tap <strong>Allow all and continue</strong> again and choose <strong>'Always Allow'</strong>. If no prompt appears, set Hayami's sites to Allow in Safari → Settings → Websites.</p>
+        </div>
 
         <div v-if="currentStepDef.id === 'welcome'" class="skeleton-wrap">
           <div v-if="!imageLoaded['showcase']" class="skeleton skeleton--showcase"></div>
@@ -407,8 +544,15 @@ async function persistMediaKeys() {
           <button v-if="currentStep > 0" @click="prevStep" class="btn btn-back">
             Back
           </button>
-          <button @click="nextStep" class="btn btn-primary">
-            {{ currentStep === steps.length - 1 ? 'Get Started' : 'Next' }}
+          <button @click="nextStep" class="btn btn-primary" :disabled="nextLocked">
+            <span v-if="nextLocked" class="next-wait">
+              <svg class="next-clock" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M12 7v5l3 2"></path>
+              </svg>
+              {{ nextCountdown }}s
+            </span>
+            <span v-else>{{ nextButtonLabel }}</span>
           </button>
         </div>
       </div>
@@ -491,6 +635,15 @@ async function persistMediaKeys() {
   display: flex;
   flex-direction: column;
   overflow: visible;
+}
+
+/* The Safari step carries a screenshot, so let the modal grow to contain it
+   (the 500px fixed height + overflow:visible otherwise spills the image out the
+   bottom over the footer). Caps at the viewport and scrolls if it ever exceeds. */
+.onboarding-modal.fixed-size.modal-auto {
+  height: auto;
+  max-height: 92vh;
+  overflow-y: auto;
 }
 
 @keyframes fadeIn {
@@ -792,10 +945,57 @@ async function persistMediaKeys() {
   -webkit-backdrop-filter: blur(8px);
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
   background: rgba(100, 130, 180, 0.65);
   border-color: rgba(255, 255, 255, 0.3);
 }
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.next-wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.next-clock {
+  flex-shrink: 0;
+}
+
+.safari-allow-img {
+  display: block;
+  max-width: min(460px, 100%);
+  max-height: 300px;
+  height: auto;
+  margin: 20px auto 24px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.safari-deny-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.safari-deny-icon { flex-shrink: 0; font-size: 16px; line-height: 1.4; }
+
+.safari-deny-alert p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #fecaca;
+}
+
+.safari-deny-alert strong { color: #fff; font-weight: 600; }
 
 .btn-back {
   padding: 11px 22px;

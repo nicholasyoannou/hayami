@@ -2,6 +2,7 @@
 import type { KomentoPendingPermissionSource, KomentoPendingPreviewInfo } from '@/composables/useKomentoScript';
 import accountIcon from '@/assets/accountIcon.svg';
 import KomentoPendingPermissionsCard from './KomentoPendingPermissionsCard.vue';
+import MissingSitePermissions from '@/components/MissingSitePermissions.vue';
 
 type Props = {
   komentoPendingPermissionLoading: boolean;
@@ -13,6 +14,7 @@ type Props = {
   isKomentoPendingSourceExpanded: (id: string) => boolean;
   toggleKomentoPendingSourceExpanded: (id: string) => void;
   approveAllKomentoPendingPermissions: () => void | Promise<void>;
+  missingPermOrigins: string[];
   getFaviconUrl: (origin: string) => string;
   formatOrigin: (origin: string) => string;
 
@@ -29,6 +31,8 @@ defineProps<Props>();
 
 <template>
   <section class="space-y-6">
+    <MissingSitePermissions :origins="missingPermOrigins" />
+
     <KomentoPendingPermissionsCard
       v-if="komentoPendingPermissionLoading || hasKomentoPendingPermissions"
       :loading="komentoPendingPermissionLoading"

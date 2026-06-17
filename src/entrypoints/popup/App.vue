@@ -87,6 +87,7 @@ import {
   verboseLoggingItem,
   siteMapperAdvancedModeItem,
   enabledBuiltinSitesItem,
+  builtinSiteHostPatterns,
   onboardingCompleteItem,
   redditCompactModeItem,
   imgurRegionDefaultsInitializedItem,
@@ -97,6 +98,7 @@ import {
   type ImgurOdsOption,
   type ImgurVideoCdnOption,
 } from '@/config/storage';
+import { essentialSafariHosts } from '@/config';
 import { initializeImgurRegionDefaultsOnce } from '@/utils/imgur';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
@@ -136,6 +138,8 @@ import { logoutAniList } from '@/utils/anilist/auth';
 import { logoutGithub } from '@/utils/github/auth';
 import { logoutGitlab } from '@/utils/gitlab/auth';
 import { con } from '@/utils/logger';
+import { removeOrigins } from '@/utils/permissions';
+import { isSafari } from '@/utils/browser-env';
 
 const log = con.m('Popup');
 
@@ -855,7 +859,8 @@ const settingDefinitions: SettingDefinition[] = [
     type: 'toggle',
     category: 'general',
     label: 'MAL-Sync integration',
-    description: 'Use MAL-Sync\'s presence data to improve anime and episode detection. Requires MAL-Sync with Discord Rich Presence enabled.',
+    description: 'Use MAL-Sync\'s presence data to improve anime and episode detection. Requires MAL-Sync with Discord Rich Presence enabled.'
+      + (isSafari ? ' Safari can\'t detect other extensions, so enable this only if you actually have MAL-Sync installed.' : ''),
     fallback: false,
     load: async () => Boolean(await malSyncEnabledItem.getValue()),
     save: (value) => malSyncEnabledItem.setValue(Boolean(value)),
@@ -1081,6 +1086,14 @@ const activeCategoryAdvancedSettings = computed(() =>
 const malSyncInstalled = ref(false);
 
 const enabledBuiltinSites = ref<BuiltinSiteId[]>([...BUILTIN_SITE_IDS]);
+
+// Hosts the popup Home prompt checks for Safari grants: the essential set
+// (discussion platforms + core services) plus every enabled built-in streaming
+// site. MissingSitePermissions filters this down to whatever isn't granted.
+const homeMissingPermOrigins = computed(() => [
+  ...essentialSafariHosts,
+  ...enabledBuiltinSites.value.flatMap((id) => builtinSiteHostPatterns[id]),
+]);
 const savingBuiltinSites = ref(false);
 
 async function loadEnabledBuiltinSites() {
@@ -1513,13 +1526,8 @@ async function revokeAllOptionalHostPermissions(): Promise<void> {
     const all = await browser.permissions.getAll();
     const origins = (all?.origins || []).filter(Boolean);
     if (!origins.length) return;
-    await new Promise<void>((resolve) => {
-      try {
-        browser.permissions.remove({ origins }, () => resolve());
-      } catch {
-        resolve();
-      }
-    });
+    // Promise-based (see @/utils/permissions); the callback form hung on Safari.
+    await removeOrigins(origins);
   } catch (error) {
     log.warn('Failed to revoke optional host permissions', error);
   }
@@ -1610,7 +1618,10 @@ function isSettingVisible(setting: SettingDefinition) {
 }
 
 function isSettingDisabled(setting: SettingDefinition) {
-  if (setting.key === 'malSyncEnabled' && !malSyncInstalled.value) return true;
+  // Safari has no cross-extension messaging, so MAL-Sync can't be detected and
+  // malSyncInstalled is always false. Don't gate the toggle on detection there —
+  // let the user enable it manually (settings description carries the caveat).
+  if (setting.key === 'malSyncEnabled' && !malSyncInstalled.value && !isSafari) return true;
   return setting.category === 'image-previews' && setting.key !== 'embedImages' && !imagePreviewsEnabled.value;
 }
 
@@ -2039,6 +2050,7 @@ async function handleAdvancedEditorSave(next: any) {
             :is-komento-pending-source-expanded="isKomentoPendingSourceExpanded"
             :toggle-komento-pending-source-expanded="toggleKomentoPendingSourceExpanded"
             :approve-all-komento-pending-permissions="approveAllKomentoPendingPermissions"
+            :missing-perm-origins="homeMissingPermOrigins"
             :get-favicon-url="csm.getFaviconUrl"
             :format-origin="csm.formatOrigin"
             :reddit-display-status="redditDisplayStatus"

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import accountsIcon from '@/assets/accountsIcon.svg';
+import SafariSiteAccessBanner from '@/components/SafariSiteAccessBanner.vue';
+import { isSafari } from '@/utils/browser-env';
 
 type AccountInfo = {
   isConnected: boolean;
@@ -38,6 +40,10 @@ const props = defineProps<Props>();
         <img :src="accountsIcon" alt="Manage accounts" class="h-6 w-6" />
         <span>Manage accounts</span>
       </div>
+
+      <!-- Safari-only fallback (for users who skipped onboarding): grant access to
+           the discussion platforms so logins are detected. -->
+      <SafariSiteAccessBanner v-if="isSafari" />
 
       <div class="space-y-4 text-white/90">
         <!-- Reddit -->
