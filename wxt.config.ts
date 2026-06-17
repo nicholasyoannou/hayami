@@ -21,7 +21,8 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
   manifest: ({browser}) => ({
-    name: 'Hayami' + (browser === 'safari' ? '' : ': Anime comments & discussions'),
+    // Safari's product name is just "Hayami"; other stores get the descriptive suffix.
+    name: "Hayami" + (browser === 'safari' ? "" : ": Anime comments & discussions"),
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -48,6 +49,14 @@ export default defineConfig({
     // Allow requesting per-origin access (needed for user-mapped sites). Optional means
     // the user is prompted per site; it is not granted by default.
     optional_host_permissions: ['<all_urls>'],
+    // Safari (MV2) never auto-grants manifest hosts and never prompts for the
+    // background-only access Hayami needs, so on Safari we declare EVERY host as
+    // OPTIONAL and request them at runtime via a user gesture (the onboarding
+    // "Allow all and continue" step, choose-sites step, and the site mapper for
+    // arbitrary user sites via <all_urls>). (MV2 keeps host patterns in
+    // `optional_permissions`; the MV3-only `optional_host_permissions` above is
+    // dropped by WXT on MV2 builds.) Chrome/Firefox keep everything required below.
+    optional_permissions: browser === 'safari' ? [...hostPermissions, '<all_urls>'] : [],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
       extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' https: http:; frame-src 'self' https://hayami.moe;",
@@ -60,14 +69,14 @@ export default defineConfig({
         description: 'Open Hayami site mapper'
       }
     },
-    host_permissions: [
-      ...hostPermissions
-    ],
+    // On Safari every host is optional (above), so the required set is empty;
+    // every other build keeps the full list required (granted at install).
+    host_permissions: browser === 'safari' ? [] : [...hostPermissions],
     // Single 3-segment version for ALL targets. Apple's CFBundleShortVersionString
     // allows at most three period-separated integers (ITMS-90258); Chrome and
     // Firefox accept 3 segments too, so one scheme works everywhere. Keep it
     // major.minor.patch (e.g. 0.12.3) and never add a 4th segment.
-    version: '0.1.9',
+    version: '0.1.10',
     /**
      * Needed so SVG icon assets can be loaded into the page DOM from the content script.
      * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
@@ -115,7 +124,6 @@ export default defineConfig({
           js: ["content-scripts/content.js"],
         });
       }
-      manifest.options_ui = { page: 'popup.html' };
     },
   },
   vite: () => ({

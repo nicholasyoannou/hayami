@@ -3,6 +3,7 @@ import { CUSTOM_SITE_MAPPINGS_KEY } from "./types";
 import { browser } from "wxt/browser";
 import { getRuntimeUrl } from "@/utils/runtime";
 import { con } from "@/utils/logger";
+import { containsOrigins, requestOrigins } from "@/utils/permissions";
 
 const log = con.m("SiteMapper");
 import {
@@ -1039,21 +1040,17 @@ export function getAbsoluteXPathNoId(el: Element | null): string {
   return `/${segments.join("/")}`;
 }
 
-export function ensurePermissionForCurrentSite(): Promise<boolean> {
+export async function ensurePermissionForCurrentSite(): Promise<boolean> {
   const permissions = browser.permissions;
-  if (!permissions || !permissions.contains) {
-    return Promise.resolve(true);
-  }
+  if (!permissions || !permissions.contains) return true;
 
-  return new Promise((resolve) => {
-    const originPattern = `${location.origin}/*`;
-    permissions.contains({ origins: [originPattern] }, (already: boolean) => {
-      if (already) return resolve(true);
-      permissions.request({ origins: [originPattern] }, (granted: boolean) => {
-        resolve(Boolean(granted));
-      });
-    });
-  });
+  // Promise-based (see @/utils/permissions): the old callback form hung on
+  // Safari, so the mapper could never confirm access to the current site.
+  const originPattern = `${location.origin}/*`;
+  if (await containsOrigins([originPattern])) return true;
+
+  const { granted } = await requestOrigins([originPattern]);
+  return granted;
 }
 
 /**
@@ -1079,15 +1076,7 @@ export async function getMissingExtraDomainPermissions(
   for (const origin of extras) {
     const trimmed = String(origin || "").trim();
     if (!trimmed) continue;
-    const pattern = `${trimmed}/*`;
-    const granted = await new Promise<boolean>((resolve) => {
-      try {
-        permissions.contains({ origins: [pattern] }, (ok: boolean) => resolve(Boolean(ok)));
-      } catch {
-        resolve(true); // err on the side of not nagging when the API throws
-      }
-    });
-    if (!granted) missing.push(trimmed);
+    if (!(await containsOrigins([`${trimmed}/*`]))) missing.push(trimmed);
   }
   return missing;
 }
@@ -1105,13 +1094,8 @@ export async function requestExtraDomainPermissions(origins: string[]): Promise<
     .filter(Boolean)
     .map((o) => `${o}/*`);
   if (patterns.length === 0) return false;
-  return new Promise((resolve) => {
-    try {
-      permissions.request({ origins: patterns }, (granted: boolean) => resolve(Boolean(granted)));
-    } catch {
-      resolve(false);
-    }
-  });
+  const { granted } = await requestOrigins(patterns);
+  return granted;
 }
 
 export function ensureLaunchButton(host: HTMLElement | null, toast: any): void {

@@ -1,4 +1,4 @@
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { sleep } from '@/utils/async';
 import { con } from '@/utils/logger';
 import {
@@ -19,6 +19,9 @@ import {
 import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/mal/auth';
 import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilist/auth';
 import { sendMessageWithRetry } from '@/utils/runtime';
+import { isSafari } from '@/utils/browser-env';
+import { essentialSafariHosts, providerHostPermissions } from '@/config';
+import { containsOrigins, requestOrigins } from '@/utils/permissions';
 
 export interface Account {
   id: 'reddit' | 'youtube' | 'mal' | 'anilist' | 'disqus';
@@ -268,6 +271,8 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
     
     try {
+      // Safari grants hosts per-site on demand: request Reddit's before connecting.
+      if (isSafari) await requestOrigins(providerHostPermissions.reddit);
       const configuredClientId = (await redditClientIdItem.getValue())?.trim() || '';
 
       if (configuredClientId) {
@@ -281,6 +286,24 @@ export function useAccountManagement() {
         updateAccountStates();
         return;
       }
+
+      // Already signed in to reddit.com (cookie present now that access is
+      // granted)? Skip the guided window entirely and flip the UI. Opening a
+      // window that immediately redirects home is exactly what steals popup
+      // focus and gets stuck open on Safari.
+      try {
+        const pre = await sendMessageWithRetry({ action: 'hayami_checkRedditTokenCookie' });
+        if (pre?.loggedIn) {
+          isLoggedIn.value = true;
+          try {
+            const profile = await sendMessageWithRetry({ action: 'hayami_getRedditCookieSessionProfile' });
+            username.value = profile?.username || null;
+            profilePic.value = profile?.profilePic || null;
+          } catch { /* keep connected state even if profile hydrate fails */ }
+          updateAccountStates();
+          return;
+        }
+      } catch { /* fall through to opening the guided login */ }
 
       const popup = await sendMessageWithRetry({
         action: 'hayami_openRedditLoginGuided',
@@ -360,6 +383,7 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
+      if (isSafari) await requestOrigins(providerHostPermissions.youtube);
       const result = await authenticateWithYouTube();
       if (result.success) {
         // Poll until YouTube auth completes (redirect flow at /pwa/link/youtube)
@@ -419,6 +443,7 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
+      if (isSafari) await requestOrigins(providerHostPermissions.mal);
       const result = await authenticateWithMAL();
       if (result.success) {
         // Poll until MAL auth completes (redirect flow at /pwa/link/mal)
@@ -468,6 +493,7 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
+      if (isSafari) await requestOrigins(providerHostPermissions.anilist);
       const result = await authenticateWithAniList();
       if (result.success) {
         // Poll until AniList auth completes (implicit grant redirect)
@@ -517,6 +543,20 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
+      // Safari grants hosts per-site on demand: request Disqus's before connecting.
+      if (isSafari) await requestOrigins(providerHostPermissions.disqus);
+
+      // Already signed in to disqus.com? Skip the guided window and flip the UI.
+      try {
+        const pre = await sendMessageWithRetry({ action: 'hayami_checkDisqusSession' });
+        if (pre?.loggedIn) {
+          isDisqusLoggedIn.value = true;
+          disqusUsername.value = pre?.username || null;
+          updateAccountStates();
+          return;
+        }
+      } catch { /* fall through to opening the guided login */ }
+
       const popup = await sendMessageWithRetry({
         action: 'hayami_openDisqusLoginGuided',
         url: 'https://disqus.com/profile/login/',
@@ -631,8 +671,56 @@ export function useAccountManagement() {
     return accounts.value.some(account => account.isLoading);
   });
 
+  // Safari activates host DATA access a moment AFTER the grant, so a single refresh
+  // right after granting can still read empty cookies (Reddit shows "not connected"
+  // right after "Allow all"). Re-check a few times over the next few seconds to
+  // catch the activation. Other browsers just refresh once.
+  let burstTimers: ReturnType<typeof setTimeout>[] = [];
+  function clearBurst() { burstTimers.forEach((t) => clearTimeout(t)); burstTimers = []; }
+  function refreshBurst() {
+    void refreshAllAccounts();
+    if (!isSafari) return;
+    clearBurst();
+    for (const ms of [800, 2000, 4000, 7000]) {
+      burstTimers.push(setTimeout(() => { void refreshAllAccounts(); }, ms));
+    }
+  }
+
+  // Re-check auth whenever a host permission is granted. Safari's permissions.onAdded
+  // fires only for grants made via permissions.request() and isn't reliably delivered
+  // to the page; grants made through Safari's own UI are silent. So back the event
+  // with a bounded permissions.contains() poll. Without this the status stays stale
+  // (read once on mount, before access existed) until the popup is reopened.
+  const onPermissionsChanged = () => {
+    refreshBurst();
+  };
+
+  let grantPollTimer: ReturnType<typeof setInterval> | null = null;
+  let lastEssentialGranted = false;
+  async function pollEssentialGrants() {
+    try {
+      const granted = await containsOrigins(essentialSafariHosts);
+      if (granted && !lastEssentialGranted) {
+        lastEssentialGranted = true;
+        refreshBurst();
+      } else if (!granted) {
+        lastEssentialGranted = false;
+      }
+    } catch { /* ignore */ }
+  }
+
   onMounted(() => {
-    refreshAllAccounts();
+    refreshBurst();
+    try { browser.permissions?.onAdded?.addListener?.(onPermissionsChanged); } catch {}
+    // Safari only: onAdded is unreliable, so poll for the "approve all" grant
+    // landing. Cheap — one combined contains() check per tick.
+    if (isSafari) grantPollTimer = setInterval(() => { void pollEssentialGrants(); }, 2500);
+  });
+
+  onUnmounted(() => {
+    clearBurst();
+    try { browser.permissions?.onAdded?.removeListener?.(onPermissionsChanged); } catch {}
+    if (grantPollTimer) { clearInterval(grantPollTimer); grantPollTimer = null; }
   });
 
   return {

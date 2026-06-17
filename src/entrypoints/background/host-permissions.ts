@@ -13,6 +13,7 @@
 
 import { browser } from 'wxt/browser';
 import { con } from '@/utils/logger';
+import { requestOrigins } from '@/utils/permissions';
 
 const bg = con.m('Background');
 
@@ -66,35 +67,9 @@ export async function requestOriginPatterns(patterns: string[]): Promise<OriginP
       error: 'permissions.request unavailable',
     };
   }
-  return await new Promise<OriginPermissionRequestResult>((resolve) => {
-    try {
-      permissions.request({ origins: patterns }, (value) => {
-        const lastError = (browser as any).runtime?.lastError;
-        const message = String(lastError?.message || '').trim();
-        const lowered = message.toLowerCase();
-        const dismissed = !value && (
-          lowered.includes('dismissed')
-          || lowered.includes('canceled')
-          || lowered.includes('cancelled')
-          || lowered.includes('closed')
-        );
-        resolve({
-          granted: Boolean(value),
-          dismissed,
-          error: message || undefined,
-        });
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error || 'permission request failed');
-      const lowered = message.toLowerCase();
-      const dismissed = lowered.includes('dismissed') || lowered.includes('canceled') || lowered.includes('cancelled');
-      resolve({
-        granted: false,
-        dismissed,
-        error: message,
-      });
-    }
-  });
+  // Promise-based (see @/utils/permissions): the old callback form never
+  // resolved on Safari, hanging every host-grant flow that called this.
+  return await requestOrigins(patterns);
 }
 
 export async function unregisterContentScriptsForHost(host: string): Promise<void> {
@@ -130,18 +105,12 @@ export async function removeHostPermissionPatterns(
 
   const results: { pattern: string; removed: boolean; error?: string }[] = [];
   for (const pattern of patterns) {
-    await new Promise<void>((resolve) => {
-      try {
-        permissions.remove({ origins: [pattern] }, (removed) => {
-          const err = (browser as any).runtime?.lastError?.message;
-          results.push({ pattern, removed: Boolean(removed), error: err || undefined });
-          resolve();
-        });
-      } catch (error) {
-        results.push({ pattern, removed: false, error: error instanceof Error ? error.message : String(error) });
-        resolve();
-      }
-    });
+    try {
+      const removed = await permissions.remove({ origins: [pattern] });
+      results.push({ pattern, removed: Boolean(removed) });
+    } catch (error) {
+      results.push({ pattern, removed: false, error: error instanceof Error ? error.message : String(error) });
+    }
   }
   return results;
 }

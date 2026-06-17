@@ -17,6 +17,8 @@ import {
   unregisterContentScriptsForHost,
   purgeHostPermissionsForHost,
 } from '../host-permissions';
+import { containsOrigins, requestOrigins } from '@/utils/permissions';
+import { getAllCookiesAcrossStores } from '@/utils/cookies';
 import type { BackgroundMessageHandler } from './types';
 
 export const permissionsHandlers: Record<string, BackgroundMessageHandler> = {
@@ -60,6 +62,37 @@ export const permissionsHandlers: Record<string, BackgroundMessageHandler> = {
     return true;
   },
 
+  // Authoritative "does the user ACTUALLY have live host access?" probe for the
+  // Safari onboarding gate. permissions.request() resolves true even on Deny
+  // (Apple defect 702031) and permissions.contains() can report a stale/broadened
+  // grant, so neither distinguishes grant from deny reliably. The cookie read is
+  // the only call gated on LIVE Safari host access — it yields data ONLY when the
+  // user has activated access, so non-empty results are a trustworthy GRANT
+  // signal. Must run in the background (the storeId-iteration workaround for
+  // Safari's inert background lives in getAllCookiesAcrossStores). Don't use a
+  // background fetch/XHR — those succeed for any declared host even when denied.
+  hayami_probeHostAccess: (msg, _sender, send) => {
+    (async () => {
+      const urls: string[] = Array.isArray(msg.urls) && msg.urls.length
+        ? msg.urls
+        : ['https://www.reddit.com/', 'https://disqus.com/', 'https://myanimelist.net/'];
+      let granted = false;
+      let anyStore = false;
+      try {
+        const stores = await browser.cookies.getAllCookieStores();
+        anyStore = Array.isArray(stores) && stores.length > 0;
+        for (const url of urls) {
+          try {
+            const cookies = await getAllCookiesAcrossStores({ url }, [new URL(url).origin + '/*']);
+            if (cookies.length > 0) { granted = true; break; }
+          } catch { /* try the next host */ }
+        }
+      } catch { /* cookies API unavailable (e.g. unsigned/temporary install) */ }
+      send({ ok: true, granted, anyStore });
+    })();
+    return true;
+  },
+
   hayami_requestHostPermission: (msg, _sender, send) => {
     (async () => {
       try {
@@ -89,34 +122,24 @@ export const permissionsHandlers: Record<string, BackgroundMessageHandler> = {
           return;
         }
 
-        // Preserve the click gesture by chaining contains -> request callbacks directly.
-        permissions.contains({ origins: [originPattern] }, (alreadyGranted: boolean) => {
-          const containsError = (browser as any).runtime?.lastError?.message;
-          if (containsError) {
-            send({ ok: false, granted: false, error: containsError });
-            return;
-          }
+        // Promise-based (see @/utils/permissions): the old callback chain hung on
+        // Safari. contains first, then request within the same gesture context.
+        if (await containsOrigins([originPattern])) {
+          send({ ok: true, granted: true, origin: parsedOrigin, alreadyGranted: true, needsReload: false });
+          return;
+        }
 
-          if (alreadyGranted) {
-            send({ ok: true, granted: true, origin: parsedOrigin, alreadyGranted: true, needsReload: false });
-            return;
-          }
-
-          permissions.request({ origins: [originPattern] }, (granted: boolean) => {
-            const requestError = (browser as any).runtime?.lastError?.message;
-            if (requestError) {
-              send({ ok: false, granted: false, error: requestError });
-              return;
-            }
-
-            send({
-              ok: true,
-              granted: Boolean(granted),
-              origin: parsedOrigin,
-              alreadyGranted: false,
-              needsReload: false,
-            });
-          });
+        const { granted, error } = await requestOrigins([originPattern]);
+        if (!granted && error) {
+          send({ ok: false, granted: false, error });
+          return;
+        }
+        send({
+          ok: true,
+          granted,
+          origin: parsedOrigin,
+          alreadyGranted: false,
+          needsReload: false,
         });
       } catch (error) {
         send({ ok: false, granted: false, error: error instanceof Error ? error.message : 'unknown' });
