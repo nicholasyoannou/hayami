@@ -404,7 +404,7 @@ async function completeOnboarding() {
   // Mark onboarding as complete
   await onboardingCompleteItem.setValue(true);
   // Redirect directly to popup setup
-  window.location.href = getRuntimeUrl('popup.html');
+  window.location.href = getRuntimeUrl('popup.html?view=tab');
 }
 
 async function persistMediaKeys() {
