@@ -207,8 +207,8 @@
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  margin: 0 -16px 10px -16px;
-  padding: 16px 16px 0 16px;
+  margin: 0 -16px 10px;
+  padding: 16px 16px 0;
   border-top: 1px solid var(--ri-border-1, #2f2f2f);
 }
 
@@ -1146,7 +1146,7 @@
 }
 
 .ri-text p {
-  margin: 0 0 16px 0;
+  margin: 0 0 16px;
 }
 
 .ri-text p:last-child {
@@ -1256,7 +1256,7 @@
    Use a pseudo-bullet so we still show markers even if site CSS disables list-style */
 .ri-text ul {
   list-style: none; /* neutralize site resets */
-  margin: 6px 0 12px 0;
+  margin: 6px 0 12px;
   padding-left: 22px; /* visual indent */
 }
 .ri-text ul > li {
@@ -1277,7 +1277,7 @@
 .ri-text ol {
   list-style: none; /* neutralize potential global resets */
   counter-reset: ri-ol-counter;
-  margin: 6px 0 12px 0;
+  margin: 6px 0 12px;
   padding-left: 40px; /* increased indentation for better spacing */
 }
 .ri-text ol > li {
@@ -2202,7 +2202,7 @@
 }
 
 .discussion-info h4 {
-  margin: 0 0 15px 0;
+  margin: 0 0 15px;
   font-size: 15px;
   color: #333;
   line-height: 1.4;
@@ -2225,7 +2225,7 @@
 .choice-list {
   list-style: none;
   padding: 0;
-  margin: 10px 0 0 0;
+  margin: 10px 0 0;
 }
 
 .choice-item {
@@ -3989,7 +3989,7 @@
   --trad-content-offset: 1rem;
   display: flex;
   gap: 4px;
-  padding: 6px 0 4px 0;
+  padding: 6px 0 4px;
   margin: 0;
   position: relative;
   background: transparent;
@@ -4264,7 +4264,7 @@
 #reddit-inline-discussion .ri-classic-link {
   color: #888;
   cursor: pointer;
-  padding: 2px 2px;
+  padding: 2px;
   transition: color 0.1s;
 }
 
