@@ -68,9 +68,11 @@ let komentoSyncBadgeTimer: number | undefined;
 
 async function setActionBadge(text: string, color: string): Promise<void> {
   try {
-    if (!browser.action?.setBadgeText || !browser.action?.setBadgeBackgroundColor) return;
-    await browser.action.setBadgeText({ text });
-    await browser.action.setBadgeBackgroundColor({ color });
+    // MV3 (Chrome) exposes `action`; MV2 (Safari/Firefox) exposes `browserAction`
+    const action = browser.action ?? (browser as any).browserAction;
+    if (!action?.setBadgeText) return;
+    await action.setBadgeText({ text });
+    try { await action.setBadgeBackgroundColor?.({ color }); } catch { /* ignore */ }
   } catch {
     // no-op
   }

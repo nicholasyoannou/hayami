@@ -31,36 +31,47 @@ export const redditHandlers: Record<string, BackgroundMessageHandler> = {
 
       let loginTabId: number | null = null;
       let loginWindowId: number | null = null;
-      let cleanedUp = false;
+      let finished = false;
+      let pollTimer: ReturnType<typeof setInterval> | null = null;
 
       const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
         try { browser.tabs.onUpdated.removeListener(handleUpdated); } catch {}
         try { browser.tabs.onRemoved.removeListener(handleRemoved); } catch {}
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       };
 
-      const handleRemoved = (removedTabId: number) => {
-        if (removedTabId !== loginTabId) return;
-        cleanup();
-      };
-
-      const handleUpdated = async (updatedTabId: number, changeInfo: any, tab: any) => {
-        if (updatedTabId !== loginTabId) return;
-        const currentUrl = changeInfo?.url || tab?.url;
-        if (!isRedditHomeUrl(currentUrl)) return;
-
-        cleanup();
-        try {
-          if (typeof loginWindowId === 'number') {
+      // Try every close primitive: windows.remove first, then tabs.remove as a
+      // fallback even when a window id exists (Safari can silently no-op or throw
+      // on windows.remove). Returns whether the window actually went away.
+      let closing = false;
+      const closeLoginWindow = async (): Promise<boolean> => {
+        if (typeof loginWindowId === 'number') {
+          try {
             await browser.windows.remove(loginWindowId);
-          } else if (typeof loginTabId === 'number') {
-            await browser.tabs.remove(loginTabId);
-          }
-        } catch {
-          // ignore tab close failures
+            return true;
+          } catch { /* fall through to tab removal */ }
         }
+        if (typeof loginTabId === 'number') {
+          try {
+            await browser.tabs.remove(loginTabId);
+            return true;
+          } catch { /* fall through */ }
+        }
+        return false;
+      };
 
+      // Notify the originating tab + close the popup. Only marks the flow done
+      // once a close actually succeeds, so a failed attempt is retried on the
+      // next poll tick instead of leaving the window stuck open forever.
+      const finishLogin = async () => {
+        if (finished || closing) return;
+        closing = true;
+        const closed = await closeLoginWindow();
+        closing = false;
+        // close failed — leave the flow open so the next poll tick retries.
+        if (!closed) return;
+        finished = true;
+        cleanup();
         if (typeof sourceTabId === 'number') {
           try {
             await browser.tabs.sendMessage(sourceTabId, { action: 'hayami_redditLoginCompleted' });
@@ -68,6 +79,31 @@ export const redditHandlers: Record<string, BackgroundMessageHandler> = {
             // originating tab may no longer have the content script mounted
           }
         }
+      };
+
+      const handleRemoved = (removedTabId: number) => {
+        if (removedTabId !== loginTabId) return;
+        // User closed the popup themselves — stop watching, don't re-close.
+        finished = true;
+        cleanup();
+      };
+
+      // Login is done only once Reddit redirects to its home page. onUpdated is
+      // unreliable on Safari (empty url, mid-nav tab-id changes), so also poll the
+      // tracked tab's own URL for that redirect.
+      const checkRedirect = async () => {
+        if (typeof loginTabId !== 'number') return;
+        try {
+          const t = await browser.tabs.get(loginTabId);
+          if (isRedditHomeUrl(t?.url)) await finishLogin();
+        } catch { /* keep polling */ }
+      };
+
+      const handleUpdated = async (updatedTabId: number, changeInfo: any, tab: any) => {
+        if (updatedTabId !== loginTabId) return;
+        const currentUrl = changeInfo?.url || tab?.url;
+        if (isRedditHomeUrl(currentUrl)) { await finishLogin(); return; }
+        if (changeInfo?.status === 'complete') void checkRedirect();
       };
 
       try {
@@ -79,8 +115,19 @@ export const redditHandlers: Record<string, BackgroundMessageHandler> = {
           height: 760,
         });
 
-        const createdTab = createdWindow?.tabs?.[0];
+        let createdTab = createdWindow?.tabs?.[0];
         loginWindowId = typeof createdWindow?.id === 'number' ? createdWindow.id : null;
+
+        // Safari's windows.create often returns a Window with `tabs` unpopulated,
+        // so the tab id is missing and the close-watcher never attaches (the
+        // window then opens, redirects, and is never closed). Recover the tab by
+        // querying the new window.
+        if (typeof createdTab?.id !== 'number' && typeof loginWindowId === 'number') {
+          try {
+            const tabsInWindow = await browser.tabs.query({ windowId: loginWindowId });
+            createdTab = tabsInWindow?.[0];
+          } catch { /* fall through to the error below */ }
+        }
 
         if (typeof createdTab?.id !== 'number') {
           send({ success: false, error: 'Failed to open Reddit login popup.' });
@@ -90,6 +137,13 @@ export const redditHandlers: Record<string, BackgroundMessageHandler> = {
         loginTabId = createdTab.id;
         browser.tabs.onUpdated.addListener(handleUpdated);
         browser.tabs.onRemoved.addListener(handleRemoved);
+
+        // Poll the cookie as a fallback; give up after 5 minutes to avoid leaks.
+        const deadline = Date.now() + 5 * 60_000;
+        pollTimer = setInterval(() => {
+          if (finished || Date.now() > deadline) { cleanup(); return; }
+          void checkRedirect();
+        }, 1500);
 
         send({ success: true, tabId: loginTabId, windowId: loginWindowId });
       } catch (error) {

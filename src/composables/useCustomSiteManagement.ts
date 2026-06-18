@@ -5,6 +5,7 @@ import { MAX_DOMAINS_PER_CUSTOM_SITE } from '@/entrypoints/content/ui/site-mappe
 import type { CustomSiteMapping, DisplayPlacement } from '@/entrypoints/content/ui/site-mapper/types';
 import { sanitizeCustomSiteMapping } from '@/entrypoints/content/ui/site-mapper/sanitize-mapping';
 import { con } from '@/utils/logger';
+import { containsOrigins, requestOrigins, removeOrigins } from '@/utils/permissions';
 
 const log = con.m('CustomSiteManagement');
 
@@ -490,22 +491,9 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
           .map((origin) => String(origin || '').trim())
           .filter(Boolean)
           .map((origin) => `${origin.replace(/\/$/, '')}/*`);
-        if (wantedPatterns.length > 0 && browser.permissions?.contains && browser.permissions?.request) {
-          const alreadyGranted = await new Promise<boolean>((resolve) => {
-            try {
-              browser.permissions.contains({ origins: wantedPatterns }, (ok) => resolve(Boolean(ok)));
-            } catch {
-              resolve(false);
-            }
-          });
-          if (!alreadyGranted) {
-            await new Promise<boolean>((resolve) => {
-              try {
-                browser.permissions.request({ origins: wantedPatterns }, (ok) => resolve(Boolean(ok)));
-              } catch {
-                resolve(false);
-              }
-            });
+        if (wantedPatterns.length > 0 && typeof browser.permissions?.contains === 'function' && typeof browser.permissions?.request === 'function') {
+          if (!(await containsOrigins(wantedPatterns))) {
+            await requestOrigins(wantedPatterns);
           }
         }
       } catch (permError) {
@@ -712,15 +700,8 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
       const originPatterns = [site.origin, ...(site.extraDomains || [])]
         .filter((origin): origin is string => Boolean(origin))
         .map((origin) => `${origin}/*`);
-      const permissions = browser.permissions;
-      if (permissions?.remove && originPatterns.length > 0) {
-        await new Promise<void>((resolve) => {
-          try {
-            permissions.remove({ origins: originPatterns }, () => resolve());
-          } catch {
-            resolve();
-          }
-        });
+      if (typeof browser.permissions?.remove === 'function' && originPatterns.length > 0) {
+        await removeOrigins(originPatterns);
       }
 
       showSuccess('Custom site removed');
@@ -752,23 +733,10 @@ export function useCustomSiteManagement({ showSuccess, showError }: Callbacks) {
     if (!permissions || !permissions.request || !permissions.contains) return true;
 
     const originPattern = `${origin}/*`;
-    const alreadyGranted = await new Promise<boolean>((resolve) => {
-      try {
-        permissions.contains({ origins: [originPattern] }, (granted: boolean) => resolve(Boolean(granted)));
-      } catch {
-        resolve(false);
-      }
-    });
-    if (alreadyGranted) return true;
+    if (await containsOrigins([originPattern])) return true;
 
-    return new Promise((resolve) => {
-      try {
-        permissions.request({ origins: [originPattern] }, (granted: boolean) => resolve(Boolean(granted)));
-      } catch (error) {
-        log.warn('Permission request failed', error);
-        resolve(false);
-      }
-    });
+    const { granted } = await requestOrigins([originPattern]);
+    return granted;
   }
 
   async function waitForMapperTab(tabId: number): Promise<void> {

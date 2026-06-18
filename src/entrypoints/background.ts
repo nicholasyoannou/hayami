@@ -25,7 +25,6 @@ import { providerAuthHandlers } from './background/handlers/provider-auth';
 import type { BackgroundMessageHandler } from './background/handlers/types';
 import {
   POLL_RULE_ID,
-  ADS_IFRAME_RULE_ID,
   DISQUS_PROFILE_REDIRECT_RULE_ID,
   REDDIT_NAV_HEADER_RULE_ID,
   DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
@@ -37,8 +36,10 @@ import {
   refreshKomentoBadge,
   handleKomentoStorageChange,
 } from './background/komento-runtime';
+import { containsOrigins, requestOrigins } from '@/utils/permissions';
 import "webext-dynamic-content-scripts";
 import domainPermissionToggle from "webext-permission-toggle";
+import { isSafari } from '@/utils/browser-env';
 
 /**
  * One-time migration: move user config from local storage to sync storage.
@@ -142,24 +143,12 @@ async function requestSitePermission(url: string): Promise<boolean> {
     const permissions = browser.permissions;
     if (!permissions?.contains || !permissions?.request) return false;
 
-    // Keep contains -> request in the same callback chain to preserve user activation.
-    return await new Promise<boolean>((resolve) => {
-      try {
-        permissions.contains({ origins: [originPattern] }, (alreadyGranted: boolean) => {
-          if (alreadyGranted) {
-            resolve(true);
-            return;
-          }
-          permissions.request({ origins: [originPattern] }, (granted: boolean) => {
-            void (browser as any).runtime?.lastError;
-            resolve(Boolean(granted));
-          });
-        });
-      } catch (error) {
-        bg.warn('requestSitePermission threw', error);
-        resolve(false);
-      }
-    });
+    // Promise-based: the old callback form hung on Safari (native browser API
+    // ignores the callback), stalling the whole "Configure site" flow. contains
+    // first (no gesture needed), then request within the same gesture context.
+    if (await containsOrigins([originPattern])) return true;
+    const { granted } = await requestOrigins([originPattern]);
+    return granted;
   } catch (e) {
     bg.warn('requestSitePermission failed', e);
     return false;
@@ -170,30 +159,35 @@ async function openMapperForTab(tabId: number, url?: string): Promise<void> {
   if (!url) return;
   // Request permission first while still in direct user action flow (context menu / command).
   const granted = await requestSitePermission(url);
-  if (!granted) {
-    try { await browser.tabs.sendMessage(tabId, { action: 'hayami-site-mapper-permission-denied' }); } catch {}
-    return;
-  }
 
-  // Fast path: when content script is already injected, open immediately.
+  // Try to open the mapper. On Safari the content script may already be running
+  // (access allowed via the toolbar) even when request() can't grant a
+  // manifest-declared host, so attempt this regardless of `granted`.
   try {
     await browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' });
     return;
   } catch {
-    // Continue to reload-and-retry if content script is missing.
+    // Content script not reachable yet.
   }
 
-  // Content script likely not injected yet (fresh permission). Reload then retry once the tab is ready.
-  try {
-    await browser.tabs.reload(tabId);
-    const retryOnUpdate = (updatedTabId: number, info: any) => {
-      if (updatedTabId === tabId && info.status === 'complete') {
-        browser.tabs.onUpdated.removeListener(retryOnUpdate);
-        browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' }).catch(() => {});
-      }
-    };
-    browser.tabs.onUpdated.addListener(retryOnUpdate);
-  } catch {}
+  if (granted) {
+    // Fresh permission: reload then retry once the content script is ready.
+    try {
+      await browser.tabs.reload(tabId);
+      const retryOnUpdate = (updatedTabId: number, info: any) => {
+        if (updatedTabId === tabId && info.status === 'complete') {
+          browser.tabs.onUpdated.removeListener(retryOnUpdate);
+          browser.tabs.sendMessage(tabId, { action: 'open-site-mapper' }).catch(() => {});
+        }
+      };
+      browser.tabs.onUpdated.addListener(retryOnUpdate);
+    } catch {}
+    return;
+  }
+
+  // No access and no reachable content script — best-effort hint (a no-op when
+  // there's no content script to receive it, e.g. an ungranted Safari site).
+  try { await browser.tabs.sendMessage(tabId, { action: 'hayami-site-mapper-permission-denied' }); } catch {}
 }
 
 async function registerContextMenu(): Promise<void> {
@@ -298,10 +292,20 @@ export default defineBackground(() => {
           { header: 'access-control-allow-methods', operation: 'set' as const, value: 'GET, POST, PUT, DELETE, OPTIONS' },
           { header: 'access-control-allow-headers', operation: 'set' as const, value: 'content-type, authorization, x-requested-with' },
         ];
+        // Safari's declarativeNetRequest rejects modifying sec-fetch-* (forbidden
+        // headers) and fails the ENTIRE addRules batch atomically — which also took
+        // out the Disqus rules below. Strip sec-fetch-* on Safari only.
+        const redditNavRequestHeaders = [
+          { header: 'sec-fetch-mode', operation: 'set' as const, value: 'navigate' },
+          { header: 'sec-fetch-dest', operation: 'set' as const, value: 'document' },
+          { header: 'sec-fetch-site', operation: 'set' as const, value: 'none' },
+          { header: 'sec-fetch-user', operation: 'set' as const, value: '?1' },
+          { header: 'accept', operation: 'set' as const, value: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' },
+          { header: 'upgrade-insecure-requests', operation: 'set' as const, value: '1' },
+        ].filter((h) => !(isSafari && h.header.startsWith('sec-fetch-')));
         await dnr.updateSessionRules({
           removeRuleIds: [
             POLL_RULE_ID,
-            ADS_IFRAME_RULE_ID,
             DISQUS_PROFILE_REDIRECT_RULE_ID,
             REDDIT_NAV_HEADER_RULE_ID,
             DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
@@ -312,14 +316,7 @@ export default defineBackground(() => {
               priority: 1,
               action: {
                 type: 'modifyHeaders' as const,
-                requestHeaders: [
-                  { header: 'sec-fetch-mode', operation: 'set' as const, value: 'navigate' },
-                  { header: 'sec-fetch-dest', operation: 'set' as const, value: 'document' },
-                  { header: 'sec-fetch-site', operation: 'set' as const, value: 'none' },
-                  { header: 'sec-fetch-user', operation: 'set' as const, value: '?1' },
-                  { header: 'accept', operation: 'set' as const, value: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' },
-                  { header: 'upgrade-insecure-requests', operation: 'set' as const, value: '1' },
-                ],
+                requestHeaders: redditNavRequestHeaders,
               },
               condition: {
                 regexFilter: '.*\\.json(\\?.*)?$',
@@ -431,10 +428,17 @@ export default defineBackground(() => {
     }
   });
 
-  try {
-    domainPermissionToggle();
-  } catch (err) {
-    bg.warn(' domainPermissionToggle failed (non-fatal)', err);
+  // Skip on Safari: its windows.onFocusChanged handler calls tabs.query with
+  // windowId -1 (WINDOW_ID_NONE) whenever focus leaves the browser, which Safari
+  // rejects ("'-1' is not a window identifier") as an unhandled rejection. The
+  // per-domain context-menu toggle is also redundant on Safari, which grants
+  // host access via its own per-site UI and Hayami's in-app grant flows.
+  if (!isSafari) {
+    try {
+      domainPermissionToggle();
+    } catch (err) {
+      bg.warn(' domainPermissionToggle failed (non-fatal)', err);
+    }
   }
 
   void registerContextMenu();

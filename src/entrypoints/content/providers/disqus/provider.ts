@@ -252,7 +252,17 @@ async function renderArchiveThread(
   container.style.display = 'block';
 
   const title = thread.clean_title || thread.title || 'Discussion';
-  container.innerHTML = renderArchiveContainer(embedUrl, title);
+  // Hayami's inline comment panel is always dark, so tell the embed to paint
+  // dark on its very first SSR render. Without an explicit `?theme=`, the embed
+  // page has no `data-theme` and falls through to its `prefers-color-scheme`
+  // CSS fallback — which reflects the VIEWER'S OS, not Hayami's surface. On a
+  // light-mode OS (Safari especially) that renders the embed's light-theme
+  // tokens (near-black text) on Hayami's dark panel, so "42 Comments", "Share",
+  // timestamps, etc. become invisible. The main site passes `?theme=` the same
+  // way for its own archive iframe; we just hardcode dark since Hayami has no
+  // light theme.
+  const themedEmbedUrl = embedUrl + (embedUrl.includes('?') ? '&' : '?') + 'theme=dark';
+  container.innerHTML = renderArchiveContainer(themedEmbedUrl, title);
 
   const wrongBtn = container.querySelector<HTMLButtonElement>('[data-disqus-wrong-anime]');
   if (wrongBtn) {

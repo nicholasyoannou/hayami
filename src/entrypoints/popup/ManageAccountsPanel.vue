@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import accountsIcon from '@/assets/accountsIcon.svg';
+import SiteAccessBanner from '@/components/SiteAccessBanner.vue';
 
 type AccountInfo = {
   isConnected: boolean;
@@ -38,6 +39,10 @@ const props = defineProps<Props>();
         <img :src="accountsIcon" alt="Manage accounts" class="h-6 w-6" />
         <span>Manage accounts</span>
       </div>
+
+      <!-- Fallback (for users who skipped onboarding): grant access to the
+           discussion platforms so logins are detected. Self-hides once granted. -->
+      <SiteAccessBanner />
 
       <div class="space-y-4 text-white/90">
         <!-- Reddit -->

@@ -1,4 +1,4 @@
-// Disqus embed loader - injected as external script to avoid CSP issues
+// Disqus embed loader - handles Chuunime and DOM integration, plus existing widget handling and tweaks.
 (function() {
   const scriptTag = document.currentScript;
   const targetToken = (scriptTag?.getAttribute('data-target-token') || '').trim();
@@ -176,6 +176,26 @@
   s.referrerPolicy = 'no-referrer';
   s.setAttribute('data-timestamp', +new Date());
   (d.head || d.body).appendChild(s);
+
+  // Hayami-scoped recommendation removal. Disqus injects its sponsored "tempest"
+  // iframe into the TOP page (a sibling of the comments iframe).
+  var REC_IFRAME_SEL = 'iframe[src*="tempest.services.disqus.com"]';
+  try {
+    var recStyle = d.createElement('style');
+    recStyle.textContent = REC_IFRAME_SEL + '{display:none!important;}';
+    (d.head || d.documentElement).appendChild(recStyle);
+  } catch (e) { /* ignore */ }
+  var stripRecNode = function (n) {
+    if (n && n.tagName === 'IFRAME' && (n.src || '').indexOf('tempest.services.disqus.com') !== -1) {
+      try { n.remove(); } catch (e) { /* ignore */ }
+    }
+  };
+  try { d.querySelectorAll(REC_IFRAME_SEL).forEach(function (el) { try { el.remove(); } catch (e) {} }); } catch (e) {}
+  var recObserver = new MutationObserver(function (muts) {
+    muts.forEach(function (m) { m.addedNodes.forEach(stripRecNode); });
+  });
+  try { recObserver.observe(d.documentElement, { childList: true, subtree: true }); } catch (e) {}
+  setTimeout(function () { try { recObserver.disconnect(); } catch (e) {} }, 60000);
 
   // Observe for poll iframes and hide them on insertion.
   const observer = new MutationObserver(function(mutations) {

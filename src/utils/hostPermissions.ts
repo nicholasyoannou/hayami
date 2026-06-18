@@ -11,7 +11,7 @@
  * is allowed to surface its prompt.
  */
 
-import { browser } from 'wxt/browser';
+import { containsOrigins, requestOrigins } from '@/utils/permissions';
 
 export function originPatternForUrl(url: string): string | null {
   try {
@@ -33,22 +33,10 @@ export async function ensurePermissionsForSourceUrls(urls: string[]): Promise<bo
 
   const missing: string[] = [];
   for (const pattern of patterns) {
-    try {
-      const has = await new Promise<boolean>((resolve) => {
-        browser.permissions.contains({ origins: [pattern] }, (ok) => resolve(Boolean(ok)));
-      });
-      if (!has) missing.push(pattern);
-    } catch {
-      missing.push(pattern);
-    }
+    if (!(await containsOrigins([pattern]))) missing.push(pattern);
   }
   if (!missing.length) return true;
 
-  return await new Promise<boolean>((resolve) => {
-    try {
-      browser.permissions.request({ origins: missing }, (granted) => resolve(Boolean(granted)));
-    } catch {
-      resolve(false);
-    }
-  });
+  const { granted } = await requestOrigins(missing);
+  return granted;
 }

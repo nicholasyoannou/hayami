@@ -6,8 +6,8 @@
  */
 
 import { ref, reactive, computed } from 'vue';
-import { browser } from 'wxt/browser';
 import { sendMessageWithRetry } from '@/utils/runtime';
+import { requestOrigins } from '@/utils/permissions';
 import {
   komentoScriptAutoSyncItem,
   komentoScriptCachedPacksItem,
@@ -376,13 +376,7 @@ export function useKomentoScript(options: {
           .map((origin) => `${origin.replace(/\/$/, '')}/*`),
       )];
 
-      const granted = await new Promise<boolean>((resolve) => {
-        try {
-          browser.permissions.request({ origins: patterns }, (ok) => resolve(Boolean(ok)));
-        } catch {
-          resolve(false);
-        }
-      });
+      const { granted } = await requestOrigins(patterns);
 
       await loadKomentoPendingPermissions();
       if (granted) {

@@ -114,6 +114,85 @@ export const GITLAB_PUBLISH_CLIENT_ID = 'a98056edf85a058d255e3036d3558e09de41220
 export const GITLAB_PUBLISH_REDIRECT_URI = 'https://hayami.moe/pwa/link/gitlab';
 export const GITLAB_PUBLISH_SCOPE = 'api';
 
+/**
+ * Discussion-platform hosts whose access Hayami uses from the background
+ * (login-cookie reads + comment fetches), never from a page the user visits.
+ *
+ * On Safari these are declared as OPTIONAL (see wxt.config.ts): Safari never
+ * auto-grants manifest hosts and never prompts for background-only access, so
+ * they must be requestable via `permissions.request()` from a user gesture
+ * (the onboarding / popup "Grant access" flow). On Chrome/Firefox they stay in
+ * the required `hostPermissions` list below and are granted at install.
+ */
+export const discussionPlatformHosts = [
+      // Bare + wildcard reddit.com are required on Safari so the extension can
+      // read the `.reddit.com` session cookie and the post-login reddit.com URL
+      // (subdomain-only grants like www.reddit.com don't expose either).
+      'https://reddit.com/*',
+      'https://*.reddit.com/*',
+      'https://www.reddit.com/*',
+      'https://api.reddit.com/*',
+      'https://oauth.reddit.com/*',
+      'https://old.reddit.com/*',
+      'https://disqus.com/*',
+      'https://*.disqus.com/*',
+      'https://api.myanimelist.net/*',
+      'https://myanimelist.net/*',
+      'https://anilist.co/*',
+      'https://graphql.anilist.co/*',
+];
+
+/** Built-in streaming sites Hayami injects its comment UI into (content scripts).
+ *  On Safari these are granted on demand from the onboarding "choose sites" step. */
+export const streamingSiteHosts = [
+      '*://*.crunchyroll.com/*',
+      'https://www.netflix.com/*',
+];
+
+/** Hayami's own services + media/CDN hosts used from the background (mapping,
+ *  the discussanime/Disqus bridge, image hosting/proxy, Bilibili). Needed for
+ *  baseline functionality, so granted together with the discussion platforms. */
+export const coreServiceHosts = [
+      'https://api.hayami.moe/*',
+      'https://hayami.moe/*',
+      'https://discussanime.moe/*',
+      'https://api.imgchest.com/*',
+      'https://imgchest.com/*',
+      'https://api.imgur.com/*',
+      'https://imgur.com/*',
+      'https://*.imgur.com/*',
+      'https://postimg.cc/*',
+      'https://*.postimg.cc/*',
+      'https://api.bilibili.com/*',
+      'https://www.bilibili.com/*',
+      'https://*.hdslb.com/*',
+];
+
+/** Publish-custom-sites OAuth/API hosts — niche, requested on demand when the
+ *  user actually publishes (kept out of the up-front "essential" grant). */
+export const publishHosts = [
+      'https://github.com/*',
+      'https://api.github.com/*',
+      'https://gitlab.com/*',
+];
+
+/** The set the site-access banner / onboarding grant-access step requests in one
+ *  gesture: discussion platforms + core services. Streaming sites and custom
+ *  (mapped) sites are granted separately (choose-sites step / site mapper). */
+export const essentialHosts = [...discussionPlatformHosts, ...coreServiceHosts];
+
+/** Host permissions each account provider needs, requested on demand the first
+ *  time the user connects it on Safari (other browsers grant everything at
+ *  install). MAL/AniList/YouTube authenticate via a hayami.moe redirect, so
+ *  they also include the Hayami service hosts the token handshake needs. */
+export const providerHostPermissions: Record<'reddit' | 'disqus' | 'mal' | 'anilist' | 'youtube', string[]> = {
+  reddit: ['https://reddit.com/*', 'https://*.reddit.com/*', 'https://www.reddit.com/*', 'https://api.reddit.com/*', 'https://oauth.reddit.com/*', 'https://old.reddit.com/*'],
+  disqus: ['https://disqus.com/*', 'https://*.disqus.com/*'],
+  mal: ['https://myanimelist.net/*', 'https://api.myanimelist.net/*', 'https://hayami.moe/*', 'https://api.hayami.moe/*'],
+  anilist: ['https://anilist.co/*', 'https://graphql.anilist.co/*', 'https://hayami.moe/*', 'https://api.hayami.moe/*'],
+  youtube: ['https://hayami.moe/*', 'https://api.hayami.moe/*'],
+};
+
 export const hostPermissions = [
       'https://github.com/*',
       'https://api.github.com/*',

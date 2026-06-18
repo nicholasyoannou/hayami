@@ -21,7 +21,8 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-vue'],
   manifest: ({browser}) => ({
-    name: 'Hayami' + (browser === 'safari' ? '' : ': Anime comments & discussions'),
+    // Safari's product name is just "Hayami"; other stores get the descriptive suffix.
+    name: "Hayami" + (browser === 'safari' ? "" : ": Anime comments & discussions"),
     icons: {
       16: 'icon-16.png',
       32: 'icon-32.png',
@@ -43,11 +44,20 @@ export default defineConfig({
       'scripting',
       'tabs',
       'contextMenus',
-      'declarativeNetRequest'
+      // Every Hayami host is optional after Safari permission changes.
+      'declarativeNetRequestWithHostAccess',
     ],
-    // Allow requesting per-origin access (needed for user-mapped sites). Optional means
-    // the user is prompted per site; it is not granted by default.
-    optional_host_permissions: ['<all_urls>'],
+    // Users grant access at runtime (the onboarding "Allow all and continue" step,
+    // the choose-sites step, the popup permission card, and the site mapper for
+    // arbitrary sites via <all_urls>). This is so discussion platforms or others can be added
+    // later without disabling the extension for existing users (due to adding of new hosts).
+    //
+    // MV3 (Chrome) reads `optional_host_permissions` for host patterns; MV2
+    // (Safari/Firefox) reads `optional_permissions`
+    optional_host_permissions: [...hostPermissions, '<all_urls>'],
+    optional_permissions: (browser === 'safari' || browser === 'firefox')
+      ? [...hostPermissions, '<all_urls>']
+      : [],
     // SECURITY: Content Security Policy for extension pages
     content_security_policy: {
       extension_pages: "script-src 'self'; object-src 'self'; connect-src 'self' https: http:; frame-src 'self' https://hayami.moe;",
@@ -60,20 +70,13 @@ export default defineConfig({
         description: 'Open Hayami site mapper'
       }
     },
-    host_permissions: [
-      ...hostPermissions
-    ],
-    // Single 3-segment version for ALL targets. Apple's CFBundleShortVersionString
-    // allows at most three period-separated integers (ITMS-90258); Chrome and
-    // Firefox accept 3 segments too, so one scheme works everywhere. Keep it
-    // major.minor.patch (e.g. 0.12.3) and never add a 4th segment.
-    version: '0.1.9',
-    /**
-     * Needed so SVG icon assets can be loaded into the page DOM from the content script.
-     * Without declaring them as web accessible, Chrome will block the chrome-extension:// URL
-     * and the <img> tags show broken placeholders.
-     * NOTE: Using <all_urls> because the site mapper allows the extension to work on any anime streaming site
-     */
+    // All hosts are optional (reason specified above).
+    host_permissions: [],
+    // Required 3-segment version for ALL targets. Apple's CFBundleShortVersionString
+    // allows at most three period-separated integers (ITMS-90258); Version number had to change
+    // from four segments because of Apple specification.
+    version: '0.1.10',
+    // Public assets to be delivered to web pages Hayami mounts on
     web_accessible_resources: [
       {
         resources: [

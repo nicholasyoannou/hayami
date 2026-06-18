@@ -16,6 +16,8 @@
  *    has internal errors (e.g. getImage TypeError).
  */
 
+import { isSafari } from '@/utils/browser-env';
+
 // MAL-Sync extension IDs
 const MALSYNC_CHROME_ID = 'kekjfbackdeiabghhcdklcdoekaanoel';
 const MALSYNC_FIREFOX_ID = '{ceb9801e-aa0c-4bc6-a6b0-9494f3164cc7}';
@@ -53,6 +55,13 @@ export function getMalSyncExtensionId(): string {
  * We also fall back to sendMessage-based detection as a secondary check.
  */
 export async function detectMalSync(): Promise<boolean> {
+  // Safari has no cross-extension messaging: the probe below never gets a
+  // callback or a recognizable "not installed" lastError, so its 1500ms
+  // timeout would always resolve `true` (false positive). The rest of the
+  // MAL-Sync interop (queryMalSyncPresence) is equally non-functional on
+  // Safari, so report not-installed rather than offer a broken integration.
+  if (isSafari) return false;
+
   const runtime = typeof chrome !== 'undefined' ? chrome.runtime : (globalThis as any).browser?.runtime;
   if (!runtime) return false;
 
@@ -151,6 +160,8 @@ function parsePresenceState(state: string | null | undefined): { episode: number
  * the content script on the specified tab and returns presence info.
  */
 export async function queryMalSyncPresence(tabId: number): Promise<MalSyncPresence | null> {
+  // Cross-extension messaging is unsupported on Safari — see detectMalSync.
+  if (isSafari) return null;
   try {
     const runtime = typeof chrome !== 'undefined' ? chrome.runtime : (globalThis as any).browser?.runtime;
     if (!runtime?.sendMessage) return null;

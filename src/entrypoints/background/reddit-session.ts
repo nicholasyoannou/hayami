@@ -5,8 +5,8 @@
  * mirror Reddit's current logged-in state into the UI.
  */
 
-import { browser } from 'wxt/browser';
 import { con } from '@/utils/logger';
+import { getCookieAcrossStores, getAllCookiesAcrossStores } from '@/utils/cookies';
 
 const bg = con.m('Background');
 
@@ -22,13 +22,39 @@ export function isRedditHomeUrl(rawUrl?: string): boolean {
   }
 }
 
+/**
+ * True for any reddit.com page that signals the user has left the login flow.
+ *
+ * Broader than `isRedditHomeUrl`: after signing in, Reddit may land the user
+ * on their feed, a subreddit, or a `?dest` target rather than the bare home
+ * page, so matching only `/` misses the redirect and the guided-login popup
+ * never closes. We treat any reddit.com URL whose path is not an auth page as
+ * "logged in".
+ */
+export function isRedditLoggedInUrl(rawUrl?: string | null): boolean {
+  if (!rawUrl) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    if (host !== 'reddit.com' && !host.endsWith('.reddit.com')) return false;
+    const path = parsed.pathname.toLowerCase();
+    // Still on an auth page — login isn't finished yet.
+    if (path.startsWith('/login') || path.startsWith('/register') || path.startsWith('/account/login')) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function hasRedditSessionCookie(): Promise<boolean> {
   try {
     // Fast path: direct lookup against common Reddit hosts.
     const directHosts = ['https://www.reddit.com/', 'https://reddit.com/', 'https://old.reddit.com/'];
     for (const url of directHosts) {
       try {
-        const cookie = await browser.cookies.get({ url, name: 'reddit_session' });
+        const cookie = await getCookieAcrossStores({ url, name: 'reddit_session' });
         if (cookie) return true;
       } catch {
         // Continue to next host.
@@ -36,7 +62,10 @@ export async function hasRedditSessionCookie(): Promise<boolean> {
     }
 
     // Fallback: scan cookies and match reddit_session on reddit.com domains.
-    const cookies = await browser.cookies.getAll({});
+    const cookies = await getAllCookiesAcrossStores(
+      {},
+      ['https://www.reddit.com/*', 'https://reddit.com/*', 'https://old.reddit.com/*'],
+    );
     return cookies.some((cookie) => {
       if (cookie?.name !== 'reddit_session') return false;
       const domain = (cookie.domain || '').replace(/^\./, '').toLowerCase();

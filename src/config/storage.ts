@@ -1,4 +1,5 @@
 import { storage } from '#imports';
+import { isSafari } from '@/utils/browser-env';
 import type {
   CommentProviderOption,
   DisplayModeOption,
@@ -167,9 +168,22 @@ export const onboardingCompleteItem = storage.defineItem<boolean>(
 export const BUILTIN_SITE_IDS = ['crunchyroll', 'netflix'] as const;
 export type BuiltinSiteId = (typeof BUILTIN_SITE_IDS)[number];
 
+// Host match patterns to request when a built-in site is enabled on Safari.
+// Typed as a complete Record so adding a site to BUILTIN_SITE_IDS without its
+// patterns is a COMPILE error (not a silent runtime skip). Must mirror the
+// content-script `matches` so the script registers on the granted origin.
+export const builtinSiteHostPatterns: Record<BuiltinSiteId, string[]> = {
+  crunchyroll: ['*://*.crunchyroll.com/*'],
+  netflix: ['https://www.netflix.com/*'],
+};
+
+// Safari grants host access per-site and never auto-grants it, so a built-in
+// site can't work until the user both enables it AND grants access. Default to
+// none on Safari (opt-in via onboarding / settings, which requests permission);
+// Chrome/Firefox keep all enabled since their hosts are granted at install.
 export const enabledBuiltinSitesItem = storage.defineItem<BuiltinSiteId[]>(
   'sync:enabled_builtin_sites',
-  { fallback: [...BUILTIN_SITE_IDS] }
+  { fallback: isSafari ? [] : [...BUILTIN_SITE_IDS] }
 );
 
 // Compact mode: hides avatars, tightens spacing, skips /about API calls
