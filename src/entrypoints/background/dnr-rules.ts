@@ -17,15 +17,14 @@
 
 import { browser } from 'wxt/browser';
 
-// ── Tab-scoped: Disqus poll + ads-iframe block ─────────────────────────
+// ── Tab-scoped: Disqus poll block ──────────────────────────────────────
 export const POLL_RULE_ID = 99001;
 export const POLL_URL_FILTER = '||polls.services.disqus.com/poll';
 
-// Disqus's tempest service injects a monetization iframe into every thread
-// embed. Block it alongside the poll endpoint whenever Hayami is embedding
-// Disqus on a tab so the host page stays free of third-party ad frames.
-export const ADS_IFRAME_RULE_ID = 99002;
-export const ADS_IFRAME_URL_FILTER = '||tempest.services.disqus.com/ads-iframe';
+// Disqus's tempest service is now handled directly from the Disqus loader.
+
+// Block referrer.disqus.com telemetry
+export const REFERRER_TELEMETRY_BLOCK_RULE_ID = 99006;
 
 // ── Cross-cutting startup rules ────────────────────────────────────────
 
@@ -72,7 +71,7 @@ export async function setPollBlockForTab(tabId: number, enable: boolean): Promis
     'ping',
     'other'
   ] as const;
-  const removeRuleIds = [POLL_RULE_ID, ADS_IFRAME_RULE_ID];
+  const removeRuleIds = [POLL_RULE_ID, REFERRER_TELEMETRY_BLOCK_RULE_ID];
   const addRules = enable
     ? [
         {
@@ -86,11 +85,14 @@ export async function setPollBlockForTab(tabId: number, enable: boolean): Promis
           }
         },
         {
-          id: ADS_IFRAME_RULE_ID,
+          // Kill the referrer.disqus.com telemetry that leaks the page via its
+          // page_url query param. regexFilter (not urlFilter) for Safari, which
+          // rejects urlFilter for some rules; matches the host anywhere in the URL.
+          id: REFERRER_TELEMETRY_BLOCK_RULE_ID,
           priority: 1,
           action: { type: 'block' as const },
           condition: {
-            urlFilter: ADS_IFRAME_URL_FILTER,
+            regexFilter: '://referrer\\.disqus\\.com',
             tabIds: [tabId],
             resourceTypes: blockedResourceTypes,
           }
@@ -123,7 +125,10 @@ export async function setDisqusReferrerStripForTab(tabId: number, enable: boolea
         requestHeaders: [{ header: 'referer', operation: 'remove' as const }],
       },
       condition: {
-        requestDomains: ['disqus.com'],
+        // Safari's DNR rejects `requestDomains`/`urlFilter` and ignores `tabIds`,
+        // so match the Disqus domain via regexFilter (the form Safari accepts) —
+        // it applies the referer strip globally; tabIds is honoured only on Chrome.
+        regexFilter: '://([a-z0-9-]+\\.)*disqus\\.com',
         tabIds: [tabId],
         resourceTypes: ['sub_frame' as const, 'script' as const, 'image' as const, 'xmlhttprequest' as const, 'ping' as const, 'other' as const],
       },

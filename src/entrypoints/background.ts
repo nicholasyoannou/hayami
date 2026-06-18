@@ -25,7 +25,6 @@ import { providerAuthHandlers } from './background/handlers/provider-auth';
 import type { BackgroundMessageHandler } from './background/handlers/types';
 import {
   POLL_RULE_ID,
-  ADS_IFRAME_RULE_ID,
   DISQUS_PROFILE_REDIRECT_RULE_ID,
   REDDIT_NAV_HEADER_RULE_ID,
   DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
@@ -307,7 +306,6 @@ export default defineBackground(() => {
         await dnr.updateSessionRules({
           removeRuleIds: [
             POLL_RULE_ID,
-            ADS_IFRAME_RULE_ID,
             DISQUS_PROFILE_REDIRECT_RULE_ID,
             REDDIT_NAV_HEADER_RULE_ID,
             DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
