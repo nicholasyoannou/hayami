@@ -52,7 +52,7 @@ jobs:
 
       - name: Submit to Chrome Web Store & Firefox Add-ons
         run: |
-          bunx wxt submit $DRY_RUN \
+          npx --yes publish-browser-extension@4.0.5 $DRY_RUN \
             --chrome-zip .output/*-chrome.zip \
             --firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip
         env:
