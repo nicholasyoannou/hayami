@@ -13,9 +13,9 @@ import {
   builtinSiteHostPatterns,
   type BuiltinSiteId,
 } from '@/config/storage';
-import { essentialSafariHosts } from '@/config';
+import { essentialHosts } from '@/config';
 import { con } from '@/utils/logger';
-import { isSafari } from '@/utils/browser-env';
+import { isSafari, isFirefox } from '@/utils/browser-env';
 import { requestOrigins, containsAllOrigins } from '@/utils/permissions';
 
 const log = con.m('Onboarding');
@@ -206,7 +206,7 @@ const baseSteps: StepDef[] = [
   {
     id: 'image-previews',
     title: 'Image previews',
-    content: 'Add your ImageChest API key so image previews can work smoothly. This is required for image previews. Read on how to get an ImageChest API key [here](https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key).',
+    content: 'Add your ImageChest API key so image previews can work smoothly. This step is optional — you only need a key if you want image previews to load. Read on how to get an ImageChest API key [here](https://docs.hayami.moe/image-previews#how-to-get-an-imagechest-api-key).',
     icon: '\uD83D\uDDBC\uFE0F'
   },
   {
@@ -224,7 +224,7 @@ const baseSteps: StepDef[] = [
   {
     id: 'support',
     title: 'Support Hayami',
-    content: 'Hayami is a free extension, but costs money to run and maintain the servers that power not only mapping, but also archival (for some discussion platforms), media hosting features, and Hayami\'s domain. If you enjoy using Hayami, consider supporting the project monetarily through [Liberapay](https://hayami.moe/donate).\n\n[Feedback](https://docs.hayami.moe/feedback) is heavily appreciated as it helps me understand not only what sucks, but things you want improved, which can be shared through the feedback form in the (extension\'s popup)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg) (anonymously, or not), the [Discord server](https://discord.gg/EqefXt7tHn), or via email at [hi@hayami.moe](mailto:hi@hayami.moe). Hayami has been in-development since November 2025, so knowing how you interact with the extension helps me know how to improve it.\n\nIn either sense, thank you for using Hayami\u2014hopefully it makes your anime watching experience more enjoyable, bringing discussions to you in a more seamless way. If you\'ve got feedback, please feel free to share them anytime. Happy commenting!\n\n \u2014 Nicholas',
+    content: 'Hayami is a free extension, but costs money to run and maintain the servers that power not only mapping, but also archival (for some discussion platforms), media hosting features, and Hayami\'s domain. If you enjoy using Hayami, consider supporting the project monetarily through [Ko-Fi](https://hayami.moe/donate).\n\n[Feedback](https://docs.hayami.moe/feedback) is heavily appreciated as it helps me understand not only what sucks, but things you want improved, which can be shared through the feedback form in the (extension\'s popup)(https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/refs/heads/main/images/howtoleavefeedback.jpg) (anonymously, or not), the [Discord server](https://discord.gg/EqefXt7tHn), or via email at [hi@hayami.moe](mailto:hi@hayami.moe). Hayami has been in-development since November 2025, so knowing how you interact with the extension helps me know how to improve it.\n\nIn either sense, thank you for using Hayami\u2014hopefully it makes your anime watching experience more enjoyable, bringing discussions to you in a more seamless way. If you\'ve got feedback, please feel free to share them anytime. Happy commenting!\n\n \u2014 Nicholas',
     icon: '\uD83D\uDCAC'
   }
 ];
@@ -236,36 +236,62 @@ const malSyncStep: StepDef = {
   icon: ''
 };
 
-// Safari grants extension access per-site and never auto-grants the declared
-// host permissions, so nothing works (no comment injection, no login detection)
-// until the user explicitly allows access. Surface this prominently on Safari.
-const safariStep: StepDef = {
-  id: 'safari-access',
-  title: 'Enable Hayami in Safari',
-  content: "If you're a Safari user, Safari by-default asks permissions per-site, but also simultaneously causes bundled sites with the extension itself not to function properly unless given permission by you while onboarding. Because of that, you may see warnings that you need to accept permissions to more sites when onboarding.\n\n**On the next screen, ensure you click 'Allow Always' when Safari asks you to allow access to requested sites. If discussion platforms are added in-future, the Hayami will have a popup asking for permissions.**",
+// Hayami declares all its hosts as OPTIONAL on every browser, so nothing works
+// (no comment injection, no login detection) until the user grants access. This
+// step requests them up front. Safari additionally shows an "Allow Always"
+// screenshot (its prompt is unusual); other browsers get the clean version.
+const accessStep: StepDef = {
+  id: 'grant-access',
+  title: 'Allow access to discussion platforms',
+  content:
+    "Hayami utilizes your sessions and loads comments straight from discussion platforms plus a few of its own services, so it needs your permission to access them.\n\n" +
+    (isSafari
+      ? "**On the next screen, ensure you click 'Allow Always' when Safari asks you to allow access to requested sites. If discussion platforms are added in-future, Hayami's popup will prompt you asking for more permissions.**"
+      : "**When you tap 'Allow all and continue', allow access to all the sites Hayami requests. If new discussion platforms are added later, Hayami's popup will prompt you asking for more permissions.**"),
   icon: '🧭'
 };
 
 const steps = computed<StepDef[]>(() => {
   const result = [...baseSteps];
-  if (isSafari) {
-    // After "Understanding how Hayami works" — granting access gates the rest.
-    // No MAL-Sync step on Safari: it can't be detected (no cross-extension
-    // messaging) and the step doesn't apply there.
-    result.splice(2, 0, safariStep);
-  } else if (malSyncDetected.value) {
-    // Insert the MAL-Sync step after "Connect your accounts" (index 2).
-    result.splice(3, 0, malSyncStep);
+  // Grant-access step for EVERY browser (all hosts are optional now), right after
+  // "Understanding how Hayami works" — granting gates the rest.
+  result.splice(2, 0, accessStep);
+  // MAL-Sync can't be detected on Safari (no cross-extension messaging); on other
+  // browsers, show it after "Connect your accounts" when detected.
+  if (!isSafari && malSyncDetected.value) {
+    const connectIdx = result.findIndex((s) => s.id === 'connect-accounts');
+    if (connectIdx !== -1) result.splice(connectIdx + 1, 0, malSyncStep);
   }
   return result;
 });
 
 const currentStepDef = computed(() => steps.value[currentStep.value]);
 
-// Safari only: force a short read on the "Enable Hayami in Safari" step before
-// Next is clickable, so the per-site permission guidance is actually seen.
-// Counts down only on that step; instant everywhere else / on other browsers.
-const SAFARI_STEP_WAIT_SECONDS = 3;
+// Per-browser screenshot for the grant-access step — each browser's permission
+// prompt looks different, so each gets its own guidance image.
+const grantAccessImage = computed(() => {
+  const base = 'https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/main/images/';
+  if (isSafari) {
+    return {
+      src: base + 'safariSetup_allowAlways.png',
+      alt: "In Safari's permission prompt, choose Always Allow on Every Website"
+    };
+  }
+  if (isFirefox) {
+    return {
+      src: base + 'firefoxSetup_allowAccessSites.png',
+      alt: 'Allow Hayami to access the requested sites in Firefox'
+    };
+  }
+  return {
+    src: base + 'chromeSetup_allowAccessSites-2.png',
+    alt: 'Allow Hayami to access the requested sites in Chrome'
+  };
+});
+
+// Force a short read on the grant-access step before Next is clickable, so the
+// permission guidance is actually seen. Counts down only on that step.
+const GRANT_STEP_WAIT_SECONDS = 3;
 const nextCountdown = ref(0);
 let countdownTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -273,9 +299,9 @@ function clearCountdown() {
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
 }
 
-function startSafariStepCountdown() {
+function startGrantStepCountdown() {
   clearCountdown();
-  nextCountdown.value = SAFARI_STEP_WAIT_SECONDS;
+  nextCountdown.value = GRANT_STEP_WAIT_SECONDS;
   countdownTimer = setInterval(() => {
     nextCountdown.value -= 1;
     if (nextCountdown.value <= 0) {
@@ -286,17 +312,17 @@ function startSafariStepCountdown() {
 }
 
 const nextLocked = computed(() => nextCountdown.value > 0);
-// Safari "Allow all and continue" step: set when the user denies the access
-// sheet, so we keep them on the step and show a prompt to allow.
-const safariAccessDenied = ref(false);
+// grant-access step: set when the user denies/dismisses the access prompt, so we
+// keep them on the step and surface a prompt to allow.
+const accessDenied = ref(false);
 const nextButtonLabel = computed(() => {
-  if (isSafari && currentStepDef.value.id === 'safari-access') return 'Allow all and continue';
+  if (currentStepDef.value.id === 'grant-access') return 'Allow all and continue';
   return currentStep.value === steps.value.length - 1 ? 'Get Started' : 'Next';
 });
 
 watch(() => currentStepDef.value.id, (id) => {
-  safariAccessDenied.value = false;
-  if (isSafari && id === 'safari-access') startSafariStepCountdown();
+  accessDenied.value = false;
+  if (id === 'grant-access') startGrantStepCountdown();
   else { clearCountdown(); nextCountdown.value = 0; }
 }, { immediate: true });
 
@@ -320,15 +346,15 @@ async function nextStep() {
   if (step.id === 'image-previews') {
     persistMediaKeys();
   }
-  // Safari "Allow all and continue": request every essential host up front in one
-  // Safari sheet. MUST be the first `await` so it runs in the click's user gesture
+  // "Allow all and continue": request every essential host up front in one prompt.
+  // MUST be the first `await` so it runs in the click's user gesture
   // (persistMediaKeys above isn't awaited). Only advance if the user allows; on
   // deny/dismiss, stay on the step and surface the alert.
-  if (step.id === 'safari-access' && isSafari) {
+  if (step.id === 'grant-access') {
     // FIRST await so request() runs in the click's user gesture. Discard its
     // return: Safari resolves it true even on Deny (Apple 702031), so it carries
-    // no grant/deny signal.
-    await requestOrigins(essentialSafariHosts);
+    // no grant/deny signal; we verify the actual grant below.
+    await requestOrigins(essentialHosts);
     // Verify the ACTUAL grant. Either signal means "granted":
     //  - the background cookie-store probe yields data — authoritative, because the
     //    cookie read only succeeds under LIVE Safari host access (distinguishes a
@@ -352,14 +378,13 @@ async function nextStep() {
       });
     } catch { /* probe unavailable — fall back to AND-contains alone */ }
     const granted = Boolean(probe?.granted) || (cheap && probe?.anyStore !== false);
-    if (!granted) { safariAccessDenied.value = true; return; }
-    safariAccessDenied.value = false;
+    if (!granted) { accessDenied.value = true; return; }
+    accessDenied.value = false;
   }
-  // Safari: request the chosen streaming sites. This MUST remain the first `await`
-  // in nextStep so it runs inside the click's user-gesture window (Safari/Chrome
-  // reject permissions.request otherwise). persistMediaKeys() above is fire-and-
-  // forget (not awaited), so the gesture is preserved.
-  if (step.id === 'choose-sites' && isSafari) {
+  // Request the chosen streaming sites. MUST remain the first `await` for this
+  // step so it runs inside the click's user-gesture window (permissions.request is
+  // rejected otherwise). persistMediaKeys() above is fire-and-forget.
+  if (step.id === 'choose-sites') {
     await requestSelectedStreamingPermissions();
   }
   if (currentStep.value < steps.value.length - 1) {
@@ -401,7 +426,7 @@ async function persistMediaKeys() {
       <div class="progress-bar" :style="{ width: progress + '%' }"></div>
     </div>
 
-    <div class="onboarding-modal fixed-size" :class="{ 'modal-auto': currentStepDef.id === 'safari-access' }">
+    <div class="onboarding-modal fixed-size" :class="{ 'modal-auto': currentStepDef.id === 'grant-access' }">
       <div class="modal-content">
         <div class="step-title-row">
           <img v-if="currentStepDef.id === 'malsync'" src="https://hayami.moe/images/mal-sync-icon.svg" alt="MAL-Sync" class="step-icon-inline-img" />
@@ -417,6 +442,7 @@ async function persistMediaKeys() {
           >
             <span class="step-title-info-glyph" aria-hidden="true">?</span>
           </a>
+          <span v-if="currentStepDef.id === 'image-previews'" class="step-optional-badge">Optional</span>
         </div>
         <div v-if="currentStepDef.id === 'choose-sites'" class="sites-list" role="group" aria-label="Built-in sites">
           <button
@@ -448,10 +474,10 @@ async function persistMediaKeys() {
         </div>
 
         <p
-          v-if="isSafari && currentStepDef.id === 'choose-sites'"
+          v-if="currentStepDef.id === 'choose-sites'"
           style="margin: 8px 0 0; font-size: 12px; line-height: 1.5; color: rgba(255, 255, 255, 0.62);"
         >
-          On Safari, you’ll be asked to allow the sites you pick when you tap <strong>Next</strong>. You can change this later in settings.
+          You’ll be asked to allow the sites you pick when you tap <strong>Next</strong>. You can change this later in settings.
         </p>
 
         <p
@@ -462,19 +488,19 @@ async function persistMediaKeys() {
         ></p>
 
         <img
-          v-if="currentStepDef.id === 'safari-access'"
-          class="safari-allow-img"
-          src="https://raw.githubusercontent.com/nicholasyoannou/hayami-docs/main/images/safariSetup_allowAlways.png"
-          alt="In Safari's permission prompt, choose Always Allow on Every Website"
+          v-if="currentStepDef.id === 'grant-access'"
+          class="grant-allow-img"
+          :src="grantAccessImage.src"
+          :alt="grantAccessImage.alt"
         />
 
         <div
-          v-if="isSafari && currentStepDef.id === 'safari-access' && safariAccessDenied"
-          class="safari-deny-alert"
+          v-if="currentStepDef.id === 'grant-access' && accessDenied"
+          class="grant-deny-alert"
           role="alert"
         >
-          <span class="safari-deny-icon" aria-hidden="true">⚠️</span>
-          <p>You denied site access — Hayami can't detect your logins without it. Tap <strong>Allow all and continue</strong> again and choose <strong>'Always Allow'</strong>. If no prompt appears, set Hayami's sites to Allow in Safari → Settings → Websites.</p>
+          <span class="grant-deny-icon" aria-hidden="true">⚠️</span>
+          <p>You denied site access — Hayami can't detect your session on discussion platforms or load comments without it. Tap <strong>Allow all and continue</strong> again and allow access to all requested sites.<template v-if="isSafari"> If no prompt appears, set Hayami's sites to Allow in Safari → Settings → Websites.</template></p>
         </div>
 
         <div v-if="currentStepDef.id === 'welcome'" class="skeleton-wrap">
@@ -747,6 +773,22 @@ async function persistMediaKeys() {
   margin-bottom: 14px;
 }
 
+.step-optional-badge {
+  margin-left: auto;
+  align-self: flex-start;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1.4;
+}
+
 .step-title-info {
   display: inline-flex;
   align-items: center;
@@ -965,7 +1007,7 @@ async function persistMediaKeys() {
   flex-shrink: 0;
 }
 
-.safari-allow-img {
+.grant-allow-img {
   display: block;
   max-width: min(460px, 100%);
   max-height: 300px;
@@ -975,7 +1017,7 @@ async function persistMediaKeys() {
   border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
-.safari-deny-alert {
+.grant-deny-alert {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -986,16 +1028,16 @@ async function persistMediaKeys() {
   background: rgba(239, 68, 68, 0.12);
 }
 
-.safari-deny-icon { flex-shrink: 0; font-size: 16px; line-height: 1.4; }
+.grant-deny-icon { flex-shrink: 0; font-size: 16px; line-height: 1.4; }
 
-.safari-deny-alert p {
+.grant-deny-alert p {
   margin: 0;
   font-size: 12.5px;
   line-height: 1.5;
   color: #fecaca;
 }
 
-.safari-deny-alert strong { color: #fff; font-weight: 600; }
+.grant-deny-alert strong { color: #fff; font-weight: 600; }
 
 .btn-back {
   padding: 11px 22px;

@@ -11,3 +11,6 @@ export const isSafari: boolean =
 
 export const isFirefox: boolean =
   import.meta.env.FIREFOX === true || import.meta.env.BROWSER === 'firefox';
+
+// Chromium targets (Chrome, Edge, etc.) — anything that isn't Safari or Firefox.
+export const isChrome: boolean = !isSafari && !isFirefox;

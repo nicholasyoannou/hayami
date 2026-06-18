@@ -98,7 +98,7 @@ import {
   type ImgurOdsOption,
   type ImgurVideoCdnOption,
 } from '@/config/storage';
-import { essentialSafariHosts } from '@/config';
+import { essentialHosts } from '@/config';
 import { initializeImgurRegionDefaultsOnce } from '@/utils/imgur';
 import backIcon from '@/assets/backIcon.svg';
 import feedbackIcon from '@/assets/feedbackIcon.svg';
@@ -1091,7 +1091,7 @@ const enabledBuiltinSites = ref<BuiltinSiteId[]>([...BUILTIN_SITE_IDS]);
 // (discussion platforms + core services) plus every enabled built-in streaming
 // site. MissingSitePermissions filters this down to whatever isn't granted.
 const homeMissingPermOrigins = computed(() => [
-  ...essentialSafariHosts,
+  ...essentialHosts,
   ...enabledBuiltinSites.value.flatMap((id) => builtinSiteHostPatterns[id]),
 ]);
 const savingBuiltinSites = ref(false);

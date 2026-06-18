@@ -1,18 +1,16 @@
 <script setup lang="ts">
 /**
- * Surfaces Safari host permissions Hayami needs but hasn't been granted, with a
+ * Surfaces host permissions Hayami needs but hasn't been granted, with a
  * one-gesture "Allow" that requests the missing ones.
  *
- * Safari declares Hayami's hosts as OPTIONAL (see wxt.config.ts) and never
- * auto-grants them, so until the user approves, comment loading and login
- * detection silently fail. Renders nothing on Chrome/Firefox (granted at
- * install) or once every passed-in origin is granted.
+ * Hayami declares its hosts as OPTIONAL on every browser (see wxt.config.ts) and
+ * none are auto-granted, so until the user approves, comment loading and login
+ * detection silently fail. Renders nothing once every passed-in origin is granted.
  *
  * Look: an amber "Site permissions needed" card (popup Home).
  */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { browser } from 'wxt/browser';
-import { isSafari } from '@/utils/browser-env';
 import { discussionPlatformHosts, streamingSiteHosts } from '@/config';
 import { containsOrigins, requestOrigins } from '@/utils/permissions';
 
@@ -70,14 +68,13 @@ const missingSites = computed(() => {
     .sort((a, b) => Number(b.purpose !== 'comments & media') - Number(a.purpose !== 'comments & media'));
 });
 
-const show = computed(() => isSafari && missing.value.length > 0);
+const show = computed(() => missing.value.length > 0);
 
 function isBroadOrigin(o: string): boolean {
   return o === '<all_urls>' || o === '*://*/*' || o === 'http://*/*' || o === 'https://*/*';
 }
 
 async function refresh() {
-  if (!isSafari) { missing.value = []; return; }
   // "Always Allow on Every Website" grants a broad origin pattern that Safari's
   // per-host permissions.contains() doesn't report as covering specific hosts —
   // so the alert would wrongly persist and its Allow button (re-requesting the
@@ -132,7 +129,7 @@ onUnmounted(() => {
     <div class="msp-card-head">
       <div class="msp-card-heading">
         <p class="msp-card-title">Site permissions needed</p>
-        <p class="msp-card-sub">Safari hasn’t granted some sites Hayami needs to load comments and detect your logins.</p>
+        <p class="msp-card-sub">Hayami needs access to some sites to load comments and detect your logins.</p>
       </div>
       <button class="msp-card-btn" type="button" :disabled="requesting" @click="allow">
         <span v-if="requesting" class="msp-spinner" aria-hidden="true"></span>

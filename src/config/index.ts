@@ -176,10 +176,10 @@ export const publishHosts = [
       'https://gitlab.com/*',
 ];
 
-/** The set the Safari "Enable Hayami" banner requests in one gesture: discussion
- *  platforms + core services. Streaming sites and custom (mapped) sites are
- *  granted separately (choose-sites step / site mapper). */
-export const essentialSafariHosts = [...discussionPlatformHosts, ...coreServiceHosts];
+/** The set the site-access banner / onboarding grant-access step requests in one
+ *  gesture: discussion platforms + core services. Streaming sites and custom
+ *  (mapped) sites are granted separately (choose-sites step / site mapper). */
+export const essentialHosts = [...discussionPlatformHosts, ...coreServiceHosts];
 
 /** Host permissions each account provider needs, requested on demand the first
  *  time the user connects it on Safari (other browsers grant everything at

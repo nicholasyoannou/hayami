@@ -20,7 +20,7 @@ import { authenticateWithMAL, isMALAuthenticated, logoutMAL } from '@/utils/mal/
 import { authenticateWithAniList, isAniListAuthenticated, logoutAniList } from '@/utils/anilist/auth';
 import { sendMessageWithRetry } from '@/utils/runtime';
 import { isSafari } from '@/utils/browser-env';
-import { essentialSafariHosts, providerHostPermissions } from '@/config';
+import { essentialHosts, providerHostPermissions } from '@/config';
 import { containsOrigins, requestOrigins } from '@/utils/permissions';
 
 export interface Account {
@@ -272,7 +272,7 @@ export function useAccountManagement() {
     
     try {
       // Safari grants hosts per-site on demand: request Reddit's before connecting.
-      if (isSafari) await requestOrigins(providerHostPermissions.reddit);
+      await requestOrigins(providerHostPermissions.reddit);
       const configuredClientId = (await redditClientIdItem.getValue())?.trim() || '';
 
       if (configuredClientId) {
@@ -383,7 +383,7 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
-      if (isSafari) await requestOrigins(providerHostPermissions.youtube);
+      await requestOrigins(providerHostPermissions.youtube);
       const result = await authenticateWithYouTube();
       if (result.success) {
         // Poll until YouTube auth completes (redirect flow at /pwa/link/youtube)
@@ -443,7 +443,7 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
-      if (isSafari) await requestOrigins(providerHostPermissions.mal);
+      await requestOrigins(providerHostPermissions.mal);
       const result = await authenticateWithMAL();
       if (result.success) {
         // Poll until MAL auth completes (redirect flow at /pwa/link/mal)
@@ -493,7 +493,7 @@ export function useAccountManagement() {
     if (account) account.isLoading = true;
 
     try {
-      if (isSafari) await requestOrigins(providerHostPermissions.anilist);
+      await requestOrigins(providerHostPermissions.anilist);
       const result = await authenticateWithAniList();
       if (result.success) {
         // Poll until AniList auth completes (implicit grant redirect)
@@ -544,7 +544,7 @@ export function useAccountManagement() {
 
     try {
       // Safari grants hosts per-site on demand: request Disqus's before connecting.
-      if (isSafari) await requestOrigins(providerHostPermissions.disqus);
+      await requestOrigins(providerHostPermissions.disqus);
 
       // Already signed in to disqus.com? Skip the guided window and flip the UI.
       try {
@@ -699,7 +699,7 @@ export function useAccountManagement() {
   let lastEssentialGranted = false;
   async function pollEssentialGrants() {
     try {
-      const granted = await containsOrigins(essentialSafariHosts);
+      const granted = await containsOrigins(essentialHosts);
       if (granted && !lastEssentialGranted) {
         lastEssentialGranted = true;
         refreshBurst();

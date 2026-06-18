@@ -1,18 +1,15 @@
 <script setup lang="ts">
 /**
- * Safari-only prompt to grant Hayami access to the discussion platforms.
+ * Prompt to grant Hayami access to the discussion platforms + services it needs.
  *
- * On Safari those hosts are declared OPTIONAL (see wxt.config.ts) and are never
- * granted automatically, so until the user approves them Hayami can't read their
- * login cookies or fetch their comments. This banner requests them via a user
- * gesture (`permissions.request`), which surfaces Safari's "Always Allow" sheet —
- * a one-time, persistent grant scoped to just those domains. Renders nothing on
- * Chrome/Firefox (granted at install) or once access is already granted.
+ * Every Hayami host is declared OPTIONAL (see wxt.config.ts) on every browser and
+ * is never granted automatically, so until the user approves them Hayami can't
+ * read their login cookies or fetch their comments. This banner requests them via
+ * a user gesture (`permissions.request`). Renders nothing once access is granted.
  */
 import { ref, onMounted, onUnmounted } from 'vue';
 import { browser } from 'wxt/browser';
-import { isSafari } from '@/utils/browser-env';
-import { essentialSafariHosts } from '@/config';
+import { essentialHosts } from '@/config';
 import { containsAnyOrigin, requestOrigins } from '@/utils/permissions';
 
 const show = ref(false);
@@ -20,15 +17,11 @@ const requesting = ref(false);
 const declined = ref(false);
 
 async function refresh() {
-  if (!isSafari) {
-    show.value = false;
-    return;
-  }
   // Show only while NO discussion host is granted. `permissions.contains` is
   // all-or-nothing and Safari may grant a subset, so requiring all 10 hosts
   // would leave the banner stuck after a partial grant. Once any access exists,
   // treat it as handled (the per-account UI surfaces anything still missing).
-  const anyGranted = await containsAnyOrigin(essentialSafariHosts);
+  const anyGranted = await containsAnyOrigin(essentialHosts);
   show.value = !anyGranted;
   if (anyGranted) declined.value = false;
 }
@@ -38,13 +31,13 @@ async function grant() {
   requesting.value = true;
   declined.value = false;
   try {
-    await requestOrigins(essentialSafariHosts);
+    await requestOrigins(essentialHosts);
   } finally {
     requesting.value = false;
   }
   // Trust the actual granted state over the request() result: on Safari it can
   // resolve true without a prompt, or the user may approve only a subset.
-  const anyGranted = await containsAnyOrigin(essentialSafariHosts);
+  const anyGranted = await containsAnyOrigin(essentialHosts);
   show.value = !anyGranted;
   declined.value = !anyGranted;
 }
@@ -64,17 +57,17 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="show" class="safari-access-banner">
+  <div v-if="show" class="site-access-banner">
     <div class="sab-body">
       <span class="sab-icon" aria-hidden="true">🔑</span>
       <div class="sab-text">
         <p class="sab-title">Enable Hayami</p>
         <p class="sab-desc">
-          Safari needs your OK before Hayami can map episodes, load comments, detect your Reddit,
+          Hayami needs your OK before it can map episodes, load comments, detect your Reddit,
           Disqus, MyAnimeList and AniList logins, and show image previews.
         </p>
         <p v-if="declined" class="sab-declined">
-          Access wasn’t granted. Tap again and choose “Always Allow” to enable login detection.
+          Access wasn’t granted. Tap again and allow access to enable login detection.
         </p>
       </div>
     </div>
@@ -86,7 +79,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.safari-access-banner {
+.site-access-banner {
   display: flex;
   align-items: center;
   gap: 14px;
