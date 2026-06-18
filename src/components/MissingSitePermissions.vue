@@ -4,14 +4,14 @@
  * one-gesture "Allow" that requests the missing ones.
  *
  * Hayami declares its hosts as OPTIONAL on every browser (see wxt.config.ts) and
- * none are auto-granted, so until the user approves, comment loading and login
- * detection silently fail. Renders nothing once every passed-in origin is granted.
+ * none are auto-granted, so until the user approves, comment and media loading
+ * silently fails. Renders nothing once every passed-in origin is granted.
  *
  * Look: an amber "Site permissions needed" card (popup Home).
  */
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { browser } from 'wxt/browser';
-import { discussionPlatformHosts, streamingSiteHosts } from '@/config';
+import { streamingSiteHosts } from '@/config';
 import { containsOrigins, requestOrigins } from '@/utils/permissions';
 
 const props = defineProps<{
@@ -48,11 +48,9 @@ function faviconFor(pattern: string): string {
 }
 
 const STREAMING_DOMAINS = new Set(streamingSiteHosts.map(siteDomain));
-const DISCUSSION_DOMAINS = new Set(discussionPlatformHosts.map(siteDomain));
 
 function purposeFor(domain: string): string {
   if (STREAMING_DOMAINS.has(domain)) return 'built-in streaming site';
-  if (DISCUSSION_DOMAINS.has(domain)) return 'login detection';
   return 'comments & media';
 }
 
@@ -129,7 +127,7 @@ onUnmounted(() => {
     <div class="msp-card-head">
       <div class="msp-card-heading">
         <p class="msp-card-title">Site permissions needed</p>
-        <p class="msp-card-sub">Hayami needs access to some sites to load comments and detect your logins.</p>
+        <p class="msp-card-sub">Hayami needs access to sites to provide comments to you.</p>
       </div>
       <button class="msp-card-btn" type="button" :disabled="requesting" @click="allow">
         <span v-if="requesting" class="msp-spinner" aria-hidden="true"></span>

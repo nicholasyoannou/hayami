@@ -63,11 +63,11 @@ onUnmounted(() => {
       <div class="sab-text">
         <p class="sab-title">Enable Hayami</p>
         <p class="sab-desc">
-          Hayami needs your OK before it can map episodes, load comments, detect your Reddit,
-          Disqus, MyAnimeList and AniList logins, and show image previews.
+          Hayami needs your OK before it can map episodes, load comments, and show
+          image previews.
         </p>
         <p v-if="declined" class="sab-declined">
-          Access wasn’t granted. Tap again and allow access to enable login detection.
+          Access wasn’t granted. Tap again and allow access to load comments and media.
         </p>
       </div>
     </div>
