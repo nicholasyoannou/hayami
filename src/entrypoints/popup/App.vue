@@ -1802,17 +1802,15 @@ async function detectBrowserActionPopup() {
       applyFullSizeClasses(pwaHosted);
       return;
     }
-    const tabs = (browser as any)?.tabs;
-    if (tabs && typeof tabs.getCurrent === 'function') {
-      const current = await tabs.getCurrent();
-      isBrowserActionPopup.value = !current;
-      isFullSize.value = !!current && !isEmbeddedPopup;
-      applyFullSizeClasses(isFullSize.value);
-      return;
-    }
-    isBrowserActionPopup.value = false;
-    isFullSize.value = false;
-    applyFullSizeClasses(false);
+    // Not in an iframe. The "open in larger view" tab is opened with ?view=tab
+    // (see openPopupInTab); the real browser-action popup has no such param. This
+    // is deterministic across browsers — unlike tabs.getCurrent(), which on Safari
+    // does NOT return undefined inside a popup, so the popout button vanished.
+    const params = new URLSearchParams(window.location.search || '');
+    const inTab = params.get('view') === 'tab';
+    isBrowserActionPopup.value = !inTab;
+    isFullSize.value = inTab;
+    applyFullSizeClasses(inTab);
   } catch {
     isBrowserActionPopup.value = false;
     isFullSize.value = false;
@@ -1822,7 +1820,7 @@ async function detectBrowserActionPopup() {
 
 async function openPopupInTab() {
   try {
-    const url = browser.runtime.getURL('/popup.html');
+    const url = browser.runtime.getURL('/popup.html?view=tab');
     if ((browser as any)?.tabs?.create) {
       await (browser as any).tabs.create({ url, active: true });
     } else {
@@ -2014,26 +2012,27 @@ async function handleAdvancedEditorSave(next: any) {
         <p class="text-sm text-white/80">Loading your session...</p>
       </div>
 
+      <!-- In-flow fixed-height block (not a fixed/vh overlay): a Safari extension
+           popup with only out-of-flow content collapses to the header height, which
+           shrank the vh-sized overlay to a sliver. A concrete px height makes the
+           popup grow correctly on every browser and gives the iframe real room. -->
       <div
         v-if="showFeedbackFrame"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur"
+        class="relative w-full h-[520px] overflow-hidden rounded-2xl border border-white/10 bg-[#101218] shadow-2xl"
         role="dialog"
-        aria-modal="true"
       >
-        <div class="relative w-[90vw] max-w-3xl h-[80vh] rounded-2xl bg-[#101218] shadow-2xl border border-white/10 overflow-hidden">
-          <button
-            class="absolute right-3 top-3 rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white hover:bg-white/20"
-            @click="closeFeedbackForm"
-          >
-            Close
-          </button>
-          <iframe
-            :src="feedbackFrameUrl"
-            class="h-full w-full border-0"
-            title="Feedback form"
-            allow="clipboard-write"
-          ></iframe>
-        </div>
+        <button
+          class="absolute right-3 top-3 z-10 rounded-full bg-white/10 px-3 py-1 text-sm font-semibold text-white hover:bg-white/20"
+          @click="closeFeedbackForm"
+        >
+          Close
+        </button>
+        <iframe
+          :src="feedbackFrameUrl"
+          class="h-full w-full border-0"
+          title="Feedback form"
+          allow="clipboard-write"
+        ></iframe>
       </div>
 
       <template v-else>
