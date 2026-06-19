@@ -67,8 +67,20 @@ export default defineContentScript({
     // `--color-surface-soft` so the strip mirrors any admin colour
     // override set in /admin/settings.
     const DISQUS_ORIGIN = 'https://disqus.com'
-    const readTheme = (): 'light' | 'dark' =>
-      document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'
+    // Mirror the site's own resolver (`src/lib/theme.ts` resolvedTheme):
+    // an explicit `data-theme` wins, otherwise fall back to the OS
+    // preference. The site's default "follow system" mode leaves `<html>`
+    // with NO `data-theme` attribute (app.html only sets it from an
+    // explicit `da-theme` localStorage toggle; app.css drives the canvas
+    // off `prefers-color-scheme`). Checking `dataset.theme === 'dark'`
+    // alone therefore misreads a system-dark page as 'light', which
+    // strips `body.dark` off the Disqus iframe and renders its light
+    // stylesheet — near-black comment text on the dark page (unreadable).
+    const readTheme = (): 'light' | 'dark' => {
+      const attr = document.documentElement.dataset.theme
+      if (attr === 'dark' || attr === 'light') return attr
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    }
 
     const readPalette = () => {
       const cs = getComputedStyle(document.documentElement)
@@ -115,6 +127,19 @@ export default defineContentScript({
       })
     }
 
+    // In the site's default "follow system" mode the effective theme can
+    // flip without any DOM mutation (the user changes their OS theme), so
+    // the attribute observer above won't catch it. Re-push on the media
+    // query too — but only while no explicit `data-theme` pins the theme.
+    const watchSystemTheme = () => {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)')
+      const onChange = () => {
+        if (!document.documentElement.dataset.theme) pushThemeToAllDisqusIframes()
+      }
+      if (typeof mq.addEventListener === 'function') mq.addEventListener('change', onChange)
+      else if (typeof mq.addListener === 'function') mq.addListener(onChange)
+    }
+
     mark()
     announce()
 
@@ -125,6 +150,7 @@ export default defineContentScript({
       mark()
       announce()
       watchHtmlThemeAttr()
+      watchSystemTheme()
       pushThemeToAllDisqusIframes()
     }, { once: true })
 
