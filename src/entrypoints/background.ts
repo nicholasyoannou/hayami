@@ -143,9 +143,22 @@ async function requestSitePermission(url: string): Promise<boolean> {
     const permissions = browser.permissions;
     if (!permissions?.contains || !permissions?.request) return false;
 
-    // Promise-based: the old callback form hung on Safari (native browser API
-    // ignores the callback), stalling the whole "Configure site" flow. contains
-    // first (no gesture needed), then request within the same gesture context.
+    // Chrome/Firefox: permissions.request() needs LIVE user activation. Any
+    // awaited API call before it (e.g. permissions.contains) drops the
+    // activation carried by the contextMenus.onClicked gesture, so request()
+    // throws and the prompt never appears (regression from the Safari
+    // callbacks→promises rewrite). Call request() FIRST — it resolves true
+    // without a prompt when the origin is already granted, so a contains()
+    // pre-check would be redundant as well as activation-breaking here.
+    if (!isSafari) {
+      const { granted } = await requestOrigins([originPattern]);
+      return granted;
+    }
+
+    // Safari: contains() is authoritative (request() can resolve true even on
+    // Deny — WebKit defect 702031) and the promise form below doesn't hang the
+    // way the old callback form did. The activation concern doesn't bite the
+    // same way, so keep the tested contains-first path.
     if (await containsOrigins([originPattern])) return true;
     const { granted } = await requestOrigins([originPattern]);
     return granted;
