@@ -193,6 +193,31 @@ describe('mapEpisodeWithSeasonsData', () => {
       expect(result).toBe(13);
     });
 
+    // Ascendance of a Bookworm: CR collapses THREE mapper seasons (S1 14 + S2 12
+    // + S3 10 = 36) into a single 40-episode CR bucket with global ordinal
+    // numbering. Episode 35 sits in S3 (after 14 + 12 = 26), so 35 - 26 = ep 9.
+    // Exercises the collapsed-timeline walk across 3 entries (not just 2 parts).
+    it('Bookworm collapsed 3-season CR bucket remaps ep 35 to S3 ep 9', () => {
+      const s1 = makeMapperEntry({
+        anime_name: 'Honzuki no Gekokujou (Ascendance of a Bookworm)',
+        year: '2019',
+        episodes: makeEpisodes(1, 14),
+      });
+      const s2 = makeMapperEntry({
+        anime_name: 'Honzuki no Gekokujou Season 2 (Ascendance of a Bookworm Season 2)',
+        year: '2020',
+        episodes: makeEpisodes(1, 12),
+      });
+      const s3 = makeMapperEntry({
+        anime_name: 'Honzuki no Gekokujou Season 3 (Ascendance of a Bookworm Season 3)',
+        year: '2022',
+        episodes: makeEpisodes(1, 10),
+      });
+      const crSeasons = [makeCrSeason(1, 40)]; // CR collapses all three seasons
+      const result = mapEpisodeWithSeasonsData(35, 35, 1, crSeasons, s3, [s1, s2, s3], 2);
+      expect(result).toBe(9);
+    });
+
     // Vinland Saga S2E24: per-season numbering where sequenceNumber (24) happens to
     // equal totalPreviousCrEpisodes (24, from S1's 24 episodes). The "last resort"
     // heuristic must NOT trigger and return episode 1; it should return 24 or null.

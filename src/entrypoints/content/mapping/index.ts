@@ -40,12 +40,6 @@ import { getCachedAnimeIds } from '@/utils/animeIdResolver';
 import { resolveAdapter } from '../sites/registry';
 import { getCustomEpisodeListOffset } from '../ui/site-mapper/site-mapper-utils';
 
-// CR-specific helpers — re-exported here for backward compatibility with the
-// `__mappingTest` debug surface (`scripts/mapping-test.ts`). The implementations
-// live under `sites/` since they only run inside the CR deep-mapping pipeline.
-import { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll/refiner';
-import { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll/episode-mapper';
-
 export { SERIES_MAPPING_KEY } from '../mapping-keys';
 export { getSeriesMapping, hasSavedSeriesMapping, saveSeriesMapping, deleteSeriesMapping, clearAllSeriesMappings } from '../storage/series-mapping';
 import { cacheAnimeIds } from '../storage/series-mapping';
@@ -95,11 +89,6 @@ export {
   fetchAnimeSeriesResolve,
   extractSeasonTitleFromAnimeName,
 };
-
-// Re-export CR-specific helpers — only kept for the offline test/debug
-// surface; provider/site code should import from `./sites/*` directly.
-export { refineMatchedIndexUsingCrunchyrollData } from '../sites/crunchyroll/refiner';
-export { mapEpisodeWithSeasonsData, mapEpisodeToSeasonEpisode } from '../sites/crunchyroll/episode-mapper';
 
 export function resolveCurrentAdapter(location: Location = window.location) {
   return resolveAdapter(location);
@@ -998,15 +987,3 @@ export async function tryMapperFailover(
   }
 }
 
-// Debug helpers for offline simulation/tests.
-export const __mappingDebug = {
-  buildMapperSlicesForCrSeasons,
-  findSliceEpisodeMatch,
-  parseMapperYear,
-  isSequelTitle,
-};
-
-// Test-only hooks for offline verification
-export const __mappingTest = {
-  mapEpisodeWithSeasonsData,
-};
