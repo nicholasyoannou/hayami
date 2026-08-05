@@ -8,6 +8,7 @@ const filteredEntrypointSet = process.env.NODE_ENV === 'production'
       'content',
       'discussanime-presence',
       'disqus-image-resize',
+      'disqus-profile-links',
       'disqus-reactions',
       'hayami-handshake',
       'onboarding',
@@ -75,7 +76,7 @@ export default defineConfig({
     // Required 3-segment version for ALL targets. Apple's CFBundleShortVersionString
     // allows at most three period-separated integers (ITMS-90258); Version number had to change
     // from four segments because of Apple specification.
-    version: '0.1.11',
+    version: '0.1.12',
     // Public assets to be delivered to web pages Hayami mounts on
     web_accessible_resources: [
       {
