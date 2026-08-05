@@ -8,11 +8,12 @@
  *    streaming page so the host page stays free of Disqus's polling and
  *    referrer-leakage side effects.
  *
- * 2. **Cross-cutting startup rules** — `REDDIT_NAV_HEADER_RULE_ID`,
- *    `DISCUSSANIME_DISQUS_BRIDGE_RULE_ID`, `DISQUS_PROFILE_REDIRECT_RULE_ID`
- *    get registered once when the service worker boots; the IDs are exposed
- *    so the bootstrap code in `background.ts` can also clear any stale
- *    copies of these IDs left over from the previous run.
+ * 2. **Cross-cutting startup rules** — `REDDIT_NAV_HEADER_RULE_ID` and
+ *    `DISCUSSANIME_DISQUS_BRIDGE_RULE_ID` get registered once when the
+ *    service worker boots; the IDs are exposed so the bootstrap code in
+ *    `background.ts` can also clear any stale copies left over from the
+ *    previous run. `DISQUS_PROFILE_REDIRECT_RULE_ID` is retired and exists
+ *    for that cleanup only.
  */
 
 import { browser } from 'wxt/browser';
@@ -28,10 +29,15 @@ export const REFERRER_TELEMETRY_BLOCK_RULE_ID = 99006;
 
 // ── Cross-cutting startup rules ────────────────────────────────────────
 
-// Redirect Disqus profile page opens to the chuunime profile page instead.
-// excludedInitiatorDomains keeps the "View Disqus profile" link on our own
-// profile pages working — that click originates from discussanime.moe, so
-// the rule doesn't fire and the user lands on Disqus as expected.
+// RETIRED. This rule used to redirect every disqus.com/by/* navigation to
+// discussanime.moe/api/profile-redirect/*, which hijacked Disqus browsing for
+// anyone with the extension installed — the rule could not tell our forum's
+// embed from any other site's. The rewrite now happens in the DOM, inside the
+// embed: see src/entrypoints/disqus-profile-links.content.ts.
+//
+// The ID survives only so background.ts can pass it to `removeRuleIds` and
+// clear a stale copy left by a pre-0.1.12 service worker. Session rules do not
+// survive a browser restart, so this can be deleted a release later.
 export const DISQUS_PROFILE_REDIRECT_RULE_ID = 99003;
 
 // Rule IDs for rewriting sec-fetch-* headers on Reddit .json API requests so

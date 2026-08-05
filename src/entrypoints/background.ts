@@ -352,21 +352,6 @@ export default defineBackground(() => {
                 resourceTypes: ['xmlhttprequest' as const],
               },
             },
-            {
-              id: DISQUS_PROFILE_REDIRECT_RULE_ID,
-              priority: 1,
-              action: {
-                type: 'redirect' as const,
-                redirect: {
-                  regexSubstitution: 'https://discussanime.moe/api/profile-redirect/\\1',
-                },
-              },
-              condition: {
-                regexFilter: 'https://disqus\\.com/by/([^/?#]+)',
-                excludedInitiatorDomains: ['discussanime.moe'],
-                resourceTypes: ['main_frame' as const],
-              },
-            },
           ],
         });
         bg.debug('Registered Reddit nav-header + DiscussAnime/Disqus bridge rules');
