@@ -27,14 +27,60 @@ const ORIGINAL_HREF_ATTR = 'data-hayami-disqus-href';
  */
 const CANDIDATE_SELECTOR = 'a[href*="/by/"]';
 
+function applyRedirect(anchor: HTMLAnchorElement, redirect: string): void {
+  anchor.setAttribute(ORIGINAL_HREF_ATTR, anchor.href);
+  anchor.href = redirect;
+}
+
 function rewriteProfileLinks(): void {
   const anchors = document.querySelectorAll<HTMLAnchorElement>(CANDIDATE_SELECTOR);
   for (const anchor of anchors) {
     const redirect = disqusProfileRedirectUrl(anchor.href, location.href);
     if (!redirect) continue;
-    anchor.setAttribute(ORIGINAL_HREF_ATTR, anchor.href);
-    anchor.href = redirect;
+    applyRedirect(anchor, redirect);
   }
+}
+
+/**
+ * Disqus's bundle handles clicks on profile anchors itself — it opens a window
+ * using a URL from its own data model rather than following the anchor's href.
+ * Rewriting the href therefore fixes hover, middle-click and "copy link
+ * address" but leaves a plain left click going to disqus.com.
+ *
+ * So take the click first. A capture-phase listener on `document`, registered
+ * at document_start, runs before Disqus's delegated handler; `stopPropagation`
+ * keeps that handler from ever seeing the event.
+ *
+ * Propagation is stopped for EVERY click on a profile anchor, modified or not.
+ * A ctrl/shift/meta click would otherwise fall through to Disqus's handler and
+ * get hijacked just like a plain one. But only the plain click is taken over —
+ * for the modified ones we stop there and let the browser do its native thing
+ * with the rewritten href, because `window.open` cannot faithfully reproduce
+ * "new background tab" or "new window".
+ *
+ * Anchors are re-checked here rather than trusted: the observer may not have
+ * reached a freshly-rendered anchor yet, in which case this rewrites it before
+ * either path uses it.
+ */
+function onProfileClick(event: MouseEvent): void {
+  const anchor = (event.target as Element | null)?.closest?.<HTMLAnchorElement>('a[href]');
+  if (!anchor) return;
+
+  const redirect = disqusProfileRedirectUrl(anchor.href, location.href);
+  if (redirect) applyRedirect(anchor, redirect);
+  else if (!anchor.hasAttribute(ORIGINAL_HREF_ATTR)) return; // not a profile link
+
+  event.stopPropagation();
+
+  const modified =
+    event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+  if (modified) return;
+
+  event.preventDefault();
+  // Disqus's own profile links are target="_blank". Default to a new tab for
+  // the rest too: this document is the comments iframe, so navigating it in
+  // place would render a full profile page inside the embed.
+  window.open(anchor.href, anchor.target || '_blank', 'noopener');
 }
 
 let passScheduled = false;
@@ -81,5 +127,9 @@ export default defineContentScript({
       attributes: true,
       attributeFilter: ['href'],
     });
+
+    // Registered here, at document_start, so it precedes Disqus's own click
+    // delegation. See onProfileClick.
+    document.addEventListener('click', onProfileClick, true);
   },
 });
