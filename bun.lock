@@ -24,7 +24,7 @@
         "vue-lite-youtube-embed": "^1.2.4",
         "vue-sonner": "^2.0.9",
         "webext-dynamic-content-scripts": "^10.0.4",
-        "webext-permission-toggle": "^6.0.1",
+        "webext-permission-toggle": "^6.0.2",
       },
       "devDependencies": {
         "@tailwindcss/postcss": "^4.3.3",
@@ -1241,7 +1241,7 @@
 
     "webext-patterns": ["webext-patterns@1.5.1", "", { "dependencies": { "escape-string-regexp": "^5.0.0" } }, "sha512-N0r4U1vhsa+7zgIt4qsf6j6X7vRf10/nG7ycwRXIjg0+45v5/fFmjpSrFSe0RKW9bB3Lo5RqYJXEFb6syRFxpQ=="],
 
-    "webext-permission-toggle": ["webext-permission-toggle@6.0.1", "", { "dependencies": { "webext-alert": "^1.0.3", "webext-content-scripts": "^2.7.2", "webext-detect": "^5.3.2", "webext-patterns": "^1.5.0", "webext-permissions": "^3.1.4", "webext-polyfill-kinda": "^1.0.2", "webext-tools": "^3.0.0" } }, "sha512-AN9zHqa8nUUFRapykqc40Jeac0rB0f9eam223/8bPBxrPGcZlB2B7qsitvAYXKxo1S4SYglrAAOXGrJPq0adYA=="],
+    "webext-permission-toggle": ["webext-permission-toggle@6.0.2", "", { "dependencies": { "webext-alert": "^1.0.3", "webext-content-scripts": "^2.7.2", "webext-detect": "^5.3.2", "webext-patterns": "^1.5.0", "webext-permissions": "^3.1.4", "webext-polyfill-kinda": "^1.0.2", "webext-tools": "^3.0.0" } }, "sha512-koKQnuLVuQ2VcODC0Do4CaZzEqiuzEcwwTxMabglTuG2O8WYCChGcY5dwftNWKclPC5/7xCQy0cfUwa9tvKYag=="],
 
     "webext-permissions": ["webext-permissions@3.1.4", "", { "dependencies": { "webext-patterns": "^1.5.0" } }, "sha512-/20ihnr67KzVUdI+NJFia3VM04UILM00xLpG2MbmWSaZK7P7ZYPyMxfT0wKhA5SyfXAPQV7bLscX4arN2IIHcQ=="],
 

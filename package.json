@@ -41,7 +41,7 @@
     "vue-lite-youtube-embed": "^1.2.4",
     "vue-sonner": "^2.0.9",
     "webext-dynamic-content-scripts": "^10.0.4",
-    "webext-permission-toggle": "^6.0.1"
+    "webext-permission-toggle": "^6.0.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
