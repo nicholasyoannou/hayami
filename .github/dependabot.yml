@@ -1,0 +1,55 @@
+version: 2
+
+# Two ecosystems ship from this repo: the extension's JavaScript dependencies
+# (bun, resolved through bun.lock) and the workflows themselves.
+#
+# Everything is GROUPED and weekly on purpose. Minor + patch bumps arrive as ONE
+# PR per ecosystem; majors come separately, because those are the ones that need
+# reading before they are merged rather than rubber-stamping.
+#
+# Caveat worth knowing: Dependabot supports VERSION updates for the bun
+# ecosystem but NOT automated security updates (those are npm-only). Dependabot
+# *alerts* still fire for vulnerable packages — they just have to be resolved by
+# hand or ride along in the weekly group PR.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: bun
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      prefix-development: chore
+    groups:
+      bun-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # WXT is pre-1.0, so a "minor" bump is a breaking change by semver
+      # convention. Manifest generation, entrypoint discovery and the
+      # `entrypoints:found` / `build:manifestGenerated` hooks in wxt.config.ts
+      # all sit on that surface, so it moves deliberately, never automatically.
+      - dependency-name: "wxt"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-major
+      # vue-tsc only parses the TypeScript versions it was built against, so a
+      # TS major landing ahead of it breaks `bun run compile` for everyone.
+      - dependency-name: "typescript"
+        update-types: [version-update:semver-major]
+      - dependency-name: "vue"
+        update-types: [version-update:semver-major]
+      # This repo deliberately runs tailwind v3 alongside the v4 PostCSS plugin.
+      # Going to v4 proper is a migration with template changes, not a bump.
+      - dependency-name: "tailwindcss"
+        update-types: [version-update:semver-major]

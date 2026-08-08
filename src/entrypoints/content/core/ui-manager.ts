@@ -394,7 +394,9 @@ class UiManager {
         launcher.title = 'Open Hayami comments';
         launcher.setAttribute('aria-label', 'Open Hayami comments');
         const icon = document.createElement('img');
-        icon.src = browser.runtime.getURL('icons/hayamiLogo-wBg.png');
+        // Leading slash required: WXT types getURL against PublicPath, whose
+        // entries are all rooted ('/icons/...'). Resolves identically at runtime.
+        icon.src = browser.runtime.getURL('/icons/hayamiLogo-wBg.png');
         icon.alt = 'Hayami comments';
         launcher.appendChild(icon);
         root.appendChild(launcher);

@@ -1,9 +1,16 @@
 name: Build extension
 
-# Builds the extension for Chrome, Firefox, and Safari on every push to main.
-# Each target's zip(s) are uploaded as a downloadable workflow artifact.
+# Builds the extension for Chrome, Firefox, and Safari on every push to main
+# and every pull request. Each target's zip(s) are uploaded as a downloadable
+# workflow artifact.
+#
+# Pull requests are included so a change that breaks one target's bundle is
+# caught in review — previously this ran only after the merge had already
+# landed on main, and a reviewer had no build to download and try.
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 

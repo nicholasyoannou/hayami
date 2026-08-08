@@ -33,6 +33,11 @@ jobs:
   submit:
     name: Build & submit
     runs-on: ubuntu-latest
+    # Job-level so the scan step can gate itself on the key being present.
+    # A step cannot read its own step-level `env` from its `if:`, and the
+    # `secrets` context is not available in a step `if` at all.
+    env:
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,6 +72,30 @@ jobs:
 
       - name: Build & zip (Safari, for download only)
         run: bunx wxt zip -b safari
+
+      # Scans every artifact before it is published. Extensions ship a lot of
+      # minified/bundled JS and periodically trip heuristic engines; finding
+      # that here is far cheaper than a store reviewer finding it and pulling
+      # the listing. Runs after the store submission on purpose — a VirusTotal
+      # outage or rate limit must not block a release that already validated.
+      #
+      # Reports only; it does not fail the job. Read the results in the step
+      # summary and act on them, rather than having one flaky engine detection
+      # block shipping. Skipped entirely when VT_API_KEY is unset, so this is
+      # inert until the secret is added.
+      - name: Scan artifacts (VirusTotal)
+        if: ${{ env.VT_API_KEY != '' }}
+        continue-on-error: true
+        uses: crazy-max/ghaction-virustotal@v5
+        with:
+          vt_api_key: ${{ env.VT_API_KEY }}
+          files: |
+            .output/*.zip
+          # Appends the scan permalinks to the Release body. Worth having on a
+          # published extension: it gives anyone who hits a heuristic detection
+          # a first-party result to check instead of a bug report.
+          update_release_body: ${{ github.event_name == 'release' }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Attach build zips to the Release
         if: github.event_name == 'release'
