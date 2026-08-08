@@ -17,6 +17,7 @@
  */
 
 import { browser } from 'wxt/browser';
+import { isFirefox } from '@/utils/browser-env';
 
 // ── Tab-scoped: Disqus poll block ──────────────────────────────────────
 export const POLL_RULE_ID = 99001;
@@ -130,8 +131,49 @@ export function buildRedditNavHeaderRule(opts: { stripSecFetch: boolean }) {
   };
 }
 
-/** See `DISCUSSANIME_DISQUS_BRIDGE_RULE_ID`. */
-export function buildDiscussanimeDisqusBridgeRule(pageOrigin: string = DISCUSSANIME_ORIGIN) {
+/** A URL on the API the site actually calls, for cookie matching. */
+const DISQUS_API_URL = 'https://disqus.com/api/3.0/';
+
+/**
+ * Serialised `Cookie` header for disqus.com, or null when there's nothing to
+ * send (or we're not on Firefox).
+ *
+ * Firefox only. Under Total Cookie Protection every third party gets a
+ * cookie jar keyed by the top-level site, so discussanime.moe's cross-site
+ * fetch to disqus.com reads a *partitioned* jar — empty, because the user
+ * signed in to disqus.com first-party. The request goes out anonymous and
+ * Disqus reports zero unread, which is why the notification badge stayed
+ * blank on Firefox but not Chrome. Extensions still see the unpartitioned
+ * jar, so we read it and let the bridge rule set the header outright.
+ *
+ * Chromium sends these cookies on its own (`SameSite=None`, no partitioning
+ * by default), so touching the header there would be pure risk.
+ *
+ * Queried by `url` rather than `domain` so the browser applies its own
+ * domain/path/secure matching: we forward exactly the cookies a first-party
+ * request to this endpoint would have carried, and nothing else.
+ */
+export async function readDisqusCookieHeader(): Promise<string | null> {
+  if (!isFirefox) return null;
+  try {
+    const cookies = await browser.cookies.getAll({ url: DISQUS_API_URL });
+    if (!cookies?.length) return null;
+    return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * See `DISCUSSANIME_DISQUS_BRIDGE_RULE_ID`. `cookieHeader` comes from
+ * `readDisqusCookieHeader`; when null the `cookie` header is left off
+ * entirely rather than `set` to an empty string, which would strip whatever
+ * the browser was going to send.
+ */
+export function buildDiscussanimeDisqusBridgeRule(
+  pageOrigin: string = DISCUSSANIME_ORIGIN,
+  cookieHeader: string | null = null,
+) {
   return {
     id: DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
     priority: 1,
@@ -140,6 +182,9 @@ export function buildDiscussanimeDisqusBridgeRule(pageOrigin: string = DISCUSSAN
       requestHeaders: [
         { header: 'origin', operation: 'set' as const, value: 'https://disqus.com' },
         { header: 'referer', operation: 'set' as const, value: 'https://disqus.com/' },
+        ...(cookieHeader
+          ? [{ header: 'cookie', operation: 'set' as const, value: cookieHeader }]
+          : []),
       ],
       responseHeaders: [
         { header: 'access-control-allow-origin', operation: 'set' as const, value: pageOrigin },
@@ -174,7 +219,7 @@ export async function registerStartupDnrRules(
 
   const rules = [
     buildRedditNavHeaderRule(opts),
-    buildDiscussanimeDisqusBridgeRule(),
+    buildDiscussanimeDisqusBridgeRule(DISCUSSANIME_ORIGIN, await readDisqusCookieHeader()),
   ].filter((r): r is NonNullable<typeof r> => r !== null);
 
   const registered: number[] = [];
@@ -188,6 +233,69 @@ export async function registerStartupDnrRules(
     }
   }
   return { registered, failed };
+}
+
+/**
+ * Rewrite rule 99020 with the current disqus.com cookies.
+ *
+ * The header is a snapshot, so it goes stale the moment the user signs in
+ * or out of Disqus — `watchDisqusCookies` drives this from
+ * `cookies.onChanged`. No-op off Firefox, where we never set the header.
+ */
+export async function refreshDiscussanimeDisqusBridgeRule(
+  dnr: { updateSessionRules: (opts: any) => Promise<void> },
+): Promise<void> {
+  if (!isFirefox) return;
+  const rule = buildDiscussanimeDisqusBridgeRule(
+    DISCUSSANIME_ORIGIN,
+    await readDisqusCookieHeader(),
+  );
+  await dnr.updateSessionRules({
+    removeRuleIds: [DISCUSSANIME_DISQUS_BRIDGE_RULE_ID],
+    addRules: [rule],
+  });
+}
+
+/**
+ * Keep the bridge rule's cookie snapshot in step with the real jar.
+ *
+ * Three triggers, because any one alone leaves a hole:
+ *   - `cookies.onChanged` — the user signs in or out of Disqus mid-session.
+ *     Debounced; a single sign-in writes five cookies.
+ *   - `permissions.onAdded` — `cookies.getAll` is filtered by host access, so
+ *     the startup snapshot reads empty until disqus.com is granted, and a
+ *     permission grant fires no cookie event to recover from.
+ *   - navigation to discussanime.moe — belt and braces. Re-takes the
+ *     snapshot immediately before the page can issue the fetch that needs
+ *     it, so no ordering assumption has to hold.
+ */
+export function watchDisqusCookies(
+  dnr: { updateSessionRules: (opts: any) => Promise<void> },
+  onError?: (error: unknown) => void,
+): void {
+  if (!isFirefox) return;
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  const schedule = (delay: number) => {
+    if (pending) clearTimeout(pending);
+    pending = setTimeout(() => {
+      pending = undefined;
+      refreshDiscussanimeDisqusBridgeRule(dnr).catch((error) => onError?.(error));
+    }, delay);
+  };
+  try {
+    browser.cookies?.onChanged?.addListener?.((change) => {
+      if (!/(^|\.)disqus\.com$/.test((change.cookie.domain || '').replace(/^\./, ''))) return;
+      schedule(250);
+    });
+    browser.permissions?.onAdded?.addListener?.(() => schedule(0));
+    browser.tabs?.onUpdated?.addListener?.((_tabId, changeInfo) => {
+      if (typeof changeInfo.url !== 'string') return;
+      if (!changeInfo.url.startsWith(DISCUSSANIME_ORIGIN)) return;
+      schedule(0);
+    });
+  } catch (error) {
+    onError?.(error);
+  }
 }
 
 // ── Per-tab Disqus referrer-strip state ────────────────────────────────

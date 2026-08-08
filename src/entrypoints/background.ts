@@ -27,7 +27,9 @@ import {
   disqusReferrerStripRules,
   registerStartupDnrRules,
   setDisqusReferrerStripForTab,
+  watchDisqusCookies,
 } from './background/dnr-rules';
+import { installBridgeDiagnostics } from './background/diagnostics';
 import {
   runKomentoSyncWithBadge,
   refreshKomentoBadge,
@@ -288,6 +290,10 @@ export default defineBackground(() => {
   // Safety cleanup: remove stale session poll-block rules from previous runs.
   // Also register Reddit header-rewrite rules so background fetch() requests
   // look like browser navigations (Reddit 403s programmatic sec-fetch-mode: cors).
+  // Defines HayamiChuunimeDiag() for the background console. Compiles away
+  // entirely under --mode production. See diagnostics.ts.
+  installBridgeDiagnostics();
+
   void (async () => {
     try {
       const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
@@ -301,6 +307,11 @@ export default defineBackground(() => {
         for (const { id, error } of failed) {
           bg.warn(`Browser rejected startup DNR rule ${id}`, error);
         }
+        // The bridge rule carries a snapshot of the disqus.com cookies on
+        // Firefox; re-take it whenever the user signs in or out.
+        watchDisqusCookies(dnr as any, (error) =>
+          bg.warn('Failed to refresh Disqus bridge cookies', error),
+        );
       }
     } catch (error) {
       bg.warn('Failed to register startup DNR rules / clear stale rules', error);
