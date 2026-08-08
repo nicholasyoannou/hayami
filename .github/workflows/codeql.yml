@@ -1,0 +1,63 @@
+name: CodeQL
+
+# Static analysis over the extension's own source.
+#
+# Runs on pull requests so a finding blocks review instead of surfacing weeks
+# later, on pushes to main so the default-branch baseline stays current, and
+# weekly so newly published queries get applied to code that hasn't changed.
+#
+# This is CodeQL's ADVANCED setup. Turning on "default setup" in
+# Settings → Code security will disable this workflow — use one or the other,
+# not both.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays, 06:17 UTC. Deliberately off the hour: scheduled workflows bunch
+    # up on :00 across all of GitHub and sit in the queue.
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      # Upload results to the Security tab.
+      security-events: write
+      # The action reads workflow run status through this.
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          # One language covers the whole repo: .ts, .vue <script> blocks and
+          # the plain .js under public/.
+          languages: javascript-typescript
+          # JS/TS needs no compilation, so CodeQL reads sources directly rather
+          # than tracing a build. Nothing to configure and nothing to keep in
+          # sync with wxt.config.ts.
+          build-mode: none
+          # Broader than the default suite on the security side, without pulling
+          # in the code-quality queries — those flag style, which would bury the
+          # security findings on a first rollout. Widen to security-and-quality
+          # once the initial results are triaged.
+          queries: security-extended
+
+      - name: Perform analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript

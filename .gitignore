@@ -32,7 +32,9 @@ _stashed_reddit-inline.css
 stats-*.json
 /internal
 repomix-output.xml
-.env.submit
+.env
+.env.*
+!.env.example
 .env.submit.backup-*
 KOMENTOSCRIPT.md
 /.claude

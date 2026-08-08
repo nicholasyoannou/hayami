@@ -2,8 +2,10 @@
  * Bun test preload — mocks modules that depend on browser extension APIs
  * so pure-logic unit tests can run without WXT/browser globals.
  */
-// @ts-expect-error -- bun:test is only resolvable when running under Bun; this
-// file is preloaded by Bun via bunfig.toml and not built with the rest of src/.
+// Preloaded by Bun via bunfig.toml, not built with the rest of src/. `bun:test`
+// resolves because @types/bun is a devDependency, so the suppression comment
+// this import used to carry had nothing left to suppress and `vue-tsc --noEmit`
+// failed on TS2578 — which blocked using the type-check as a CI gate.
 import { mock } from 'bun:test';
 
 const noopLogger = { log: () => {}, warn: () => {}, error: () => {} };
