@@ -118,11 +118,17 @@ export const GITLAB_PUBLISH_SCOPE = 'api';
  * Discussion-platform hosts whose access Hayami uses from the background
  * (login-cookie reads + comment fetches), never from a page the user visits.
  *
- * On Safari these are declared as OPTIONAL (see wxt.config.ts): Safari never
- * auto-grants manifest hosts and never prompts for background-only access, so
- * they must be requestable via `permissions.request()` from a user gesture
- * (the onboarding / popup "Grant access" flow). On Chrome/Firefox they stay in
- * the required `hostPermissions` list below and are granted at install.
+ * These are OPTIONAL on EVERY browser, not just Safari: wxt.config.ts ships
+ * `host_permissions: []` and puts the whole `hostPermissions` list below into
+ * `optional_host_permissions` (`optional_permissions` on MV2). Nothing is
+ * granted at install anywhere — every host arrives through
+ * `permissions.request()` from a user gesture (the onboarding / popup
+ * "Grant access" flow).
+ *
+ * So a fresh profile holds ZERO host access until the user completes that
+ * flow, and anything that reports on missing access has to account for this
+ * set explicitly — see `getMissingEssentialHostPatterns` in
+ * background/komento-runtime.ts, which drives the toolbar "!" badge.
  */
 export const discussionPlatformHosts = [
       // Bare + wildcard reddit.com are required on Safari so the extension can

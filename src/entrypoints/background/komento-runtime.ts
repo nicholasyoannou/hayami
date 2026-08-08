@@ -25,6 +25,7 @@ import {
   syncKomentoScripts,
 } from '@/komentoscript';
 import { ensureCustomSitesSyncAlarm } from '@/custom-sites-sync';
+import { essentialHosts } from '@/config';
 import { extractHttpOrigins, originToPattern } from './host-permissions';
 
 /**
@@ -208,6 +209,37 @@ async function getMissingKomentoOrigins(): Promise<string[]> {
   return checks.filter((item) => !item.granted).map((item) => item.origin);
 }
 
+/**
+ * The built-in `essentialHosts` patterns the user hasn't granted.
+ *
+ * Separate from `getAllManagedOrigins` on purpose. That set holds bare
+ * *origins* which `originToPattern` turns into `<origin>/*`; essentialHosts
+ * are already patterns and some carry a wildcard host
+ * (`https://*.reddit.com/*`), which cannot round-trip through an origin.
+ *
+ * Checked one pattern at a time rather than as a single `contains` call:
+ * Safari lets the user approve a subset, and an all-or-nothing check would
+ * report the whole set as missing while a partial grant is live.
+ */
+export async function getMissingEssentialHostPatterns(): Promise<string[]> {
+  const permissions = browser.permissions;
+  if (!permissions?.contains) return [];
+  const checks = await Promise.all(
+    essentialHosts.map(async (pattern) => {
+      try {
+        const granted = await permissions.contains({ origins: [pattern] });
+        return { pattern, granted: Boolean(granted) };
+      } catch {
+        // Same rationale as getMissingKomentoOrigins: assume granted so a
+        // permissions API that isn't ready yet right after service-worker
+        // startup can't flash a spurious '!'.
+        return { pattern, granted: true };
+      }
+    }),
+  );
+  return checks.filter((item) => !item.granted).map((item) => item.pattern);
+}
+
 // ── Badge lifecycle ───────────────────────────────────────────────────
 export async function refreshKomentoBadge(): Promise<void> {
   if (komentoSyncInProgress) {
@@ -216,8 +248,16 @@ export async function refreshKomentoBadge(): Promise<void> {
     return;
   }
 
-  const missing = await getMissingKomentoOrigins();
-  if (missing.length > 0) {
+  // Both halves matter. Managed origins cover what the user added (Komento
+  // packs, custom mappings); essential hosts cover the built-in set the
+  // onboarding wizard asks for. Without the second check a fresh install
+  // where the wizard was skipped showed a clean badge while holding no host
+  // permissions at all — the extension did nothing, silently.
+  const [missingManaged, missingEssential] = await Promise.all([
+    getMissingKomentoOrigins(),
+    getMissingEssentialHostPatterns(),
+  ]);
+  if (missingManaged.length > 0 || missingEssential.length > 0) {
     await setActionBadge('!', '#dc2626');
     return;
   }
