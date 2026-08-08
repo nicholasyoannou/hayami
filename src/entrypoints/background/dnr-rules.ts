@@ -53,6 +53,143 @@ export const REDDIT_NAV_HEADER_RULE_ID = 99010;
 // credentials flowing.
 export const DISCUSSANIME_DISQUS_BRIDGE_RULE_ID = 99020;
 
+export const DISCUSSANIME_ORIGIN = 'https://discussanime.moe';
+
+/** Stale IDs cleared before the startup rules are (re)registered. */
+export const STARTUP_STALE_RULE_IDS = [
+  POLL_RULE_ID,
+  DISQUS_PROFILE_REDIRECT_RULE_ID,
+  REDDIT_NAV_HEADER_RULE_ID,
+  DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
+];
+
+/**
+ * Hostname of our own extension origin — the value DNR compares
+ * `initiatorDomains` against for requests the background page itself makes.
+ * Chrome: `chrome-extension://<id>/` → the 32-char id (same as
+ * `runtime.id`). Firefox: `moz-extension://<uuid>/` → the per-install UUID,
+ * which is NOT `runtime.id`.
+ *
+ * Do not substitute `runtime.id` here. On Chromium the two happen to be the
+ * same string, but a Firefox add-on id is a braced GUID (ours is
+ * `{2e27fae0-a1d2-463a-b8e9-eac5ccbdb451}`) that has nothing to do with the
+ * `moz-extension://` host, so the condition silently never matches and the
+ * rule is dead weight on Firefox. It does not error — Firefox's
+ * `canonicalDomain` schema format accepts a braced GUID as a hostname
+ * (`{`/`}` are not forbidden domain code points) — it just never fires.
+ *
+ * Returns null when the origin yields nothing hostname-shaped, so callers
+ * can drop the rule rather than widen it to every initiator.
+ */
+export function extensionInitiatorDomain(): string | null {
+  try {
+    const origin = browser?.runtime?.getURL?.('/');
+    if (!origin) return null;
+    const host = new URL(origin).hostname;
+    // Mirror Firefox's canonicalDomain format check.
+    return host && new URL(`http://${host}`).hostname === host ? host : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Makes background `fetch()` of Reddit `.json` endpoints look like a browser
+ * navigation — Reddit 403s programmatic `sec-fetch-mode: cors`.
+ *
+ * `stripSecFetch` is for Safari, whose DNR rejects modifying the forbidden
+ * `sec-fetch-*` headers. Returns null when we can't name our own origin
+ * (see `extensionInitiatorDomain`); the alternative — omitting
+ * `initiatorDomains` — would rewrite these headers for Reddit requests made
+ * by ordinary web pages too.
+ */
+export function buildRedditNavHeaderRule(opts: { stripSecFetch: boolean }) {
+  const initiator = extensionInitiatorDomain();
+  if (!initiator) return null;
+  const requestHeaders = [
+    { header: 'sec-fetch-mode', operation: 'set' as const, value: 'navigate' },
+    { header: 'sec-fetch-dest', operation: 'set' as const, value: 'document' },
+    { header: 'sec-fetch-site', operation: 'set' as const, value: 'none' },
+    { header: 'sec-fetch-user', operation: 'set' as const, value: '?1' },
+    { header: 'accept', operation: 'set' as const, value: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' },
+    { header: 'upgrade-insecure-requests', operation: 'set' as const, value: '1' },
+  ].filter((h) => !(opts.stripSecFetch && h.header.startsWith('sec-fetch-')));
+  return {
+    id: REDDIT_NAV_HEADER_RULE_ID,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders' as const,
+      requestHeaders,
+    },
+    condition: {
+      regexFilter: '.*\\.json(\\?.*)?$',
+      requestDomains: ['www.reddit.com', 'old.reddit.com'],
+      initiatorDomains: [initiator],
+      resourceTypes: ['xmlhttprequest' as const, 'other' as const],
+    },
+  };
+}
+
+/** See `DISCUSSANIME_DISQUS_BRIDGE_RULE_ID`. */
+export function buildDiscussanimeDisqusBridgeRule(pageOrigin: string = DISCUSSANIME_ORIGIN) {
+  return {
+    id: DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders' as const,
+      requestHeaders: [
+        { header: 'origin', operation: 'set' as const, value: 'https://disqus.com' },
+        { header: 'referer', operation: 'set' as const, value: 'https://disqus.com/' },
+      ],
+      responseHeaders: [
+        { header: 'access-control-allow-origin', operation: 'set' as const, value: pageOrigin },
+        { header: 'access-control-allow-credentials', operation: 'set' as const, value: 'true' },
+        { header: 'access-control-allow-methods', operation: 'set' as const, value: 'GET, POST, PUT, DELETE, OPTIONS' },
+        { header: 'access-control-allow-headers', operation: 'set' as const, value: 'content-type, authorization, x-requested-with' },
+      ],
+    },
+    condition: {
+      requestDomains: ['disqus.com'],
+      initiatorDomains: ['discussanime.moe'],
+      resourceTypes: ['xmlhttprequest' as const],
+    },
+  };
+}
+
+/**
+ * Clear stale copies of the startup rules, then add each one in its OWN
+ * `updateSessionRules` call. One call per rule is deliberate: a rule the
+ * running browser dislikes fails the entire batch it travels in (Safari did
+ * this with `sec-fetch-*`, Firefox with a non-hostname `initiatorDomains`
+ * entry), so batching them means one browser-specific quirk silently
+ * disables an unrelated feature.
+ *
+ * Returns the IDs that registered, for logging.
+ */
+export async function registerStartupDnrRules(
+  dnr: { updateSessionRules: (opts: any) => Promise<void> },
+  opts: { stripSecFetch: boolean },
+): Promise<{ registered: number[]; failed: Array<{ id: number; error: unknown }> }> {
+  await dnr.updateSessionRules({ removeRuleIds: STARTUP_STALE_RULE_IDS });
+
+  const rules = [
+    buildRedditNavHeaderRule(opts),
+    buildDiscussanimeDisqusBridgeRule(),
+  ].filter((r): r is NonNullable<typeof r> => r !== null);
+
+  const registered: number[] = [];
+  const failed: Array<{ id: number; error: unknown }> = [];
+  for (const rule of rules) {
+    try {
+      await dnr.updateSessionRules({ addRules: [rule] });
+      registered.push(rule.id);
+    } catch (error) {
+      failed.push({ id: rule.id, error });
+    }
+  }
+  return { registered, failed };
+}
+
 // ── Per-tab Disqus referrer-strip state ────────────────────────────────
 // tabId → session rule ID. Exported so the tab listeners in background.ts
 // can drop the rule when a tab closes or navigates away.
