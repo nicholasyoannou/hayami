@@ -1,12 +1,23 @@
 import { browser } from 'wxt/browser';
+import type { PublicPath } from 'wxt/browser';
 import { sleep } from '@/utils/async';
 
+/**
+ * `runtime.getURL` for an arbitrary extension-relative path.
+ *
+ * WXT narrows getURL's parameter to `PublicPath`, a union generated from the
+ * contents of public/ plus the built entrypoints. That union cannot describe a
+ * path computed at runtime, and it omits generated assets that are nonetheless
+ * real (the content-script stylesheets, declared in web_accessible_resources,
+ * are absent while the .js entrypoints are present). The browser API itself
+ * accepts any extension-relative string, so the cast is the escape hatch.
+ */
 export function getRuntimeUrl(path: string): string {
   const g = globalThis as typeof globalThis & { browser?: typeof chrome; chrome?: typeof chrome };
   const runtime = browser?.runtime ?? (g.browser ?? g.chrome)?.runtime;
   if (!runtime?.getURL) return path;
   try {
-    return runtime.getURL(path);
+    return runtime.getURL(path as PublicPath);
   } catch {
     return path;
   }

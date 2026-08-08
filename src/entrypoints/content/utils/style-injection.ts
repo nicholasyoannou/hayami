@@ -8,6 +8,7 @@
  */
 
 import { browser } from 'wxt/browser';
+import { getRuntimeUrl } from '@/utils/runtime';
 import tailwindCss from '@/styles/tailwind.css?inline';
 import redditInlineCss from '@/styles/reddit-inline.css?inline';
 import youtubeInlineCss from '@/styles/youtube-inline.css?inline';
@@ -29,7 +30,10 @@ const _componentCssReady: Promise<string> = CAN_FETCH_COMPONENT_CSS
       try {
         for (const path of ['content-scripts/content.css', 'content-scripts/hayami-handshake.css']) {
           try {
-            const url = browser.runtime.getURL(path);
+            // Via the shared helper: these stylesheets are emitted by the build
+            // rather than living in public/, so they are absent from WXT's
+            // PublicPath union even though they are web_accessible_resources.
+            const url = getRuntimeUrl(path);
             const res = await fetch(url);
             if (res.ok) {
               _componentCss = await res.text();

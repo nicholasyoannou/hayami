@@ -22,6 +22,8 @@ import { sendMessageWithRetry } from '@/utils/runtime';
 import { isSafari } from '@/utils/browser-env';
 import { essentialHosts, providerHostPermissions } from '@/config';
 import { containsOrigins, requestOrigins } from '@/utils/permissions';
+// `browser` itself is a WXT auto-import; only the type needs naming.
+import type { PublicPath } from 'wxt/browser';
 
 export interface Account {
   id: 'reddit' | 'youtube' | 'mal' | 'anilist' | 'disqus';
@@ -60,10 +62,14 @@ export function useAccountManagement() {
   const isDisqusLoggedIn = ref(false);
   const disqusUsername = ref<string | null>(null);
 
-  // Get runtime URL for icons
+  // Get runtime URL for icons. The cast is the same escape hatch documented on
+  // `getRuntimeUrl` in @/utils/runtime: WXT narrows getURL to a PublicPath union
+  // generated from public/, which cannot describe a path built at runtime.
+  // Kept local rather than delegating because the fallback differs — this one
+  // roots the path, so an icon still resolves outside an extension context.
   const getRuntimeUrl = (path: string) => {
     if (typeof browser !== 'undefined' && browser.runtime?.getURL) {
-      return browser.runtime.getURL(path);
+      return browser.runtime.getURL(path as PublicPath);
     }
     return `/${path}`;
   };
