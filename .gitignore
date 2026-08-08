@@ -35,6 +35,10 @@ repomix-output.xml
 .env
 .env.*
 !.env.example
+# Build config, not secrets: sets NODE_ENV=development so `--mode
+# development` builds get import.meta.env.DEV. Without it a fresh clone's
+# dev build silently loses every DEV-gated affordance.
+!.env.development
 .env.submit.backup-*
 KOMENTOSCRIPT.md
 /.claude

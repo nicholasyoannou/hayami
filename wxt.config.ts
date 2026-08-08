@@ -1,21 +1,30 @@
 import { defineConfig } from 'wxt';
 import { hostPermissions } from './src/config';
 
-process.env.NODE_ENV = 'production';
-const filteredEntrypointSet = process.env.NODE_ENV === 'production'
-  ? new Set([
-      'background',
-      'content',
-      'discussanime-presence',
-      'disqus-image-resize',
-      'disqus-profile-links',
-      'disqus-reactions',
-      'hayami-handshake',
-      'onboarding',
-      'popup',
-      'pwa',
-    ])
-  : undefined;
+// The entrypoints that get built. Everything else in src/entrypoints (the
+// test harnesses) is dropped by the `entrypoints:found` hook below.
+//
+// Do NOT reintroduce the `process.env.NODE_ENV = 'production'` assignment
+// that used to sit here. It ran at config load, before Vite resolved its
+// own env, which pinned `import.meta.env.PROD` true and `DEV` false in
+// EVERY command — including `wxt dev`. That silently disabled all nine
+// `import.meta.env.DEV` guards in src/, among them the localhost:3000
+// handshake and PWA content-script matches, which only exist to work
+// during development. The set below was already unconditional in practice
+// (the old ternary tested the value the line above had just assigned), so
+// spelling it out changes no behaviour.
+const filteredEntrypointSet = new Set([
+  'background',
+  'content',
+  'discussanime-presence',
+  'disqus-image-resize',
+  'disqus-profile-links',
+  'disqus-reactions',
+  'hayami-handshake',
+  'onboarding',
+  'popup',
+  'pwa',
+]);
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
@@ -39,6 +48,18 @@ export default defineConfig({
       },
     },
     description: 'Hayami aggregates comments sections together bringing anime discussions to you.',
+    // Firefox only. Without an explicit id, every about:debugging install
+    // gets a `…@temporary-addon` id and the WHOLE storage API rejects with
+    // "The storage API will not work with a temporary addon ID" — so local
+    // Firefox testing runs with no config, no cached mappings and no
+    // permission state. This is the GUID AMO already assigned to the
+    // published add-on, so signed builds keep the same identity and users
+    // keep their stored data.
+    ...(browser === 'firefox' && {
+      browser_specific_settings: {
+        gecko: { id: '{2e27fae0-a1d2-463a-b8e9-eac5ccbdb451}' },
+      },
+    }),
     permissions: [
       'storage',
       'cookies',

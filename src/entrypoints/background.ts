@@ -24,13 +24,12 @@ import { komentoHandlers } from './background/handlers/komento';
 import { providerAuthHandlers } from './background/handlers/provider-auth';
 import type { BackgroundMessageHandler } from './background/handlers/types';
 import {
-  POLL_RULE_ID,
-  DISQUS_PROFILE_REDIRECT_RULE_ID,
-  REDDIT_NAV_HEADER_RULE_ID,
-  DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
   disqusReferrerStripRules,
+  registerStartupDnrRules,
   setDisqusReferrerStripForTab,
+  watchDisqusCookies,
 } from './background/dnr-rules';
+import { installBridgeDiagnostics } from './background/diagnostics';
 import {
   runKomentoSyncWithBadge,
   refreshKomentoBadge,
@@ -291,73 +290,31 @@ export default defineBackground(() => {
   // Safety cleanup: remove stale session poll-block rules from previous runs.
   // Also register Reddit header-rewrite rules so background fetch() requests
   // look like browser navigations (Reddit 403s programmatic sec-fetch-mode: cors).
+  // Defines HayamiChuunimeDiag() for the background console. Compiles away
+  // entirely under --mode production. See diagnostics.ts.
+  installBridgeDiagnostics();
+
   void (async () => {
     try {
       const dnr = browser?.declarativeNetRequest || (typeof chrome !== 'undefined' ? chrome.declarativeNetRequest : undefined);
-      if (dnr?.updateSessionRules) {
-        const disqusBridgeRequestHeaders = [
-          { header: 'origin', operation: 'set' as const, value: 'https://disqus.com' },
-          { header: 'referer', operation: 'set' as const, value: 'https://disqus.com/' },
-        ];
-        const disqusBridgeResponseHeaders = (pageOrigin: string) => [
-          { header: 'access-control-allow-origin', operation: 'set' as const, value: pageOrigin },
-          { header: 'access-control-allow-credentials', operation: 'set' as const, value: 'true' },
-          { header: 'access-control-allow-methods', operation: 'set' as const, value: 'GET, POST, PUT, DELETE, OPTIONS' },
-          { header: 'access-control-allow-headers', operation: 'set' as const, value: 'content-type, authorization, x-requested-with' },
-        ];
-        // Safari's declarativeNetRequest rejects modifying sec-fetch-* (forbidden
-        // headers) and fails the ENTIRE addRules batch atomically — which also took
-        // out the Disqus rules below. Strip sec-fetch-* on Safari only.
-        const redditNavRequestHeaders = [
-          { header: 'sec-fetch-mode', operation: 'set' as const, value: 'navigate' },
-          { header: 'sec-fetch-dest', operation: 'set' as const, value: 'document' },
-          { header: 'sec-fetch-site', operation: 'set' as const, value: 'none' },
-          { header: 'sec-fetch-user', operation: 'set' as const, value: '?1' },
-          { header: 'accept', operation: 'set' as const, value: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8' },
-          { header: 'upgrade-insecure-requests', operation: 'set' as const, value: '1' },
-        ].filter((h) => !(isSafari && h.header.startsWith('sec-fetch-')));
-        await dnr.updateSessionRules({
-          removeRuleIds: [
-            POLL_RULE_ID,
-            DISQUS_PROFILE_REDIRECT_RULE_ID,
-            REDDIT_NAV_HEADER_RULE_ID,
-            DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
-          ],
-          addRules: [
-            {
-              id: REDDIT_NAV_HEADER_RULE_ID,
-              priority: 1,
-              action: {
-                type: 'modifyHeaders' as const,
-                requestHeaders: redditNavRequestHeaders,
-              },
-              condition: {
-                regexFilter: '.*\\.json(\\?.*)?$',
-                requestDomains: ['www.reddit.com', 'old.reddit.com'],
-                initiatorDomains: [chrome.runtime.id],
-                resourceTypes: ['xmlhttprequest' as const, 'other' as const],
-              },
-            },
-            {
-              id: DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
-              priority: 1,
-              action: {
-                type: 'modifyHeaders' as const,
-                requestHeaders: disqusBridgeRequestHeaders,
-                responseHeaders: disqusBridgeResponseHeaders('https://discussanime.moe'),
-              },
-              condition: {
-                requestDomains: ['disqus.com'],
-                initiatorDomains: ['discussanime.moe'],
-                resourceTypes: ['xmlhttprequest' as const],
-              },
-            },
-          ],
+      if (typeof dnr?.updateSessionRules === 'function') {
+        // Safari's declarativeNetRequest rejects modifying sec-fetch-*
+        // (forbidden headers) and fails the rule it appears in.
+        const { registered, failed } = await registerStartupDnrRules(dnr as any, {
+          stripSecFetch: isSafari,
         });
-        bg.debug('Registered Reddit nav-header + DiscussAnime/Disqus bridge rules');
+        bg.debug('Registered startup DNR rules', registered);
+        for (const { id, error } of failed) {
+          bg.warn(`Browser rejected startup DNR rule ${id}`, error);
+        }
+        // The bridge rule carries a snapshot of the disqus.com cookies on
+        // Firefox; re-take it whenever the user signs in or out.
+        watchDisqusCookies(dnr as any, (error) =>
+          bg.warn('Failed to refresh Disqus bridge cookies', error),
+        );
       }
     } catch (error) {
-      bg.warn('Failed to register Reddit header rewrite / clear stale rules', error);
+      bg.warn('Failed to register startup DNR rules / clear stale rules', error);
     }
   })();
 
