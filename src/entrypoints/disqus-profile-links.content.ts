@@ -53,14 +53,29 @@ function rewriteProfileLinks(): void {
  *
  * Propagation is stopped for EVERY click on a profile anchor, modified or not.
  * A ctrl/shift/meta click would otherwise fall through to Disqus's handler and
- * get hijacked just like a plain one. But only the plain click is taken over —
- * for the modified ones we stop there and let the browser do its native thing
- * with the rewritten href, because `window.open` cannot faithfully reproduce
- * "new background tab" or "new window".
+ * get hijacked just like a plain one. Stopping propagation during the capture
+ * phase at `document` also keeps the event from reaching listeners bound
+ * directly to the anchor, so nothing of Disqus's runs either way.
+ *
+ * Beyond that the browser is left to navigate on its own. An earlier version
+ * called `preventDefault()` and `window.open()` for the plain click, which
+ * drew a focus ring around the whole embed on Firefox: `window.open` moves
+ * focus out of the iframe and back, and Firefox then treats the iframe as
+ * keyboard-focused and paints its default `:focus-visible` outline on the
+ * <iframe> element in the parent page. Nothing on either side styles that —
+ * it is the browser default, and it is not suppressible from in here because
+ * the parent document is cross-origin.
+ *
+ * Native navigation avoids it, and is better regardless: it honours the
+ * user's new-tab-versus-new-window preferences, isn't subject to popup
+ * blocking, and needs no special case for modified clicks. `target` is forced
+ * because this document is the comments iframe — navigating it in place would
+ * render a full profile page inside the embed. Disqus's own profile anchors
+ * already carry target="_blank"; the mention anchors do not.
  *
  * Anchors are re-checked here rather than trusted: the observer may not have
  * reached a freshly-rendered anchor yet, in which case this rewrites it before
- * either path uses it.
+ * the browser follows it.
  */
 function onProfileClick(event: MouseEvent): void {
   const anchor = (event.target as Element | null)?.closest?.<HTMLAnchorElement>('a[href]');
@@ -72,15 +87,10 @@ function onProfileClick(event: MouseEvent): void {
 
   event.stopPropagation();
 
-  const modified =
-    event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
-  if (modified) return;
-
-  event.preventDefault();
-  // Disqus's own profile links are target="_blank". Default to a new tab for
-  // the rest too: this document is the comments iframe, so navigating it in
-  // place would render a full profile page inside the embed.
-  window.open(anchor.href, anchor.target || '_blank', 'noopener');
+  if (!anchor.target) anchor.target = '_blank';
+  // Replaces the 'noopener' window feature the old window.open call passed.
+  // relList is a DOMTokenList, so a repeat click can't stack duplicates.
+  anchor.relList.add('noopener');
 }
 
 let passScheduled = false;
