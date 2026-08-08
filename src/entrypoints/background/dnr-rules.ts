@@ -18,6 +18,7 @@
 
 import { browser } from 'wxt/browser';
 import { isFirefox } from '@/utils/browser-env';
+import { isDiscussanimeHost } from '@/utils/hostnames';
 
 // ── Tab-scoped: Disqus poll block ──────────────────────────────────────
 export const POLL_RULE_ID = 99001;
@@ -290,7 +291,17 @@ export function watchDisqusCookies(
     browser.permissions?.onAdded?.addListener?.(() => schedule(0));
     browser.tabs?.onUpdated?.addListener?.((_tabId, changeInfo) => {
       if (typeof changeInfo.url !== 'string') return;
-      if (!changeInfo.url.startsWith(DISCUSSANIME_ORIGIN)) return;
+      // Compare the parsed hostname, never a prefix of the URL string: a
+      // `startsWith(DISCUSSANIME_ORIGIN)` test also accepts
+      // https://discussanime.moe.example.com/ (CodeQL
+      // js/incomplete-url-substring-sanitization).
+      let hostname: string;
+      try {
+        hostname = new URL(changeInfo.url).hostname;
+      } catch {
+        return;
+      }
+      if (!isDiscussanimeHost(hostname)) return;
       schedule(0);
     });
   } catch (error) {

@@ -28,6 +28,8 @@ const cookieJar: { url?: string; cookies: Array<{ name: string; value: string }>
 };
 let lastGetAllQuery: any = null;
 
+const listeners: { tabUpdated: Array<(id: number, info: any) => void> } = { tabUpdated: [] };
+
 vi.mock('wxt/browser', () => ({
   browser: {
     runtime: { getURL: (p: string) => `moz-extension://6b1f4b6a-6f2a-4a5f-9a7e-3f0a1c2d4e5f${p}` },
@@ -36,7 +38,10 @@ vi.mock('wxt/browser', () => ({
         lastGetAllQuery = query;
         return cookieJar.cookies;
       },
+      onChanged: { addListener: () => {} },
     },
+    permissions: { onAdded: { addListener: () => {} } },
+    tabs: { onUpdated: { addListener: (fn: any) => listeners.tabUpdated.push(fn) } },
   },
 }));
 vi.mock('@/utils/browser-env', () => ({
@@ -49,6 +54,7 @@ const {
   DISCUSSANIME_DISQUS_BRIDGE_RULE_ID,
   buildDiscussanimeDisqusBridgeRule,
   readDisqusCookieHeader,
+  watchDisqusCookies,
 } = await import('@/entrypoints/background/dnr-rules');
 
 function requestHeader(rule: any, name: string) {
@@ -59,6 +65,7 @@ beforeEach(() => {
   env.isFirefox = true;
   cookieJar.cookies = [];
   lastGetAllQuery = null;
+  listeners.tabUpdated = [];
 });
 
 describe('readDisqusCookieHeader', () => {
@@ -106,6 +113,33 @@ describe('buildDiscussanimeDisqusBridgeRule', () => {
   it('omits the Cookie header entirely when there is none', () => {
     const rule = buildDiscussanimeDisqusBridgeRule('https://discussanime.moe', null);
     expect(requestHeader(rule, 'cookie')).toBeUndefined();
+  });
+
+  it('refreshes the snapshot when a discussanime.moe tab navigates', async () => {
+    cookieJar.cookies = [{ name: 'sessionid', value: 'abc123' }];
+    const updated: any[] = [];
+    watchDisqusCookies({ updateSessionRules: async (o: any) => { updated.push(o); } });
+    listeners.tabUpdated.forEach((fn) => fn(1, { url: 'https://discussanime.moe/notifications' }));
+    await vi.waitFor(() => expect(updated.length).toBeGreaterThan(0));
+  });
+
+  // A `url.startsWith('https://discussanime.moe')` gate also accepts
+  // https://discussanime.moe.example.com/ — CodeQL
+  // js/incomplete-url-substring-sanitization. Match the parsed hostname.
+  it('ignores look-alike hosts that merely prefix-match the origin', async () => {
+    cookieJar.cookies = [{ name: 'sessionid', value: 'abc123' }];
+    const updated: any[] = [];
+    watchDisqusCookies({ updateSessionRules: async (o: any) => { updated.push(o); } });
+    for (const url of [
+      'https://discussanime.moe.example.com/',
+      'https://discussanime.moe.evil.co.uk/notifications',
+      'https://notdiscussanime.moe/',
+      'not a url',
+    ]) {
+      listeners.tabUpdated.forEach((fn) => fn(1, { url }));
+    }
+    await new Promise((r) => setTimeout(r, 30));
+    expect(updated).toEqual([]);
   });
 
   it('keeps the Origin/Referer rewrite and the CORS response headers', () => {
